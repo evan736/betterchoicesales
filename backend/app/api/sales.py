@@ -4,14 +4,33 @@ from sqlalchemy.orm import Session
 from sqlalchemy import extract as sql_extract, func
 from pathlib import Path
 import shutil
+from datetime import datetime, date
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.sale import Sale
+from app.models.sale import Sale, SaleStatus
 from app.schemas.sale import SaleCreate, Sale as SaleSchema, SaleUpdate
 from app.core.config import settings
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
+
+
+def determine_status(effective_date) -> SaleStatus:
+    """Determine sale status based on effective date vs today."""
+    if effective_date is None:
+        return SaleStatus.ACTIVE
+    if isinstance(effective_date, datetime):
+        eff_date = effective_date.date()
+    elif isinstance(effective_date, date):
+        eff_date = effective_date
+    else:
+        return SaleStatus.ACTIVE
+    
+    today = date.today()
+    if eff_date <= today:
+        return SaleStatus.ACTIVE
+    else:
+        return SaleStatus.PENDING
 
 
 @router.post("/extract-pdf")
@@ -71,6 +90,7 @@ def create_from_pdf(
     sale = Sale(
         **sale_data.model_dump(),
         producer_id=current_user.id,
+        status=determine_status(sale_data.effective_date),
     )
 
     db.add(sale)
@@ -124,7 +144,8 @@ def create_sale(
     
     sale = Sale(
         **sale_data.model_dump(),
-        producer_id=current_user.id
+        producer_id=current_user.id,
+        status=determine_status(sale_data.effective_date),
     )
     
     db.add(sale)
