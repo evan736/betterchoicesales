@@ -347,6 +347,14 @@ async def send_for_signature_endpoint(
 
     logger.info(f"Sending for signature: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
 
+    # Truncate large PDFs — BoldSign has limits
+    try:
+        from app.services.pdf_extract import truncate_pdf
+        pdf_bytes = truncate_pdf(pdf_bytes, max_pages=30)
+        logger.info(f"PDF after truncation: {len(pdf_bytes)} bytes")
+    except Exception as e:
+        logger.warning(f"PDF truncation failed, using original: {e}")
+
     try:
         from app.services.esign import send_for_signature as boldsign_send
 

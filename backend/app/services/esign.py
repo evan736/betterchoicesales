@@ -2,9 +2,13 @@
 import base64
 import json
 import io
+import re
+import logging
 import httpx
 from typing import Optional, List
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 FIELD_DETECTION_PROMPT = """You are an expert at analyzing insurance application PDFs. 
@@ -120,16 +124,12 @@ async def send_for_signature(
 ) -> dict:
     """Send document to BoldSign for electronic signature.
     Uses BoldSign's built-in AI field detection for accurate placement."""
-    import logging
-    logger = logging.getLogger(__name__)
-
     if not settings.BOLDSIGN_API_KEY:
         raise ValueError("BOLDSIGN_API_KEY not configured. Set it in Render environment variables.")
 
     logger.info(f"Sending to BoldSign: signer={signer_name}, email={signer_email}, pdf_size={len(pdf_bytes)}")
 
     # Clean filename — remove special characters
-    import re
     clean_title = re.sub(r'[^a-zA-Z0-9_ -]', '', title)[:100] or "Application"
 
     signer_data = {

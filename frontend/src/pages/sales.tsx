@@ -119,9 +119,16 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         onUpdate();
       } catch (error: any) {
         console.error('Send for signature error:', error);
-        const detail = error.response?.data?.detail;
-        const msg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || error.message || 'Failed to send for signature');
-        alert(`Error: ${msg}`);
+        let msg = 'Unknown error';
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          msg = 'Request timed out. The PDF may be too large. Try a smaller file.';
+        } else if (error.response?.data?.detail) {
+          const detail = error.response.data.detail;
+          msg = typeof detail === 'object' ? JSON.stringify(detail) : detail;
+        } else if (error.message) {
+          msg = error.message;
+        }
+        alert(`Error sending for signature: ${msg}`);
       } finally {
         setSendingSig(false);
       }

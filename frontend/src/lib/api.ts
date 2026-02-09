@@ -44,10 +44,10 @@ export const salesAPI = {
       formData.append('file', file);
       return api.post(`/api/sales/${id}/send-for-signature`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
+        timeout: 120000, // 2 minutes — BoldSign can be slow
       });
     }
-    return api.post(`/api/sales/${id}/send-for-signature`);
+    return api.post(`/api/sales/${id}/send-for-signature`, {}, { timeout: 120000 });
   },
   signatureStatus: (id: number) => api.get(`/api/sales/${id}/signature-status`),
 };
