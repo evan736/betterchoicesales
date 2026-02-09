@@ -1,6 +1,7 @@
 """PDF extraction service — uses Claude API to parse insurance applications."""
 import base64
 import json
+import io
 import httpx
 from typing import Optional
 from app.core.config import settings
@@ -43,10 +44,34 @@ IMPORTANT:
 - Return ONLY the JSON, no markdown, no explanation"""
 
 
+def truncate_pdf(pdf_bytes: bytes, max_pages: int = 50) -> bytes:
+    """Truncate a PDF to the first N pages to stay within API limits."""
+    try:
+        from PyPDF2 import PdfReader, PdfWriter
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        if len(reader.pages) <= max_pages:
+            return pdf_bytes
+
+        writer = PdfWriter()
+        for i in range(min(max_pages, len(reader.pages))):
+            writer.add_page(reader.pages[i])
+
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+    except Exception:
+        # If truncation fails, return original and let the API handle it
+        return pdf_bytes
+
+
 async def extract_pdf_data(pdf_bytes: bytes) -> dict:
     """Send PDF to Claude API for extraction."""
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY not configured. Set it in Render environment variables.")
+
+    # Truncate large PDFs
+    pdf_bytes = truncate_pdf(pdf_bytes, max_pages=50)
 
     pdf_base64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
 
