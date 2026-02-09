@@ -37,8 +37,11 @@ class Settings(BaseSettings):
     # Anthropic API for PDF extraction
     ANTHROPIC_API_KEY: Optional[str] = None
     
-    # BoldSign API for e-signatures
+    # BoldSign API for e-signatures (legacy, not used)
     BOLDSIGN_API_KEY: Optional[str] = None
+    
+    # DocuSeal API for e-signatures
+    DOCUSEAL_API_KEY: Optional[str] = None
     
     class Config:
         env_file = ".env"

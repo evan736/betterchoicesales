@@ -315,7 +315,7 @@ async def send_for_signature_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a sale's PDF application for electronic signature via BoldSign.
+    """Send a sale's PDF application for electronic signature via DocuSeal.
     Accepts optional file upload, or uses the saved application_pdf_path."""
     import logging
     logger = logging.getLogger(__name__)
@@ -347,26 +347,18 @@ async def send_for_signature_endpoint(
 
     logger.info(f"Sending for signature: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
 
-    # Truncate large PDFs — BoldSign has limits
     try:
-        from app.services.pdf_extract import truncate_pdf
-        pdf_bytes = truncate_pdf(pdf_bytes, max_pages=30)
-        logger.info(f"PDF after truncation: {len(pdf_bytes)} bytes")
-    except Exception as e:
-        logger.warning(f"PDF truncation failed, using original: {e}")
-
-    try:
-        from app.services.esign import send_for_signature as boldsign_send
+        from app.services.esign import send_for_signature as docuseal_send
 
         title = f"Insurance Application - {sale.client_name}"
-        result = await boldsign_send(
+        result = await docuseal_send(
             pdf_bytes=pdf_bytes,
             signer_name=sale.client_name,
             signer_email=sale.client_email,
             title=title,
         )
 
-        logger.info(f"BoldSign success: {result}")
+        logger.info(f"DocuSeal success: {result}")
 
         # Update sale with signature info
         sale.signature_request_id = result.get("documentId")
@@ -380,10 +372,10 @@ async def send_for_signature_endpoint(
         }
 
     except ValueError as e:
-        logger.error(f"BoldSign ValueError: {e}")
+        logger.error(f"DocuSeal ValueError: {e}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.error(f"BoldSign Exception: {e}", exc_info=True)
+        logger.error(f"DocuSeal Exception: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to send for signature: {str(e)}")
 
 
@@ -405,21 +397,20 @@ async def get_signature_status(
         from app.services.esign import get_document_status
         doc_status = await get_document_status(sale.signature_request_id)
 
-        # Update local status based on BoldSign status
-        bs_status = doc_status.get("status", "").lower()
-        if bs_status in ("completed", "signed"):
+        # Update local status based on DocuSeal status
+        ds_status = doc_status.get("status", "").lower()
+        if ds_status in ("completed",):
             sale.signature_status = "completed"
-        elif bs_status in ("declined", "revoked"):
+        elif ds_status in ("declined", "expired"):
             sale.signature_status = "declined"
-        elif bs_status in ("inprogress", "sent"):
+        elif ds_status in ("pending", "sent"):
             sale.signature_status = "sent"
         db.commit()
 
         return {
             "status": sale.signature_status,
-            "boldsign_status": bs_status,
+            "docuseal_status": ds_status,
             "document_id": sale.signature_request_id,
-            "details": doc_status,
         }
     except Exception as e:
         return {"status": sale.signature_status, "error": str(e)}
