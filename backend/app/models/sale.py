@@ -1,0 +1,66 @@
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, Text
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.core.database import Base
+import enum
+
+
+class SaleStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    CANCELLED = "cancelled"
+    LAPSED = "lapsed"
+
+
+class LeadSource(str, enum.Enum):
+    REFERRAL = "referral"
+    WEBSITE = "website"
+    COLD_CALL = "cold_call"
+    SOCIAL_MEDIA = "social_media"
+    EMAIL_CAMPAIGN = "email_campaign"
+    WALK_IN = "walk_in"
+    OTHER = "other"
+
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Policy information
+    policy_number = Column(String, unique=True, index=True, nullable=False)
+    written_premium = Column(Numeric(10, 2), nullable=False)  # Premium amount written
+    recognized_premium = Column(Numeric(10, 2), nullable=True)  # Premium actually received/recognized
+    
+    # Producer relationship
+    producer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    
+    # Lead and client info
+    lead_source = Column(Enum(LeadSource), nullable=False)
+    item_count = Column(Integer, default=1)  # Number of items/policies in package
+    
+    # Client information
+    client_name = Column(String, nullable=False)
+    client_email = Column(String, nullable=True)
+    client_phone = Column(String, nullable=True)
+    
+    # Status
+    status = Column(Enum(SaleStatus), default=SaleStatus.PENDING, nullable=False)
+    
+    # Application document
+    application_pdf_path = Column(String, nullable=True)
+    signature_request_id = Column(String, nullable=True)  # WeSignature request ID
+    signature_status = Column(String, default="not_sent")  # not_sent, sent, completed, declined
+    
+    # Dates
+    sale_date = Column(DateTime(timezone=True), server_default=func.now())
+    effective_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Notes
+    notes = Column(Text, nullable=True)
+    
+    # Relationships
+    producer = relationship("User", back_populates="sales")
+    commissions = relationship("Commission", back_populates="sale", cascade="all, delete-orphan")
