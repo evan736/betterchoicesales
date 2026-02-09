@@ -124,9 +124,18 @@ async def send_for_signature(
 
     # Build form fields for BoldSign
     form_fields = []
-    for f in fields:
+    for i, f in enumerate(fields):
+        # BoldSign requires IDs with only letters, digits, underscores, starting with letter/underscore
+        import re
+        raw_label = f.get("label", f["type"])
+        sanitized_id = re.sub(r'[^a-zA-Z0-9_]', '_', raw_label).strip('_')
+        if not sanitized_id or not sanitized_id[0].isalpha() and sanitized_id[0] != '_':
+            sanitized_id = f"field_{sanitized_id}"
+        # Ensure unique
+        sanitized_id = f"{sanitized_id}_{i}"
+        
         form_fields.append({
-            "id": f.get("label", f["type"]).replace(" ", "_").lower(),
+            "id": sanitized_id,
             "fieldType": f["type"],
             "pageNumber": f["page"],
             "bounds": {
