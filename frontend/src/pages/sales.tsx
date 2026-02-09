@@ -231,6 +231,11 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
 
     for (const pol of includedPolicies) {
       try {
+        // Fix effective_date format — append time if it's just a date
+        let effectiveDate = pol.effective_date || undefined;
+        if (effectiveDate && typeof effectiveDate === 'string' && !effectiveDate.includes('T')) {
+          effectiveDate = `${effectiveDate}T00:00:00`;
+        }
         const res = await salesAPI.createFromPdf({
           policy_number: pol._saveNumber || pol.policy_number,
           written_premium: parseFloat(pol.written_premium) || 0,
@@ -242,7 +247,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           client_email: clientInfo.client_email || undefined,
           client_phone: clientInfo.client_phone || undefined,
           item_count: parseInt(pol.item_count) || 1,
-          effective_date: pol.effective_date || undefined,
+          effective_date: effectiveDate,
           notes: pol.notes || undefined,
         });
         results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household });
