@@ -213,12 +213,26 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
   const handleSave = async () => {
     setSaving(true);
     const results: any[] = [];
-    for (const pol of policies) {
-      if (!pol.include) continue;
-      if (!pol.policy_number) { alert('Please enter a policy number for all policies'); setSaving(false); return; }
+    const includedPolicies = policies.filter(p => p.include);
+    
+    // Auto-suffix duplicate policy numbers
+    const policyNumbers: Record<string, number> = {};
+    for (const pol of includedPolicies) {
+      const base = pol.policy_number;
+      if (!base) { alert('Please enter a policy number for all policies'); setSaving(false); return; }
+      if (policyNumbers[base] !== undefined) {
+        policyNumbers[base]++;
+        pol._saveNumber = `${base}-${pol.policy_type?.toUpperCase()?.slice(0,3) || policyNumbers[base]}`;
+      } else {
+        policyNumbers[base] = 0;
+        pol._saveNumber = base;
+      }
+    }
+
+    for (const pol of includedPolicies) {
       try {
         const res = await salesAPI.createFromPdf({
-          policy_number: pol.policy_number,
+          policy_number: pol._saveNumber || pol.policy_number,
           written_premium: parseFloat(pol.written_premium) || 0,
           lead_source: leadSource,
           policy_type: pol.policy_type || undefined,
@@ -231,14 +245,16 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           effective_date: pol.effective_date || undefined,
           notes: pol.notes || undefined,
         });
-        results.push({ success: true, policy: pol.policy_number, household: res.data.household });
+        results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household });
       } catch (err: any) {
-        results.push({ success: false, policy: pol.policy_number, error: err.response?.data?.detail || 'Failed' });
+        const detail = err.response?.data?.detail;
+        const errMsg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || 'Failed to save');
+        results.push({ success: false, policy: pol._saveNumber || pol.policy_number, error: errMsg });
       }
     }
     setSaveResults(results);
     const anySuccess = results.some(r => r.success);
-    if (anySuccess) {
+    if (anySuccess && results.every(r => r.success)) {
       setTimeout(() => onSuccess(), 1500);
     }
     setSaving(false);
