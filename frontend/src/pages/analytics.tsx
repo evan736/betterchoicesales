@@ -41,6 +41,8 @@ export default function Analytics() {
   const [filterOptions, setFilterOptions] = useState<any>(null);
   const [loadingData, setLoadingData] = useState(true);
 
+  const [trendingData, setTrendingData] = useState<any>(null);
+
   // Table filters
   const [tableFilters, setTableFilters] = useState<any>({});
   const [sortBy, setSortBy] = useState('sale_date');
@@ -74,7 +76,7 @@ export default function Analytics() {
       if (period === 'last_year') {
         extraParams.year = now.getFullYear() - 1;
       }
-      const [summaryRes, groupRes, tableRes] = await Promise.all([
+      const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
         analyticsAPI.summary({ period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
         analyticsAPI.byGroup({ group_by: groupBy, period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
         analyticsAPI.salesTable({
@@ -85,11 +87,13 @@ export default function Analytics() {
           ...tableFilters,
           limit: 50,
         }),
+        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : period }),
       ]);
       setSummary(summaryRes.data);
       setChartData(groupRes.data.results || []);
       setSalesData(tableRes.data.sales || []);
       setSalesTotal(tableRes.data.total || 0);
+      setTrendingData(trendRes.data);
     } catch (e) { console.error(e); }
     finally { setLoadingData(false); }
   };
@@ -125,17 +129,30 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* Summary Cards — dynamic trending numbers */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <SummaryCard icon={<DollarSign />} label="Total Premium" value={formatCurrency(summary?.total_premium || 0)} color="text-green-600" bg="bg-green-100" />
-          <SummaryCard icon={<FileText />} label="Policies Sold" value={summary?.total_policies || 0} color="text-brand-600" bg="bg-brand-100" />
-          <SummaryCard icon={<TrendingUp />} label="Total Items" value={summary?.total_items || 0} color="text-blue-600" bg="bg-blue-100" />
-          <SummaryCard icon={<Users />} label="Sales Count" value={summary?.total_sales || 0} color="text-purple-600" bg="bg-purple-100" />
+          <SummaryCard
+            icon={<TrendingUp />}
+            label={period === 'last_year' ? 'Last Year Total' : 'Projected'}
+            value={trendingData ? formatCurrency(trendingData.projected_premium) : '—'}
+            color="text-brand-600"
+            bg="bg-brand-100"
+          />
+          <SummaryCard
+            icon={<FileText />}
+            label="Daily Pace"
+            value={trendingData && trendingData.daily_pace > 0 ? formatCurrency(trendingData.daily_pace) : '—'}
+            color="text-blue-600"
+            bg="bg-blue-100"
+          />
+          <SummaryCard icon={<Users />} label="Policies / Items" value={`${summary?.total_policies || 0} / ${summary?.total_items || 0}`} color="text-purple-600" bg="bg-purple-100" />
         </div>
 
-        {/* Trending & Goals */}
+        {/* Trending Data (left) + Goals & Milestones (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrendingGoals period={period} />
+          <TrendingGoals period={period} showGoals={false} />
+          <TrendingGoals period={period} showTrending={false} />
         </div>
 
         {/* Chart Section */}

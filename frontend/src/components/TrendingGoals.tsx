@@ -29,10 +29,12 @@ interface TrendingData {
 
 interface Props {
   compact?: boolean;
-  period?: string; // monthly, annual, last_year, all-time
+  period?: string;
+  showTrending?: boolean;
+  showGoals?: boolean;
 }
 
-const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPeriod }) => {
+const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPeriod, showTrending = true, showGoals = true }) => {
   const [data, setData] = useState<TrendingData | null>(null);
   const [targetDate, setTargetDate] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -105,6 +107,7 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
   return (
     <div className="space-y-6">
       {/* Trending Projection Card */}
+      {showTrending && (
       <div className="card border-2 border-brand-100">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -211,9 +214,10 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
           </div>
         )}
       </div>
+      )}
 
       {/* Goals Card — hide for last year */}
-      {!isLastYear && data.goals.length > 0 && (
+      {showGoals && !isLastYear && data.goals.length > 0 && (
         <div className="card border-2 border-amber-100">
           <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2 mb-4">
             <Target className="text-amber-500" size={22} />
