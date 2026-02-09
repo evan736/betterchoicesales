@@ -10,6 +10,7 @@ export default function Commissions() {
   const router = useRouter();
   const [commissions, setCommissions] = useState<any[]>([]);
   const [tiers, setTiers] = useState<any[]>([]);
+  const [tierInfo, setTierInfo] = useState<any>(null);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [loadingData, setLoadingData] = useState(true);
 
@@ -23,12 +24,14 @@ export default function Commissions() {
 
   const loadData = async () => {
     try {
-      const [commissionsRes, tiersRes] = await Promise.all([
+      const [commissionsRes, tiersRes, tierInfoRes] = await Promise.all([
         commissionsAPI.myCommissions(),
         commissionsAPI.tiers(),
+        commissionsAPI.myTier(),
       ]);
       setCommissions(commissionsRes.data);
       setTiers(tiersRes.data);
+      setTierInfo(tierInfoRes.data);
     } catch (error) {
       console.error('Failed to load commissions:', error);
     } finally {
@@ -50,6 +53,9 @@ export default function Commissions() {
     0
   );
 
+  const currentTierLevel = tierInfo?.current_tier || 1;
+  const currentRate = tierInfo ? `${(tierInfo.commission_rate * 100).toFixed(0)}%` : '—';
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -68,9 +74,9 @@ export default function Commissions() {
           <div className="stat-card bg-gradient-to-br from-brand-600 to-brand-700 text-white">
             <div className="flex items-center justify-between mb-4">
               <Award size={32} />
-              <div className="text-3xl font-bold">Tier {user.commission_tier || 1}</div>
+              <div className="text-3xl font-bold">Tier {currentTierLevel}</div>
             </div>
-            <div className="text-blue-100">Your Current Tier</div>
+            <div className="text-blue-100">Current Tier — {currentRate} commission</div>
           </div>
 
           <div className="stat-card">
@@ -139,7 +145,7 @@ export default function Commissions() {
                   <TierCard
                     key={tier.id}
                     tier={tier}
-                    isCurrentTier={tier.tier_level === user.commission_tier}
+                    isCurrentTier={tier.tier_level === currentTierLevel}
                   />
                 ))}
               </div>

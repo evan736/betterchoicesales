@@ -2,13 +2,16 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from app.models.sale import SaleStatus, LeadSource
+from app.models.sale import SaleStatus, LeadSource, PolicyType
 
 
 class SaleBase(BaseModel):
     policy_number: str
     written_premium: Decimal = Field(..., ge=0, decimal_places=2)
     lead_source: LeadSource
+    policy_type: Optional[PolicyType] = None
+    carrier: Optional[str] = None
+    state: Optional[str] = None
     item_count: int = Field(default=1, ge=1)
     client_name: str
     client_email: Optional[str] = None
@@ -18,11 +21,15 @@ class SaleBase(BaseModel):
 
 class SaleCreate(SaleBase):
     effective_date: Optional[datetime] = None
+    sale_date: Optional[datetime] = None
 
 
 class SaleUpdate(BaseModel):
     written_premium: Optional[Decimal] = Field(None, ge=0)
     recognized_premium: Optional[Decimal] = Field(None, ge=0)
+    policy_type: Optional[PolicyType] = None
+    carrier: Optional[str] = None
+    state: Optional[str] = None
     status: Optional[SaleStatus] = None
     client_email: Optional[str] = None
     client_phone: Optional[str] = None

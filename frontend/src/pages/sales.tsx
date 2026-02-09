@@ -188,6 +188,9 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     policy_number: '',
     written_premium: '',
     lead_source: 'referral',
+    policy_type: '',
+    carrier: '',
+    state: '',
     client_name: '',
     client_email: '',
     client_phone: '',
@@ -206,6 +209,9 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
       await salesAPI.create({
         ...formData,
         written_premium: parseFloat(formData.written_premium),
+        policy_type: formData.policy_type || undefined,
+        carrier: formData.carrier || undefined,
+        state: formData.state || undefined,
       });
       onSuccess();
     } catch (err: any) {
@@ -283,13 +289,72 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 className="input-field"
               >
                 <option value="referral">Referral</option>
+                <option value="customer_referral">Customer Referral</option>
                 <option value="website">Website</option>
                 <option value="cold_call">Cold Call</option>
+                <option value="call_in">Call In</option>
                 <option value="social_media">Social Media</option>
                 <option value="email_campaign">Email Campaign</option>
                 <option value="walk_in">Walk In</option>
+                <option value="quote_wizard">Quote Wizard</option>
+                <option value="insurance_ai_call">Insurance AI Call</option>
+                <option value="rewrite">Rewrite</option>
                 <option value="other">Other</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Policy Type
+              </label>
+              <select
+                value={formData.policy_type}
+                onChange={(e) => setFormData({ ...formData, policy_type: e.target.value })}
+                className="input-field"
+              >
+                <option value="">Select type...</option>
+                <option value="auto">Auto</option>
+                <option value="home">Home</option>
+                <option value="renters">Renters</option>
+                <option value="condo">Condo</option>
+                <option value="landlord">Landlord</option>
+                <option value="umbrella">Umbrella</option>
+                <option value="motorcycle">Motorcycle</option>
+                <option value="boat">Boat</option>
+                <option value="rv">RV</option>
+                <option value="life">Life</option>
+                <option value="health">Health</option>
+                <option value="bundled">Bundled</option>
+                <option value="commercial">Commercial</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Carrier / Company
+              </label>
+              <input
+                type="text"
+                value={formData.carrier}
+                onChange={(e) => setFormData({ ...formData, carrier: e.target.value })}
+                className="input-field"
+                placeholder="e.g. Progressive, State Farm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                State
+              </label>
+              <input
+                type="text"
+                value={formData.state}
+                onChange={(e) => setFormData({ ...formData, state: e.target.value.toUpperCase().slice(0, 2) })}
+                className="input-field"
+                placeholder="e.g. IL, CA, FL"
+                maxLength={2}
+              />
             </div>
 
             <div>

@@ -37,6 +37,7 @@ export const commissionsAPI = {
     api.get(`/api/commissions/calculate/${producerId}/${period}`),
   myCommissions: (period?: string) =>
     api.get('/api/commissions/my-commissions', { params: { period } }),
+  myTier: () => api.get('/api/commissions/my-tier'),
   tiers: () => api.get('/api/commissions/tiers'),
   createTier: (data: any) => api.post('/api/commissions/tiers', data),
 };
@@ -56,3 +57,11 @@ export const statementsAPI = {
 };
 
 export default api;
+
+// Analytics API
+export const analyticsAPI = {
+  summary: (params?: any) => api.get('/api/analytics/summary', { params }),
+  byGroup: (params: any) => api.get('/api/analytics/by-group', { params }),
+  salesTable: (params?: any) => api.get('/api/analytics/sales-table', { params }),
+  filterOptions: () => api.get('/api/analytics/filter-options'),
+};

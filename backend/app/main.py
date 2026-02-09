@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import auth, sales, commissions, statements
+from app.api import auth, sales, commissions, statements, analytics
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +53,13 @@ def init_database():
 
         # Create commission tiers
         tiers = [
-            {"tier_level": 1, "min_written_premium": Decimal("0"), "max_written_premium": Decimal("50000"), "commission_rate": Decimal("0.10"), "description": "Tier 1: 0-50K written premium, 10% commission"},
-            {"tier_level": 2, "min_written_premium": Decimal("50001"), "max_written_premium": Decimal("100000"), "commission_rate": Decimal("0.125"), "description": "Tier 2: 50K-100K written premium, 12.5% commission"},
-            {"tier_level": 3, "min_written_premium": Decimal("100001"), "max_written_premium": None, "commission_rate": Decimal("0.15"), "description": "Tier 3: 100K+ written premium, 15% commission"},
+            {"tier_level": 1, "min_written_premium": Decimal("0"), "max_written_premium": Decimal("39999.99"), "commission_rate": Decimal("0.03"), "description": "Under 40K - 3%"},
+            {"tier_level": 2, "min_written_premium": Decimal("40000"), "max_written_premium": Decimal("49999.99"), "commission_rate": Decimal("0.03"), "description": "40K - 3%"},
+            {"tier_level": 3, "min_written_premium": Decimal("50000"), "max_written_premium": Decimal("59999.99"), "commission_rate": Decimal("0.04"), "description": "50K - 4%"},
+            {"tier_level": 4, "min_written_premium": Decimal("60000"), "max_written_premium": Decimal("99999.99"), "commission_rate": Decimal("0.05"), "description": "60K - 5%"},
+            {"tier_level": 5, "min_written_premium": Decimal("100000"), "max_written_premium": Decimal("149999.99"), "commission_rate": Decimal("0.06"), "description": "100K - 6%"},
+            {"tier_level": 6, "min_written_premium": Decimal("150000"), "max_written_premium": Decimal("199999.99"), "commission_rate": Decimal("0.07"), "description": "150K - 7%"},
+            {"tier_level": 7, "min_written_premium": Decimal("200000"), "max_written_premium": None, "commission_rate": Decimal("0.08"), "description": "200K+ - 8%"},
         ]
         for tier_data in tiers:
             existing = db.query(CommissionTier).filter(CommissionTier.tier_level == tier_data["tier_level"]).first()
@@ -122,3 +126,4 @@ app.include_router(auth.router)
 app.include_router(sales.router)
 app.include_router(commissions.router)
 app.include_router(statements.router)
+app.include_router(analytics.router)

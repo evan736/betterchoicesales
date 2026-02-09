@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, User, TrendingUp, FileText, Upload } from 'lucide-react';
+import { LogOut, User, TrendingUp, FileText, Upload, BarChart2 } from 'lucide-react';
 
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -31,6 +31,9 @@ const Navbar: React.FC = () => {
               </NavLink>
               <NavLink href="/sales" icon={<FileText size={18} />}>
                 Sales
+              </NavLink>
+              <NavLink href="/analytics" icon={<BarChart2 size={18} />}>
+                Analytics
               </NavLink>
               <NavLink href="/commissions" icon={<TrendingUp size={18} />}>
                 Commissions

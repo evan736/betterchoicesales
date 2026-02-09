@@ -14,11 +14,33 @@ class SaleStatus(str, enum.Enum):
 
 class LeadSource(str, enum.Enum):
     REFERRAL = "referral"
+    CUSTOMER_REFERRAL = "customer_referral"
     WEBSITE = "website"
     COLD_CALL = "cold_call"
+    CALL_IN = "call_in"
     SOCIAL_MEDIA = "social_media"
     EMAIL_CAMPAIGN = "email_campaign"
     WALK_IN = "walk_in"
+    QUOTE_WIZARD = "quote_wizard"
+    INSURANCE_AI_CALL = "insurance_ai_call"
+    REWRITE = "rewrite"
+    OTHER = "other"
+
+
+class PolicyType(str, enum.Enum):
+    AUTO = "auto"
+    HOME = "home"
+    RENTERS = "renters"
+    CONDO = "condo"
+    LANDLORD = "landlord"
+    UMBRELLA = "umbrella"
+    MOTORCYCLE = "motorcycle"
+    BOAT = "boat"
+    RV = "rv"
+    LIFE = "life"
+    HEALTH = "health"
+    BUNDLED = "bundled"
+    COMMERCIAL = "commercial"
     OTHER = "other"
 
 
@@ -29,15 +51,18 @@ class Sale(Base):
     
     # Policy information
     policy_number = Column(String, unique=True, index=True, nullable=False)
-    written_premium = Column(Numeric(10, 2), nullable=False)  # Premium amount written
-    recognized_premium = Column(Numeric(10, 2), nullable=True)  # Premium actually received/recognized
+    policy_type = Column(Enum(PolicyType), nullable=True, index=True)
+    carrier = Column(String, nullable=True, index=True)
+    state = Column(String(2), nullable=True, index=True)
+    written_premium = Column(Numeric(10, 2), nullable=False)
+    recognized_premium = Column(Numeric(10, 2), nullable=True)
     
     # Producer relationship
     producer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # Lead and client info
     lead_source = Column(Enum(LeadSource), nullable=False)
-    item_count = Column(Integer, default=1)  # Number of items/policies in package
+    item_count = Column(Integer, default=1)
     
     # Client information
     client_name = Column(String, nullable=False)
@@ -49,8 +74,8 @@ class Sale(Base):
     
     # Application document
     application_pdf_path = Column(String, nullable=True)
-    signature_request_id = Column(String, nullable=True)  # WeSignature request ID
-    signature_status = Column(String, default="not_sent")  # not_sent, sent, completed, declined
+    signature_request_id = Column(String, nullable=True)
+    signature_status = Column(String, default="not_sent")
     
     # Dates
     sale_date = Column(DateTime(timezone=True), server_default=func.now())

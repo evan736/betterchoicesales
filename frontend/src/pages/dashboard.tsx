@@ -19,6 +19,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [tierInfo, setTierInfo] = useState<any>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -30,13 +31,15 @@ export default function Dashboard() {
 
   const loadDashboardData = async () => {
     try {
-      const [salesRes, commissionsRes] = await Promise.all([
+      const [salesRes, commissionsRes, tierRes] = await Promise.all([
         salesAPI.list(),
         commissionsAPI.myCommissions(),
+        commissionsAPI.myTier(),
       ]);
 
       const sales = salesRes.data;
       setRecentSales(sales.slice(0, 5));
+      setTierInfo(tierRes.data);
 
       // Calculate stats
       const totalPremium = sales.reduce((sum: number, s: any) => sum + parseFloat(s.written_premium), 0);
@@ -68,6 +71,11 @@ export default function Dashboard() {
     return null;
   }
 
+  const currentRate = tierInfo ? `${(tierInfo.commission_rate * 100).toFixed(0)}%` : '—';
+  const currentTier = tierInfo?.current_tier || '—';
+  const premiumToNext = tierInfo?.premium_to_next_tier;
+  const nextRate = tierInfo?.next_tier ? `${(tierInfo.next_tier.commission_rate * 100).toFixed(0)}%` : null;
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -87,29 +95,21 @@ export default function Dashboard() {
             title="Total Sales"
             value={stats?.totalSales || 0}
             icon={<FileText className="text-brand-600" size={24} />}
-            trend="+12%"
-            trendUp={true}
           />
           <StatCard
-            title="Total Premium"
+            title="Written Premium"
             value={`$${(stats?.totalPremium || 0).toLocaleString()}`}
             icon={<DollarSign className="text-green-600" size={24} />}
-            trend="+8%"
-            trendUp={true}
           />
           <StatCard
-            title="Total Commission"
-            value={`$${(stats?.totalCommission || 0).toLocaleString()}`}
+            title="Commission Rate"
+            value={currentRate}
             icon={<Award className="text-accent-500" size={24} />}
-            trend="+15%"
-            trendUp={true}
           />
           <StatCard
             title="Active Policies"
             value={stats?.activePolicies || 0}
             icon={<TrendingUp className="text-blue-600" size={24} />}
-            trend="+5%"
-            trendUp={true}
           />
         </div>
 
@@ -148,7 +148,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions + Tier */}
           <div className="space-y-6">
             <div className="card">
               <h3 className="font-display text-xl font-bold text-slate-900 mb-4">
@@ -175,15 +175,26 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Commission Tier */}
+            {/* Commission Tier - Dynamic */}
             <div className="card bg-gradient-to-br from-brand-600 to-brand-700 text-white">
-              <h3 className="font-display text-lg font-bold mb-2">Your Tier</h3>
-              <div className="text-4xl font-bold mb-2">Tier {user.commission_tier || 1}</div>
-              <p className="text-blue-100 text-sm">
-                Keep up the great work! You're earning{' '}
-                {user.commission_tier === 3 ? '15%' : user.commission_tier === 2 ? '12.5%' : '10%'}{' '}
-                commission.
-              </p>
+              <h3 className="font-display text-lg font-bold mb-2">Your Commission Tier</h3>
+              <div className="text-4xl font-bold mb-1">Tier {currentTier}</div>
+              <div className="text-2xl font-semibold text-blue-100 mb-3">{currentRate} commission</div>
+              <div className="text-blue-100 text-sm mb-2">
+                Monthly premium: ${tierInfo ? Number(tierInfo.total_written_premium).toLocaleString() : '0'}
+              </div>
+              {premiumToNext && premiumToNext > 0 && nextRate && (
+                <div className="mt-3 pt-3 border-t border-blue-400/30">
+                  <p className="text-blue-100 text-sm">
+                    📈 ${Number(premiumToNext).toLocaleString()} more to reach {nextRate} commission
+                  </p>
+                </div>
+              )}
+              {!premiumToNext && tierInfo?.current_tier === 7 && (
+                <div className="mt-3 pt-3 border-t border-blue-400/30">
+                  <p className="text-blue-100 text-sm">🏆 You're at the top tier!</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -196,22 +207,10 @@ const StatCard: React.FC<{
   title: string;
   value: string | number;
   icon: React.ReactNode;
-  trend?: string;
-  trendUp?: boolean;
-}> = ({ title, value, icon, trend, trendUp }) => (
+}> = ({ title, value, icon }) => (
   <div className="stat-card">
     <div className="flex items-start justify-between mb-4">
       <div className="p-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100">{icon}</div>
-      {trend && (
-        <div
-          className={`flex items-center space-x-1 text-sm font-semibold ${
-            trendUp ? 'text-green-600' : 'text-red-600'
-          }`}
-        >
-          {trendUp ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
-          <span>{trend}</span>
-        </div>
-      )}
     </div>
     <div className="text-3xl font-bold text-slate-900 mb-1">{value}</div>
     <div className="text-sm text-slate-600 font-medium">{title}</div>
