@@ -116,58 +116,22 @@ async def send_for_signature(
     signer_name: str,
     signer_email: str,
     title: str,
-    fields: List[dict],
+    fields: List[dict] = None,
 ) -> dict:
-    """Send document to BoldSign for electronic signature."""
+    """Send document to BoldSign for electronic signature.
+    Uses BoldSign's built-in AI field detection for accurate placement."""
     if not settings.BOLDSIGN_API_KEY:
         raise ValueError("BOLDSIGN_API_KEY not configured. Set it in Render environment variables.")
-
-    # Build form fields for BoldSign
-    form_fields = []
-    for i, f in enumerate(fields):
-        # BoldSign requires IDs with only letters, digits, underscores, starting with letter/underscore
-        import re
-        raw_label = f.get("label", f["type"])
-        sanitized_id = re.sub(r'[^a-zA-Z0-9_]', '_', raw_label).strip('_')
-        if not sanitized_id or not sanitized_id[0].isalpha() and sanitized_id[0] != '_':
-            sanitized_id = f"field_{sanitized_id}"
-        # Ensure unique
-        sanitized_id = f"{sanitized_id}_{i}"
-        
-        form_fields.append({
-            "id": sanitized_id,
-            "fieldType": f["type"],
-            "pageNumber": f["page"],
-            "bounds": {
-                "x": f["x"],
-                "y": f["y"],
-                "width": f.get("width", 200),
-                "height": f.get("height", 50),
-            },
-            "isRequired": True,
-        })
-
-    # If no fields detected, add a default signature on page 1
-    if not form_fields:
-        form_fields.append({
-            "id": "signature_1",
-            "fieldType": "Signature",
-            "pageNumber": 1,
-            "bounds": {"x": 100, "y": 650, "width": 200, "height": 50},
-            "isRequired": True,
-        })
 
     signer_data = {
         "name": signer_name,
         "emailAddress": signer_email,
         "signerType": "Signer",
         "signerRole": "Signer",
-        "formFields": form_fields,
         "locale": "EN",
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # BoldSign expects multipart/form-data
         files = {
             "Files": (f"{title}.pdf", pdf_bytes, "application/pdf"),
         }
@@ -175,6 +139,7 @@ async def send_for_signature(
             "Title": title,
             "Message": f"Please review and sign the attached insurance application.",
             "Signers": json.dumps(signer_data),
+            "AutoDetectFields": "true",
             "EnablePrintAndSign": "true",
         }
 

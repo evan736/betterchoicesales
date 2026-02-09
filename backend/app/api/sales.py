@@ -336,22 +336,18 @@ async def send_for_signature_endpoint(
     pdf_bytes = pdf_path.read_bytes()
 
     try:
-        # Step 1: Detect signature fields using AI
-        from app.services.esign import detect_signature_fields, send_for_signature as boldsign_send
-        field_data = await detect_signature_fields(pdf_bytes)
-        fields = field_data.get("fields", [])
+        # Send to BoldSign with AutoDetectFields — BoldSign's AI handles field placement
+        from app.services.esign import send_for_signature as boldsign_send
 
-        # Step 2: Send to BoldSign
         title = f"Insurance Application - {sale.client_name} ({sale.policy_number})"
         result = await boldsign_send(
             pdf_bytes=pdf_bytes,
             signer_name=sale.client_name,
             signer_email=sale.client_email,
             title=title,
-            fields=fields,
         )
 
-        # Step 3: Update sale with signature info
+        # Update sale with signature info
         sale.signature_request_id = result.get("documentId")
         sale.signature_status = "sent"
         db.commit()
@@ -360,7 +356,6 @@ async def send_for_signature_endpoint(
             "message": "Signature request sent successfully",
             "document_id": result.get("documentId"),
             "signer_email": sale.client_email,
-            "fields_detected": len(fields),
         }
 
     except ValueError as e:

@@ -106,7 +106,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
     try {
       const res = await salesAPI.sendForSignature(sale.id);
       setSigStatus('sent');
-      alert(`✓ Signature request sent to ${sale.client_email}! (${res.data.fields_detected} signature fields detected)`);
+      alert(`✓ Signature request sent to ${sale.client_email}!`);
       onUpdate();
     } catch (error: any) {
       alert(error.response?.data?.detail || 'Failed to send for signature');
