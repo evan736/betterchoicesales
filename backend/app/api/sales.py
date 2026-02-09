@@ -311,10 +311,12 @@ def delete_sale(
 @router.post("/{sale_id}/send-for-signature")
 async def send_for_signature_endpoint(
     sale_id: int,
+    file: UploadFile = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a sale's PDF application for electronic signature via BoldSign."""
+    """Send a sale's PDF application for electronic signature via BoldSign.
+    Accepts optional file upload, or uses the saved application_pdf_path."""
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
@@ -325,18 +327,19 @@ async def send_for_signature_endpoint(
     if not sale.client_email:
         raise HTTPException(status_code=400, detail="Client email is required to send for signature")
 
-    if not sale.application_pdf_path:
-        raise HTTPException(status_code=400, detail="No PDF application uploaded for this sale")
+    # Get PDF bytes — from upload or saved path
+    pdf_bytes = None
+    if file and file.filename:
+        pdf_bytes = await file.read()
+    elif sale.application_pdf_path:
+        pdf_path = Path(sale.application_pdf_path)
+        if pdf_path.exists():
+            pdf_bytes = pdf_path.read_bytes()
 
-    # Read the PDF file
-    pdf_path = Path(sale.application_pdf_path)
-    if not pdf_path.exists():
-        raise HTTPException(status_code=400, detail="PDF file not found on server")
-
-    pdf_bytes = pdf_path.read_bytes()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF.")
 
     try:
-        # Send to BoldSign with AutoDetectFields — BoldSign's AI handles field placement
         from app.services.esign import send_for_signature as boldsign_send
 
         title = f"Insurance Application - {sale.client_name} ({sale.policy_number})"

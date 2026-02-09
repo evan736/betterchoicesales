@@ -38,7 +38,17 @@ export const salesAPI = {
       timeout: 60000,
     });
   },
-  sendForSignature: (id: number) => api.post(`/api/sales/${id}/send-for-signature`),
+  sendForSignature: (id: number, file?: File) => {
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      return api.post(`/api/sales/${id}/send-for-signature`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      });
+    }
+    return api.post(`/api/sales/${id}/send-for-signature`);
+  },
   signatureStatus: (id: number) => api.get(`/api/sales/${id}/signature-status`),
 };
 

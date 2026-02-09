@@ -101,18 +101,29 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       alert('Client email is required to send for signature');
       return;
     }
-    if (!confirm(`Send application to ${sale.client_email} for electronic signature?`)) return;
-    setSendingSig(true);
-    try {
-      const res = await salesAPI.sendForSignature(sale.id);
-      setSigStatus('sent');
-      alert(`✓ Signature request sent to ${sale.client_email}!`);
-      onUpdate();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to send for signature');
-    } finally {
-      setSendingSig(false);
-    }
+
+    // Prompt user to select the PDF file
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf';
+    input.onchange = async (e: any) => {
+      const selectedFile = e.target.files?.[0];
+      if (!selectedFile) return;
+
+      if (!confirm(`Send "${selectedFile.name}" to ${sale.client_email} for electronic signature?`)) return;
+      setSendingSig(true);
+      try {
+        const res = await salesAPI.sendForSignature(sale.id, selectedFile);
+        setSigStatus('sent');
+        alert(`✓ Signature request sent to ${sale.client_email}!`);
+        onUpdate();
+      } catch (error: any) {
+        alert(error.response?.data?.detail || 'Failed to send for signature');
+      } finally {
+        setSendingSig(false);
+      }
+    };
+    input.click();
   };
 
   const handleCheckStatus = async () => {
@@ -170,7 +181,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         </div>
         <div className="ml-4 flex flex-col gap-2">
           {/* Send for Signature */}
-          {sale.application_pdf_path && sigStatus === 'not_sent' && (
+          {sigStatus === 'not_sent' && sale.client_email && (
             <button
               onClick={handleSendForSignature}
               disabled={sendingSig}
