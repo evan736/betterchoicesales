@@ -348,10 +348,10 @@ async def send_for_signature_endpoint(
     logger.info(f"Sending for signature: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
 
     try:
-        from app.services.esign import send_for_signature as docuseal_send
+        from app.services.esign import send_for_signature as boldsign_send
 
         title = f"Insurance Application - {sale.client_name}"
-        result = await docuseal_send(
+        result = await boldsign_send(
             pdf_bytes=pdf_bytes,
             signer_name=sale.client_name,
             signer_email=sale.client_email,
@@ -373,10 +373,10 @@ async def send_for_signature_endpoint(
         }
 
     except ValueError as e:
-        logger.error(f"DocuSeal ValueError: {e}")
+        logger.error(f"BoldSign ValueError: {e}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.error(f"DocuSeal Exception: {e}", exc_info=True)
+        logger.error(f"BoldSign Exception: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to send for signature: {str(e)}")
 
 
@@ -398,19 +398,18 @@ async def get_signature_status(
         from app.services.esign import get_document_status
         doc_status = await get_document_status(sale.signature_request_id)
 
-        # Update local status based on DocuSeal status
-        ds_status = doc_status.get("status", "").lower()
-        if ds_status in ("completed",):
+        bs_status = doc_status.get("status", "").lower()
+        if bs_status in ("completed", "signed"):
             sale.signature_status = "completed"
-        elif ds_status in ("declined", "expired"):
+        elif bs_status in ("declined", "revoked", "expired"):
             sale.signature_status = "declined"
-        elif ds_status in ("pending", "sent"):
+        elif bs_status in ("inprogress", "sent", "pending"):
             sale.signature_status = "sent"
         db.commit()
 
         return {
             "status": sale.signature_status,
-            "docuseal_status": ds_status,
+            "boldsign_status": bs_status,
             "document_id": sale.signature_request_id,
         }
     except Exception as e:
