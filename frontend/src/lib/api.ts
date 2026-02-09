@@ -64,4 +64,5 @@ export const analyticsAPI = {
   byGroup: (params: any) => api.get('/api/analytics/by-group', { params }),
   salesTable: (params?: any) => api.get('/api/analytics/sales-table', { params }),
   filterOptions: () => api.get('/api/analytics/filter-options'),
+  trending: (params?: any) => api.get('/api/analytics/trending', { params }),
 };

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
+import TrendingGoals from '../components/TrendingGoals';
 import { analyticsAPI } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -123,6 +124,11 @@ export default function Analytics() {
           <SummaryCard icon={<FileText />} label="Policies Sold" value={summary?.total_policies || 0} color="text-brand-600" bg="bg-brand-100" />
           <SummaryCard icon={<TrendingUp />} label="Total Items" value={summary?.total_items || 0} color="text-blue-600" bg="bg-blue-100" />
           <SummaryCard icon={<Users />} label="Sales Count" value={summary?.total_sales || 0} color="text-purple-600" bg="bg-purple-100" />
+        </div>
+
+        {/* Trending & Goals */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <TrendingGoals />
         </div>
 
         {/* Chart Section */}

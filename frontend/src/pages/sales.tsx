@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { salesAPI } from '../lib/api';
-import { Plus, FileText, Upload, X, Check } from 'lucide-react';
+import { Plus, FileText, Upload, X, Check, Trash2 } from 'lucide-react';
 
 export default function Sales() {
   const { user, loading } = useAuth();
@@ -91,6 +91,7 @@ export default function Sales() {
 
 const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onUpdate }) => {
   const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -105,6 +106,19 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       alert('Failed to upload file');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Delete sale for ${sale.client_name} (${sale.policy_number})?`)) return;
+    setDeleting(true);
+    try {
+      await salesAPI.delete(sale.id);
+      onUpdate();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Failed to delete sale');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -148,7 +162,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
           )}
         </div>
 
-        <div className="ml-6">
+        <div className="ml-6 flex flex-col gap-2">
           {!sale.application_pdf_path ? (
             <label className="btn-secondary cursor-pointer flex items-center space-x-2">
               <Upload size={18} />
@@ -167,6 +181,14 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               <span className="font-semibold">PDF Uploaded</span>
             </div>
           )}
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg border-2 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-400 transition-all text-sm font-semibold"
+          >
+            <Trash2 size={16} />
+            <span>{deleting ? 'Deleting...' : 'Delete'}</span>
+          </button>
         </div>
       </div>
     </div>

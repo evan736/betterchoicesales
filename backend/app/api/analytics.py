@@ -3,13 +3,185 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, extract
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.sale import Sale
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+
+
+def count_business_days(start_date: date, end_date: date) -> int:
+    """Count weekdays (Mon-Fri) between two dates, inclusive."""
+    if end_date < start_date:
+        return 0
+    days = 0
+    current = start_date
+    while current <= end_date:
+        if current.weekday() < 5:  # Mon=0 .. Fri=4
+            days += 1
+        current += timedelta(days=1)
+    return days
+
+
+def count_business_days_in_range(year: int, month: int) -> int:
+    """Count total business days in a month."""
+    first = date(year, month, 1)
+    if month == 12:
+        last = date(year, 12, 31)
+    else:
+        last = date(year, month + 1, 1) - timedelta(days=1)
+    return count_business_days(first, last)
+
+
+@router.get("/trending")
+def get_trending_projection(
+    target_date: Optional[str] = Query(None, description="Target date YYYY-MM-DD, defaults to end of current month"),
+    producer_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Project sales to a target date based on daily business-day pace.
+    Also returns next tier goal and 100K goal progress.
+    """
+    now = datetime.utcnow()
+    today = now.date()
+
+    # Determine target date
+    if target_date:
+        try:
+            target = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            target = date(today.year, today.month + 1, 1) - timedelta(days=1) if today.month < 12 else date(today.year, 12, 31)
+    else:
+        # End of current month
+        if today.month == 12:
+            target = date(today.year, 12, 31)
+        else:
+            target = date(today.year, today.month + 1, 1) - timedelta(days=1)
+
+    # Determine who to query
+    query = db.query(func.coalesce(func.sum(Sale.written_premium), 0))
+    if current_user.role == "producer":
+        query = query.filter(Sale.producer_id == current_user.id)
+    elif producer_id:
+        query = query.filter(Sale.producer_id == producer_id)
+
+    # Current month premium
+    current_month_premium = float(
+        query.filter(
+            extract("year", Sale.sale_date) == today.year,
+            extract("month", Sale.sale_date) == today.month,
+        ).scalar() or 0
+    )
+
+    # YTD premium
+    ytd_premium = float(
+        db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+            extract("year", Sale.sale_date) == today.year,
+            *([Sale.producer_id == current_user.id] if current_user.role == "producer" else ([Sale.producer_id == producer_id] if producer_id else [])),
+        ).scalar() or 0
+    )
+
+    # Business days elapsed this month (from 1st to today)
+    month_start = date(today.year, today.month, 1)
+    biz_days_elapsed = count_business_days(month_start, today)
+
+    # Daily pace (business days only)
+    daily_pace = current_month_premium / biz_days_elapsed if biz_days_elapsed > 0 else 0
+
+    # Business days remaining to target
+    biz_days_remaining = count_business_days(today + timedelta(days=1), target)
+
+    # Total business days in projection window (month start to target)
+    total_biz_days = count_business_days(month_start, target)
+
+    # Projected premium at target date
+    projected_premium = current_month_premium + (daily_pace * biz_days_remaining)
+
+    # If target is beyond current month, calculate multi-month projection
+    is_multi_month = target.month != today.month or target.year != today.year
+    if is_multi_month:
+        # For multi-month, use the monthly average pace
+        # projected = current pace per biz day * total biz days from today to target
+        total_biz_to_target = count_business_days(today + timedelta(days=1), target)
+        projected_premium = current_month_premium + (daily_pace * total_biz_to_target)
+
+    # --- Tier goals ---
+    from app.models.commission import CommissionTier as TierModel
+
+    all_tiers = (
+        db.query(TierModel)
+        .filter(TierModel.is_active == True)
+        .order_by(TierModel.tier_level)
+        .all()
+    )
+
+    # Find current tier
+    current_tier = None
+    next_tier = None
+    for t in all_tiers:
+        if float(t.min_written_premium) <= current_month_premium:
+            if t.max_written_premium is None or float(t.max_written_premium) >= current_month_premium:
+                current_tier = t
+    
+    # Find next tier
+    if current_tier:
+        for t in all_tiers:
+            if t.tier_level == current_tier.tier_level + 1:
+                next_tier = t
+                break
+
+    # Build goals list
+    goals = []
+
+    # Next tier goal
+    if next_tier:
+        next_min = float(next_tier.min_written_premium)
+        remaining_to_tier = max(0, next_min - current_month_premium)
+        daily_needed = remaining_to_tier / biz_days_remaining if biz_days_remaining > 0 else 0
+        on_pace = projected_premium >= next_min
+        goals.append({
+            "label": f"Tier {next_tier.tier_level} ({int(next_tier.commission_rate * 100)}%)",
+            "target": next_min,
+            "remaining": remaining_to_tier,
+            "daily_needed": daily_needed,
+            "on_pace": on_pace,
+            "progress": min(100, (current_month_premium / next_min * 100)) if next_min > 0 else 100,
+        })
+
+    # Always show $100K goal
+    goal_100k = 100000
+    remaining_100k = max(0, goal_100k - current_month_premium)
+    daily_needed_100k = remaining_100k / biz_days_remaining if biz_days_remaining > 0 else 0
+    goals.append({
+        "label": "$100K Goal",
+        "target": goal_100k,
+        "remaining": remaining_100k,
+        "daily_needed": daily_needed_100k,
+        "on_pace": projected_premium >= goal_100k,
+        "progress": min(100, (current_month_premium / goal_100k * 100)),
+    })
+
+    return {
+        "current_premium": current_month_premium,
+        "ytd_premium": ytd_premium,
+        "projected_premium": round(projected_premium, 2),
+        "daily_pace": round(daily_pace, 2),
+        "biz_days_elapsed": biz_days_elapsed,
+        "biz_days_remaining": biz_days_remaining,
+        "total_biz_days": total_biz_days,
+        "target_date": target.isoformat(),
+        "current_tier": {
+            "level": current_tier.tier_level if current_tier else 1,
+            "rate": float(current_tier.commission_rate) if current_tier else 0.03,
+            "description": current_tier.description if current_tier else "",
+        } if current_tier else None,
+        "goals": goals,
+        "period": today.strftime("%Y-%m"),
+    }
 
 
 @router.get("/summary")

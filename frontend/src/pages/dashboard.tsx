@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
+import TrendingGoals from '../components/TrendingGoals';
 import { salesAPI, commissionsAPI } from '../lib/api';
 import {
   DollarSign,
@@ -148,7 +149,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Actions + Tier */}
+          {/* Quick Actions + Trending + Tier */}
           <div className="space-y-6">
             <div className="card">
               <h3 className="font-display text-xl font-bold text-slate-900 mb-4">
@@ -174,6 +175,9 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+
+            {/* Trending Data & Goals */}
+            <TrendingGoals compact />
 
             {/* Commission Tier - Dynamic */}
             <div className="card bg-gradient-to-br from-brand-600 to-brand-700 text-white">

@@ -171,19 +171,20 @@ def delete_sale(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a sale (admin only)"""
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    
+    """Delete a sale (admin can delete any, producers can delete their own)"""
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     
     if not sale:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sale not found"
+        )
+    
+    # Producers can only delete their own sales
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this sale"
         )
     
     db.delete(sale)
