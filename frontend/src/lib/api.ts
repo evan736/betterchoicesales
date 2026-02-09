@@ -38,6 +38,8 @@ export const salesAPI = {
       timeout: 60000,
     });
   },
+  sendForSignature: (id: number) => api.post(`/api/sales/${id}/send-for-signature`),
+  signatureStatus: (id: number) => api.get(`/api/sales/${id}/signature-status`),
 };
 
 // Commissions API

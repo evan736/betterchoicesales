@@ -306,3 +306,102 @@ def delete_sale(
     db.commit()
     
     return {"message": "Sale deleted successfully"}
+
+
+@router.post("/{sale_id}/send-for-signature")
+async def send_for_signature_endpoint(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a sale's PDF application for electronic signature via BoldSign."""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if not sale.client_email:
+        raise HTTPException(status_code=400, detail="Client email is required to send for signature")
+
+    if not sale.application_pdf_path:
+        raise HTTPException(status_code=400, detail="No PDF application uploaded for this sale")
+
+    # Read the PDF file
+    pdf_path = Path(sale.application_pdf_path)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=400, detail="PDF file not found on server")
+
+    pdf_bytes = pdf_path.read_bytes()
+
+    try:
+        # Step 1: Detect signature fields using AI
+        from app.services.esign import detect_signature_fields, send_for_signature as boldsign_send
+        field_data = await detect_signature_fields(pdf_bytes)
+        fields = field_data.get("fields", [])
+
+        # Step 2: Send to BoldSign
+        title = f"Insurance Application - {sale.client_name} ({sale.policy_number})"
+        result = await boldsign_send(
+            pdf_bytes=pdf_bytes,
+            signer_name=sale.client_name,
+            signer_email=sale.client_email,
+            title=title,
+            fields=fields,
+        )
+
+        # Step 3: Update sale with signature info
+        sale.signature_request_id = result.get("documentId")
+        sale.signature_status = "sent"
+        db.commit()
+
+        return {
+            "message": "Signature request sent successfully",
+            "document_id": result.get("documentId"),
+            "signer_email": sale.client_email,
+            "fields_detected": len(fields),
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send for signature: {str(e)}")
+
+
+@router.get("/{sale_id}/signature-status")
+async def get_signature_status(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check the status of a signature request."""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    if not sale.signature_request_id:
+        return {"status": "not_sent", "message": "No signature request sent yet"}
+
+    try:
+        from app.services.esign import get_document_status
+        doc_status = await get_document_status(sale.signature_request_id)
+
+        # Update local status based on BoldSign status
+        bs_status = doc_status.get("status", "").lower()
+        if bs_status in ("completed", "signed"):
+            sale.signature_status = "completed"
+        elif bs_status in ("declined", "revoked"):
+            sale.signature_status = "declined"
+        elif bs_status in ("inprogress", "sent"):
+            sale.signature_status = "sent"
+        db.commit()
+
+        return {
+            "status": sale.signature_status,
+            "boldsign_status": bs_status,
+            "document_id": sale.signature_request_id,
+            "details": doc_status,
+        }
+    except Exception as e:
+        return {"status": sale.signature_status, "error": str(e)}

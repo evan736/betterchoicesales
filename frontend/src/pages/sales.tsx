@@ -80,6 +80,8 @@ export default function Sales() {
 /* ========== SALE LIST ITEM ========== */
 const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onUpdate }) => {
   const [deleting, setDeleting] = useState(false);
+  const [sendingSig, setSendingSig] = useState(false);
+  const [sigStatus, setSigStatus] = useState(sale.signature_status || 'not_sent');
 
   const handleDelete = async () => {
     if (!confirm(`Delete sale for ${sale.client_name} (${sale.policy_number})?`)) return;
@@ -91,6 +93,53 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       alert(error.response?.data?.detail || 'Failed to delete sale');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleSendForSignature = async () => {
+    if (!sale.client_email) {
+      alert('Client email is required to send for signature');
+      return;
+    }
+    if (!confirm(`Send application to ${sale.client_email} for electronic signature?`)) return;
+    setSendingSig(true);
+    try {
+      const res = await salesAPI.sendForSignature(sale.id);
+      setSigStatus('sent');
+      alert(`✓ Signature request sent to ${sale.client_email}! (${res.data.fields_detected} signature fields detected)`);
+      onUpdate();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Failed to send for signature');
+    } finally {
+      setSendingSig(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    try {
+      const res = await salesAPI.signatureStatus(sale.id);
+      setSigStatus(res.data.status);
+      if (res.data.status === 'completed') {
+        alert('✓ Document has been signed!');
+        onUpdate();
+      } else if (res.data.status === 'sent') {
+        alert('⏳ Waiting for signature...');
+      } else if (res.data.status === 'declined') {
+        alert('✗ Signer declined');
+      } else {
+        alert(`Status: ${res.data.status}`);
+      }
+    } catch (error: any) {
+      alert('Failed to check status');
+    }
+  };
+
+  const sigBadge = () => {
+    switch (sigStatus) {
+      case 'sent': return <span className="badge bg-yellow-100 text-yellow-800">⏳ Awaiting Signature</span>;
+      case 'completed': return <span className="badge bg-green-100 text-green-800">✓ Signed</span>;
+      case 'declined': return <span className="badge bg-red-100 text-red-800">✗ Declined</span>;
+      default: return null;
     }
   };
 
@@ -106,6 +155,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             {sale.policy_type && (
               <span className="badge bg-blue-100 text-blue-800 capitalize">{sale.policy_type.replace(/_/g, ' ')}</span>
             )}
+            {sigBadge()}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
             <InfoItem label="Policy #" value={sale.policy_number} />
@@ -118,7 +168,28 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             <InfoItem label="Phone" value={sale.client_phone || '—'} />
           </div>
         </div>
-        <div className="ml-4">
+        <div className="ml-4 flex flex-col gap-2">
+          {/* Send for Signature */}
+          {sale.application_pdf_path && sigStatus === 'not_sent' && (
+            <button
+              onClick={handleSendForSignature}
+              disabled={sendingSig}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-all text-sm font-semibold"
+            >
+              <FileText size={16} />
+              <span>{sendingSig ? 'Sending...' : 'Send for Signature'}</span>
+            </button>
+          )}
+          {/* Check Status */}
+          {sigStatus === 'sent' && (
+            <button
+              onClick={handleCheckStatus}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-yellow-300 text-yellow-700 hover:bg-yellow-50 transition-all text-sm font-semibold"
+            >
+              <span>Check Status</span>
+            </button>
+          )}
+          {/* Delete */}
           <button
             onClick={handleDelete}
             disabled={deleting}
@@ -250,7 +321,18 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           effective_date: effectiveDate,
           notes: pol.notes || undefined,
         });
-        results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household });
+        
+        // Upload the PDF to the sale for e-signature later
+        const saleId = res.data.sale?.id;
+        if (saleId && file) {
+          try {
+            await salesAPI.uploadPDF(saleId, file);
+          } catch (uploadErr) {
+            console.warn('PDF upload failed but sale was created:', uploadErr);
+          }
+        }
+        
+        results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household, saleId });
       } catch (err: any) {
         const detail = err.response?.data?.detail;
         const errMsg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || 'Failed to save');
