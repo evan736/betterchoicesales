@@ -356,6 +356,7 @@ async def send_for_signature_endpoint(
             signer_name=sale.client_name,
             signer_email=sale.client_email,
             title=title,
+            carrier=sale.carrier,
         )
 
         logger.info(f"DocuSeal success: {result}")

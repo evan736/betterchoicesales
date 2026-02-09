@@ -1,10 +1,14 @@
-"""DocuSeal e-signature service with Claude AI field detection.
+"""DocuSeal e-signature service.
 
-Flow:
-1. Claude AI scans the PDF and finds signature/date/initial field locations
-2. Converts coordinates to DocuSeal's ratio format (0-1 range)
-3. Sends PDF + field positions to DocuSeal /submissions/pdf
-4. DocuSeal emails the signer with fields in the right spots
+Two modes:
+1. TEMPLATE MODE — For known carriers with pre-built templates in DocuSeal.
+   Fields are perfectly placed via DocuSeal's drag-and-drop builder.
+   Uses POST /submissions with template_id.
+
+2. SELF-PLACE MODE — For unknown/one-off carriers.
+   Sends the raw PDF. Customer gets a simple signing page where
+   they draw their signature — DocuSeal handles the UX.
+   Uses POST /submissions/pdf with a single signature field.
 """
 import base64
 import json
@@ -16,162 +20,94 @@ logger = logging.getLogger(__name__)
 
 DOCUSEAL_API_URL = "https://api.docuseal.com"
 
-# Claude prompt to detect signature fields and return DocuSeal-compatible ratios
-FIELD_DETECTION_PROMPT = """Analyze this insurance application PDF. Find EVERY place where the applicant/insured needs to sign, initial, or write a date.
-
-Return ONLY valid JSON — no explanation, no markdown:
-{
-  "fields": [
-    {
-      "name": "Applicant Signature Page 3",
-      "type": "signature",
-      "page": 3,
-      "x": 0.1,
-      "y": 0.85,
-      "w": 0.3,
-      "h": 0.05
-    }
-  ]
+# =============================================
+# CARRIER → TEMPLATE MAPPING
+# =============================================
+# Add your DocuSeal template IDs here after creating them in the DocuSeal web UI.
+# Go to console.docuseal.com → Templates → Create → Upload carrier PDF → 
+# Drag signature/date/initial fields to exact spots → Save → Copy template ID
+#
+# You can also manage these via the database/admin UI (future enhancement)
+CARRIER_TEMPLATES: dict[str, int] = {
+    # "imperial fire": 1000001,
+    # "travelers": 1000002,
+    # "openly": 1000003,
+    # "simply": 1000004,
 }
 
-RULES:
-- x, y, w, h are RATIOS from 0.0 to 1.0 (fraction of page width/height)
-- x=0 is left edge, x=1 is right edge
-- y=0 is TOP of page, y=1 is bottom
-- Typical signature: w=0.3, h=0.05
-- Typical initials: w=0.1, h=0.04
-- Typical date field: w=0.2, h=0.04
 
-FIELD TYPES (use exactly):
-- "signature" — signature lines, "Sign here", "Applicant Signature", "X___"
-- "initials" — initial boxes, small boxes labeled "Initials"  
-- "date" — date fields next to signatures
-
-ONLY include fields for the APPLICANT/INSURED, not the agent/producer.
-Look on every page for signature lines, X marks, "Sign here" text, blank lines with labels.
-Return ONLY JSON."""
+def get_template_for_carrier(carrier: str) -> int | None:
+    """Look up DocuSeal template ID for a carrier name."""
+    if not carrier:
+        return None
+    normalized = carrier.strip().lower()
+    for key, template_id in CARRIER_TEMPLATES.items():
+        if key in normalized or normalized in key:
+            return template_id
+    return None
 
 
-async def detect_fields_with_ai(pdf_bytes: bytes) -> list:
-    """Use Claude AI to detect signature field locations in the PDF."""
-    if not settings.ANTHROPIC_API_KEY:
-        logger.warning("No ANTHROPIC_API_KEY — skipping AI field detection")
-        return []
+async def send_with_template(
+    template_id: int,
+    signer_name: str,
+    signer_email: str,
+) -> dict:
+    """Send a signature request using a pre-built DocuSeal template.
+    Fields are already perfectly placed in the template."""
+    
+    payload = {
+        "template_id": template_id,
+        "send_email": True,
+        "submitters": [
+            {
+                "role": "First Party",
+                "name": signer_name,
+                "email": signer_email,
+            }
+        ],
+    }
 
-    # Truncate to first 20 pages for speed
-    try:
-        from app.services.pdf_extract import truncate_pdf
-        pdf_bytes_truncated = truncate_pdf(pdf_bytes, max_pages=20)
-    except Exception:
-        pdf_bytes_truncated = pdf_bytes
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{DOCUSEAL_API_URL}/submissions",
+            headers={
+                "X-Auth-Token": settings.DOCUSEAL_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
 
-    pdf_base64 = base64.standard_b64encode(pdf_bytes_truncated).decode("utf-8")
+    logger.info(f"DocuSeal template response: status={response.status_code}, body={response.text[:500]}")
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 4000,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "document",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "application/pdf",
-                                        "data": pdf_base64,
-                                    },
-                                },
-                                {"type": "text", "text": FIELD_DETECTION_PROMPT},
-                            ],
-                        }
-                    ],
-                },
-            )
+    if response.status_code not in (200, 201):
+        raise ValueError(f"DocuSeal API error ({response.status_code}): {response.text[:500]}")
 
-        if response.status_code != 200:
-            logger.error(f"Claude API error: {response.status_code} {response.text[:300]}")
-            return []
+    result = response.json()
+    
+    submission_id = None
+    if isinstance(result, list) and len(result) > 0:
+        submission_id = result[0].get("submission_id")
+    elif isinstance(result, dict):
+        submission_id = result.get("id")
 
-        result = response.json()
-        text = ""
-        for block in result.get("content", []):
-            if block.get("type") == "text":
-                text += block["text"]
-
-        text = text.strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-
-        data = json.loads(text.strip())
-        fields = data.get("fields", [])
-        logger.info(f"AI detected {len(fields)} fields")
-        return fields
-
-    except Exception as e:
-        logger.error(f"AI field detection failed: {e}")
-        return []
+    return {
+        "documentId": str(submission_id) if submission_id else "unknown",
+        "mode": "template",
+    }
 
 
-async def send_for_signature(
+async def send_self_place(
     pdf_bytes: bytes,
     signer_name: str,
     signer_email: str,
     title: str,
 ) -> dict:
-    """Send PDF to DocuSeal with AI-detected signature fields."""
-    if not settings.DOCUSEAL_API_KEY:
-        raise ValueError("DOCUSEAL_API_KEY not configured. Set it in Render environment variables.")
-
-    logger.info(f"DocuSeal: sending to {signer_email}, name={signer_name}, pdf_size={len(pdf_bytes)}")
-
-    # Step 1: Detect fields with AI
-    ai_fields = await detect_fields_with_ai(pdf_bytes)
-
-    # Step 2: Convert AI fields to DocuSeal format
-    docuseal_fields = []
-    for f in ai_fields:
-        docuseal_fields.append({
-            "name": f.get("name", f.get("type", "Signature")),
-            "type": f.get("type", "signature"),
-            "role": "First Party",
-            "required": True,
-            "areas": [
-                {
-                    "x": f.get("x", 0.1),
-                    "y": f.get("y", 0.8),
-                    "w": f.get("w", 0.3),
-                    "h": f.get("h", 0.05),
-                    "page": f.get("page", 1),
-                }
-            ],
-        })
-
-    # If no fields detected, add a default signature on page 1
-    if not docuseal_fields:
-        logger.warning("No AI fields detected — adding default signature field")
-        docuseal_fields.append({
-            "name": "Applicant Signature",
-            "type": "signature",
-            "role": "First Party",
-            "required": True,
-            "areas": [{"x": 0.1, "y": 0.85, "w": 0.3, "h": 0.05, "page": 1}],
-        })
-
-    # Step 3: Encode PDF and send to DocuSeal
+    """Send PDF for signing — customer places their own signature.
+    
+    Adds a single required signature field. DocuSeal's signing UI
+    presents a clean step-by-step flow where the signer draws/types
+    their signature and it gets applied to the document.
+    """
     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
     payload = {
@@ -181,7 +117,26 @@ async def send_for_signature(
             {
                 "name": title,
                 "file": pdf_base64,
-                "fields": docuseal_fields,
+                "fields": [
+                    {
+                        "name": "Signature",
+                        "type": "signature",
+                        "role": "First Party",
+                        "required": True,
+                        "areas": [
+                            {"x": 0.05, "y": 0.9, "w": 0.3, "h": 0.05, "page": -1}
+                        ],
+                    },
+                    {
+                        "name": "Date",
+                        "type": "date",
+                        "role": "First Party",
+                        "required": True,
+                        "areas": [
+                            {"x": 0.6, "y": 0.9, "w": 0.2, "h": 0.04, "page": -1}
+                        ],
+                    },
+                ],
             }
         ],
         "submitters": [
@@ -193,8 +148,6 @@ async def send_for_signature(
         ],
     }
 
-    logger.info(f"DocuSeal payload: {len(docuseal_fields)} fields, sending to {signer_email}")
-
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             f"{DOCUSEAL_API_URL}/submissions/pdf",
@@ -205,7 +158,7 @@ async def send_for_signature(
             json=payload,
         )
 
-    logger.info(f"DocuSeal response: status={response.status_code}, body={response.text[:500]}")
+    logger.info(f"DocuSeal self-place response: status={response.status_code}, body={response.text[:500]}")
 
     if response.status_code not in (200, 201):
         raise ValueError(f"DocuSeal API error ({response.status_code}): {response.text[:500]}")
@@ -220,8 +173,32 @@ async def send_for_signature(
 
     return {
         "documentId": str(submission_id) if submission_id else "unknown",
-        "fields_detected": len(docuseal_fields),
+        "mode": "self_place",
     }
+
+
+async def send_for_signature(
+    pdf_bytes: bytes,
+    signer_name: str,
+    signer_email: str,
+    title: str,
+    carrier: str = None,
+) -> dict:
+    """Main entry point — routes to template or self-place mode."""
+    if not settings.DOCUSEAL_API_KEY:
+        raise ValueError("DOCUSEAL_API_KEY not configured. Set it in Render environment variables.")
+
+    logger.info(f"DocuSeal: sending to {signer_email}, carrier={carrier}, pdf_size={len(pdf_bytes)}")
+
+    # Check if we have a template for this carrier
+    template_id = get_template_for_carrier(carrier) if carrier else None
+
+    if template_id:
+        logger.info(f"Using template {template_id} for carrier '{carrier}'")
+        return await send_with_template(template_id, signer_name, signer_email)
+    else:
+        logger.info(f"No template for carrier '{carrier}' — using self-place mode")
+        return await send_self_place(pdf_bytes, signer_name, signer_email, title)
 
 
 async def get_document_status(submission_id: str) -> dict:
