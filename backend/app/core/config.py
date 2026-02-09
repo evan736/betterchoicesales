@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     NOWCERTS_API_KEY: Optional[str] = None
     NOWCERTS_API_URL: str = "https://api.nowcerts.com/v1"
     
+    # Anthropic API for PDF extraction
+    ANTHROPIC_API_KEY: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

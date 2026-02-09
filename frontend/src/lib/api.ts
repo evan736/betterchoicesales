@@ -20,6 +20,7 @@ export const salesAPI = {
   list: () => api.get('/api/sales/'),
   get: (id: number) => api.get(`/api/sales/${id}`),
   create: (data: any) => api.post('/api/sales/', data),
+  createFromPdf: (data: any) => api.post('/api/sales/create-from-pdf', data),
   update: (id: number, data: any) => api.patch(`/api/sales/${id}`, data),
   delete: (id: number) => api.delete(`/api/sales/${id}`),
   uploadPDF: (id: number, file: File) => {
@@ -27,6 +28,14 @@ export const salesAPI = {
     formData.append('file', file);
     return api.post(`/api/sales/${id}/upload-application`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  extractPDF: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/api/sales/extract-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     });
   },
 };

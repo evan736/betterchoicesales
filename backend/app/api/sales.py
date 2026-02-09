@@ -1,6 +1,7 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import extract as sql_extract, func
 from pathlib import Path
 import shutil
 from app.core.database import get_db
@@ -11,6 +12,99 @@ from app.schemas.sale import SaleCreate, Sale as SaleSchema, SaleUpdate
 from app.core.config import settings
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
+
+
+@router.post("/extract-pdf")
+async def extract_pdf(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a PDF and extract insurance application data using AI."""
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF files are allowed"
+        )
+
+    # Read file bytes
+    pdf_bytes = await file.read()
+
+    if len(pdf_bytes) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File too large (max 50MB)"
+        )
+
+    try:
+        from app.services.pdf_extract import extract_pdf_data
+        extracted = await extract_pdf_data(pdf_bytes)
+        return {"status": "success", "data": extracted, "filename": file.filename}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process PDF: {str(e)}"
+        )
+
+
+@router.post("/create-from-pdf")
+def create_from_pdf(
+    sale_data: SaleCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a sale from extracted PDF data, with household grouping logic."""
+    from datetime import datetime
+
+    # Check for duplicate policy number
+    existing = db.query(Sale).filter(Sale.policy_number == sale_data.policy_number).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sale with this policy number already exists"
+        )
+
+    sale = Sale(
+        **sale_data.model_dump(),
+        producer_id=current_user.id,
+    )
+
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+
+    # Check for household grouping — same client name, same month
+    sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month
+    sale_year = sale.sale_date.year if sale.sale_date else datetime.utcnow().year
+
+    household_sales = (
+        db.query(Sale)
+        .filter(
+            Sale.producer_id == current_user.id,
+            Sale.client_name == sale.client_name,
+            sql_extract("year", Sale.sale_date) == sale_year,
+            sql_extract("month", Sale.sale_date) == sale_month,
+        )
+        .all()
+    )
+
+    household_items = sum(s.item_count or 1 for s in household_sales)
+    household_premium = sum(float(s.written_premium) for s in household_sales)
+
+    return {
+        "sale": SaleSchema.model_validate(sale),
+        "household": {
+            "client_name": sale.client_name,
+            "total_policies": len(household_sales),
+            "total_items": household_items,
+            "total_premium": household_premium,
+            "is_bundle": len(household_sales) > 1,
+        }
+    }
 
 
 @router.post("/", response_model=SaleSchema)
