@@ -118,7 +118,10 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         alert(`✓ Signature request sent to ${sale.client_email}!`);
         onUpdate();
       } catch (error: any) {
-        alert(error.response?.data?.detail || 'Failed to send for signature');
+        console.error('Send for signature error:', error);
+        const detail = error.response?.data?.detail;
+        const msg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || error.message || 'Failed to send for signature');
+        alert(`Error: ${msg}`);
       } finally {
         setSendingSig(false);
       }

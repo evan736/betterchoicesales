@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
 from app.api import auth, sales, commissions, statements, analytics
 
 logger = logging.getLogger(__name__)
@@ -97,7 +96,7 @@ app = FastAPI(
     redoc_url=redoc_url,
 )
 
-# CORS — only allow specific origins (no wildcard in production)
+# CORS — allow Render frontend URL + local dev
 allowed_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
@@ -105,7 +104,6 @@ allowed_origins = [
 frontend_url = os.environ.get("FRONTEND_URL", "")
 if frontend_url:
     allowed_origins.append(frontend_url)
-    # Also allow without trailing slash and with https
     if not frontend_url.startswith("https"):
         allowed_origins.append(frontend_url.replace("http://", "https://"))
 
@@ -113,17 +111,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-    expose_headers=["X-Request-Id"],
-    max_age=600,  # Cache preflight for 10 minutes
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# Security headers (X-Frame-Options, X-Content-Type-Options, HSTS, etc.)
-app.add_middleware(SecurityHeadersMiddleware)
-
-# Rate limiting (brute force protection on login, general API limits)
-app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/health")

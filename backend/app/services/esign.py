@@ -120,8 +120,17 @@ async def send_for_signature(
 ) -> dict:
     """Send document to BoldSign for electronic signature.
     Uses BoldSign's built-in AI field detection for accurate placement."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not settings.BOLDSIGN_API_KEY:
         raise ValueError("BOLDSIGN_API_KEY not configured. Set it in Render environment variables.")
+
+    logger.info(f"Sending to BoldSign: signer={signer_name}, email={signer_email}, pdf_size={len(pdf_bytes)}")
+
+    # Clean filename — remove special characters
+    import re
+    clean_title = re.sub(r'[^a-zA-Z0-9_ -]', '', title)[:100] or "Application"
 
     signer_data = {
         "name": signer_name,
@@ -131,17 +140,19 @@ async def send_for_signature(
         "locale": "EN",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         files = {
-            "Files": (f"{title}.pdf", pdf_bytes, "application/pdf"),
+            "Files": (f"{clean_title}.pdf", pdf_bytes, "application/pdf"),
         }
         data = {
-            "Title": title,
-            "Message": f"Please review and sign the attached insurance application.",
+            "Title": clean_title,
+            "Message": "Please review and sign the attached insurance application.",
             "Signers": json.dumps(signer_data),
             "AutoDetectFields": "true",
             "EnablePrintAndSign": "true",
         }
+
+        logger.info(f"BoldSign request: title={clean_title}, signer={json.dumps(signer_data)}")
 
         response = await client.post(
             "https://api.boldsign.com/v1/document/send",
@@ -152,6 +163,8 @@ async def send_for_signature(
             data=data,
             files=files,
         )
+
+    logger.info(f"BoldSign response: status={response.status_code}, body={response.text[:500]}")
 
     if response.status_code not in (200, 201):
         raise ValueError(f"BoldSign API error ({response.status_code}): {response.text[:500]}")

@@ -317,6 +317,9 @@ async def send_for_signature_endpoint(
 ):
     """Send a sale's PDF application for electronic signature via BoldSign.
     Accepts optional file upload, or uses the saved application_pdf_path."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
@@ -330,25 +333,32 @@ async def send_for_signature_endpoint(
     # Get PDF bytes — from upload or saved path
     pdf_bytes = None
     if file and file.filename:
+        logger.info(f"Reading uploaded file: {file.filename}, size={file.size}")
         pdf_bytes = await file.read()
+        logger.info(f"Read {len(pdf_bytes)} bytes from upload")
     elif sale.application_pdf_path:
         pdf_path = Path(sale.application_pdf_path)
+        logger.info(f"Trying saved path: {pdf_path}, exists={pdf_path.exists()}")
         if pdf_path.exists():
             pdf_bytes = pdf_path.read_bytes()
 
     if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF.")
+        raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF when clicking Send for Signature.")
+
+    logger.info(f"Sending for signature: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
 
     try:
         from app.services.esign import send_for_signature as boldsign_send
 
-        title = f"Insurance Application - {sale.client_name} ({sale.policy_number})"
+        title = f"Insurance Application - {sale.client_name}"
         result = await boldsign_send(
             pdf_bytes=pdf_bytes,
             signer_name=sale.client_name,
             signer_email=sale.client_email,
             title=title,
         )
+
+        logger.info(f"BoldSign success: {result}")
 
         # Update sale with signature info
         sale.signature_request_id = result.get("documentId")
@@ -362,8 +372,10 @@ async def send_for_signature_endpoint(
         }
 
     except ValueError as e:
+        logger.error(f"BoldSign ValueError: {e}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        logger.error(f"BoldSign Exception: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to send for signature: {str(e)}")
 
 
