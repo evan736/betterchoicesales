@@ -38,79 +38,149 @@ def count_business_days_in_range(year: int, month: int) -> int:
 @router.get("/trending")
 def get_trending_projection(
     target_date: Optional[str] = Query(None, description="Target date YYYY-MM-DD, defaults to end of current month"),
+    period: Optional[str] = Query(None, description="monthly, annual, last_year"),
     producer_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Project sales to a target date based on daily business-day pace.
-    Also returns next tier goal and 100K goal progress.
+    Supports monthly (current month), annual (this year), and last_year views.
     """
     now = datetime.utcnow()
     today = now.date()
+
+    # Build base user filter
+    user_filters = []
+    if current_user.role == "producer":
+        user_filters.append(Sale.producer_id == current_user.id)
+    elif producer_id:
+        user_filters.append(Sale.producer_id == producer_id)
+
+    # Handle last_year — purely historical, no projections
+    if period == "last_year":
+        last_year = today.year - 1
+        ly_premium = float(
+            db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+                extract("year", Sale.sale_date) == last_year,
+                *user_filters,
+            ).scalar() or 0
+        )
+        ly_sales = db.query(func.count(Sale.id)).filter(
+            extract("year", Sale.sale_date) == last_year,
+            *user_filters,
+        ).scalar() or 0
+
+        # Monthly breakdown for last year
+        monthly_breakdown = []
+        for m in range(1, 13):
+            mp = float(
+                db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+                    extract("year", Sale.sale_date) == last_year,
+                    extract("month", Sale.sale_date) == m,
+                    *user_filters,
+                ).scalar() or 0
+            )
+            monthly_breakdown.append({"month": m, "premium": mp})
+
+        return {
+            "mode": "last_year",
+            "year": last_year,
+            "current_premium": ly_premium,
+            "ytd_premium": ly_premium,
+            "projected_premium": ly_premium,
+            "daily_pace": 0,
+            "biz_days_elapsed": 0,
+            "biz_days_remaining": 0,
+            "total_biz_days": 0,
+            "target_date": f"{last_year}-12-31",
+            "total_sales": ly_sales,
+            "monthly_breakdown": monthly_breakdown,
+            "current_tier": None,
+            "goals": [],
+            "period": str(last_year),
+        }
+
+    # Determine period start and premium window
+    if period == "annual":
+        period_start = date(today.year, 1, 1)
+        default_target = date(today.year, 12, 31)
+    else:
+        # monthly (default)
+        period_start = date(today.year, today.month, 1)
+        if today.month == 12:
+            default_target = date(today.year, 12, 31)
+        else:
+            default_target = date(today.year, today.month + 1, 1) - timedelta(days=1)
 
     # Determine target date
     if target_date:
         try:
             target = datetime.strptime(target_date, "%Y-%m-%d").date()
         except ValueError:
-            target = date(today.year, today.month + 1, 1) - timedelta(days=1) if today.month < 12 else date(today.year, 12, 31)
+            target = default_target
     else:
-        # End of current month
-        if today.month == 12:
-            target = date(today.year, 12, 31)
-        else:
-            target = date(today.year, today.month + 1, 1) - timedelta(days=1)
+        target = default_target
 
-    # Determine who to query
-    query = db.query(func.coalesce(func.sum(Sale.written_premium), 0))
-    if current_user.role == "producer":
-        query = query.filter(Sale.producer_id == current_user.id)
-    elif producer_id:
-        query = query.filter(Sale.producer_id == producer_id)
-
-    # Current month premium
-    current_month_premium = float(
-        query.filter(
-            extract("year", Sale.sale_date) == today.year,
-            extract("month", Sale.sale_date) == today.month,
-        ).scalar() or 0
+    # Get premium for the period
+    period_query = db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+        Sale.sale_date >= datetime.combine(period_start, datetime.min.time()),
+        *user_filters,
     )
 
-    # YTD premium
+    if period != "annual":
+        # Monthly — filter to current month
+        period_query = period_query.filter(
+            extract("year", Sale.sale_date) == today.year,
+            extract("month", Sale.sale_date) == today.month,
+        )
+    else:
+        # Annual — filter to this year
+        period_query = period_query.filter(
+            extract("year", Sale.sale_date) == today.year,
+        )
+
+    current_premium = float(period_query.scalar() or 0)
+
+    # YTD premium (always this year total)
     ytd_premium = float(
         db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
             extract("year", Sale.sale_date) == today.year,
-            *([Sale.producer_id == current_user.id] if current_user.role == "producer" else ([Sale.producer_id == producer_id] if producer_id else [])),
+            *user_filters,
         ).scalar() or 0
     )
 
-    # Business days elapsed this month (from 1st to today)
-    month_start = date(today.year, today.month, 1)
-    biz_days_elapsed = count_business_days(month_start, today)
+    # Business days elapsed (period start to today)
+    biz_days_elapsed = count_business_days(period_start, today)
 
-    # Daily pace (business days only)
-    daily_pace = current_month_premium / biz_days_elapsed if biz_days_elapsed > 0 else 0
+    # Daily pace
+    daily_pace = current_premium / biz_days_elapsed if biz_days_elapsed > 0 else 0
 
     # Business days remaining to target
     biz_days_remaining = count_business_days(today + timedelta(days=1), target)
 
-    # Total business days in projection window (month start to target)
-    total_biz_days = count_business_days(month_start, target)
+    # Total business days (period start to target)
+    total_biz_days = count_business_days(period_start, target)
 
-    # Projected premium at target date
-    projected_premium = current_month_premium + (daily_pace * biz_days_remaining)
+    # Projected premium
+    projected_premium = current_premium + (daily_pace * biz_days_remaining)
 
-    # If target is beyond current month, calculate multi-month projection
-    is_multi_month = target.month != today.month or target.year != today.year
-    if is_multi_month:
-        # For multi-month, use the monthly average pace
-        # projected = current pace per biz day * total biz days from today to target
-        total_biz_to_target = count_business_days(today + timedelta(days=1), target)
-        projected_premium = current_month_premium + (daily_pace * total_biz_to_target)
-
-    # --- Tier goals ---
+    # --- Tier goals (use current month premium for tier calc) ---
     from app.models.commission import CommissionTier as TierModel
+
+    # For tier purposes, always use current month
+    current_month_premium = float(
+        db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+            extract("year", Sale.sale_date) == today.year,
+            extract("month", Sale.sale_date) == today.month,
+            *user_filters,
+        ).scalar() or 0
+    )
+
+    month_end = date(today.year, today.month + 1, 1) - timedelta(days=1) if today.month < 12 else date(today.year, 12, 31)
+    month_biz_remaining = count_business_days(today + timedelta(days=1), month_end)
+    month_daily_pace = current_month_premium / count_business_days(date(today.year, today.month, 1), today) if count_business_days(date(today.year, today.month, 1), today) > 0 else 0
+    month_projected = current_month_premium + (month_daily_pace * month_biz_remaining)
 
     all_tiers = (
         db.query(TierModel)
@@ -119,30 +189,26 @@ def get_trending_projection(
         .all()
     )
 
-    # Find current tier
     current_tier = None
     next_tier = None
     for t in all_tiers:
         if float(t.min_written_premium) <= current_month_premium:
             if t.max_written_premium is None or float(t.max_written_premium) >= current_month_premium:
                 current_tier = t
-    
-    # Find next tier
+
     if current_tier:
         for t in all_tiers:
             if t.tier_level == current_tier.tier_level + 1:
                 next_tier = t
                 break
 
-    # Build goals list
     goals = []
 
-    # Next tier goal
     if next_tier:
         next_min = float(next_tier.min_written_premium)
         remaining_to_tier = max(0, next_min - current_month_premium)
-        daily_needed = remaining_to_tier / biz_days_remaining if biz_days_remaining > 0 else 0
-        on_pace = projected_premium >= next_min
+        daily_needed = remaining_to_tier / month_biz_remaining if month_biz_remaining > 0 else 0
+        on_pace = month_projected >= next_min
         goals.append({
             "label": f"Tier {next_tier.tier_level} ({int(next_tier.commission_rate * 100)}%)",
             "target": next_min,
@@ -152,21 +218,21 @@ def get_trending_projection(
             "progress": min(100, (current_month_premium / next_min * 100)) if next_min > 0 else 100,
         })
 
-    # Always show $100K goal
     goal_100k = 100000
     remaining_100k = max(0, goal_100k - current_month_premium)
-    daily_needed_100k = remaining_100k / biz_days_remaining if biz_days_remaining > 0 else 0
+    daily_needed_100k = remaining_100k / month_biz_remaining if month_biz_remaining > 0 else 0
     goals.append({
         "label": "$100K Goal",
         "target": goal_100k,
         "remaining": remaining_100k,
         "daily_needed": daily_needed_100k,
-        "on_pace": projected_premium >= goal_100k,
+        "on_pace": month_projected >= goal_100k,
         "progress": min(100, (current_month_premium / goal_100k * 100)),
     })
 
     return {
-        "current_premium": current_month_premium,
+        "mode": period or "monthly",
+        "current_premium": current_premium,
         "ytd_premium": ytd_premium,
         "projected_premium": round(projected_premium, 2),
         "daily_pace": round(daily_pace, 2),

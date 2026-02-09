@@ -24,6 +24,7 @@ const GROUP_OPTIONS = [
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'This Month' },
   { value: 'annual', label: 'This Year' },
+  { value: 'last_year', label: 'Last Year' },
   { value: 'all-time', label: 'All Time' },
 ];
 
@@ -68,13 +69,19 @@ export default function Analytics() {
     setLoadingData(true);
     try {
       const periodParam = period === 'all-time' ? undefined : period;
+      const now = new Date();
+      const extraParams: any = {};
+      if (period === 'last_year') {
+        extraParams.year = now.getFullYear() - 1;
+      }
       const [summaryRes, groupRes, tableRes] = await Promise.all([
-        analyticsAPI.summary({ period: periodParam }),
-        analyticsAPI.byGroup({ group_by: groupBy, period: periodParam }),
+        analyticsAPI.summary({ period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
+        analyticsAPI.byGroup({ group_by: groupBy, period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
         analyticsAPI.salesTable({
-          period: periodParam,
+          period: period === 'last_year' ? 'annual' : periodParam,
           sort_by: sortBy,
           sort_order: sortOrder,
+          ...extraParams,
           ...tableFilters,
           limit: 50,
         }),
@@ -128,7 +135,7 @@ export default function Analytics() {
 
         {/* Trending & Goals */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrendingGoals />
+          <TrendingGoals period={period} />
         </div>
 
         {/* Chart Section */}

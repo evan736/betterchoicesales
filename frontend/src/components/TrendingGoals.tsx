@@ -3,6 +3,7 @@ import { analyticsAPI } from '../lib/api';
 import { TrendingUp, Target, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TrendingData {
+  mode: string;
   current_premium: number;
   ytd_premium: number;
   projected_premium: number;
@@ -21,22 +22,32 @@ interface TrendingData {
     progress: number;
   }[];
   period: string;
+  total_sales?: number;
+  monthly_breakdown?: { month: number; premium: number }[];
+  year?: number;
 }
 
-const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+interface Props {
+  compact?: boolean;
+  period?: string; // monthly, annual, last_year, all-time
+}
+
+const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPeriod }) => {
   const [data, setData] = useState<TrendingData | null>(null);
   const [targetDate, setTargetDate] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const loadData = async (date?: string) => {
+  const effectivePeriod = externalPeriod || 'monthly';
+
+  const loadData = async (customDate?: string) => {
     setLoading(true);
     try {
-      const params: any = {};
-      if (date) params.target_date = date;
+      const params: any = { period: effectivePeriod === 'all-time' ? 'annual' : effectivePeriod };
+      if (customDate) params.target_date = customDate;
       const res = await analyticsAPI.trending(params);
       setData(res.data);
-      if (!date) setTargetDate(res.data.target_date);
+      if (!customDate) setTargetDate(res.data.target_date);
     } catch (e) {
       console.error('Failed to load trending data:', e);
     } finally {
@@ -45,8 +56,9 @@ const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => 
   };
 
   useEffect(() => {
+    setTargetDate('');
     loadData();
-  }, []);
+  }, [effectivePeriod]);
 
   const handleDateChange = (newDate: string) => {
     setTargetDate(newDate);
@@ -59,20 +71,24 @@ const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => 
   if (loading || !data) {
     return (
       <div className="card animate-pulse">
-        <div className="h-6 bg-slate-200 rounded w-48 mb-4"></div>
-        <div className="h-20 bg-slate-100 rounded"></div>
+        <div className="h-6 bg-slate-200 rounded w-48 mb-4" />
+        <div className="h-20 bg-slate-100 rounded" />
       </div>
     );
   }
 
+  const isLastYear = data.mode === 'last_year';
+
   const targetLabel = (() => {
+    if (isLastYear) return `${data.year} Full Year`;
     const d = new Date(targetDate + 'T00:00:00');
     const now = new Date();
-    if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
-      return 'End of Month';
-    }
+    if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) return 'End of Month';
+    if (d.getMonth() === 11 && d.getDate() === 31) return 'End of Year';
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   })();
+
+  const periodLabel = effectivePeriod === 'annual' ? 'Year-to-Date' : effectivePeriod === 'last_year' ? `Last Year (${data.year})` : 'This Month';
 
   // Quick date buttons
   const now = new Date();
@@ -93,20 +109,22 @@ const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => 
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2">
             <TrendingUp className="text-brand-600" size={22} />
-            Trending Data
+            {isLastYear ? `${data.year} Production` : 'Trending Data'}
           </h3>
-          <button
-            onClick={() => setShowDatePicker(!showDatePicker)}
-            className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors"
-          >
-            <Calendar size={16} />
-            {targetLabel}
-            {showDatePicker ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
+          {!isLastYear && (
+            <button
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors"
+            >
+              <Calendar size={16} />
+              {targetLabel}
+              {showDatePicker ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          )}
         </div>
 
         {/* Date Picker */}
-        {showDatePicker && (
+        {showDatePicker && !isLastYear && (
           <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
             <div className="flex items-center gap-2 flex-wrap mb-2">
               {quickDates.map((qd) => (
@@ -134,34 +152,58 @@ const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => 
           </div>
         )}
 
-        {/* Projection Stats */}
+        {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-500 font-medium mb-1">Current Premium</div>
+            <div className="text-xs text-slate-500 font-medium mb-1">{periodLabel} Premium</div>
             <div className="text-xl font-bold text-slate-900">{fmt(data.current_premium)}</div>
           </div>
-          <div className="p-3 bg-brand-50 rounded-lg border border-brand-100">
-            <div className="text-xs text-brand-600 font-medium mb-1">Projected by {targetLabel}</div>
-            <div className="text-xl font-bold text-brand-700">{fmt(data.projected_premium)}</div>
-          </div>
+          {isLastYear ? (
+            <div className="p-3 bg-slate-50 rounded-lg">
+              <div className="text-xs text-slate-500 font-medium mb-1">Total Sales</div>
+              <div className="text-xl font-bold text-slate-900">{data.total_sales || 0}</div>
+            </div>
+          ) : (
+            <div className="p-3 bg-brand-50 rounded-lg border border-brand-100">
+              <div className="text-xs text-brand-600 font-medium mb-1">Projected by {targetLabel}</div>
+              <div className="text-xl font-bold text-brand-700">{fmt(data.projected_premium)}</div>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div>
-            <div className="text-lg font-bold text-slate-900">{fmt(data.daily_pace)}</div>
-            <div className="text-xs text-slate-500">Daily Pace</div>
+        {!isLastYear && (
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <div className="text-lg font-bold text-slate-900">{fmt(data.daily_pace)}</div>
+              <div className="text-xs text-slate-500">Daily Pace</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-slate-900">{data.biz_days_elapsed}</div>
+              <div className="text-xs text-slate-500">Biz Days In</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-slate-900">{data.biz_days_remaining}</div>
+              <div className="text-xs text-slate-500">Biz Days Left</div>
+            </div>
           </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900">{data.biz_days_elapsed}</div>
-            <div className="text-xs text-slate-500">Biz Days In</div>
-          </div>
-          <div>
-            <div className="text-lg font-bold text-slate-900">{data.biz_days_remaining}</div>
-            <div className="text-xs text-slate-500">Biz Days Left</div>
-          </div>
-        </div>
+        )}
 
-        {!compact && data.ytd_premium > 0 && (
+        {/* Last year monthly breakdown */}
+        {isLastYear && data.monthly_breakdown && !compact && (
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <div className="text-xs font-semibold text-slate-500 mb-2">Monthly Breakdown</div>
+            <div className="grid grid-cols-4 gap-2">
+              {data.monthly_breakdown.map((m) => (
+                <div key={m.month} className="text-center p-2 bg-slate-50 rounded">
+                  <div className="text-xs text-slate-400">{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.month - 1]}</div>
+                  <div className="text-sm font-bold text-slate-700">{fmt(m.premium)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!compact && !isLastYear && data.ytd_premium > 0 && (
           <div className="mt-4 pt-3 border-t border-slate-100">
             <div className="text-sm text-slate-600">
               Year-to-Date Premium: <span className="font-bold text-slate-900">{fmt(data.ytd_premium)}</span>
@@ -170,19 +212,20 @@ const TrendingGoals: React.FC<{ compact?: boolean }> = ({ compact = false }) => 
         )}
       </div>
 
-      {/* Goals Card */}
-      <div className="card border-2 border-amber-100">
-        <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2 mb-4">
-          <Target className="text-amber-500" size={22} />
-          Goals & Milestones
-        </h3>
-
-        <div className="space-y-4">
-          {data.goals.map((goal, i) => (
-            <GoalItem key={i} goal={goal} currentPremium={data.current_premium} dailyPace={data.daily_pace} bizDaysRemaining={data.biz_days_remaining} />
-          ))}
+      {/* Goals Card — hide for last year */}
+      {!isLastYear && data.goals.length > 0 && (
+        <div className="card border-2 border-amber-100">
+          <h3 className="font-display text-xl font-bold text-slate-900 flex items-center gap-2 mb-4">
+            <Target className="text-amber-500" size={22} />
+            Goals & Milestones
+          </h3>
+          <div className="space-y-4">
+            {data.goals.map((goal, i) => (
+              <GoalItem key={i} goal={goal} currentPremium={data.current_premium} dailyPace={data.daily_pace} bizDaysRemaining={data.biz_days_remaining} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -212,7 +255,6 @@ const GoalItem: React.FC<{
         )}
       </div>
 
-      {/* Progress Bar */}
       <div className="w-full bg-slate-200 rounded-full h-2.5 mb-2">
         <div
           className={`h-2.5 rounded-full transition-all duration-500 ${
@@ -224,15 +266,13 @@ const GoalItem: React.FC<{
 
       <div className="flex items-center justify-between text-xs text-slate-600">
         <span>{fmt(currentPremium)} / {fmt(goal.target)}</span>
-        {!isComplete && (
-          <span>{fmt(goal.remaining)} remaining</span>
-        )}
+        {!isComplete && <span>{fmt(goal.remaining)} remaining</span>}
       </div>
 
       {!isComplete && goal.daily_needed > 0 && (
         <div className="mt-2 text-xs text-slate-500">
           Need <span className="font-semibold text-slate-700">{fmt(goal.daily_needed)}/day</span> over {bizDaysRemaining} business days
-          {' '}(current pace: {fmt(dailyPace)}/day)
+          {dailyPace > 0 && <span> (current pace: {fmt(dailyPace)}/day)</span>}
         </div>
       )}
     </div>
