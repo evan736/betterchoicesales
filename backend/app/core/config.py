@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours (work day)
+    MIN_PASSWORD_LENGTH: int = 8
+    MAX_LOGIN_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_MINUTES: int = 15
     
     # File Upload
     UPLOAD_DIR: str = "/app/uploads"

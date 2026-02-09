@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
 from app.api import auth, sales, commissions, statements, analytics
 
 logger = logging.getLogger(__name__)
@@ -83,14 +84,20 @@ async def lifespan(app: FastAPI):
     yield
 
 
+# Disable API docs in production
+docs_url = "/docs" if settings.ENVIRONMENT != "production" else None
+redoc_url = "/redoc" if settings.ENVIRONMENT != "production" else None
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Better Choice Insurance - Sales Tracking API",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
 )
 
-# CORS — allow Render frontend URL + local dev
+# CORS — only allow specific origins (no wildcard in production)
 allowed_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
@@ -106,9 +113,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Request-Id"],
+    max_age=600,  # Cache preflight for 10 minutes
 )
+
+# Security headers (X-Frame-Options, X-Content-Type-Options, HSTS, etc.)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Rate limiting (brute force protection on login, general API limits)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.get("/health")
