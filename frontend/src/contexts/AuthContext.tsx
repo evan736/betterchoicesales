@@ -10,6 +10,8 @@ interface User {
   full_name: string;
   role: string;
   producer_code?: string;
+  commission_tier?: number;
+  is_superuser?: boolean;
 }
 
 interface AuthContextType {
