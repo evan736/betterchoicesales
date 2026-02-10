@@ -57,6 +57,87 @@ def init_database():
             """))
             conn.commit()
             logger.info("Enum migrations applied")
+
+            # Add new columns to existing tables
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    -- statement_imports new columns
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_imports' AND column_name='total_premium') THEN
+                        ALTER TABLE statement_imports ADD COLUMN total_premium NUMERIC(12,2) DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_imports' AND column_name='total_commission') THEN
+                        ALTER TABLE statement_imports ADD COLUMN total_commission NUMERIC(12,2) DEFAULT 0;
+                    END IF;
+
+                    -- statement_lines new columns
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='insured_name') THEN
+                        ALTER TABLE statement_lines ADD COLUMN insured_name VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='transaction_type_raw') THEN
+                        ALTER TABLE statement_lines ADD COLUMN transaction_type_raw VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='effective_date') THEN
+                        ALTER TABLE statement_lines ADD COLUMN effective_date TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='commission_rate') THEN
+                        ALTER TABLE statement_lines ADD COLUMN commission_rate NUMERIC(5,4);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='producer_name') THEN
+                        ALTER TABLE statement_lines ADD COLUMN producer_name VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='product_type') THEN
+                        ALTER TABLE statement_lines ADD COLUMN product_type VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='line_of_business') THEN
+                        ALTER TABLE statement_lines ADD COLUMN line_of_business VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='state') THEN
+                        ALTER TABLE statement_lines ADD COLUMN state VARCHAR(2);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='term_months') THEN
+                        ALTER TABLE statement_lines ADD COLUMN term_months INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='match_confidence') THEN
+                        ALTER TABLE statement_lines ADD COLUMN match_confidence VARCHAR;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='assigned_agent_id') THEN
+                        ALTER TABLE statement_lines ADD COLUMN assigned_agent_id INTEGER REFERENCES users(id);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='agent_commission_amount') THEN
+                        ALTER TABLE statement_lines ADD COLUMN agent_commission_amount NUMERIC(12,2);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='agent_commission_rate') THEN
+                        ALTER TABLE statement_lines ADD COLUMN agent_commission_rate NUMERIC(5,4);
+                    END IF;
+
+                    -- Add FK from statement_lines to statement_imports if missing
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE constraint_name = 'statement_lines_statement_import_id_fkey'
+                    ) THEN
+                        BEGIN
+                            ALTER TABLE statement_lines ADD CONSTRAINT statement_lines_statement_import_id_fkey
+                                FOREIGN KEY (statement_import_id) REFERENCES statement_imports(id);
+                        EXCEPTION WHEN others THEN NULL;
+                        END;
+                    END IF;
+
+                    -- Add FK from statement_lines to sales if missing
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE constraint_name = 'statement_lines_matched_sale_id_fkey'
+                    ) THEN
+                        BEGIN
+                            ALTER TABLE statement_lines ADD CONSTRAINT statement_lines_matched_sale_id_fkey
+                                FOREIGN KEY (matched_sale_id) REFERENCES sales(id);
+                        EXCEPTION WHEN others THEN NULL;
+                        END;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("Column migrations applied")
         except Exception as e:
             logger.warning(f"Enum migration warning (may be OK): {e}")
 
