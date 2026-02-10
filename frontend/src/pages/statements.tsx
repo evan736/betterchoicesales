@@ -734,7 +734,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
         <p className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">{data.note}</p>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-slate-50 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-slate-900">{data.totals.total_carriers}</div>
           <div className="text-xs text-slate-500">Carriers</div>
@@ -746,10 +746,6 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
         <div className="bg-slate-50 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-slate-900">${fmt(data.totals.total_premium)}</div>
           <div className="text-xs text-slate-500">Total Premium</div>
-        </div>
-        <div className="bg-slate-50 rounded-lg p-3 text-center">
-          <div className="text-lg font-bold text-blue-700">${fmt(data.totals.total_carrier_commission)}</div>
-          <div className="text-xs text-slate-500">Carrier Commission</div>
         </div>
         <div className="bg-green-50 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-green-700">${fmt(data.totals.total_agent_pay)}</div>
@@ -802,7 +798,6 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                       <th className="text-left py-1 pr-2 font-semibold text-slate-600">Carrier</th>
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Lines</th>
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Premium</th>
-                      <th className="text-right py-1 px-2 font-semibold text-slate-600">Carrier Comm</th>
                       <th className="text-right py-1 px-2 font-semibold text-red-600">Chargebacks</th>
                       <th className="text-right py-1 pl-2 font-semibold text-green-700">Agent Pay</th>
                     </tr>
@@ -813,7 +808,6 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                         <td className="py-1 pr-2 capitalize">{cb.carrier.replace('_', ' ')}</td>
                         <td className="py-1 px-2 text-right">{cb.line_count}</td>
                         <td className="py-1 px-2 text-right">${fmt(cb.premium)}</td>
-                        <td className="py-1 px-2 text-right">${fmt(cb.carrier_commission)}</td>
                         <td className="py-1 px-2 text-right text-red-600">{cb.chargebacks && cb.chargebacks < 0 ? `-$${fmt(Math.abs(cb.chargebacks))}` : '—'}</td>
                         <td className="py-1 pl-2 text-right font-semibold text-green-700">${fmt(cb.agent_commission)}</td>
                       </tr>
@@ -948,7 +942,6 @@ const AgentSheetModal: React.FC<{
                       <th className="text-left py-2 px-2 font-semibold text-slate-600">Carrier</th>
                       <th className="text-left py-2 px-2 font-semibold text-slate-600">Trans Type</th>
                       <th className="text-right py-2 px-2 font-semibold text-slate-600">Premium</th>
-                      <th className="text-right py-2 px-2 font-semibold text-slate-600">Carrier Comm</th>
                       <th className="text-right py-2 px-2 font-semibold text-green-700">Agent Comm</th>
                       <th className="text-left py-2 px-2 font-semibold text-slate-600">Notes</th>
                     </tr>
@@ -961,7 +954,6 @@ const AgentSheetModal: React.FC<{
                         <td className="py-1.5 px-2 capitalize">{item.carrier?.replace('_', ' ')}</td>
                         <td className="py-1.5 px-2">{item.transaction_type}</td>
                         <td className="py-1.5 px-2 text-right">${fmt(item.premium)}</td>
-                        <td className="py-1.5 px-2 text-right">${fmt(item.carrier_commission)}</td>
                         <td className={`py-1.5 px-2 text-right font-semibold ${item.is_chargeback ? 'text-red-600' : 'text-green-700'}`}>
                           ${fmt(item.agent_commission)}
                         </td>
@@ -974,8 +966,7 @@ const AgentSheetModal: React.FC<{
                   <tfoot className="bg-slate-100 border-t-2 border-slate-300">
                     <tr>
                       <td colSpan={4} className="py-2 px-2 font-bold text-slate-700">TOTALS</td>
-                      <td className="py-2 px-2 text-right font-bold">${fmt(sheet.summary.gross_premium)}</td>
-                      <td className="py-2 px-2 text-right font-bold">—</td>
+                      <td className="py-2 px-2 text-right font-bold">${fmt(sheet.summary.new_business_premium)}</td>
                       <td className="py-2 px-2 text-right font-bold text-green-700">${fmt(sheet.summary.total_agent_commission)}</td>
                       <td></td>
                     </tr>

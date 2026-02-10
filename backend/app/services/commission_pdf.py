@@ -153,7 +153,6 @@ def generate_commission_pdf(sheet_data: dict) -> bytes:
         Paragraph("<b>Carrier</b>", styles['TableCell']),
         Paragraph("<b>Trans Type</b>", styles['TableCell']),
         Paragraph("<b>Premium</b>", styles['TableCellRight']),
-        Paragraph("<b>Carrier Comm</b>", styles['TableCellRight']),
         Paragraph("<b>Agent Comm</b>", styles['TableCellRight']),
         Paragraph("<b>Notes</b>", styles['TableCell']),
     ]
@@ -170,13 +169,12 @@ def generate_commission_pdf(sheet_data: dict) -> bytes:
             Paragraph(str(item["carrier"]).replace("_", " ")[:15], styles['TableCell']),
             Paragraph(str(item["transaction_type"])[:15], styles['TableCell']),
             Paragraph(fmt(item["premium"]), styles['TableCellRight']),
-            Paragraph(fmt(item["carrier_commission"]), styles['TableCellRight']),
             Paragraph(fmt(item["agent_commission"]), styles['TableCellRight']),
-            Paragraph(notes[:35], styles['TableCell']),
+            Paragraph(notes[:40], styles['TableCell']),
         ]
         table_data.append(row)
 
-    col_widths = [1.1 * inch, 1.3 * inch, 1.0 * inch, 0.9 * inch, 0.85 * inch, 0.85 * inch, 0.85 * inch, 2.15 * inch]
+    col_widths = [1.1 * inch, 1.4 * inch, 1.0 * inch, 1.0 * inch, 0.9 * inch, 0.9 * inch, 2.7 * inch]
     detail_table = Table(table_data, colWidths=col_widths, repeatRows=1)
 
     # Style the detail table
@@ -195,7 +193,7 @@ def generate_commission_pdf(sheet_data: dict) -> bytes:
     for i, item in enumerate(sheet_data["line_items"], start=1):
         if item["is_chargeback"]:
             style_cmds.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#fef2f2')))
-            style_cmds.append(('TEXTCOLOR', (6, i), (6, i), colors.HexColor('#dc2626')))
+            style_cmds.append(('TEXTCOLOR', (5, i), (5, i), colors.HexColor('#dc2626')))
 
     detail_table.setStyle(TableStyle(style_cmds))
     story.append(detail_table)

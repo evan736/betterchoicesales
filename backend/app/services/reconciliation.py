@@ -761,18 +761,19 @@ class ReconciliationService:
             imp = next((i for i in imports if i.id == line.statement_import_id), None)
             carrier_name = imp.carrier if imp else "unknown"
 
-            line_items.append({
-                "policy_number": line.policy_number,
-                "insured_name": line.insured_name,
-                "carrier": carrier_name,
-                "transaction_type": line.transaction_type_raw or line.transaction_type or "—",
-                "premium": float(premium),
-                "carrier_commission": float(carrier_comm),
-                "agent_commission": float(agent_comm),
-                "is_chargeback": is_chargeback,
-                "original_effective_date": original_eff_date.isoformat() if original_eff_date else None,
-                "term_months": term_months,
-            })
+            # Only include lines that affect agent pay (new business + chargebacks)
+            if agent_comm != Decimal("0"):
+                line_items.append({
+                    "policy_number": line.policy_number,
+                    "insured_name": line.insured_name,
+                    "carrier": carrier_name,
+                    "transaction_type": line.transaction_type_raw or line.transaction_type or "—",
+                    "premium": float(premium),
+                    "agent_commission": float(agent_comm),
+                    "is_chargeback": is_chargeback,
+                    "original_effective_date": original_eff_date.isoformat() if original_eff_date else None,
+                    "term_months": term_months,
+                })
 
         # Sort: chargebacks at bottom, then by carrier and policy
         line_items.sort(key=lambda x: (x["is_chargeback"], x["carrier"], x["policy_number"]))
