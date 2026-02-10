@@ -628,3 +628,144 @@ class ReconciliationService:
     def get_monthly_pay_summary(self, period: str) -> Dict:
         """Get existing monthly pay data (same as calculate but read-only)."""
         return self.calculate_monthly_pay(period)
+
+    def get_agent_commission_sheet(self, period: str, agent_id: int) -> Dict:
+        """Get detailed line-by-line commission sheet for an agent."""
+        year, month = map(int, period.split("-"))
+        prior_date = datetime(year, month, 1) - relativedelta(months=1)
+        prior_period = prior_date.strftime("%Y-%m")
+        current_period = f"{year:04d}-{month:02d}"
+
+        agent = self.db.query(User).filter(User.id == agent_id).first()
+        if not agent:
+            raise ValueError("Agent not found")
+
+        # Get all imports for this period
+        imports = self.db.query(StatementImport).filter(
+            StatementImport.statement_period == period,
+        ).all()
+
+        if not imports:
+            raise ValueError(f"No commission statements found for {period}")
+
+        import_ids = [imp.id for imp in imports]
+
+        # Get all lines assigned to this agent
+        lines = self.db.query(StatementLine).filter(
+            StatementLine.statement_import_id.in_(import_ids),
+            StatementLine.assigned_agent_id == agent_id,
+            StatementLine.is_matched == True,
+        ).all()
+
+        # Determine tier
+        prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+        if prior_premium == Decimal("0"):
+            prior_premium = self._get_agent_period_premium(agent_id, current_period)
+
+        tier = self._get_tier_for_premium(prior_premium)
+        agent_rate = tier.commission_rate if tier else Decimal("0.03")
+        tier_level = tier.tier_level if tier else 1
+
+        # Build line items
+        line_items = []
+        total_new_biz_premium = Decimal("0")
+        total_renewal_premium = Decimal("0")
+        total_other_premium = Decimal("0")
+        total_chargebacks = Decimal("0")
+        total_agent_commission = Decimal("0")
+        chargeback_count = 0
+
+        for line in lines:
+            premium = line.premium_amount or Decimal("0")
+            carrier_comm = line.commission_amount or Decimal("0")
+            tx_type = (line.transaction_type or "").lower()
+            is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
+
+            # Determine if chargeback applies
+            is_chargeback = False
+            original_eff_date = None
+            term_months = None
+
+            if is_cancel_or_reinstate and line.matched_sale_id:
+                original_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+                if original_sale and original_sale.effective_date:
+                    eff = original_sale.effective_date
+                    if hasattr(eff, 'date'):
+                        eff = eff.date()
+                    original_eff_date = eff
+
+                    term_months = line.term_months or 12
+                    if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
+                        term_months = 6
+
+                    term_end = eff + relativedelta(months=term_months)
+                    stmt_date = date(year, month, 1)
+
+                    if stmt_date < term_end:
+                        is_chargeback = True
+
+            if is_chargeback:
+                agent_comm = carrier_comm
+                total_chargebacks += agent_comm
+                chargeback_count += 1
+            elif is_cancel_or_reinstate:
+                agent_comm = Decimal("0")
+            else:
+                agent_comm = premium * agent_rate
+
+            # Categorize premium
+            if "new" in tx_type:
+                total_new_biz_premium += premium
+            elif "renew" in tx_type:
+                total_renewal_premium += premium
+            else:
+                total_other_premium += premium
+
+            total_agent_commission += agent_comm
+
+            # Get carrier
+            imp = next((i for i in imports if i.id == line.statement_import_id), None)
+            carrier_name = imp.carrier if imp else "unknown"
+
+            line_items.append({
+                "policy_number": line.policy_number,
+                "insured_name": line.insured_name,
+                "carrier": carrier_name,
+                "transaction_type": line.transaction_type_raw or line.transaction_type or "—",
+                "premium": float(premium),
+                "carrier_commission": float(carrier_comm),
+                "agent_commission": float(agent_comm),
+                "is_chargeback": is_chargeback,
+                "original_effective_date": original_eff_date.isoformat() if original_eff_date else None,
+                "term_months": term_months,
+            })
+
+        # Sort: chargebacks at bottom, then by carrier and policy
+        line_items.sort(key=lambda x: (x["is_chargeback"], x["carrier"], x["policy_number"]))
+
+        gross_premium = total_new_biz_premium + total_renewal_premium + total_other_premium
+        net_premium = gross_premium  # chargebacks already have negative premium
+
+        return {
+            "agent_id": agent_id,
+            "agent_name": agent.full_name or agent.username,
+            "agent_role": agent.role or "producer",
+            "agent_email": agent.email,
+            "period": period,
+            "period_display": datetime(year, month, 1).strftime("%B %Y"),
+            "tier_level": tier_level,
+            "commission_rate": float(agent_rate),
+            "tier_premium": float(prior_premium),
+            "summary": {
+                "new_business_premium": float(total_new_biz_premium),
+                "renewal_premium": float(total_renewal_premium),
+                "other_premium": float(total_other_premium),
+                "gross_premium": float(gross_premium),
+                "chargebacks": float(total_chargebacks),
+                "chargeback_count": chargeback_count,
+                "net_premium": float(net_premium),
+                "total_agent_commission": float(total_agent_commission),
+                "total_lines": len(line_items),
+            },
+            "line_items": line_items,
+        }

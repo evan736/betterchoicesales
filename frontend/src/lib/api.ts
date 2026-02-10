@@ -94,6 +94,10 @@ export const reconciliationAPI = {
     api.post(`/api/reconciliation/monthly-pay/${period}`),
   getMonthlyPay: (period: string) =>
     api.get(`/api/reconciliation/monthly-pay/${period}`),
+  agentSheet: (period: string, agentId: number) =>
+    api.get(`/api/reconciliation/agent-sheet/${period}/${agentId}`),
+  agentSheetPdfUrl: (period: string, agentId: number) =>
+    `/api/reconciliation/agent-sheet/${period}/${agentId}/pdf`,
 };
 
 // Legacy alias

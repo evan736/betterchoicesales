@@ -16,6 +16,8 @@ import {
   Users,
   ArrowRight,
   RefreshCw,
+  Download,
+  X,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -690,19 +692,17 @@ const TransTypeBadge: React.FC<{ type: string }> = ({ type }) => {
   );
 };
 
-// ── Monthly Combined Pay View ───────────────────────────────────────
 
 const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
   const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [selectedAgent, setSelectedAgent] = useState<{ id: number; name: string } | null>(null);
 
   return (
     <div className="mt-4 space-y-4">
-      {/* Note */}
       {data.note && (
         <p className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">{data.note}</p>
       )}
 
-      {/* Totals */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="bg-slate-50 rounded-lg p-3 text-center">
           <div className="text-lg font-bold text-slate-900">{data.totals.total_carriers}</div>
@@ -726,7 +726,6 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
         </div>
       </div>
 
-      {/* Carrier breakdown */}
       <div>
         <h4 className="font-semibold text-slate-700 text-sm mb-2">Carriers Included</h4>
         <div className="flex flex-wrap gap-2">
@@ -739,17 +738,20 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
         </div>
       </div>
 
-      {/* Agent cards */}
       <div>
-        <h4 className="font-semibold text-slate-700 text-sm mb-2">Agent Commission Breakdown</h4>
+        <h4 className="font-semibold text-slate-700 text-sm mb-2">Agent Commission Breakdown — <span className="text-blue-600 font-normal">click an agent for full detail &amp; PDF</span></h4>
         <div className="space-y-3">
           {data.agent_summaries.map((agent: any) => (
-            <div key={agent.agent_id} className="border border-slate-200 rounded-lg p-4 hover:border-green-300 transition-colors">
+            <div
+              key={agent.agent_id}
+              onClick={() => setSelectedAgent({ id: agent.agent_id, name: agent.agent_name })}
+              className="border border-slate-200 rounded-lg p-4 hover:border-green-300 hover:shadow-sm transition-all cursor-pointer"
+            >
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <h4 className="font-bold text-slate-900">{agent.agent_name}</h4>
                   <p className="text-xs text-slate-500">
-                    {agent.agent_role === 'retention_specialist' ? 'Retention Specialist' : 'Producer'} · Tier {agent.tier_level} · {(agent.commission_rate * 100).toFixed(1)}% rate · {agent.line_count} lines
+                    {agent.agent_role === 'retention_specialist' ? 'Retention Specialist' : 'Producer'} · Tier {agent.tier_level} · {(agent.commission_rate * 100).toFixed(1)}% · {agent.line_count} lines
                   </p>
                 </div>
                 <div className="text-right">
@@ -757,13 +759,11 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                   <div className="text-xs text-slate-500">net agent pay</div>
                   {agent.chargeback_count > 0 && (
                     <div className="text-xs text-red-600 mt-0.5">
-                      includes ${fmt(Math.abs(agent.chargebacks))} in chargebacks ({agent.chargeback_count})
+                      incl. ${fmt(Math.abs(agent.chargebacks))} chargebacks ({agent.chargeback_count})
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Carrier breakdown per agent */}
               <div className="overflow-x-auto">
                 <table className="w-full text-xs mt-2">
                   <thead>
@@ -790,14 +790,170 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                   </tbody>
                 </table>
               </div>
-
               <div className="flex justify-between text-xs text-slate-500 mt-2 pt-2 border-t border-slate-100">
                 <span>Tier based on: ${fmt(agent.tier_premium)} written premium</span>
-                <span>Total premium: ${fmt(agent.total_premium)}</span>
+                <span className="text-blue-600 font-medium">Click for full detail &amp; PDF →</span>
               </div>
             </div>
           ))}
         </div>
+      </div>
+
+      {selectedAgent && (
+        <AgentSheetModal
+          period={data.period}
+          agentId={selectedAgent.id}
+          agentName={selectedAgent.name}
+          onClose={() => setSelectedAgent(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+
+const AgentSheetModal: React.FC<{
+  period: string; agentId: number; agentName: string; onClose: () => void;
+}> = ({ period, agentId, agentName, onClose }) => {
+  const [sheet, setSheet] = useState<any>(null);
+  const [loadingSheet, setLoadingSheet] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingSheet(true);
+      try {
+        const res = await reconciliationAPI.agentSheet(period, agentId);
+        setSheet(res.data);
+      } catch (err: any) {
+        alert(err.response?.data?.detail || 'Failed to load agent sheet');
+        onClose();
+      } finally {
+        setLoadingSheet(false);
+      }
+    })();
+  }, [period, agentId]);
+
+  const handleDownloadPdf = () => {
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : '';
+    const apiBase = typeof window !== 'undefined'
+      ? window.location.origin.replace('-web', '-api').replace('better-choice-web', 'better-choice-api')
+      : '';
+    const url = `${apiBase}${reconciliationAPI.agentSheetPdfUrl(period, agentId)}`;
+
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.blob())
+      .then(blob => {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `Commission_${agentName.replace(/ /g, '_')}_${period}.pdf`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      })
+      .catch(err => alert('PDF download failed: ' + err.message));
+  };
+
+  const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl my-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50 rounded-t-xl">
+          <div>
+            <h2 className="font-display text-xl font-bold text-slate-900">Commission Sheet — {agentName}</h2>
+            <p className="text-sm text-slate-500">{sheet?.period_display || period}</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button onClick={handleDownloadPdf} className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg text-sm">
+              <Download size={16} />
+              <span>Download PDF</span>
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+          </div>
+        </div>
+
+        {loadingSheet ? (
+          <div className="p-12 text-center">
+            <RefreshCw size={24} className="mx-auto animate-spin text-green-600 mb-2" />
+            <p className="text-sm text-slate-500">Loading commission sheet...</p>
+          </div>
+        ) : sheet ? (
+          <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <div><span className="text-slate-500">Role:</span> <span className="font-medium capitalize">{sheet.agent_role?.replace('_', ' ')}</span></div>
+              <div><span className="text-slate-500">Tier:</span> <span className="font-medium">Tier {sheet.tier_level} ({(sheet.commission_rate * 100).toFixed(1)}%)</span></div>
+              <div><span className="text-slate-500">Tier Premium:</span> <span className="font-medium">${fmt(sheet.tier_premium)}</span></div>
+              <div><span className="text-slate-500">Email:</span> <span className="font-medium">{sheet.agent_email}</span></div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-blue-800">${fmt(sheet.summary.new_business_premium)}</div>
+                <div className="text-xs text-blue-600">New Business</div>
+              </div>
+              <div className="bg-sky-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-sky-800">${fmt(sheet.summary.renewal_premium)}</div>
+                <div className="text-xs text-sky-600">Renewals</div>
+              </div>
+              {sheet.summary.chargeback_count > 0 && (
+                <div className="bg-red-50 rounded-lg p-3 text-center">
+                  <div className="text-lg font-bold text-red-700">${fmt(sheet.summary.chargebacks)}</div>
+                  <div className="text-xs text-red-600">Chargebacks ({sheet.summary.chargeback_count})</div>
+                </div>
+              )}
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <div className="text-lg font-bold text-green-700">${fmt(sheet.summary.total_agent_commission)}</div>
+                <div className="text-xs text-green-600">Total Commission</div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-slate-700 text-sm mb-2">Transaction Detail ({sheet.summary.total_lines} lines)</h4>
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left py-2 px-2 font-semibold text-slate-600">Policy #</th>
+                      <th className="text-left py-2 px-2 font-semibold text-slate-600">Insured</th>
+                      <th className="text-left py-2 px-2 font-semibold text-slate-600">Carrier</th>
+                      <th className="text-left py-2 px-2 font-semibold text-slate-600">Trans Type</th>
+                      <th className="text-right py-2 px-2 font-semibold text-slate-600">Premium</th>
+                      <th className="text-right py-2 px-2 font-semibold text-slate-600">Carrier Comm</th>
+                      <th className="text-right py-2 px-2 font-semibold text-green-700">Agent Comm</th>
+                      <th className="text-left py-2 px-2 font-semibold text-slate-600">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheet.line_items.map((item: any, i: number) => (
+                      <tr key={i} className={`border-t border-slate-100 ${item.is_chargeback ? 'bg-red-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                        <td className="py-1.5 px-2 font-mono">{item.policy_number}</td>
+                        <td className="py-1.5 px-2">{item.insured_name || '—'}</td>
+                        <td className="py-1.5 px-2 capitalize">{item.carrier?.replace('_', ' ')}</td>
+                        <td className="py-1.5 px-2">{item.transaction_type}</td>
+                        <td className="py-1.5 px-2 text-right">${fmt(item.premium)}</td>
+                        <td className="py-1.5 px-2 text-right">${fmt(item.carrier_commission)}</td>
+                        <td className={`py-1.5 px-2 text-right font-semibold ${item.is_chargeback ? 'text-red-600' : 'text-green-700'}`}>
+                          ${fmt(item.agent_commission)}
+                        </td>
+                        <td className="py-1.5 px-2 text-red-600">
+                          {item.is_chargeback ? `CHARGEBACK (${item.term_months}mo term)` : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+                    <tr>
+                      <td colSpan={4} className="py-2 px-2 font-bold text-slate-700">TOTALS</td>
+                      <td className="py-2 px-2 text-right font-bold">${fmt(sheet.summary.gross_premium)}</td>
+                      <td className="py-2 px-2 text-right font-bold">—</td>
+                      <td className="py-2 px-2 text-right font-bold text-green-700">${fmt(sheet.summary.total_agent_commission)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

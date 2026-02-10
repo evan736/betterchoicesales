@@ -220,3 +220,45 @@ def get_monthly_pay(
         return service.get_monthly_pay_summary(period)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/agent-sheet/{period}/{agent_id}")
+def get_agent_commission_sheet(
+    period: str,
+    agent_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get detailed commission sheet for a specific agent for a period."""
+    if current_user.role.lower() not in ("admin", "manager") and current_user.id != agent_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    service = ReconciliationService(db)
+    return service.get_agent_commission_sheet(period, agent_id)
+
+
+@router.get("/agent-sheet/{period}/{agent_id}/pdf")
+def download_agent_commission_pdf(
+    period: str,
+    agent_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download PDF commission sheet for a specific agent."""
+    if current_user.role.lower() not in ("admin", "manager") and current_user.id != agent_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    service = ReconciliationService(db)
+    sheet_data = service.get_agent_commission_sheet(period, agent_id)
+
+    from app.services.commission_pdf import generate_commission_pdf
+    from fastapi.responses import Response
+
+    pdf_bytes = generate_commission_pdf(sheet_data)
+
+    filename = f"Commission_Sheet_{sheet_data['agent_name'].replace(' ', '_')}_{period}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
