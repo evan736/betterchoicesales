@@ -58,6 +58,9 @@ def init_database():
             conn.execute(text("""
                 DO $$
                 BEGIN
+                    -- Convert carrier from enum to varchar
+                    ALTER TABLE statement_imports ALTER COLUMN carrier TYPE VARCHAR USING carrier::VARCHAR;
+
                     -- statement_imports new columns
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_imports' AND column_name='total_premium') THEN
                         ALTER TABLE statement_imports ADD COLUMN total_premium NUMERIC(12,2) DEFAULT 0;
