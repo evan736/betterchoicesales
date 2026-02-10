@@ -18,11 +18,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Signature markers to search for in word text
+# Signature markers - exact text as it appears in carrier PDFs
+# All use angle brackets so they can't match regular words like "Signature"
 SIGNATURE_MARKERS = [
-    "<<named.insured.signature>>",
-    "<PrimarySign>",
-    "<primarysign>",
+    "<<named.insured.signature>>",   # Grange
+    "<PrimarySign>",                  # National General
 ]
 
 
@@ -44,12 +44,15 @@ def _find_signature_fields(pdf_bytes: bytes) -> list:
                 page_num = page_idx + 1
 
                 for word in words:
-                    text = word["text"]
+                    text = word["text"].strip()
 
-                    # Check if this word IS a signature marker (exact match)
-                    text_clean = text.strip()
+                    # Only match exact marker strings (they all contain < >)
                     for marker in SIGNATURE_MARKERS:
-                        if marker.lower() == text_clean.lower():
+                        if marker in text:
+                            logger.info(
+                                f"MATCH: word='{text}' marker='{marker}' "
+                                f"page={page_num} x={word['x0']:.1f} y={word['top']:.1f}"
+                            )
                             fields.append({
                                 "page": page_num,
                                 "x": word["x0"],
@@ -58,10 +61,6 @@ def _find_signature_fields(pdf_bytes: bytes) -> list:
                                 "height": word["bottom"] - word["top"],
                                 "marker": marker,
                             })
-                            logger.info(
-                                f"Found '{marker}' on page {page_num} at "
-                                f"x={word['x0']:.1f}, y={word['top']:.1f}"
-                            )
                             break
     except Exception as e:
         logger.error(f"Error scanning PDF with pdfplumber: {e}")
