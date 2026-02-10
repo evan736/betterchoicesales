@@ -257,7 +257,7 @@ class ReconciliationService:
                 carrier_comm = line.commission_amount or Decimal("0")
                 
                 tx_type = (line.transaction_type or "").lower()
-                is_new_business = "new" in tx_type
+                is_new_business = "new_business" in tx_type or "new bus" in tx_type
                 is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
                 
                 if is_cancel_or_reinstate and line.matched_sale_id:
@@ -521,7 +521,7 @@ class ReconciliationService:
                 carrier_comm = line.commission_amount or Decimal("0")
                 
                 tx_type = (line.transaction_type or "").lower()
-                is_new_business = "new" in tx_type
+                is_new_business = "new_business" in tx_type or "new bus" in tx_type
                 is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
                 
                 if is_cancel_or_reinstate and line.matched_sale_id:
@@ -740,7 +740,7 @@ class ReconciliationService:
                 chargeback_count += 1
             elif is_cancel_or_reinstate:
                 agent_comm = Decimal("0")
-            elif "new" in tx_type:
+            elif "new_business" in tx_type or "new bus" in tx_type:
                 # Only new business earns agent commission
                 agent_comm = premium * agent_rate
             else:
@@ -748,7 +748,7 @@ class ReconciliationService:
                 agent_comm = Decimal("0")
 
             # Categorize premium
-            if "new" in tx_type:
+            if "new_business" in tx_type or "new bus" in tx_type:
                 total_new_biz_premium += premium
             elif "renew" in tx_type:
                 total_renewal_premium += premium
