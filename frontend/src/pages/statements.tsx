@@ -833,25 +833,32 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
 };
 
 
+
 const AgentSheetModal: React.FC<{
   period: string; agentId: number; agentName: string; onClose: () => void;
 }> = ({ period, agentId, agentName, onClose }) => {
   const [sheet, setSheet] = useState<any>(null);
   const [loadingSheet, setLoadingSheet] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       setLoadingSheet(true);
+      setError(null);
       try {
         const res = await reconciliationAPI.agentSheet(period, agentId);
-        setSheet(res.data);
+        if (!cancelled) setSheet(res.data);
       } catch (err: any) {
-        alert(err.response?.data?.detail || 'Failed to load agent sheet');
-        onClose();
+        if (!cancelled) {
+          const msg = err.response?.data?.detail || err.message || 'Failed to load agent sheet';
+          setError(msg);
+        }
       } finally {
-        setLoadingSheet(false);
+        if (!cancelled) setLoadingSheet(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [period, agentId]);
 
   const handleDownloadPdf = () => {
@@ -873,7 +880,7 @@ const AgentSheetModal: React.FC<{
       .catch(err => alert('PDF download failed: ' + err.message));
   };
 
-  const fmt = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={onClose}>
@@ -884,10 +891,12 @@ const AgentSheetModal: React.FC<{
             <p className="text-sm text-slate-500">{sheet?.period_display || period}</p>
           </div>
           <div className="flex items-center space-x-3">
-            <button onClick={handleDownloadPdf} className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg text-sm">
-              <Download size={16} />
-              <span>Download PDF</span>
-            </button>
+            {sheet && (
+              <button onClick={handleDownloadPdf} className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg text-sm">
+                <Download size={16} />
+                <span>Download PDF</span>
+              </button>
+            )}
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
           </div>
         </div>
@@ -897,38 +906,45 @@ const AgentSheetModal: React.FC<{
             <RefreshCw size={24} className="mx-auto animate-spin text-green-600 mb-2" />
             <p className="text-sm text-slate-500">Loading commission sheet...</p>
           </div>
+        ) : error ? (
+          <div className="p-12 text-center">
+            <AlertCircle size={32} className="mx-auto text-red-500 mb-3" />
+            <p className="text-red-600 font-medium mb-2">Failed to load commission sheet</p>
+            <p className="text-sm text-slate-500">{error}</p>
+            <button onClick={onClose} className="mt-4 text-sm text-blue-600 hover:underline">Close</button>
+          </div>
         ) : sheet ? (
           <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-              <div><span className="text-slate-500">Role:</span> <span className="font-medium capitalize">{sheet.agent_role?.replace('_', ' ')}</span></div>
-              <div><span className="text-slate-500">Tier:</span> <span className="font-medium">Tier {sheet.tier_level} ({(sheet.commission_rate * 100).toFixed(1)}%)</span></div>
+              <div><span className="text-slate-500">Role:</span> <span className="font-medium capitalize">{(sheet.agent_role || '').replace('_', ' ')}</span></div>
+              <div><span className="text-slate-500">Tier:</span> <span className="font-medium">Tier {sheet.tier_level} ({((sheet.commission_rate || 0) * 100).toFixed(1)}%)</span></div>
               <div><span className="text-slate-500">Tier Premium:</span> <span className="font-medium">${fmt(sheet.tier_premium)}</span></div>
               <div><span className="text-slate-500">Email:</span> <span className="font-medium">{sheet.agent_email}</span></div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-blue-50 rounded-lg p-3 text-center">
-                <div className="text-lg font-bold text-blue-800">${fmt(sheet.summary.new_business_premium)}</div>
+                <div className="text-lg font-bold text-blue-800">${fmt(sheet.summary?.new_business_premium)}</div>
                 <div className="text-xs text-blue-600">New Business</div>
               </div>
               <div className="bg-sky-50 rounded-lg p-3 text-center">
-                <div className="text-lg font-bold text-sky-800">${fmt(sheet.summary.renewal_premium)}</div>
+                <div className="text-lg font-bold text-sky-800">${fmt(sheet.summary?.renewal_premium)}</div>
                 <div className="text-xs text-sky-600">Renewals</div>
               </div>
-              {sheet.summary.chargeback_count > 0 && (
+              {(sheet.summary?.chargeback_count || 0) > 0 && (
                 <div className="bg-red-50 rounded-lg p-3 text-center">
-                  <div className="text-lg font-bold text-red-700">${fmt(Math.abs(sheet.summary.chargeback_premium || sheet.summary.chargebacks))}</div>
-                  <div className="text-xs text-red-600">Chargeback Premium ({sheet.summary.chargeback_count})</div>
+                  <div className="text-lg font-bold text-red-700">${fmt(Math.abs(sheet.summary?.chargeback_premium || sheet.summary?.chargebacks || 0))}</div>
+                  <div className="text-xs text-red-600">Chargeback Premium ({sheet.summary?.chargeback_count})</div>
                 </div>
               )}
               <div className="bg-green-50 rounded-lg p-3 text-center">
-                <div className="text-lg font-bold text-green-700">${fmt(sheet.summary.total_agent_commission)}</div>
+                <div className="text-lg font-bold text-green-700">${fmt(sheet.summary?.total_agent_commission)}</div>
                 <div className="text-xs text-green-600">Total Commission</div>
               </div>
             </div>
 
             <div>
-              <h4 className="font-semibold text-slate-700 text-sm mb-2">Transaction Detail ({sheet.summary.total_lines} lines)</h4>
+              <h4 className="font-semibold text-slate-700 text-sm mb-2">Transaction Detail ({sheet.summary?.total_lines || 0} lines)</h4>
               <div className="overflow-x-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50">
@@ -943,18 +959,18 @@ const AgentSheetModal: React.FC<{
                     </tr>
                   </thead>
                   <tbody>
-                    {sheet.line_items.map((item: any, i: number) => (
+                    {(sheet.line_items || []).map((item: any, i: number) => (
                       <tr key={i} className={`border-t border-slate-100 ${item.is_chargeback ? 'bg-red-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                         <td className="py-1.5 px-2 font-mono">{item.policy_number}</td>
                         <td className="py-1.5 px-2">{item.insured_name || '—'}</td>
-                        <td className="py-1.5 px-2 capitalize">{item.carrier?.replace('_', ' ')}</td>
+                        <td className="py-1.5 px-2 capitalize">{(item.carrier || '').replace('_', ' ')}</td>
                         <td className="py-1.5 px-2">{item.transaction_type}</td>
                         <td className="py-1.5 px-2 text-right">${fmt(item.premium)}</td>
                         <td className={`py-1.5 px-2 text-right font-semibold ${item.is_chargeback ? 'text-red-600' : 'text-green-700'}`}>
                           ${fmt(item.agent_commission)}
                         </td>
                         <td className="py-1.5 px-2 text-red-600">
-                          {item.is_chargeback ? `CHARGEBACK (${item.term_months}mo term)` : ''}
+                          {item.is_chargeback ? `CHARGEBACK (${item.term_months || '?'}mo term)` : ''}
                         </td>
                       </tr>
                     ))}
@@ -962,8 +978,8 @@ const AgentSheetModal: React.FC<{
                   <tfoot className="bg-slate-100 border-t-2 border-slate-300">
                     <tr>
                       <td colSpan={4} className="py-2 px-2 font-bold text-slate-700">TOTALS</td>
-                      <td className="py-2 px-2 text-right font-bold">${fmt(sheet.summary.new_business_premium)}</td>
-                      <td className="py-2 px-2 text-right font-bold text-green-700">${fmt(sheet.summary.total_agent_commission)}</td>
+                      <td className="py-2 px-2 text-right font-bold">${fmt(sheet.summary?.new_business_premium)}</td>
+                      <td className="py-2 px-2 text-right font-bold text-green-700">${fmt(sheet.summary?.total_agent_commission)}</td>
                       <td></td>
                     </tr>
                   </tfoot>
