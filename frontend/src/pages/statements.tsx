@@ -644,23 +644,19 @@ const AgentPayTab: React.FC<{ summary: any }> = ({ summary }) => {
               </div>
               <div className="text-right">
                 <div className="text-2xl font-bold text-green-700">
-                  ${agent.total_agent_commission.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ${(agent.total_agent_commission || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </div>
                 <div className="text-xs text-slate-500">agent commission</div>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-slate-500">Prior Month Premium: </span>
-                <span className="font-semibold">${agent.prior_month_premium.toLocaleString()}</span>
+                <span className="font-semibold">${(agent.prior_month_premium || 0).toLocaleString()}</span>
               </div>
               <div>
                 <span className="text-slate-500">This Month Premium: </span>
-                <span className="font-semibold">${agent.total_premium.toLocaleString()}</span>
-              </div>
-              <div>
-                <span className="text-slate-500">Carrier Commission: </span>
-                <span className="font-semibold">${agent.total_premium.toLocaleString()}</span>
+                <span className="font-semibold">${(agent.total_premium || 0).toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -725,7 +721,7 @@ const TransTypeBadge: React.FC<{ type: string }> = ({ type }) => {
 
 
 const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
-  const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [selectedAgent, setSelectedAgent] = useState<{ id: number; name: string } | null>(null);
 
   return (
@@ -877,7 +873,7 @@ const AgentSheetModal: React.FC<{
       .catch(err => alert('PDF download failed: ' + err.message));
   };
 
-  const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: number) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto" onClick={onClose}>
