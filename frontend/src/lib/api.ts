@@ -56,7 +56,7 @@ export const salesAPI = {
     formData.append('file', file);
     return api.post('/api/sales/import-csv', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000,
+      timeout: 180000,
     });
   },
 };

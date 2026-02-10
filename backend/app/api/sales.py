@@ -158,7 +158,7 @@ def create_sale(
 @router.get("/", response_model=List[SaleSchema])
 def list_sales(
     skip: int = 0,
-    limit: int = 500,
+    limit: int = 5000,
     date_from: str = None,  # "2026-01-01"
     date_to: str = None,    # "2026-01-31"
     producer_id: int = None,
@@ -607,6 +607,10 @@ async def import_sales_csv(
             )
             db.add(sale)
             created += 1
+
+            # Batch commit every 100 rows to avoid timeout
+            if created % 100 == 0:
+                db.commit()
 
         except Exception as e:
             errors.append(f"Error on row: {str(e)[:100]}")
