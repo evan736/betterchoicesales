@@ -88,6 +88,7 @@ export const reconciliationAPI = {
   get: (id: number) => api.get(`/api/reconciliation/${id}`),
   match: (id: number) => api.post(`/api/reconciliation/${id}/match`),
   calculate: (id: number) => api.post(`/api/reconciliation/${id}/calculate`),
+  delete: (id: number) => api.delete(`/api/reconciliation/${id}`),
   manualMatch: (lineId: number, saleId: number) =>
     api.post(`/api/reconciliation/lines/${lineId}/match?sale_id=${saleId}`),
   monthlyPay: (period: string) =>

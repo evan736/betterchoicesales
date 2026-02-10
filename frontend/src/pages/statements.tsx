@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Download,
   X,
+  Trash2,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -128,6 +129,11 @@ export default function Statements() {
     setUploading(true);
     try {
       const res = await reconciliationAPI.upload(carrier, period, file);
+      if (res.data.carrier_overridden) {
+        const detectedLabel = CARRIERS.find(c => c.value === res.data.carrier_detected)?.label || res.data.carrier_detected;
+        const selectedLabel = CARRIERS.find(c => c.value === res.data.carrier_selected)?.label || res.data.carrier_selected;
+        alert(`Auto-detected: File looks like ${detectedLabel} (you selected ${selectedLabel}). Used ${detectedLabel} parser.`);
+      }
       await loadImports();
       // Auto-select the new import
       setSelectedImport(res.data.id);
@@ -166,6 +172,22 @@ export default function Statements() {
       alert(err.response?.data?.detail || 'Matching failed');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleDeleteImport = async (importId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this import and all its matched lines? This cannot be undone.')) return;
+    try {
+      await reconciliationAPI.delete(importId);
+      if (selectedImport === importId) {
+        setSelectedImport(null);
+        setReconciliation(null);
+        setAgentSummary(null);
+      }
+      await loadImports();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Delete failed');
     }
   };
 
@@ -314,7 +336,16 @@ export default function Statements() {
                         <span className="text-sm font-semibold text-slate-900 truncate">
                           {imp.carrier.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
                         </span>
-                        <StatusBadge status={imp.status} />
+                        <div className="flex items-center space-x-1.5">
+                          <StatusBadge status={imp.status} />
+                          <span
+                            onClick={(e) => handleDeleteImport(imp.id, e)}
+                            className="text-slate-400 hover:text-red-500 transition-colors p-0.5"
+                            title="Delete import"
+                          >
+                            <Trash2 size={14} />
+                          </span>
+                        </div>
                       </div>
                       <div className="text-xs text-slate-500">{imp.period} · {imp.total_rows} rows</div>
                       <div className="text-xs text-slate-500 truncate">{imp.filename}</div>

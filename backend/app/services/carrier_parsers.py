@@ -666,6 +666,57 @@ def parse_generic(file_bytes: bytes, filename: str) -> List[Dict]:
     return records
 
 
+# ── Auto-detect carrier from file contents ───────────────────────────
+
+def detect_carrier(file_bytes: bytes, filename: str) -> Optional[str]:
+    """Attempt to auto-detect carrier from column names in the file.
+    
+    Returns carrier key (e.g. 'progressive') or None if unknown.
+    """
+    try:
+        if filename.lower().endswith(('.csv', '.txt')):
+            df = pd.read_csv(io.BytesIO(file_bytes), nrows=5)
+        else:
+            df = pd.read_excel(io.BytesIO(file_bytes), nrows=5)
+        
+        cols_lower = {str(c).strip().lower() for c in df.columns}
+        cols_str = " ".join(cols_lower)
+        
+        # Progressive: has "tran code", "gross premium", "gross comm", "prod name"
+        if "tran code" in cols_lower or "gross comm" in cols_lower:
+            return "progressive"
+        
+        # Safeco: has "activity type", or column set with "comm amount" + "term length"
+        if "activity type" in cols_lower or "comm amount" in cols_lower:
+            return "safeco"
+        
+        # Travelers: has "NAME OF INSURED", "POL-EFF-DT", "POLICY NUMBER", "PAID"
+        if "name of insured" in cols_lower or "pol-eff-dt" in cols_lower:
+            return "travelers"
+        
+        # National General: has "selling producer", "trans type", or sheet names
+        if "selling producer" in cols_lower or ("trans type" in cols_lower and "written premium" in cols_str):
+            return "national_general"
+        
+        # Grange: CSV with "Policyholder Name or Description", "Commission Amount"
+        if "policyholder name or description" in cols_lower or "commission rate reason" in cols_str:
+            return "grange"
+        
+        # Also check for National General by trying Excel sheet names
+        if filename.lower().endswith(('.xlsx', '.xls')):
+            try:
+                xls = pd.ExcelFile(io.BytesIO(file_bytes))
+                if "Summary Details" in xls.sheet_names or "All Producers" in xls.sheet_names:
+                    return "national_general"
+            except Exception:
+                pass
+        
+    except Exception as e:
+        logger.warning(f"Carrier auto-detect failed: {e}")
+    
+    return None
+
+
 # ── Dispatcher ───────────────────────────────────────────────────────
 
 CARRIER_PARSERS = {
@@ -678,6 +729,20 @@ CARRIER_PARSERS = {
 
 
 def parse_statement(carrier: str, file_bytes: bytes, filename: str) -> List[Dict]:
-    """Route to the correct carrier parser."""
-    parser = CARRIER_PARSERS.get(carrier, parse_generic)
+    """Route to the correct carrier parser.
+    
+    Auto-detects carrier from file contents and overrides if different
+    from the user selection (with a log warning).
+    """
+    detected = detect_carrier(file_bytes, filename)
+    actual_carrier = carrier
+    
+    if detected and detected != carrier:
+        logger.warning(
+            f"Carrier mismatch: user selected '{carrier}' but file looks like '{detected}'. "
+            f"Using detected carrier '{detected}'."
+        )
+        actual_carrier = detected
+    
+    parser = CARRIER_PARSERS.get(actual_carrier, parse_generic)
     return parser(file_bytes, filename)

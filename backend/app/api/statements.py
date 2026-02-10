@@ -52,10 +52,20 @@ async def upload_statement(
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
+    # Auto-detect carrier from file contents
+    from app.services.carrier_parsers import detect_carrier
+    detected = detect_carrier(file_bytes, file.filename)
+    actual_carrier = carrier
+    carrier_overridden = False
+    if detected and detected != carrier:
+        logger.warning(f"Carrier override: user selected '{carrier}' but detected '{detected}'")
+        actual_carrier = detected
+        carrier_overridden = True
+
     # Save file
     upload_dir = os.path.join(settings.UPLOAD_DIR, "statements")
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{period}_{carrier}_{file.filename}")
+    file_path = os.path.join(upload_dir, f"{period}_{actual_carrier}_{file.filename}")
     with open(file_path, "wb") as f:
         f.write(file_bytes)
 
@@ -66,13 +76,13 @@ async def upload_statement(
             filename=file.filename,
             file_path=file_path,
             file_bytes=file_bytes,
-            carrier=carrier,
+            carrier=actual_carrier,
             period=period,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)[:300]}")
 
-    return {
+    result = {
         "id": imp.id,
         "filename": imp.filename,
         "carrier": imp.carrier,
@@ -82,6 +92,12 @@ async def upload_statement(
         "total_premium": float(imp.total_premium or 0),
         "total_commission": float(imp.total_commission or 0),
     }
+    if carrier_overridden:
+        result["carrier_detected"] = detected
+        result["carrier_selected"] = carrier
+        result["carrier_overridden"] = True
+
+    return result
 
 
 @router.post("/{import_id}/match")
@@ -164,6 +180,32 @@ def list_imports(
         }
         for imp in imports
     ]
+
+
+@router.delete("/{import_id}")
+def delete_import(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a statement import and all its lines."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
+    if not imp:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    from app.models.statement import StatementLine
+    # Delete all lines first
+    db.query(StatementLine).filter(
+        StatementLine.statement_import_id == import_id
+    ).delete()
+    db.delete(imp)
+    db.commit()
+
+    logger.info(f"Deleted import {import_id} ({imp.carrier} / {imp.statement_period})")
+    return {"success": True, "deleted_id": import_id}
 
 
 @router.post("/lines/{line_id}/match")
