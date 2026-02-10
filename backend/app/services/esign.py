@@ -46,9 +46,10 @@ def _find_signature_fields(pdf_bytes: bytes) -> list:
                 for word in words:
                     text = word["text"]
 
-                    # Check if this word matches any signature marker
+                    # Check if this word IS a signature marker (exact match)
+                    text_clean = text.strip()
                     for marker in SIGNATURE_MARKERS:
-                        if marker.lower() in text.lower():
+                        if marker.lower() == text_clean.lower():
                             fields.append({
                                 "page": page_num,
                                 "x": word["x0"],
@@ -137,7 +138,7 @@ def _build_form_fields(pdf_bytes: bytes) -> list:
             "pageNumber": sf["page"],
             "bounds": {
                 "x": sf["x"],
-                "y": sf["y"] - 8,    # Slight upward offset to cover the line
+                "y": sf["y"],       # Exact marker position
                 "width": 200,
                 "height": 30,
             },
@@ -145,7 +146,7 @@ def _build_form_fields(pdf_bytes: bytes) -> list:
         })
         logger.info(
             f"Field sig{i + 1}: page={sf['page']}, "
-            f"x={sf['x']:.1f}, y={sf['y'] - 8:.1f}, "
+            f"x={sf['x']:.1f}, y={sf['y']:.1f}, "
             f"marker='{sf['marker']}'"
         )
 
