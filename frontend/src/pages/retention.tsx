@@ -14,7 +14,7 @@ import {
 const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'];
 
 const RetentionPage = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [overview, setOverview] = useState<any>(null);
   const [byAgent, setByAgent] = useState<any[]>([]);
@@ -27,10 +27,9 @@ const RetentionPage = () => {
   const [period, setPeriod] = useState<string>('');
 
   useEffect(() => {
-    if (!isAuthenticated) { router.push('/'); return; }
-    if (user?.role?.toLowerCase() !== 'admin') { router.push('/dashboard'); return; }
-    loadData();
-  }, [isAuthenticated, period]);
+    if (!authLoading && !user) { router.push('/'); return; }
+    if (user) loadData();
+  }, [user, authLoading, period]);
 
   const loadData = async () => {
     setLoading(true);
@@ -57,7 +56,8 @@ const RetentionPage = () => {
     }
   };
 
-  if (!isAuthenticated || user?.role?.toLowerCase() !== 'admin') return null;
+  if (authLoading) return null;
+  if (!user) return null;
 
   const tabs = [
     { key: 'overview', label: 'Overview', icon: Shield },
