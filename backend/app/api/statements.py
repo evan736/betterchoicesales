@@ -1,12 +1,8 @@
 """Commission reconciliation API endpoints.
 
-Workflow:
-  POST /api/reconciliation/upload     → Upload carrier statement
-  POST /api/reconciliation/{id}/match → Run auto-matching
-  POST /api/reconciliation/{id}/calculate → Calculate agent commissions
-  GET  /api/reconciliation/{id}       → Get reconciliation summary
-  GET  /api/reconciliation/           → List all imports
-  POST /api/reconciliation/lines/{id}/match → Manually match a line
+IMPORTANT: Specific path routes (agent-sheet, monthly-pay, lines, upload)
+must be defined BEFORE the catch-all /{import_id} routes, otherwise
+FastAPI will try to match "agent-sheet" as an integer import_id.
 """
 import os
 import logging
@@ -24,11 +20,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reconciliation", tags=["reconciliation"])
 
 
+# ── Specific-path routes FIRST ───────────────────────────────────────
+
 @router.post("/upload")
 async def upload_statement(
     file: UploadFile = File(...),
     carrier: str = Form(...),
-    period: str = Form(...),  # "2026-01"
+    period: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -36,7 +34,6 @@ async def upload_statement(
     if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
-    # Validate carrier
     valid_carriers = [
         "national_general", "progressive", "grange",
         "safeco", "travelers", "hartford", "other",
@@ -47,12 +44,10 @@ async def upload_statement(
             detail=f"Invalid carrier. Must be one of: {valid_carriers}",
         )
 
-    # Read file
     file_bytes = await file.read()
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Auto-detect carrier from file contents
     from app.services.carrier_parsers import detect_carrier
     detected = detect_carrier(file_bytes, file.filename)
     actual_carrier = carrier
@@ -62,14 +57,12 @@ async def upload_statement(
         actual_carrier = detected
         carrier_overridden = True
 
-    # Save file
     upload_dir = os.path.join(settings.UPLOAD_DIR, "statements")
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, f"{period}_{actual_carrier}_{file.filename}")
     with open(file_path, "wb") as f:
         f.write(file_bytes)
 
-    # Parse
     service = ReconciliationService(db)
     try:
         imp = service.create_import(
@@ -98,58 +91,6 @@ async def upload_statement(
         result["carrier_overridden"] = True
 
     return result
-
-
-@router.post("/{import_id}/match")
-def run_matching(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Run auto-matching on a processed statement."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    service = ReconciliationService(db)
-    try:
-        result = service.run_matching(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    return result
-
-
-@router.post("/{import_id}/calculate")
-def calculate_commissions(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Calculate agent commissions based on tier from prior month."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    service = ReconciliationService(db)
-    try:
-        result = service.calculate_agent_commissions(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    return result
-
-
-@router.get("/{import_id}")
-def get_reconciliation(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Get full reconciliation summary with matched/unmatched lines."""
-    service = ReconciliationService(db)
-    try:
-        return service.get_reconciliation_summary(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/")
@@ -182,32 +123,6 @@ def list_imports(
     ]
 
 
-@router.delete("/{import_id}")
-def delete_import(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Delete a statement import and all its lines."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
-    if not imp:
-        raise HTTPException(status_code=404, detail="Import not found")
-
-    from app.models.statement import StatementLine
-    # Delete all lines first
-    db.query(StatementLine).filter(
-        StatementLine.statement_import_id == import_id
-    ).delete()
-    db.delete(imp)
-    db.commit()
-
-    logger.info(f"Deleted import {import_id} ({imp.carrier} / {imp.statement_period})")
-    return {"success": True, "deleted_id": import_id}
-
-
 @router.post("/lines/{line_id}/match")
 def manually_match_line(
     line_id: int,
@@ -233,10 +148,7 @@ def calculate_monthly_pay(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Calculate combined agent pay across ALL carriers for a given month.
-    
-    Period format: "2026-01"
-    """
+    """Calculate combined agent pay across ALL carriers for a given month."""
     if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
@@ -304,3 +216,82 @@ def download_agent_commission_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Parameterized {import_id} routes LAST ────────────────────────────
+
+@router.get("/{import_id}")
+def get_reconciliation(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get full reconciliation summary with matched/unmatched lines."""
+    service = ReconciliationService(db)
+    try:
+        return service.get_reconciliation_summary(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{import_id}/match")
+def run_matching(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run auto-matching on a processed statement."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        result = service.run_matching(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.post("/{import_id}/calculate")
+def calculate_commissions(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Calculate agent commissions based on tier from prior month."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        result = service.calculate_agent_commissions(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.delete("/{import_id}")
+def delete_import(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a statement import and all its lines."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
+    if not imp:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    from app.models.statement import StatementLine
+    db.query(StatementLine).filter(
+        StatementLine.statement_import_id == import_id
+    ).delete()
+    db.delete(imp)
+    db.commit()
+
+    logger.info(f"Deleted import {import_id} ({imp.carrier} / {imp.statement_period})")
+    return {"success": True, "deleted_id": import_id}
