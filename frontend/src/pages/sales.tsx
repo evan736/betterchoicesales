@@ -28,6 +28,26 @@ export default function Sales() {
     }
   };
 
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await salesAPI.importCSV(file);
+      setImportResult(res.data);
+      loadSales();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Import failed');
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  };
+
   if (loading || !user) return null;
 
   return (
@@ -39,11 +59,34 @@ export default function Sales() {
             <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">Sales</h1>
             <p className="text-slate-600">Manage your policy sales and applications</p>
           </div>
-          <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center space-x-2">
-            <Plus size={20} />
-            <span>New Sale</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            {user.role?.toLowerCase() === 'admin' && (
+              <label className="inline-flex items-center space-x-2 bg-white border-2 border-slate-300 hover:border-blue-500 text-slate-700 font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors text-sm">
+                <Upload size={18} />
+                <span>{importing ? 'Importing...' : 'Import CSV'}</span>
+                <input type="file" accept=".csv" onChange={handleImportCSV} className="hidden" disabled={importing} />
+              </label>
+            )}
+            <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center space-x-2">
+              <Plus size={20} />
+              <span>New Sale</span>
+            </button>
+          </div>
         </div>
+
+        {importResult && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="font-semibold text-green-800">
+              Import complete: {importResult.created} created, {importResult.skipped} skipped
+              {importResult.errors?.length > 0 && `, ${importResult.errors.length} errors`}
+            </p>
+            {importResult.errors?.length > 0 && (
+              <ul className="mt-2 text-sm text-amber-700">
+                {importResult.errors.slice(0, 5).map((err: string, i: number) => <li key={i}>{err}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
 
         {loadingSales ? (
           <div className="text-center py-12">
