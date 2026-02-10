@@ -43,6 +43,11 @@ const Navbar: React.FC = () => {
                   Reconciliation
                 </NavLink>
               )}
+              {(user.role?.toLowerCase() === 'admin' || user.role?.toLowerCase() === 'manager') && (
+                <NavLink href="/retention" icon={<BarChart2 size={18} />}>
+                  Retention
+                </NavLink>
+              )}
             </div>
           )}
 

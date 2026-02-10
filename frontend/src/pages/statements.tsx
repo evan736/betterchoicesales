@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { reconciliationAPI } from '../lib/api';
+import { reconciliationAPI, payrollAPI } from '../lib/api';
 import {
   Upload,
   FileText,
@@ -820,6 +820,9 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
         </div>
       </div>
 
+      {/* Payroll Actions */}
+      <PayrollActions period={data.period} />
+
       {selectedAgent && (
         <AgentSheetModal
           period={data.period}
@@ -827,6 +830,200 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
           agentName={selectedAgent.name}
           onClose={() => setSelectedAgent(null)}
         />
+      )}
+    </div>
+  );
+};
+
+const PayrollActions: React.FC<{ period: string }> = ({ period }) => {
+  const [payrollStatus, setPayrollStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => {
+    loadPayrollStatus();
+  }, [period]);
+
+  const loadPayrollStatus = async () => {
+    try {
+      const res = await payrollAPI.detail(period);
+      setPayrollStatus(res.data);
+    } catch {
+      setPayrollStatus(null);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const res = await payrollAPI.history();
+      setHistory(res.data);
+      setShowHistory(true);
+    } catch (err: any) {
+      alert('Failed to load history');
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!confirm('Submit payroll for this period? This will lock the calculations.')) return;
+    setLoading(true);
+    try {
+      await payrollAPI.submit(period);
+      alert('Payroll submitted and locked!');
+      loadPayrollStatus();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to submit payroll');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    if (!confirm('Mark all agent commissions as PAID for this period?')) return;
+    setLoading(true);
+    try {
+      await payrollAPI.markPaid(period);
+      alert('Payroll marked as paid! Sales updated to Commission Paid.');
+      loadPayrollStatus();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to mark paid');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnlock = async () => {
+    if (!confirm('Unlock this payroll for re-calculation? (Admin override)')) return;
+    setLoading(true);
+    try {
+      await payrollAPI.unlock(period);
+      alert('Payroll unlocked.');
+      loadPayrollStatus();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to unlock');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <div className="border-t border-slate-200 pt-4 mt-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          {payrollStatus ? (
+            <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
+              payrollStatus.status === 'paid' ? 'bg-green-100 text-green-700' :
+              payrollStatus.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
+              'bg-slate-100 text-slate-600'
+            }`}>
+              Payroll: {payrollStatus.status.charAt(0).toUpperCase() + payrollStatus.status.slice(1)}
+              {payrollStatus.is_locked && ' 🔒'}
+            </span>
+          ) : (
+            <span className="text-sm text-slate-500">Payroll not yet submitted</span>
+          )}
+          {payrollStatus?.submitted_at && (
+            <span className="text-xs text-slate-400">
+              Submitted {new Date(payrollStatus.submitted_at).toLocaleDateString()}
+            </span>
+          )}
+          {payrollStatus?.paid_at && (
+            <span className="text-xs text-green-600">
+              Paid {new Date(payrollStatus.paid_at).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={loadHistory}
+            className="text-xs text-blue-600 hover:underline"
+          >
+            View Payroll History
+          </button>
+
+          {(!payrollStatus || !payrollStatus.is_locked) && (
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {loading ? 'Processing...' : '📋 Submit Payroll'}
+            </button>
+          )}
+
+          {payrollStatus?.status === 'submitted' && (
+            <button
+              onClick={handleMarkPaid}
+              disabled={loading}
+              className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {loading ? 'Processing...' : '💰 Mark as Paid'}
+            </button>
+          )}
+
+          {payrollStatus?.is_locked && (
+            <button
+              onClick={handleUnlock}
+              disabled={loading}
+              className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-3 py-2 rounded-lg disabled:opacity-50"
+              title="Admin override — unlock for re-calculation"
+            >
+              🔓 Unlock
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowHistory(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h3 className="font-bold text-lg text-slate-900">Payroll History</h3>
+              <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              {history.length === 0 ? (
+                <p className="text-center text-slate-500 py-8">No payroll records yet</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left py-2 px-3 font-semibold text-slate-600">Period</th>
+                      <th className="text-center py-2 px-3 font-semibold text-slate-600">Status</th>
+                      <th className="text-right py-2 px-3 font-semibold text-slate-600">Agents</th>
+                      <th className="text-right py-2 px-3 font-semibold text-slate-600">Total Premium</th>
+                      <th className="text-right py-2 px-3 font-semibold text-green-700">Agent Pay</th>
+                      <th className="text-center py-2 px-3 font-semibold text-slate-600">Submitted</th>
+                      <th className="text-center py-2 px-3 font-semibold text-slate-600">Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((r: any) => (
+                      <tr key={r.id} className="border-t border-slate-100">
+                        <td className="py-2 px-3 font-medium">{r.period_display || r.period}</td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            r.status === 'paid' ? 'bg-green-100 text-green-700' :
+                            r.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>{r.status}</span>
+                        </td>
+                        <td className="py-2 px-3 text-right">{r.total_agents}</td>
+                        <td className="py-2 px-3 text-right">${fmt(r.total_premium)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-green-700">${fmt(r.total_agent_pay)}</td>
+                        <td className="py-2 px-3 text-center text-xs">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : '—'}</td>
+                        <td className="py-2 px-3 text-center text-xs">{r.paid_at ? new Date(r.paid_at).toLocaleDateString() : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

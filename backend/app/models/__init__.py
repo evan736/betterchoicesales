@@ -5,6 +5,7 @@ from app.models.statement import (
     StatementStatus, CarrierType, TransactionType,
 )
 from app.models.commission import Commission, CommissionTier, CommissionStatus
+from app.models.payroll import PayrollRecord, PayrollAgentLine
 
 __all__ = [
     "User",
@@ -21,4 +22,6 @@ __all__ = [
     "Commission",
     "CommissionTier",
     "CommissionStatus",
+    "PayrollRecord",
+    "PayrollAgentLine",
 ]

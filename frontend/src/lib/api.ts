@@ -122,3 +122,23 @@ export const analyticsAPI = {
   filterOptions: () => api.get('/api/analytics/filter-options'),
   trending: (params?: any) => api.get('/api/analytics/trending', { params }),
 };
+
+// Payroll API
+export const payrollAPI = {
+  submit: (period: string) => api.post(`/api/payroll/submit/${period}`),
+  unlock: (period: string) => api.post(`/api/payroll/unlock/${period}`),
+  markPaid: (period: string) => api.post(`/api/payroll/mark-paid/${period}`),
+  history: () => api.get('/api/payroll/history'),
+  detail: (period: string) => api.get(`/api/payroll/detail/${period}`),
+};
+
+// Retention Analytics API
+export const retentionAPI = {
+  overview: (period?: string) => api.get('/api/retention/overview', { params: period ? { period } : {} }),
+  byAgent: (period?: string) => api.get('/api/retention/by-agent', { params: period ? { period } : {} }),
+  byCarrier: (period?: string) => api.get('/api/retention/by-carrier', { params: period ? { period } : {} }),
+  bySource: (period?: string) => api.get('/api/retention/by-source', { params: period ? { period } : {} }),
+  trend: (months?: number) => api.get('/api/retention/trend', { params: { months: months || 6 } }),
+  earlyCancellations: (days?: number, period?: string) =>
+    api.get('/api/retention/early-cancellations', { params: { days: days || 90, ...(period ? { period } : {}) } }),
+};

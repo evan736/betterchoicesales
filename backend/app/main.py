@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api import auth, sales, commissions, statements, analytics
+from app.api import payroll as payroll_api
+from app.api import retention as retention_api
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +180,37 @@ def init_database():
 
     Base.metadata.create_all(bind=engine)
     logger.info("Tables created successfully")
+
+    # New column migrations for sales commission tracking & cancellation tracking
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    -- Commission status on sales
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='commission_status') THEN
+                        ALTER TABLE sales ADD COLUMN commission_status VARCHAR DEFAULT 'pending';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='commission_paid_date') THEN
+                        ALTER TABLE sales ADD COLUMN commission_paid_date TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='commission_paid_period') THEN
+                        ALTER TABLE sales ADD COLUMN commission_paid_period VARCHAR;
+                    END IF;
+
+                    -- Cancellation tracking on sales
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='cancelled_date') THEN
+                        ALTER TABLE sales ADD COLUMN cancelled_date TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='days_to_cancel') THEN
+                        ALTER TABLE sales ADD COLUMN days_to_cancel INTEGER;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("Sales commission/cancellation columns added")
+        except Exception as e:
+            logger.warning(f"Sales column migration warning: {e}")
 
     db = SessionLocal()
     try:
@@ -356,3 +389,5 @@ app.include_router(sales.router)
 app.include_router(commissions.router)
 app.include_router(statements.router)
 app.include_router(analytics.router)
+app.include_router(payroll_api.router)
+app.include_router(retention_api.router)

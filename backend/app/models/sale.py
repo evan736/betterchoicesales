@@ -72,6 +72,15 @@ class Sale(Base):
     # Status
     status = Column(String, default="active", nullable=False)
     
+    # Commission tracking
+    commission_status = Column(String, default="pending", nullable=False)  # pending, paid
+    commission_paid_date = Column(DateTime(timezone=True), nullable=True)
+    commission_paid_period = Column(String, nullable=True)  # "2026-01" — which payroll period paid this
+    
+    # Cancellation / termination tracking
+    cancelled_date = Column(DateTime(timezone=True), nullable=True)
+    days_to_cancel = Column(Integer, nullable=True)  # Days from effective_date to cancellation
+    
     # Application document
     application_pdf_path = Column(String, nullable=True)
     signature_request_id = Column(String, nullable=True)
