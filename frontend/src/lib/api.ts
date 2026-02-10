@@ -63,18 +63,35 @@ export const commissionsAPI = {
   createTier: (data: any) => api.post('/api/commissions/tiers', data),
 };
 
-// Statements API
-export const statementsAPI = {
-  upload: (carrier: string, file: File) => {
+// Reconciliation API (commission statement processing)
+export const reconciliationAPI = {
+  upload: (carrier: string, period: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post(`/api/statements/upload?carrier=${carrier}`, formData, {
+    formData.append('carrier', carrier);
+    formData.append('period', period);
+    return api.post('/api/reconciliation/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     });
   },
-  process: (id: number) => api.post(`/api/statements/${id}/process`),
-  list: () => api.get('/api/statements/'),
-  get: (id: number) => api.get(`/api/statements/${id}`),
+  list: () => api.get('/api/reconciliation/'),
+  get: (id: number) => api.get(`/api/reconciliation/${id}`),
+  match: (id: number) => api.post(`/api/reconciliation/${id}/match`),
+  calculate: (id: number) => api.post(`/api/reconciliation/${id}/calculate`),
+  manualMatch: (lineId: number, saleId: number) =>
+    api.post(`/api/reconciliation/lines/${lineId}/match?sale_id=${saleId}`),
+};
+
+// Legacy alias
+export const statementsAPI = {
+  upload: (carrier: string, file: File) => {
+    const period = new Date().toISOString().slice(0, 7);
+    return reconciliationAPI.upload(carrier, period, file);
+  },
+  process: (id: number) => reconciliationAPI.match(id),
+  list: () => reconciliationAPI.list(),
+  get: (id: number) => reconciliationAPI.get(id),
 };
 
 export default api;
