@@ -1,176 +1,155 @@
 """BoldSign e-signature service.
 
-Smart signature field placement: scans PDF text for carrier-specific
-signature markers and places BoldSign signature fields at each location.
+Uses pdfplumber to find the EXACT pixel coordinates of signature markers
+in carrier PDFs, then places BoldSign signature fields precisely on top.
 
 Supported markers:
   - Grange: <<named.insured.signature>>
   - National General: <PrimarySign>
-  - Fallback: 'Applicant Signature:' text
-
-Places a signature field on EVERY page that contains a marker,
-so the customer can sign all required pages in one session.
+  - Fallback: text containing 'Applicant Signature:'
 """
 import json
 import logging
 import re
 import io
 import httpx
-from PyPDF2 import PdfReader
+import pdfplumber
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Carrier-specific signature markers (order = priority)
-PRIMARY_MARKERS = [
+# Signature markers to search for in word text
+SIGNATURE_MARKERS = [
     "<<named.insured.signature>>",
     "<PrimarySign>",
-]
-
-FALLBACK_MARKERS = [
-    "applicant signature:",
-    "applicant\nsignature:",
-    "account holder's authorized signature:",
+    "<primarysign>",
 ]
 
 
-def _find_all_signature_locations(pdf_bytes: bytes) -> list:
-    """Scan every page for signature markers.
+def _find_signature_fields(pdf_bytes: bytes) -> list:
+    """Use pdfplumber to find exact coordinates of signature markers.
 
-    Returns list of: {"page": int, "y": float, "marker": str}
-    Page numbers are 1-indexed (BoldSign convention).
+    pdfplumber coordinate system matches BoldSign:
+    - Origin: top-left
+    - Units: points (1/72 inch)
+    - US Letter: 612w x 792h
+
+    Returns list of: {"page": int, "x": float, "y": float, "marker": str}
     """
-    locations = []
+    fields = []
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page_idx, page in enumerate(pdf.pages):
+                words = page.extract_words()
+                page_num = page_idx + 1
+
+                for word in words:
+                    text = word["text"]
+
+                    # Check if this word matches any signature marker
+                    for marker in SIGNATURE_MARKERS:
+                        if marker.lower() in text.lower():
+                            fields.append({
+                                "page": page_num,
+                                "x": word["x0"],
+                                "y": word["top"],
+                                "width": word["x1"] - word["x0"],
+                                "height": word["bottom"] - word["top"],
+                                "marker": marker,
+                            })
+                            logger.info(
+                                f"Found '{marker}' on page {page_num} at "
+                                f"x={word['x0']:.1f}, y={word['top']:.1f}"
+                            )
+                            break
     except Exception as e:
-        logger.warning(f"Error reading PDF: {e}")
-        return locations
+        logger.error(f"Error scanning PDF with pdfplumber: {e}")
 
-    for page_idx, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
-        text_lower = text.lower()
-        page_num = page_idx + 1
-
-        # Check primary markers first
-        for marker in PRIMARY_MARKERS:
-            marker_lower = marker.lower()
-            if marker_lower in text_lower:
-                pos = text_lower.index(marker_lower)
-                ratio = pos / len(text_lower) if len(text_lower) > 0 else 0.5
-                y_pos = ratio * 792  # US Letter height in points
-
-                locations.append({
-                    "page": page_num,
-                    "y": y_pos,
-                    "ratio": ratio,
-                    "marker": marker,
-                    "priority": "primary",
-                })
-                logger.info(
-                    f"Found '{marker}' on page {page_num}, "
-                    f"ratio={ratio:.3f}, y={y_pos:.0f}"
-                )
-                break  # Only one marker per page
-
-    # If no primary markers found, try fallback markers
-    if not locations:
-        reader2 = PdfReader(io.BytesIO(pdf_bytes))
-        for page_idx, page in enumerate(reader2.pages):
-            text = page.extract_text() or ""
-            text_lower = text.lower()
-            page_num = page_idx + 1
-
-            for marker in FALLBACK_MARKERS:
-                if marker in text_lower:
-                    pos = text_lower.index(marker)
-                    ratio = pos / len(text_lower) if len(text_lower) > 0 else 0.5
-                    y_pos = ratio * 792
-
-                    locations.append({
-                        "page": page_num,
-                        "y": y_pos,
-                        "ratio": ratio,
-                        "marker": marker,
-                        "priority": "fallback",
-                    })
-                    logger.info(
-                        f"Found fallback '{marker}' on page {page_num}, "
-                        f"ratio={ratio:.3f}, y={y_pos:.0f}"
-                    )
-                    break
-
-    return locations
+    return fields
 
 
 def _build_form_fields(pdf_bytes: bytes) -> list:
-    """Build BoldSign form fields for all detected signature locations.
+    """Build BoldSign form fields at exact signature marker positions."""
+    sig_fields = _find_signature_fields(pdf_bytes)
 
-    BoldSign coordinate system:
-    - Origin: top-left of page
-    - Units: points (1/72 inch)
-    - US Letter: 612w x 792h points
-    """
-    locations = _find_all_signature_locations(pdf_bytes)
-
-    if not locations:
-        # Ultimate fallback: last page
+    if not sig_fields:
+        # Fallback: try to find 'Applicant Signature:' text
+        logger.info("No primary markers found, trying fallback text search")
         try:
-            reader = PdfReader(io.BytesIO(pdf_bytes))
-            page_count = len(reader.pages)
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                for page_idx, page in enumerate(pdf.pages):
+                    words = page.extract_words()
+                    page_num = page_idx + 1
+
+                    for i, word in enumerate(words):
+                        if "signature:" in word["text"].lower() and (
+                            "applicant" in word["text"].lower()
+                            or (i > 0 and "applicant" in words[i-1]["text"].lower())
+                        ):
+                            # Place signature after the "Signature:" label
+                            sig_fields.append({
+                                "page": page_num,
+                                "x": word["x1"] + 5,  # Right after the label
+                                "y": word["top"],
+                                "width": 100,
+                                "height": word["bottom"] - word["top"],
+                                "marker": "Applicant Signature:",
+                            })
+                            logger.info(
+                                f"Found fallback 'Applicant Signature:' on page {page_num} "
+                                f"at x={word['x1']:.1f}, y={word['top']:.1f}"
+                            )
+        except Exception as e:
+            logger.error(f"Fallback search error: {e}")
+
+    if not sig_fields:
+        # Ultimate fallback: last page, bottom area
+        logger.info("No markers found at all, using last-page fallback")
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                page_count = len(pdf.pages)
         except Exception:
             page_count = 1
 
-        logger.info(f"No markers found, placing signature on last page ({page_count})")
-        return [
-            {
-                "id": "sig1",
-                "name": "Applicant Signature",
-                "fieldType": "Signature",
-                "pageNumber": page_count,
-                "bounds": {"x": 100, "y": 600, "width": 200, "height": 40},
-                "isRequired": True,
-            },
-        ]
+        return [{
+            "id": "sig1",
+            "name": "Applicant Signature",
+            "fieldType": "Signature",
+            "pageNumber": page_count,
+            "bounds": {"x": 100, "y": 600, "width": 200, "height": 40},
+            "isRequired": True,
+        }]
+
+    # Deduplicate by page (keep first marker per page)
+    seen_pages = set()
+    unique_fields = []
+    for f in sig_fields:
+        if f["page"] not in seen_pages:
+            seen_pages.add(f["page"])
+            unique_fields.append(f)
 
     form_fields = []
-
-    # Deduplicate by page number (keep first marker found per page)
-    seen_pages = set()
-    unique_locations = []
-    for loc in locations:
-        if loc["page"] not in seen_pages:
-            seen_pages.add(loc["page"])
-            unique_locations.append(loc)
-
-    for i, loc in enumerate(unique_locations):
-        field_id = f"sig{i + 1}"
-        page = loc["page"]
-        y = loc["y"]
-
-        # Clamp Y to valid range (leave room for field height)
-        y = max(30, min(y, 740))
-
+    for i, sf in enumerate(unique_fields):
         form_fields.append({
-            "id": field_id,
-            "name": f"Signature (Page {page})",
+            "id": f"sig{i + 1}",
+            "name": f"Signature (Page {sf['page']})",
             "fieldType": "Signature",
-            "pageNumber": page,
+            "pageNumber": sf["page"],
             "bounds": {
-                "x": 100,      # Left-aligned with signature line
-                "y": y - 5,    # Slightly above to align with line
+                "x": sf["x"],
+                "y": sf["y"] - 8,    # Slight upward offset to cover the line
                 "width": 200,
                 "height": 30,
             },
             "isRequired": True,
         })
-
         logger.info(
-            f"Field {field_id}: page {page}, y={y - 5:.0f}, "
-            f"marker='{loc['marker']}'"
+            f"Field sig{i + 1}: page={sf['page']}, "
+            f"x={sf['x']:.1f}, y={sf['y'] - 8:.1f}, "
+            f"marker='{sf['marker']}'"
         )
 
-    logger.info(f"Total signature fields: {len(form_fields)}")
+    logger.info(f"Total signature fields placed: {len(form_fields)}")
     return form_fields
 
 
@@ -183,18 +162,16 @@ async def send_for_signature(
 ) -> dict:
     """Send document to BoldSign for electronic signature.
 
-    Automatically detects signature field locations by scanning
-    the PDF text for carrier-specific markers.
+    Uses pdfplumber to find exact coordinates of signature markers
+    in the PDF and places signature fields precisely on top.
     """
     if not settings.BOLDSIGN_API_KEY:
         raise ValueError(
             "BOLDSIGN_API_KEY not configured. Set it in Render environment variables."
         )
 
-    # Clean title
     clean_title = re.sub(r'[^a-zA-Z0-9_ -]', '', title)[:80] or "Application"
 
-    # Build form fields by scanning the PDF
     form_fields = _build_form_fields(pdf_bytes)
 
     signer_data = {
