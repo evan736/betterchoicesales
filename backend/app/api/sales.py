@@ -562,10 +562,14 @@ async def import_sales_csv(
                     lead_source = mapped
                     break
 
-            # Map policy type
+            # Map policy type - keep term info
             policy_raw = str(row.get("Policy Type", "")).strip().lower()
             if "bundled" in policy_raw:
                 policy_type = "bundled"
+            elif "auto" in policy_raw and "6m" in policy_raw:
+                policy_type = "auto_6m"
+            elif "auto" in policy_raw and "12m" in policy_raw:
+                policy_type = "auto_12m"
             elif "auto" in policy_raw:
                 policy_type = "auto"
             elif "home" in policy_raw:

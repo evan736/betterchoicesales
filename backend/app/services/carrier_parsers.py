@@ -87,10 +87,19 @@ def _parse_date(val) -> Optional[datetime]:
 
 
 def _parse_term(val) -> Optional[int]:
-    """Parse term like 'N12', 'R6', '12', '6'."""
+    """Parse term like 'N12', 'R6', '12', '6', 12.0."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return None
+    # Handle numeric types directly (e.g. pandas float 12.0 -> 12)
+    if isinstance(val, (int, float)):
+        return int(val)
     s = str(val).strip().upper()
+    # Handle "12.0" string from pandas
+    if '.' in s:
+        try:
+            return int(float(s))
+        except ValueError:
+            pass
     # Strip leading letter (N12 -> 12, R6 -> 6)
     digits = "".join(c for c in s if c.isdigit())
     try:

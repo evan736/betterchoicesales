@@ -270,9 +270,19 @@ class ReconciliationService:
                             eff_date = eff_date.date()
                         
                         # Determine term length from policy type or statement line
-                        term_months = line.term_months or 12
-                        if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
-                            term_months = 6
+                        # Determine term: check statement line, then sale policy type
+                        term_months = line.term_months
+                        if term_months and term_months > 12:
+                            # Carrier may report in days or wrongly — normalize
+                            term_months = 6 if term_months <= 180 else 12
+                        if not term_months:
+                            pt = str(original_sale.policy_type or "").lower()
+                            if "6m" in pt or "6 month" in pt:
+                                term_months = 6
+                            elif "auto" in pt and "12" not in pt:
+                                term_months = 6  # Default auto to 6mo unless specified as 12
+                            else:
+                                term_months = 12  # Default to 12mo
                         
                         # Calculate term end date
                         term_end = eff_date + relativedelta(months=term_months)
@@ -527,9 +537,19 @@ class ReconciliationService:
                         if hasattr(eff_date, 'date'):
                             eff_date = eff_date.date()
                         
-                        term_months = line.term_months or 12
-                        if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
-                            term_months = 6
+                        # Determine term: check statement line, then sale policy type
+                        term_months = line.term_months
+                        if term_months and term_months > 12:
+                            # Carrier may report in days or wrongly — normalize
+                            term_months = 6 if term_months <= 180 else 12
+                        if not term_months:
+                            pt = str(original_sale.policy_type or "").lower()
+                            if "6m" in pt or "6 month" in pt:
+                                term_months = 6
+                            elif "auto" in pt and "12" not in pt:
+                                term_months = 6  # Default auto to 6mo unless specified as 12
+                            else:
+                                term_months = 12  # Default to 12mo
                         
                         term_end = eff_date + relativedelta(months=term_months)
                         stmt_year, stmt_month = map(int, period.split("-"))
@@ -694,9 +714,17 @@ class ReconciliationService:
                         eff = eff.date()
                     original_eff_date = eff
 
-                    term_months = line.term_months or 12
-                    if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
-                        term_months = 6
+                    term_months = line.term_months
+                    if term_months and term_months > 12:
+                        term_months = 6 if term_months <= 180 else 12
+                    if not term_months:
+                        pt = str(original_sale.policy_type or "").lower()
+                        if "6m" in pt or "6 month" in pt:
+                            term_months = 6
+                        elif "auto" in pt and "12" not in pt:
+                            term_months = 6
+                        else:
+                            term_months = 12
 
                     term_end = eff + relativedelta(months=term_months)
                     stmt_date = date(year, month, 1)
