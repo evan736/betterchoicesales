@@ -183,3 +183,40 @@ def manually_match_line(
         return {"success": True, "line_id": line.id, "matched_sale_id": sale_id}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/monthly-pay/{period}")
+def calculate_monthly_pay(
+    period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Calculate combined agent pay across ALL carriers for a given month.
+    
+    Period format: "2026-01"
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        return service.calculate_monthly_pay(period)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/monthly-pay/{period}")
+def get_monthly_pay(
+    period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get combined agent pay summary for a month."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        return service.get_monthly_pay_summary(period)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

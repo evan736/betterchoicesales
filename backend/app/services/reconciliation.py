@@ -406,3 +406,139 @@ class ReconciliationService:
 
         self.db.commit()
         return line
+
+    # ── Combined Monthly Pay ─────────────────────────────────────────
+
+    def calculate_monthly_pay(self, period: str) -> Dict:
+        """Calculate combined agent pay across ALL carriers for a month."""
+        year, month = map(int, period.split("-"))
+        prior_date = datetime(year, month, 1) - relativedelta(months=1)
+        prior_period = prior_date.strftime("%Y-%m")
+        current_period = f"{year:04d}-{month:02d}"
+
+        # Get all imports for this period
+        imports = self.db.query(StatementImport).filter(
+            StatementImport.statement_period == period,
+        ).all()
+
+        if not imports:
+            raise ValueError(f"No imports found for period {period}")
+
+        # Get ALL matched lines across all imports for this period
+        import_ids = [imp.id for imp in imports]
+        lines = self.db.query(StatementLine).filter(
+            StatementLine.statement_import_id.in_(import_ids),
+            StatementLine.assigned_agent_id.isnot(None),
+            StatementLine.is_matched == True,
+        ).all()
+
+        # Group by agent
+        agent_lines: Dict[int, List] = {}
+        for line in lines:
+            agent_lines.setdefault(line.assigned_agent_id, []).append(line)
+
+        agent_summaries = []
+        used_period = prior_period
+
+        for agent_id, agent_line_list in agent_lines.items():
+            agent = self.db.query(User).filter(User.id == agent_id).first()
+            if not agent:
+                continue
+
+            # Determine tier from prior month, fall back to current
+            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+            if prior_premium == Decimal("0"):
+                prior_premium = self._get_agent_period_premium(agent_id, current_period)
+                used_period = current_period
+
+            tier = self._get_tier_for_premium(prior_premium)
+            agent_rate = tier.commission_rate if tier else Decimal("0.03")
+            tier_level = tier.tier_level if tier else 1
+
+            # Group lines by carrier
+            carrier_breakdown = {}
+            agent_total_premium = Decimal("0")
+            agent_total_commission = Decimal("0")
+            carrier_commission_total = Decimal("0")
+
+            for line in agent_line_list:
+                premium = line.premium_amount or Decimal("0")
+                carrier_comm = line.commission_amount or Decimal("0")
+                agent_comm = premium * agent_rate
+
+                line.agent_commission_rate = agent_rate
+                line.agent_commission_amount = agent_comm
+
+                # Get carrier name from the import
+                imp = next((i for i in imports if i.id == line.statement_import_id), None)
+                carrier_name = imp.carrier if imp else "unknown"
+
+                if carrier_name not in carrier_breakdown:
+                    carrier_breakdown[carrier_name] = {
+                        "carrier": carrier_name,
+                        "premium": Decimal("0"),
+                        "carrier_commission": Decimal("0"),
+                        "agent_commission": Decimal("0"),
+                        "line_count": 0,
+                    }
+                carrier_breakdown[carrier_name]["premium"] += premium
+                carrier_breakdown[carrier_name]["carrier_commission"] += carrier_comm
+                carrier_breakdown[carrier_name]["agent_commission"] += agent_comm
+                carrier_breakdown[carrier_name]["line_count"] += 1
+
+                agent_total_premium += premium
+                agent_total_commission += agent_comm
+                carrier_commission_total += carrier_comm
+
+            agent_summaries.append({
+                "agent_id": agent_id,
+                "agent_name": agent.full_name or agent.username,
+                "agent_role": agent.role or "producer",
+                "tier_level": tier_level,
+                "commission_rate": float(agent_rate),
+                "tier_premium": float(prior_premium),
+                "total_premium": float(agent_total_premium),
+                "carrier_commission_total": float(carrier_commission_total),
+                "total_agent_commission": float(agent_total_commission),
+                "line_count": len(agent_line_list),
+                "carrier_breakdown": [
+                    {k: float(v) if isinstance(v, Decimal) else v for k, v in cb.items()}
+                    for cb in carrier_breakdown.values()
+                ],
+            })
+
+        self.db.commit()
+
+        # Sort by total commission descending
+        agent_summaries.sort(key=lambda x: x["total_agent_commission"], reverse=True)
+
+        # Carrier totals
+        carrier_totals = {}
+        for imp in imports:
+            carrier_totals[imp.carrier] = {
+                "carrier": imp.carrier,
+                "total_rows": imp.total_rows,
+                "matched_rows": imp.matched_rows,
+                "unmatched_rows": imp.unmatched_rows,
+                "total_premium": float(imp.total_premium or 0),
+                "total_commission": float(imp.total_commission or 0),
+            }
+
+        return {
+            "period": period,
+            "tier_based_on": used_period,
+            "note": "Using current month premium (no prior month data)" if used_period == current_period else None,
+            "carriers": list(carrier_totals.values()),
+            "agent_summaries": agent_summaries,
+            "totals": {
+                "total_carriers": len(imports),
+                "total_matched_lines": sum(imp.matched_rows or 0 for imp in imports),
+                "total_premium": sum(float(imp.total_premium or 0) for imp in imports),
+                "total_carrier_commission": sum(float(imp.total_commission or 0) for imp in imports),
+                "total_agent_pay": sum(a["total_agent_commission"] for a in agent_summaries),
+            },
+        }
+
+    def get_monthly_pay_summary(self, period: str) -> Dict:
+        """Get existing monthly pay data (same as calculate but read-only)."""
+        return self.calculate_monthly_pay(period)

@@ -95,6 +95,15 @@ export default function Statements() {
   // Tab state for detail view
   const [activeTab, setActiveTab] = useState<'matched' | 'unmatched' | 'summary' | 'agents'>('summary');
 
+  // Monthly combined pay
+  const [monthlyPay, setMonthlyPay] = useState<any>(null);
+  const [monthlyPayPeriod, setMonthlyPayPeriod] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [monthlyPayLoading, setMonthlyPayLoading] = useState(false);
+  const [showMonthlyPay, setShowMonthlyPay] = useState(false);
+
   useEffect(() => {
     if (!loading && !user) router.push('/');
     else if (user && user.role?.toLowerCase() !== 'admin') router.push('/dashboard');
@@ -230,6 +239,53 @@ export default function Statements() {
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Monthly Combined Pay */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-display text-xl font-bold text-slate-900">Monthly Agent Pay</h2>
+              <p className="text-sm text-slate-500">Combined commission across all carriers for the month</p>
+            </div>
+            <div className="flex items-center space-x-3">
+              <input
+                type="month"
+                value={monthlyPayPeriod}
+                onChange={(e) => setMonthlyPayPeriod(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <button
+                onClick={async () => {
+                  setMonthlyPayLoading(true);
+                  setShowMonthlyPay(true);
+                  try {
+                    const res = await reconciliationAPI.monthlyPay(monthlyPayPeriod);
+                    setMonthlyPay(res.data);
+                  } catch (err: any) {
+                    alert(err.response?.data?.detail || 'Failed to calculate');
+                  } finally {
+                    setMonthlyPayLoading(false);
+                  }
+                }}
+                disabled={monthlyPayLoading}
+                className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+              >
+                <DollarSign size={16} />
+                <span>{monthlyPayLoading ? 'Calculating...' : 'Calculate Monthly Pay'}</span>
+              </button>
+            </div>
+          </div>
+
+          {showMonthlyPay && monthlyPay && !monthlyPayLoading && (
+            <MonthlyPayView data={monthlyPay} />
+          )}
+          {showMonthlyPay && monthlyPayLoading && (
+            <div className="text-center py-8">
+              <RefreshCw size={24} className="mx-auto animate-spin text-green-600 mb-2" />
+              <p className="text-sm text-slate-500">Calculating combined pay...</p>
+            </div>
+          )}
         </div>
 
         {/* Two-column: Import List + Detail */}
@@ -631,5 +687,111 @@ const TransTypeBadge: React.FC<{ type: string }> = ({ type }) => {
     <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${color}`}>
       {type.length > 15 ? type.slice(0, 15) + '…' : type}
     </span>
+  );
+};
+
+// ── Monthly Combined Pay View ───────────────────────────────────────
+
+const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
+  const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* Note */}
+      {data.note && (
+        <p className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">{data.note}</p>
+      )}
+
+      {/* Totals */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-slate-900">{data.totals.total_carriers}</div>
+          <div className="text-xs text-slate-500">Carriers</div>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-slate-900">{data.totals.total_matched_lines}</div>
+          <div className="text-xs text-slate-500">Matched Lines</div>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-slate-900">${fmt(data.totals.total_premium)}</div>
+          <div className="text-xs text-slate-500">Total Premium</div>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-blue-700">${fmt(data.totals.total_carrier_commission)}</div>
+          <div className="text-xs text-slate-500">Carrier Commission</div>
+        </div>
+        <div className="bg-green-50 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-green-700">${fmt(data.totals.total_agent_pay)}</div>
+          <div className="text-xs text-slate-500">Total Agent Pay</div>
+        </div>
+      </div>
+
+      {/* Carrier breakdown */}
+      <div>
+        <h4 className="font-semibold text-slate-700 text-sm mb-2">Carriers Included</h4>
+        <div className="flex flex-wrap gap-2">
+          {data.carriers.map((c: any) => (
+            <span key={c.carrier} className="text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full font-medium">
+              {c.carrier.replace('_', ' ').replace(/\b\w/g, (ch: string) => ch.toUpperCase())}
+              <span className="text-slate-400 ml-1">({c.matched_rows} matched)</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Agent cards */}
+      <div>
+        <h4 className="font-semibold text-slate-700 text-sm mb-2">Agent Commission Breakdown</h4>
+        <div className="space-y-3">
+          {data.agent_summaries.map((agent: any) => (
+            <div key={agent.agent_id} className="border border-slate-200 rounded-lg p-4 hover:border-green-300 transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h4 className="font-bold text-slate-900">{agent.agent_name}</h4>
+                  <p className="text-xs text-slate-500">
+                    {agent.agent_role === 'retention_specialist' ? 'Retention Specialist' : 'Producer'} · Tier {agent.tier_level} · {(agent.commission_rate * 100).toFixed(1)}% rate · {agent.line_count} lines
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-green-700">${fmt(agent.total_agent_commission)}</div>
+                  <div className="text-xs text-slate-500">agent pay</div>
+                </div>
+              </div>
+
+              {/* Carrier breakdown per agent */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs mt-2">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="text-left py-1 pr-2 font-semibold text-slate-600">Carrier</th>
+                      <th className="text-right py-1 px-2 font-semibold text-slate-600">Lines</th>
+                      <th className="text-right py-1 px-2 font-semibold text-slate-600">Premium</th>
+                      <th className="text-right py-1 px-2 font-semibold text-slate-600">Carrier Comm</th>
+                      <th className="text-right py-1 pl-2 font-semibold text-green-700">Agent Pay</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agent.carrier_breakdown.map((cb: any) => (
+                      <tr key={cb.carrier} className="border-b border-slate-50">
+                        <td className="py-1 pr-2 capitalize">{cb.carrier.replace('_', ' ')}</td>
+                        <td className="py-1 px-2 text-right">{cb.line_count}</td>
+                        <td className="py-1 px-2 text-right">${fmt(cb.premium)}</td>
+                        <td className="py-1 px-2 text-right">${fmt(cb.carrier_commission)}</td>
+                        <td className="py-1 pl-2 text-right font-semibold text-green-700">${fmt(cb.agent_commission)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between text-xs text-slate-500 mt-2 pt-2 border-t border-slate-100">
+                <span>Tier based on: ${fmt(agent.tier_premium)} written premium</span>
+                <span>Total premium: ${fmt(agent.total_premium)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 };

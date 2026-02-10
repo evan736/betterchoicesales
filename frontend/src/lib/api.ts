@@ -90,6 +90,10 @@ export const reconciliationAPI = {
   calculate: (id: number) => api.post(`/api/reconciliation/${id}/calculate`),
   manualMatch: (lineId: number, saleId: number) =>
     api.post(`/api/reconciliation/lines/${lineId}/match?sale_id=${saleId}`),
+  monthlyPay: (period: string) =>
+    api.post(`/api/reconciliation/monthly-pay/${period}`),
+  getMonthlyPay: (period: string) =>
+    api.get(`/api/reconciliation/monthly-pay/${period}`),
 };
 
 // Legacy alias
