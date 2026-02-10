@@ -211,6 +211,7 @@ class ReconciliationService:
         year, month = map(int, period.split("-"))
         prior_date = datetime(year, month, 1) - relativedelta(months=1)
         prior_period = prior_date.strftime("%Y-%m")
+        current_period = f"{year:04d}-{month:02d}"
 
         # Get all matched lines with assigned agents
         lines = self.db.query(StatementLine).filter(
@@ -224,6 +225,7 @@ class ReconciliationService:
             agent_lines.setdefault(line.assigned_agent_id, []).append(line)
 
         agent_summaries = []
+        used_period = prior_period  # track which period was used
 
         for agent_id, agent_line_list in agent_lines.items():
             agent = self.db.query(User).filter(User.id == agent_id).first()
@@ -232,6 +234,12 @@ class ReconciliationService:
 
             # Get agent's prior month written premium to determine tier
             prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+
+            # If no prior month data, fall back to current month's premium
+            if prior_premium == Decimal("0"):
+                prior_premium = self._get_agent_period_premium(agent_id, current_period)
+                used_period = current_period
+
             tier = self._get_tier_for_premium(prior_premium)
 
             agent_rate = tier.commission_rate if tier else Decimal("0.03")
@@ -268,6 +276,8 @@ class ReconciliationService:
             "import_id": import_id,
             "period": period,
             "prior_period": prior_period,
+            "tier_based_on": used_period,
+            "note": "Using current month premium (no prior month data)" if used_period == current_period else None,
             "agent_summaries": agent_summaries,
         }
 

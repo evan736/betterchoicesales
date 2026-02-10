@@ -533,9 +533,12 @@ const AgentPayTab: React.FC<{ summary: any }> = ({ summary }) => {
 
   return (
     <div>
-      <p className="text-sm text-slate-600 mb-4">
-        Rates based on prior month ({summary.prior_period}) written premium
+      <p className="text-sm text-slate-600 mb-1">
+        Rates based on <span className="font-semibold">{summary.tier_based_on || summary.prior_period}</span> written premium
       </p>
+      {summary.note && (
+        <p className="text-xs text-amber-600 mb-4">{summary.note}</p>
+      )}
       <div className="space-y-4">
         {summary.agent_summaries.map((agent: any) => (
           <div
