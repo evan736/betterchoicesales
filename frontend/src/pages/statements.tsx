@@ -129,9 +129,9 @@ export default function Statements() {
     }
   };
 
-  const loadDetail = async (importId: number) => {
+  const loadDetail = async (importId: number, preserveAgentSummary = false) => {
     setLoadingDetail(true);
-    setAgentSummary(null);
+    if (!preserveAgentSummary) setAgentSummary(null);
     try {
       const res = await reconciliationAPI.get(importId);
       setReconciliation(res.data);
@@ -145,7 +145,10 @@ export default function Statements() {
   const handleMatch = async (importId: number) => {
     setActionLoading('match');
     try {
-      await reconciliationAPI.match(importId);
+      const res = await reconciliationAPI.match(importId);
+      // Show match results
+      const msg = `Matched: ${res.data.matched} total (${res.data.newly_matched || 0} new), Unmatched: ${res.data.unmatched}`;
+      alert(msg);
       await loadImports();
       await loadDetail(importId);
     } catch (err: any) {
@@ -161,7 +164,7 @@ export default function Statements() {
       const res = await reconciliationAPI.calculate(importId);
       setAgentSummary(res.data);
       setActiveTab('agents');
-      await loadDetail(importId);
+      await loadDetail(importId, true);  // preserve agent summary
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Calculation failed');
     } finally {
@@ -339,18 +342,16 @@ const DetailView: React.FC<{
         </div>
 
         {/* Action buttons */}
-        <div className="flex space-x-3">
-          {(imp.status === 'matched' || imp.status === 'uploaded') && (
-            <button
-              onClick={onMatch}
-              disabled={actionLoading === 'match'}
-              className="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
-            >
-              <Search size={16} />
-              <span>{actionLoading === 'match' ? 'Matching...' : 'Run Auto-Match'}</span>
-            </button>
-          )}
-          {(imp.status === 'partially_matched' || imp.matched_rows > 0) && (
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={onMatch}
+            disabled={actionLoading === 'match'}
+            className="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={16} />
+            <span>{actionLoading === 'match' ? 'Matching...' : (imp.matched_rows > 0 ? 'Re-Match Policies' : 'Run Auto-Match')}</span>
+          </button>
+          {imp.matched_rows > 0 && (
             <button
               onClick={onCalculate}
               disabled={actionLoading === 'calculate'}

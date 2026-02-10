@@ -121,7 +121,10 @@ class ReconciliationService:
     # ── Match ────────────────────────────────────────────────────────
 
     def run_matching(self, import_id: int) -> Dict:
-        """Match statement lines to sales by policy number."""
+        """Match statement lines to sales by policy number.
+        
+        Can be re-run — will retry unmatched lines and preserve existing matches.
+        """
         imp = self.db.query(StatementImport).filter(
             StatementImport.id == import_id
         ).first()
@@ -134,8 +137,14 @@ class ReconciliationService:
 
         matched = 0
         unmatched = 0
+        newly_matched = 0
 
         for line in lines:
+            # Skip already matched lines
+            if line.is_matched and line.matched_sale_id:
+                matched += 1
+                continue
+
             # Try exact match on policy number
             sale = self.db.query(Sale).filter(
                 Sale.policy_number == line.policy_number
@@ -150,6 +159,7 @@ class ReconciliationService:
                 # Assign agent from the sale
                 line.assigned_agent_id = sale.producer_id
                 matched += 1
+                newly_matched += 1
             else:
                 # Try fuzzy: strip leading zeros, try partial
                 cleaned = line.policy_number.lstrip("0")
@@ -164,6 +174,7 @@ class ReconciliationService:
                     line.matched_at = datetime.utcnow()
                     line.assigned_agent_id = sale.producer_id
                     matched += 1
+                    newly_matched += 1
                 else:
                     unmatched += 1
 
@@ -172,12 +183,13 @@ class ReconciliationService:
         imp.status = StatementStatus.PARTIALLY_MATCHED
         self.db.commit()
 
-        logger.info(f"Matching import {import_id}: {matched} matched, {unmatched} unmatched")
+        logger.info(f"Matching import {import_id}: {matched} matched ({newly_matched} new), {unmatched} unmatched")
 
         return {
             "import_id": import_id,
             "total": len(lines),
             "matched": matched,
+            "newly_matched": newly_matched,
             "unmatched": unmatched,
         }
 
