@@ -623,3 +623,27 @@ async def import_sales_csv(
         "errors": errors,
         "total_rows": len(df),
     }
+
+
+@router.get("/debug-counts")
+def debug_sale_counts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Debug: count sales by year-month."""
+    from sqlalchemy import func, extract as sql_ext
+    results = db.query(
+        sql_ext("year", Sale.sale_date).label("y"),
+        sql_ext("month", Sale.sale_date).label("m"),
+        func.count(Sale.id).label("cnt"),
+        func.sum(Sale.written_premium).label("premium"),
+    ).group_by("y", "m").order_by("y", "m").all()
+    
+    total = db.query(func.count(Sale.id)).scalar()
+    null_dates = db.query(func.count(Sale.id)).filter(Sale.sale_date.is_(None)).scalar()
+    
+    return {
+        "total_sales": total,
+        "null_sale_dates": null_dates,
+        "by_month": [{"year": r.y, "month": r.m, "count": r.cnt, "premium": float(r.premium or 0)} for r in results],
+    }
