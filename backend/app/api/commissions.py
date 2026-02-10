@@ -22,7 +22,7 @@ def calculate_period_commissions(
     Period format: YYYY-MM
     """
     # Producers can only view their own commissions
-    if current_user.role == "producer" and current_user.id != producer_id:
+    if current_user.role.lower() == "producer" and current_user.id != producer_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
@@ -150,7 +150,7 @@ def create_commission_tier(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new commission tier (admin only)"""
-    if current_user.role != "admin":
+    if current_user.role.lower() != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"

@@ -38,9 +38,9 @@ const Navbar: React.FC = () => {
               <NavLink href="/commissions" icon={<TrendingUp size={18} />}>
                 Commissions
               </NavLink>
-              {user.role === 'admin' && (
+              {(user.role?.toLowerCase() === 'admin' || user.role?.toLowerCase() === 'manager') && (
                 <NavLink href="/statements" icon={<Upload size={18} />}>
-                  Statements
+                  Reconciliation
                 </NavLink>
               )}
             </div>

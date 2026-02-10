@@ -97,7 +97,7 @@ export default function Statements() {
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
-    else if (user && user.role !== 'admin') router.push('/dashboard');
+    else if (user && user.role?.toLowerCase() !== 'admin') router.push('/dashboard');
     else if (user) loadImports();
   }, [user, loading]);
 
@@ -169,7 +169,7 @@ export default function Statements() {
     }
   };
 
-  if (loading || !user || user.role !== 'admin') return null;
+  if (loading || !user || user.role?.toLowerCase() !== 'admin') return null;
 
   return (
     <div className="min-h-screen bg-slate-50">

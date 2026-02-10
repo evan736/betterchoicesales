@@ -166,7 +166,7 @@ export default function Dashboard() {
                   icon={<DollarSign size={20} />}
                   text="View Commissions"
                 />
-                {user.role === 'admin' && (
+                {user.role?.toLowerCase() === 'admin' && (
                   <QuickActionButton
                     onClick={() => router.push('/statements')}
                     icon={<TrendingUp size={20} />}

@@ -481,7 +481,7 @@ def get_filter_options(
 
     # Get producers (admin only)
     producers = []
-    if current_user.role == "admin":
+    if current_user.role.lower() == "admin":
         all_producers = db.query(User).all()
         producers = [{"id": u.id, "name": u.full_name, "code": u.producer_code} for u in all_producers]
 

@@ -33,7 +33,7 @@ async def upload_statement(
     db: Session = Depends(get_db),
 ):
     """Upload a carrier commission statement for reconciliation."""
-    if current_user.role not in ("admin", "manager"):
+    if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
     # Validate carrier
@@ -91,7 +91,7 @@ def run_matching(
     db: Session = Depends(get_db),
 ):
     """Run auto-matching on a processed statement."""
-    if current_user.role not in ("admin", "manager"):
+    if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
     service = ReconciliationService(db)
@@ -110,7 +110,7 @@ def calculate_commissions(
     db: Session = Depends(get_db),
 ):
     """Calculate agent commissions based on tier from prior month."""
-    if current_user.role not in ("admin", "manager"):
+    if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
     service = ReconciliationService(db)
@@ -174,7 +174,7 @@ def manually_match_line(
     db: Session = Depends(get_db),
 ):
     """Manually match an unmatched statement line to a sale."""
-    if current_user.role not in ("admin", "manager"):
+    if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
     service = ReconciliationService(db)

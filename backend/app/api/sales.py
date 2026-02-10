@@ -427,7 +427,7 @@ async def import_sales_csv(
     Expected columns: Sale Date, Effective Date, Policy #, Customer,
     Policy Type, Company, Items, Premium, Source, Producer
     """
-    if current_user.role not in ("admin",):
+    if current_user.role.lower() not in ("admin",):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     import pandas as pd
