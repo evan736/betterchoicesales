@@ -309,7 +309,7 @@ class ReconciliationService:
                 "id": line.id,
                 "policy_number": line.policy_number,
                 "insured_name": line.insured_name,
-                "transaction_type": line.transaction_type.value if line.transaction_type else None,
+                "transaction_type": line.transaction_type if line.transaction_type else None,
                 "transaction_type_raw": line.transaction_type_raw,
                 "premium_amount": float(line.premium_amount) if line.premium_amount else 0,
                 "commission_amount": float(line.commission_amount) if line.commission_amount else 0,
