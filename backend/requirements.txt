@@ -19,7 +19,8 @@ bcrypt==4.0.1
 python-dotenv==1.0.0
 
 # File handling
-pdfplumber==0.11.4
+pdfplumber>=0.10.0
+PyPDF2==3.0.1
 pdf2image==1.17.0
 openpyxl==3.1.2
 pandas==2.1.4
