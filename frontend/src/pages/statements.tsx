@@ -753,8 +753,13 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                   </p>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-bold text-green-700">${fmt(agent.total_agent_commission)}</div>
-                  <div className="text-xs text-slate-500">agent pay</div>
+                  <div className="text-2xl font-bold text-green-700">${fmt(agent.net_agent_commission || agent.total_agent_commission)}</div>
+                  <div className="text-xs text-slate-500">net agent pay</div>
+                  {agent.chargeback_count > 0 && (
+                    <div className="text-xs text-red-600 mt-0.5">
+                      includes ${fmt(Math.abs(agent.chargebacks))} in chargebacks ({agent.chargeback_count})
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -767,6 +772,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Lines</th>
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Premium</th>
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Carrier Comm</th>
+                      <th className="text-right py-1 px-2 font-semibold text-red-600">Chargebacks</th>
                       <th className="text-right py-1 pl-2 font-semibold text-green-700">Agent Pay</th>
                     </tr>
                   </thead>
@@ -777,6 +783,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                         <td className="py-1 px-2 text-right">{cb.line_count}</td>
                         <td className="py-1 px-2 text-right">${fmt(cb.premium)}</td>
                         <td className="py-1 px-2 text-right">${fmt(cb.carrier_commission)}</td>
+                        <td className="py-1 px-2 text-right text-red-600">{cb.chargebacks && cb.chargebacks < 0 ? `-$${fmt(Math.abs(cb.chargebacks))}` : '—'}</td>
                         <td className="py-1 pl-2 text-right font-semibold text-green-700">${fmt(cb.agent_commission)}</td>
                       </tr>
                     ))}

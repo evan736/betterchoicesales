@@ -10,7 +10,7 @@ Workflow:
 import logging
 from decimal import Decimal
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 from sqlalchemy.orm import Session
@@ -248,10 +248,53 @@ class ReconciliationService:
             # Calculate commission for each line
             agent_total_premium = Decimal("0")
             agent_total_commission = Decimal("0")
+            agent_chargebacks = Decimal("0")
+            chargeback_count = 0
 
             for line in agent_line_list:
                 premium = line.premium_amount or Decimal("0")
-                agent_comm = premium * agent_rate
+                carrier_comm = line.commission_amount or Decimal("0")
+                
+                # Check if this is a cancellation/reinstatement within first term
+                tx_type = (line.transaction_type or "").lower()
+                is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
+                
+                if is_cancel_or_reinstate and line.matched_sale_id:
+                    # Get the original sale to check if within first term
+                    original_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+                    
+                    within_first_term = False
+                    if original_sale and original_sale.effective_date:
+                        eff_date = original_sale.effective_date
+                        if hasattr(eff_date, 'date'):
+                            eff_date = eff_date.date()
+                        
+                        # Determine term length from policy type or statement line
+                        term_months = line.term_months or 12
+                        if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
+                            term_months = 6
+                        
+                        # Calculate term end date
+                        term_end = eff_date + relativedelta(months=term_months)
+                        
+                        # Statement period determines the "as of" date
+                        stmt_year, stmt_month = map(int, imp.statement_period.split("-"))
+                        stmt_date = date(stmt_year, stmt_month, 1)
+                        
+                        within_first_term = stmt_date < term_end
+                    
+                    if within_first_term:
+                        # Chargeback: use carrier's commission amount (negative)
+                        # The carrier statement already shows negative premium/commission for cancels
+                        agent_comm = carrier_comm  # Pass through carrier's chargeback amount
+                        agent_chargebacks += agent_comm
+                        chargeback_count += 1
+                    else:
+                        # Outside first term — no chargeback to agent
+                        agent_comm = Decimal("0")
+                else:
+                    # Normal line: apply tier rate
+                    agent_comm = premium * agent_rate
 
                 line.agent_commission_rate = agent_rate
                 line.agent_commission_amount = agent_comm
@@ -267,6 +310,9 @@ class ReconciliationService:
                 "prior_month_premium": float(prior_premium),
                 "total_premium": float(agent_total_premium),
                 "total_agent_commission": float(agent_total_commission),
+                "chargebacks": float(agent_chargebacks),
+                "chargeback_count": chargeback_count,
+                "net_agent_commission": float(agent_total_commission),
                 "line_count": len(agent_line_list),
             })
 
@@ -460,11 +506,45 @@ class ReconciliationService:
             agent_total_premium = Decimal("0")
             agent_total_commission = Decimal("0")
             carrier_commission_total = Decimal("0")
+            agent_chargebacks = Decimal("0")
+            chargeback_count = 0
 
             for line in agent_line_list:
                 premium = line.premium_amount or Decimal("0")
                 carrier_comm = line.commission_amount or Decimal("0")
-                agent_comm = premium * agent_rate
+                
+                # Check if this is a cancellation/reinstatement within first term
+                tx_type = (line.transaction_type or "").lower()
+                is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
+                
+                if is_cancel_or_reinstate and line.matched_sale_id:
+                    # Get original sale to check first term
+                    original_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+                    
+                    within_first_term = False
+                    if original_sale and original_sale.effective_date:
+                        eff_date = original_sale.effective_date
+                        if hasattr(eff_date, 'date'):
+                            eff_date = eff_date.date()
+                        
+                        term_months = line.term_months or 12
+                        if original_sale.policy_type and '6m' in str(original_sale.policy_type).lower():
+                            term_months = 6
+                        
+                        term_end = eff_date + relativedelta(months=term_months)
+                        stmt_year, stmt_month = map(int, period.split("-"))
+                        stmt_date = date(stmt_year, stmt_month, 1)
+                        within_first_term = stmt_date < term_end
+                    
+                    if within_first_term:
+                        # Chargeback: pass through carrier's commission amount
+                        agent_comm = carrier_comm
+                        agent_chargebacks += agent_comm
+                        chargeback_count += 1
+                    else:
+                        agent_comm = Decimal("0")
+                else:
+                    agent_comm = premium * agent_rate
 
                 line.agent_commission_rate = agent_rate
                 line.agent_commission_amount = agent_comm
@@ -479,11 +559,14 @@ class ReconciliationService:
                         "premium": Decimal("0"),
                         "carrier_commission": Decimal("0"),
                         "agent_commission": Decimal("0"),
+                        "chargebacks": Decimal("0"),
                         "line_count": 0,
                     }
                 carrier_breakdown[carrier_name]["premium"] += premium
                 carrier_breakdown[carrier_name]["carrier_commission"] += carrier_comm
                 carrier_breakdown[carrier_name]["agent_commission"] += agent_comm
+                if is_cancel_or_reinstate and agent_comm < 0:
+                    carrier_breakdown[carrier_name]["chargebacks"] += agent_comm
                 carrier_breakdown[carrier_name]["line_count"] += 1
 
                 agent_total_premium += premium
@@ -500,6 +583,9 @@ class ReconciliationService:
                 "total_premium": float(agent_total_premium),
                 "carrier_commission_total": float(carrier_commission_total),
                 "total_agent_commission": float(agent_total_commission),
+                "chargebacks": float(agent_chargebacks),
+                "chargeback_count": chargeback_count,
+                "net_agent_commission": float(agent_total_commission),
                 "line_count": len(agent_line_list),
                 "carrier_breakdown": [
                     {k: float(v) if isinstance(v, Decimal) else v for k, v in cb.items()}
