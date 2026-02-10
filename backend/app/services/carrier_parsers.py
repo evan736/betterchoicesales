@@ -117,13 +117,15 @@ def _map_transaction_type(raw: str) -> TransactionType:
     new_biz = ["NEW BUSINESS", "NEW BUS-A", "NEW BUS", "NB", "NEW"]
     renewal = ["RENEWAL", "RENEW", "REN", "RWL"]
     endorse = ["ENDORSEMENT", "ENDORS", "REVISION", "CHANGE", "ENDORSEMENTS"]
-    cancel = ["CANCEL", "CANCELLATION", "CANCEL-NP", "CANCEL-INS", "CANCELLATIONS"]
+    cancel = ["CANCEL", "CANCELLATION", "CANCEL-NP", "CANCEL-INS", "CANCELLATIONS",
+              "CANCEL PRO RATE", "CANCEL FLAT"]
     reinstate = ["REINSTATEMENT", "REINSTATEMENTS", "REINSTATE"]
     audit = ["AUDIT", "AUDIT PREM"]
     adjust = ["ADJUST", "ADJUSTMENT", "ADJUSTMENTS", "CHARGEBACK",
               "LOSS HIST CHARGEBACK", "VIOLATION HISTORY CHARGEBACK",
               "UNCOLLECTED PREMIUM", "UNCOLLECTED PREMIUM REIMBURSEMENT",
-              "RECOUPMENTS", "APP INCENTIVE"]
+              "RECOUPMENTS", "APP INCENTIVE",
+              "CREDIT ENDORSEMENT", "UNHON", "WAIVED"]
 
     if any(r.startswith(x) or r == x for x in new_biz):
         return TransactionType.NEW_BUSINESS
@@ -322,17 +324,20 @@ def parse_grange(file_bytes: bytes, filename: str) -> List[Dict]:
 # ── PROGRESSIVE parser ───────────────────────────────────────────────
 
 def parse_progressive(file_bytes: bytes, filename: str) -> List[Dict]:
-    """Parse Progressive CSV commission statement.
+    """Parse Progressive XLSX commission statement.
 
-    Columns: Agent Stat Number, Statement Date, Line of Business,
-             Sub Line of Business, Product Type, Insured Name,
-             Policy Number, Ren Conversion Ind, Policy Effective Date,
-             State, Pay Plan, Transaction Effective Date, Term Length,
-             Activity Type, Premium, Comm Rate, Comm Amount, ...
+    Actual columns: Insured Name, Policy Number, Policy Effective Date,
+    Policy Expiration Date, Prod, Agt Pre, Tran Code, Tran Date,
+    Gross Premium, Gross Comm, Net Due Agent, Prod Name, Agent Code,
+    Month End, Renewal Count
     """
     records = []
     try:
-        df = pd.read_csv(io.BytesIO(file_bytes))
+        if filename.lower().endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(file_bytes))
+        else:
+            df = pd.read_excel(io.BytesIO(file_bytes))
+
         logger.info(f"Progressive: {len(df)} rows, columns: {list(df.columns)}")
 
         for _, row in df.iterrows():
@@ -340,23 +345,32 @@ def parse_progressive(file_bytes: bytes, filename: str) -> List[Dict]:
             if not policy_number or policy_number == "nan":
                 continue
 
-            raw_type = str(row.get("Activity Type", ""))
+            raw_type = str(row.get("Tran Code", "")).strip()
+            premium = _clean_currency(row.get("Gross Premium"))
+            comm = _clean_currency(row.get("Gross Comm"))
+            comm_rate = _clean_rate(row.get("Comm"))
+
+            # Get producer name
+            prod_name = str(row.get("Prod Name", "") or "").strip()
+
+            # Determine product line
+            prod_line = str(row.get("Prod", "") or "").strip()
 
             records.append({
                 "policy_number": policy_number,
                 "insured_name": str(row.get("Insured Name", "") or "").strip(),
                 "transaction_type": _map_transaction_type(raw_type).value,
                 "transaction_type_raw": raw_type,
-                "transaction_date": _parse_date(row.get("Transaction Effective Date")),
+                "transaction_date": _parse_date(row.get("Tran Date")),
                 "effective_date": _parse_date(row.get("Policy Effective Date")),
-                "premium_amount": _clean_currency(row.get("Premium")),
-                "commission_rate": _clean_rate(row.get("Comm Rate")),
-                "commission_amount": _clean_currency(row.get("Comm Amount")),
-                "producer_name": None,  # Progressive doesn't include producer name
-                "product_type": str(row.get("Product Type", "") or "").strip(),
-                "line_of_business": str(row.get("Line of Business", "") or "").strip(),
-                "state": str(row.get("State", "") or "").strip()[:2],
-                "term_months": _parse_term(row.get("Term Length")),
+                "premium_amount": premium,
+                "commission_rate": comm_rate,
+                "commission_amount": comm,
+                "producer_name": prod_name if prod_name and prod_name != "nan" else None,
+                "product_type": prod_line,
+                "line_of_business": prod_line,
+                "state": None,  # Progressive doesn't include state in this format
+                "term_months": 6 if prod_line == "Auto" else 12,  # Progressive auto is 6mo
                 "raw_data": str(row.to_dict()),
             })
 
@@ -366,6 +380,227 @@ def parse_progressive(file_bytes: bytes, filename: str) -> List[Dict]:
 
     logger.info(f"Progressive: parsed {len(records)} records")
     return records
+
+
+def parse_safeco(file_bytes: bytes, filename: str) -> List[Dict]:
+    """Parse Safeco (Liberty Mutual) commission statement.
+
+    Safeco statements come as CSV or XLSX and may have columns like:
+    Policy Number, Named Insured, Transaction Type, Effective Date,
+    Transaction Date, Written Premium, Commission Rate, Commission Amount,
+    Line of Business, State, Producer, Term
+    
+    Also handles alternate column names from Safeco's portal exports.
+    """
+    records = []
+    try:
+        # Try CSV first, then Excel
+        if filename.lower().endswith(('.csv', '.txt')):
+            df = pd.read_csv(io.BytesIO(file_bytes))
+        else:
+            df = pd.read_excel(io.BytesIO(file_bytes))
+
+        logger.info(f"Safeco: {len(df)} rows, columns: {list(df.columns)}")
+
+        # Flexible column mapping - Safeco has varied exports
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).strip().lower().replace(" ", "_")
+            if "policy" in cl and ("num" in cl or "no" in cl or cl == "policy"):
+                col_map["policy"] = c
+            elif "insured" in cl or "named_insured" in cl or "name" in cl:
+                col_map["insured"] = c
+            elif "trans" in cl and "type" in cl:
+                col_map["trans_type"] = c
+            elif "activity" in cl and "type" in cl:
+                col_map["trans_type"] = c
+            elif "trans" in cl and "date" in cl:
+                col_map["trans_date"] = c
+            elif "eff" in cl and "date" in cl:
+                col_map["eff_date"] = c
+            elif "premium" in cl and ("written" in cl or "net" in cl or cl == "premium"):
+                col_map["premium"] = c
+            elif "comm" in cl and ("rate" in cl or "pct" in cl or "percent" in cl):
+                col_map["comm_rate"] = c
+            elif "comm" in cl and ("amt" in cl or "amount" in cl or cl == "commission"):
+                col_map["comm_amount"] = c
+            elif "state" in cl and "code" not in cl:
+                col_map["state"] = c
+            elif "producer" in cl or "agent" in cl or "writer" in cl:
+                col_map["producer"] = c
+            elif "line" in cl and "bus" in cl:
+                col_map["lob"] = c
+            elif "term" in cl:
+                col_map["term"] = c
+            elif "product" in cl:
+                col_map["product"] = c
+
+        logger.info(f"Safeco column map: {col_map}")
+
+        for _, row in df.iterrows():
+            policy_number = str(row.get(col_map.get("policy", "Policy Number"), "")).strip()
+            if not policy_number or policy_number == "nan":
+                continue
+
+            raw_type = str(row.get(col_map.get("trans_type", "Transaction Type"), "") or "")
+
+            records.append({
+                "policy_number": policy_number,
+                "insured_name": str(row.get(col_map.get("insured", "Named Insured"), "") or "").strip(),
+                "transaction_type": _map_transaction_type(raw_type).value,
+                "transaction_type_raw": raw_type,
+                "transaction_date": _parse_date(row.get(col_map.get("trans_date", "Transaction Date"))),
+                "effective_date": _parse_date(row.get(col_map.get("eff_date", "Effective Date"))),
+                "premium_amount": _clean_currency(row.get(col_map.get("premium", "Written Premium"))),
+                "commission_rate": _clean_rate(row.get(col_map.get("comm_rate", "Commission Rate"))),
+                "commission_amount": _clean_currency(row.get(col_map.get("comm_amount", "Commission Amount"))),
+                "producer_name": str(row.get(col_map.get("producer", "Producer"), "") or "").strip() or None,
+                "product_type": str(row.get(col_map.get("product", "Product"), "") or "").strip(),
+                "line_of_business": str(row.get(col_map.get("lob", "Line of Business"), "") or "").strip(),
+                "state": str(row.get(col_map.get("state", "State"), "") or "").strip()[:2],
+                "term_months": _parse_term(row.get(col_map.get("term", "Term"))),
+                "raw_data": str(row.to_dict()),
+            })
+
+    except Exception as e:
+        logger.error(f"Error parsing Safeco: {e}", exc_info=True)
+        raise
+
+    logger.info(f"Safeco: parsed {len(records)} records")
+    return records
+
+
+# ── Travelers parser ────────────────────────────────────────────────
+
+def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
+    """Parse Travelers PI Commission Statement XLSX.
+
+    Travelers has a messy format:
+    - Row 0 is a sub-header row (column names repeat)
+    - POL-EFF-DT contains transaction codes like '012426-CONT', '013026-NEW-BUS', '081225-CANC'
+    - COMM rate stored as 1500 meaning 15.00%
+    - Policy numbers have spaces: '615263935 633  1'
+    - PAYMENT = premium received, PAID = commission paid
+    """
+    records = []
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        logger.info(f"Travelers: {len(df)} rows, columns: {list(df.columns)}")
+
+        # Skip the sub-header row (row 0 has 'DATE', 'CDE', 'CODE' etc)
+        if len(df) > 0 and str(df.iloc[0].get("STATEMENT", "")).strip() == "DATE":
+            df = df.iloc[1:]
+
+        for _, row in df.iterrows():
+            insured = str(row.get("NAME OF INSURED", "") or "").strip()
+            if not insured or insured == "nan" or insured == "":
+                continue
+
+            raw_policy = str(row.get("POLICY NUMBER", "") or "").strip()
+            if not raw_policy or raw_policy == "nan":
+                continue
+
+            # Clean policy number — take first segment before spaces
+            policy_number = raw_policy.split()[0] if raw_policy else raw_policy
+
+            # Parse transaction type from POL-EFF-DT column
+            trans_code_raw = str(row.get("POL-EFF-DT", "") or "").strip()
+            raw_type = _travelers_map_trans(trans_code_raw)
+
+            # Premium = PAYMENT column (or TRANSACTION for full premium)
+            premium = _clean_currency(row.get("PAYMENT"))
+            # Commission = PAID column
+            commission = _clean_currency(row.get("PAID"))
+
+            # Commission rate — stored as 1500 = 15.00%
+            raw_rate = row.get("COMM")
+            comm_rate = None
+            if raw_rate is not None and raw_rate != "" and str(raw_rate) != "nan":
+                try:
+                    rate_val = float(str(raw_rate).replace(",", ""))
+                    if rate_val > 100:  # Stored as 1500 = 15.00%
+                        comm_rate = rate_val / 10000.0
+                    elif rate_val > 1:
+                        comm_rate = rate_val / 100.0
+                    else:
+                        comm_rate = rate_val
+                except (ValueError, TypeError):
+                    pass
+
+            # Parse effective date from the trans code (e.g., '012426-CONT' -> 01/24/26)
+            eff_date = _travelers_parse_date(trans_code_raw)
+            stmt_date = _parse_date(row.get("STATEMENT"))
+
+            # Sub-agent code
+            sub_agent = str(row.get("SUB", "") or "").strip()
+
+            records.append({
+                "policy_number": policy_number,
+                "insured_name": insured,
+                "transaction_type": _map_transaction_type(raw_type).value,
+                "transaction_type_raw": trans_code_raw,
+                "transaction_date": stmt_date,
+                "effective_date": eff_date or stmt_date,
+                "premium_amount": premium,
+                "commission_rate": comm_rate,
+                "commission_amount": commission,
+                "producer_name": sub_agent if sub_agent and sub_agent != "nan" else None,
+                "product_type": None,
+                "line_of_business": None,
+                "state": None,
+                "term_months": 12,  # Travelers is typically 12mo
+                "raw_data": str(row.to_dict()),
+            })
+
+    except Exception as e:
+        logger.error(f"Error parsing Travelers: {e}", exc_info=True)
+        raise
+
+    logger.info(f"Travelers: parsed {len(records)} records")
+    return records
+
+
+def _travelers_map_trans(code: str) -> str:
+    """Map Travelers transaction codes to standard types.
+    
+    Format: MMDDYY-TYPE (e.g., '012426-CONT', '013026-NEW-BUS', '081225-CANC')
+    """
+    if not code or code == "nan":
+        return "other"
+    code_upper = code.upper()
+    if "NEW-BUS" in code_upper or "NEW BUS" in code_upper:
+        return "NEW BUSINESS"
+    elif "CONT" in code_upper:
+        return "RENEWAL"
+    elif "CANC" in code_upper:
+        return "CANCELLATION"
+    elif "CHANGE" in code_upper:
+        return "ENDORSEMENT"
+    elif "REIN" in code_upper:
+        return "REINSTATEMENT"
+    elif "UNHON" in code_upper or "CHECK" in code_upper:
+        return "ADJUSTMENT"
+    elif "WAIVE" in code_upper:
+        return "ENDORSEMENT"
+    else:
+        return "OTHER"
+
+
+def _travelers_parse_date(code: str):
+    """Try to extract a date from Travelers trans code like '012426-CONT' -> 01/24/2026."""
+    if not code or code == "nan" or len(code) < 6:
+        return None
+    try:
+        # First 6 chars are MMDDYY
+        date_part = code[:6]
+        mm = int(date_part[0:2])
+        dd = int(date_part[2:4])
+        yy = int(date_part[4:6])
+        year = 2000 + yy if yy < 50 else 1900 + yy
+        from datetime import datetime as dt
+        return dt(year, mm, dd)
+    except (ValueError, IndexError):
+        return None
 
 
 # ── Generic / auto-detect parser ─────────────────────────────────────
@@ -436,7 +671,9 @@ def parse_generic(file_bytes: bytes, filename: str) -> List[Dict]:
 CARRIER_PARSERS = {
     "national_general": parse_national_general,
     "progressive": parse_progressive,
+    "safeco": parse_safeco,
     "grange": parse_grange,
+    "travelers": parse_travelers,
 }
 
 
