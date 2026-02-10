@@ -114,7 +114,7 @@ def generate_commission_pdf(sheet_data: dict) -> bytes:
          "Renewal Premium", fmt(summary["renewal_premium"])],
         ["Other Premium", fmt(summary["other_premium"]),
          "Gross Premium", fmt(summary["gross_premium"])],
-        ["Chargebacks", f"{fmt(summary['chargebacks'])} ({summary['chargeback_count']})",
+        ["Chargeback Premium", f"{fmt(summary['chargeback_premium'])} ({summary['chargeback_count']})",
          "Net Premium", fmt(summary["net_premium"])],
         ["", "",
          "Total Agent Commission", fmt(summary["total_agent_commission"])],

@@ -249,6 +249,7 @@ class ReconciliationService:
             agent_total_premium = Decimal("0")
             agent_total_commission = Decimal("0")
             agent_chargebacks = Decimal("0")
+            agent_chargeback_premium = Decimal("0")
             chargeback_count = 0
 
             for line in agent_line_list:
@@ -298,6 +299,7 @@ class ReconciliationService:
                         # The carrier statement already shows negative premium/commission for cancels
                         agent_comm = carrier_comm  # Pass through carrier's chargeback amount
                         agent_chargebacks += agent_comm
+                        agent_chargeback_premium += premium
                         chargeback_count += 1
                     else:
                         # Outside first term — no chargeback to agent
@@ -321,6 +323,7 @@ class ReconciliationService:
                 "total_premium": float(agent_total_premium),
                 "total_agent_commission": float(agent_total_commission),
                 "chargebacks": float(agent_chargebacks),
+                "chargeback_premium": float(agent_chargeback_premium),
                 "chargeback_count": chargeback_count,
                 "net_agent_commission": float(agent_total_commission),
                 "line_count": len(agent_line_list),
@@ -517,6 +520,7 @@ class ReconciliationService:
             agent_total_commission = Decimal("0")
             carrier_commission_total = Decimal("0")
             agent_chargebacks = Decimal("0")
+            agent_chargeback_premium = Decimal("0")
             chargeback_count = 0
 
             for line in agent_line_list:
@@ -560,6 +564,7 @@ class ReconciliationService:
                         # Chargeback: pass through carrier's commission amount
                         agent_comm = carrier_comm
                         agent_chargebacks += agent_comm
+                        agent_chargeback_premium += premium
                         chargeback_count += 1
                     else:
                         agent_comm = Decimal("0")
@@ -586,7 +591,7 @@ class ReconciliationService:
                 carrier_breakdown[carrier_name]["carrier_commission"] += carrier_comm
                 carrier_breakdown[carrier_name]["agent_commission"] += agent_comm
                 if is_cancel_or_reinstate and agent_comm < 0:
-                    carrier_breakdown[carrier_name]["chargebacks"] += agent_comm
+                    carrier_breakdown[carrier_name]["chargebacks"] += premium
                 carrier_breakdown[carrier_name]["line_count"] += 1
 
                 agent_total_premium += premium
@@ -604,6 +609,7 @@ class ReconciliationService:
                 "carrier_commission_total": float(carrier_commission_total),
                 "total_agent_commission": float(agent_total_commission),
                 "chargebacks": float(agent_chargebacks),
+                "chargeback_premium": float(agent_chargeback_premium),
                 "chargeback_count": chargeback_count,
                 "net_agent_commission": float(agent_total_commission),
                 "line_count": len(agent_line_list),
@@ -692,6 +698,7 @@ class ReconciliationService:
         total_renewal_premium = Decimal("0")
         total_other_premium = Decimal("0")
         total_chargebacks = Decimal("0")
+        total_chargeback_premium = Decimal("0")
         total_agent_commission = Decimal("0")
         chargeback_count = 0
 
@@ -735,6 +742,7 @@ class ReconciliationService:
             if is_chargeback:
                 agent_comm = carrier_comm
                 total_chargebacks += agent_comm
+                total_chargeback_premium += premium
                 chargeback_count += 1
             elif is_cancel_or_reinstate:
                 agent_comm = Decimal("0")
@@ -790,6 +798,7 @@ class ReconciliationService:
                 "other_premium": float(total_other_premium),
                 "gross_premium": float(gross_premium),
                 "chargebacks": float(total_chargebacks),
+                "chargeback_premium": float(total_chargeback_premium),
                 "chargeback_count": chargeback_count,
                 "net_premium": float(net_premium),
                 "total_agent_commission": float(total_agent_commission),

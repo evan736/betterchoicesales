@@ -759,7 +759,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                   <div className="text-xs text-slate-500">net agent pay</div>
                   {agent.chargeback_count > 0 && (
                     <div className="text-xs text-red-600 mt-0.5">
-                      incl. ${fmt(Math.abs(agent.chargebacks))} chargebacks ({agent.chargeback_count})
+                      incl. ${fmt(Math.abs(agent.chargeback_premium || agent.chargebacks))} premium in chargebacks ({agent.chargeback_count})
                     </div>
                   )}
                 </div>
@@ -896,8 +896,8 @@ const AgentSheetModal: React.FC<{
               </div>
               {sheet.summary.chargeback_count > 0 && (
                 <div className="bg-red-50 rounded-lg p-3 text-center">
-                  <div className="text-lg font-bold text-red-700">${fmt(sheet.summary.chargebacks)}</div>
-                  <div className="text-xs text-red-600">Chargebacks ({sheet.summary.chargeback_count})</div>
+                  <div className="text-lg font-bold text-red-700">${fmt(Math.abs(sheet.summary.chargeback_premium || sheet.summary.chargebacks))}</div>
+                  <div className="text-xs text-red-600">Chargeback Premium ({sheet.summary.chargeback_count})</div>
                 </div>
               )}
               <div className="bg-green-50 rounded-lg p-3 text-center">
