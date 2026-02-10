@@ -1,9 +1,53 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { salesAPI } from '../lib/api';
-import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3 } from 'lucide-react';
+import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown } from 'lucide-react';
+
+// ── Date range helpers ──────────────────────────────────────────────
+
+function getPresetRange(preset: string): { from: string; to: string; label: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0-indexed
+
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const startOf = (year: number, month: number) => new Date(year, month, 1);
+  const endOf = (year: number, month: number) => new Date(year, month + 1, 0);
+
+  switch (preset) {
+    case 'this_month':
+      return { from: fmt(startOf(y, m)), to: fmt(endOf(y, m)), label: 'This Month' };
+    case 'last_month':
+      return { from: fmt(startOf(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1)), to: fmt(endOf(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1)), label: 'Last Month' };
+    case 'this_year':
+      return { from: fmt(startOf(y, 0)), to: fmt(endOf(y, 11)), label: 'This Year' };
+    case 'last_year':
+      return { from: fmt(startOf(y - 1, 0)), to: fmt(endOf(y - 1, 11)), label: 'Last Year' };
+    case 'all':
+      return { from: '', to: '', label: 'All Time' };
+    default:
+      return { from: '', to: '', label: 'All Time' };
+  }
+}
+
+function getMonthPresets(): { value: string; label: string; from: string; to: string }[] {
+  const presets = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    presets.push({
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label,
+      from: d.toISOString().slice(0, 10),
+      to: end.toISOString().slice(0, 10),
+    });
+  }
+  return presets;
+}
 
 export default function Sales() {
   const { user, loading } = useAuth();
@@ -12,14 +56,27 @@ export default function Sales() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loadingSales, setLoadingSales] = useState(true);
 
+  // Date filter state
+  const [activePreset, setActivePreset] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const monthPresets = useMemo(() => getMonthPresets(), []);
+
   useEffect(() => {
     if (!loading && !user) router.push('/');
     else if (user) loadSales();
   }, [user, loading]);
 
-  const loadSales = async () => {
+  const loadSales = async (from?: string, to?: string) => {
+    setLoadingSales(true);
     try {
-      const response = await salesAPI.list();
+      const params: any = {};
+      const f = from ?? dateFrom;
+      const t = to ?? dateTo;
+      if (f) params.date_from = f;
+      if (t) params.date_to = t;
+      const response = await salesAPI.list(params);
       setSales(response.data);
     } catch (error) {
       console.error('Failed to load sales:', error);
@@ -27,6 +84,33 @@ export default function Sales() {
       setLoadingSales(false);
     }
   };
+
+  const applyPreset = (preset: string) => {
+    const range = getPresetRange(preset);
+    setActivePreset(preset);
+    setDateFrom(range.from);
+    setDateTo(range.to);
+    setShowMonthPicker(false);
+    loadSales(range.from, range.to);
+  };
+
+  const applyMonth = (from: string, to: string, value: string) => {
+    setActivePreset(value);
+    setDateFrom(from);
+    setDateTo(to);
+    setShowMonthPicker(false);
+    loadSales(from, to);
+  };
+
+  const applyCustomRange = () => {
+    setActivePreset('custom');
+    setShowMonthPicker(false);
+    loadSales(dateFrom, dateTo);
+  };
+
+  // Stats
+  const totalPremium = sales.reduce((sum, s) => sum + parseFloat(s.written_premium || 0), 0);
+  const totalSales = sales.length;
 
   const [importResult, setImportResult] = useState<any>(null);
   const [importing, setImporting] = useState(false);
@@ -39,7 +123,7 @@ export default function Sales() {
     try {
       const res = await salesAPI.importCSV(file);
       setImportResult(res.data);
-      loadSales();
+      loadSales(dateFrom, dateTo);
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Import failed');
     } finally {
@@ -51,12 +135,12 @@ export default function Sales() {
   if (loading || !user) return null;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-slate-50">
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">Sales</h1>
+            <h1 className="font-display text-4xl font-bold text-slate-900 mb-1">Sales</h1>
             <p className="text-slate-600">Manage your policy sales and applications</p>
           </div>
           <div className="flex items-center space-x-3">
@@ -75,18 +159,112 @@ export default function Sales() {
         </div>
 
         {importResult && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <p className="font-semibold text-green-800">
               Import complete: {importResult.created} created, {importResult.skipped} skipped
               {importResult.errors?.length > 0 && `, ${importResult.errors.length} errors`}
             </p>
-            {importResult.errors?.length > 0 && (
-              <ul className="mt-2 text-sm text-amber-700">
-                {importResult.errors.slice(0, 5).map((err: string, i: number) => <li key={i}>{err}</li>)}
-              </ul>
-            )}
           </div>
         )}
+
+        {/* Date Filter Bar */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-6">
+          <div className="flex items-center flex-wrap gap-2">
+            {/* Quick presets */}
+            {[
+              { key: 'this_month', label: 'This Month' },
+              { key: 'last_month', label: 'Last Month' },
+              { key: 'this_year', label: 'This Year' },
+              { key: 'all', label: 'All Time' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => applyPreset(key)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activePreset === key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            {/* Month picker dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMonthPicker(!showMonthPicker)}
+                className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  monthPresets.some(m => m.value === activePreset)
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <Calendar size={14} />
+                <span>{monthPresets.find(m => m.value === activePreset)?.label || 'Pick Month'}</span>
+                <ChevronDown size={14} />
+              </button>
+              {showMonthPicker && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 w-48 max-h-64 overflow-y-auto">
+                  {monthPresets.map((mp) => (
+                    <button
+                      key={mp.value}
+                      onClick={() => applyMonth(mp.from, mp.to, mp.value)}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${
+                        activePreset === mp.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'
+                      }`}
+                    >
+                      {mp.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Custom range */}
+            <div className="flex items-center space-x-1 ml-auto">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm w-36"
+              />
+              <span className="text-slate-400 text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm w-36"
+              />
+              <button
+                onClick={applyCustomRange}
+                className="px-3 py-1.5 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white rounded-lg border border-slate-200 p-3 text-center">
+            <div className="text-2xl font-bold text-slate-900">{totalSales}</div>
+            <div className="text-xs text-slate-500">Total Sales</div>
+          </div>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 text-center">
+            <div className="text-2xl font-bold text-green-700">${totalPremium.toLocaleString(undefined, { minimumFractionDigits: 0 })}</div>
+            <div className="text-xs text-slate-500">Written Premium</div>
+          </div>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 text-center">
+            <div className="text-2xl font-bold text-slate-900">{sales.filter(s => s.policy_type === 'bundled').length}</div>
+            <div className="text-xs text-slate-500">Bundles</div>
+          </div>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 text-center">
+            <div className="text-2xl font-bold text-slate-900">{sales.reduce((sum, s) => sum + (s.item_count || 1), 0)}</div>
+            <div className="text-xs text-slate-500">Total Items</div>
+          </div>
+        </div>
 
         {loadingSales ? (
           <div className="text-center py-12">

@@ -17,7 +17,8 @@ api.interceptors.request.use((config) => {
 
 // Sales API
 export const salesAPI = {
-  list: () => api.get('/api/sales/'),
+  list: (params?: { date_from?: string; date_to?: string; producer_id?: number }) =>
+    api.get('/api/sales/', { params }),
   get: (id: number) => api.get(`/api/sales/${id}`),
   create: (data: any) => api.post('/api/sales/', data),
   createFromPdf: (data: any) => api.post('/api/sales/create-from-pdf', data),

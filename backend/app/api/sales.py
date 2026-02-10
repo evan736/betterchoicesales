@@ -158,17 +158,38 @@ def create_sale(
 @router.get("/", response_model=List[SaleSchema])
 def list_sales(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
+    date_from: str = None,  # "2026-01-01"
+    date_to: str = None,    # "2026-01-31"
+    producer_id: int = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List sales - producers see only their own, admins see all"""
     query = db.query(Sale)
     
-    if current_user.role == "producer":
+    if current_user.role.lower() == "producer" or current_user.role.lower() == "retention_specialist":
         query = query.filter(Sale.producer_id == current_user.id)
+    elif producer_id:
+        query = query.filter(Sale.producer_id == producer_id)
     
-    sales = query.offset(skip).limit(limit).all()
+    if date_from:
+        try:
+            from_dt = datetime.strptime(date_from, "%Y-%m-%d")
+            query = query.filter(Sale.sale_date >= from_dt)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_dt = datetime.strptime(date_to, "%Y-%m-%d")
+            # Include the full end day
+            to_dt = to_dt.replace(hour=23, minute=59, second=59)
+            query = query.filter(Sale.sale_date <= to_dt)
+        except ValueError:
+            pass
+    
+    sales = query.order_by(Sale.sale_date.desc()).offset(skip).limit(limit).all()
     return sales
 
 

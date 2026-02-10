@@ -2,14 +2,13 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from app.models.sale import SaleStatus, LeadSource, PolicyType
 
 
 class SaleBase(BaseModel):
     policy_number: str
     written_premium: Decimal = Field(..., ge=0, decimal_places=2)
-    lead_source: LeadSource
-    policy_type: Optional[PolicyType] = None
+    lead_source: Optional[str] = None
+    policy_type: Optional[str] = None
     carrier: Optional[str] = None
     state: Optional[str] = None
     item_count: int = Field(default=1, ge=1)
@@ -27,10 +26,10 @@ class SaleCreate(SaleBase):
 class SaleUpdate(BaseModel):
     written_premium: Optional[Decimal] = Field(None, ge=0)
     recognized_premium: Optional[Decimal] = Field(None, ge=0)
-    policy_type: Optional[PolicyType] = None
+    policy_type: Optional[str] = None
     carrier: Optional[str] = None
     state: Optional[str] = None
-    status: Optional[SaleStatus] = None
+    status: Optional[str] = None
     client_email: Optional[str] = None
     client_phone: Optional[str] = None
     notes: Optional[str] = None
@@ -40,15 +39,15 @@ class SaleUpdate(BaseModel):
 class SaleInDB(SaleBase):
     id: int
     producer_id: int
-    recognized_premium: Optional[Decimal]
-    status: SaleStatus
-    application_pdf_path: Optional[str]
-    signature_request_id: Optional[str]
-    signature_status: str
-    sale_date: datetime
-    effective_date: Optional[datetime]
-    created_at: datetime
-    updated_at: Optional[datetime]
+    recognized_premium: Optional[Decimal] = None
+    status: Optional[str] = None
+    application_pdf_path: Optional[str] = None
+    signature_request_id: Optional[str] = None
+    signature_status: Optional[str] = None
+    sale_date: Optional[datetime] = None
+    effective_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -59,5 +58,5 @@ class Sale(SaleInDB):
 
 
 class SaleWithProducer(Sale):
-    producer_name: str
-    producer_code: Optional[str]
+    producer_name: Optional[str] = None
+    producer_code: Optional[str] = None

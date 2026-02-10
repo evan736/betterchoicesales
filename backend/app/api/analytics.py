@@ -52,7 +52,7 @@ def get_trending_projection(
 
     # Build base user filter
     user_filters = []
-    if current_user.role == "producer":
+    if current_user.role.lower() in ("producer", "retention_specialist"):
         user_filters.append(Sale.producer_id == current_user.id)
     elif producer_id:
         user_filters.append(Sale.producer_id == producer_id)
@@ -105,6 +105,13 @@ def get_trending_projection(
     if period == "annual":
         period_start = date(today.year, 1, 1)
         default_target = date(today.year, 12, 31)
+    elif period == "last_month":
+        if today.month == 1:
+            period_start = date(today.year - 1, 12, 1)
+            default_target = date(today.year - 1, 12, 31)
+        else:
+            period_start = date(today.year, today.month - 1, 1)
+            default_target = date(today.year, today.month, 1) - timedelta(days=1)
     else:
         # monthly (default)
         period_start = date(today.year, today.month, 1)
@@ -128,7 +135,14 @@ def get_trending_projection(
         *user_filters,
     )
 
-    if period != "annual":
+    if period == "last_month":
+        lm_year = today.year if today.month > 1 else today.year - 1
+        lm_month = today.month - 1 if today.month > 1 else 12
+        period_query = period_query.filter(
+            extract("year", Sale.sale_date) == lm_year,
+            extract("month", Sale.sale_date) == lm_month,
+        )
+    elif period != "annual":
         # Monthly — filter to current month
         period_query = period_query.filter(
             extract("year", Sale.sale_date) == today.year,
@@ -263,14 +277,21 @@ def get_sales_summary(
     query = db.query(Sale)
 
     # Producers only see their own data
-    if current_user.role == "producer":
+    if current_user.role.lower() in ("producer", "retention_specialist"):
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)
 
     # Time filters
     now = datetime.utcnow()
-    if period == "monthly" or (month and year):
+    if period == "last_month":
+        lm_year = now.year if now.month > 1 else now.year - 1
+        lm_month = now.month - 1 if now.month > 1 else 12
+        query = query.filter(
+            extract("year", Sale.sale_date) == lm_year,
+            extract("month", Sale.sale_date) == lm_month,
+        )
+    elif period == "monthly" or (month and year):
         y = year or now.year
         m = month or now.month
         query = query.filter(
@@ -327,12 +348,19 @@ def get_sales_by_group(
     )
 
     # Producers only see their own
-    if current_user.role == "producer":
+    if current_user.role.lower() in ("producer", "retention_specialist"):
         query = query.filter(Sale.producer_id == current_user.id)
 
     # Time filters
     now = datetime.utcnow()
-    if period == "monthly":
+    if period == "last_month":
+        lm_year = now.year if now.month > 1 else now.year - 1
+        lm_month = now.month - 1 if now.month > 1 else 12
+        query = query.filter(
+            extract("year", Sale.sale_date) == lm_year,
+            extract("month", Sale.sale_date) == lm_month,
+        )
+    elif period == "monthly":
         y = year or now.year
         m = month or now.month
         query = query.filter(
@@ -393,14 +421,21 @@ def get_sales_table(
     query = db.query(Sale)
 
     # Producers only see their own
-    if current_user.role == "producer":
+    if current_user.role.lower() in ("producer", "retention_specialist"):
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)
 
     # Time filters
     now = datetime.utcnow()
-    if period == "monthly":
+    if period == "last_month":
+        lm_year = now.year if now.month > 1 else now.year - 1
+        lm_month = now.month - 1 if now.month > 1 else 12
+        query = query.filter(
+            extract("year", Sale.sale_date) == lm_year,
+            extract("month", Sale.sale_date) == lm_month,
+        )
+    elif period == "monthly":
         y = year or now.year
         m = month or now.month
         query = query.filter(
@@ -473,7 +508,7 @@ def get_filter_options(
 ):
     """Get available filter values for dropdowns."""
     query = db.query(Sale)
-    if current_user.role == "producer":
+    if current_user.role.lower() in ("producer", "retention_specialist"):
         query = query.filter(Sale.producer_id == current_user.id)
 
     carriers = [r[0] for r in query.with_entities(Sale.carrier).distinct().all() if r[0]]

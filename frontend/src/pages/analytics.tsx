@@ -23,6 +23,7 @@ const GROUP_OPTIONS = [
 
 const PERIOD_OPTIONS = [
   { value: 'monthly', label: 'This Month' },
+  { value: 'last_month', label: 'Last Month' },
   { value: 'annual', label: 'This Year' },
   { value: 'last_year', label: 'Last Year' },
   { value: 'all-time', label: 'All Time' },
@@ -76,18 +77,19 @@ export default function Analytics() {
       if (period === 'last_year') {
         extraParams.year = now.getFullYear() - 1;
       }
+      const apiPeriod = period === 'last_year' ? 'annual' : periodParam;
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
-        analyticsAPI.summary({ period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
-        analyticsAPI.byGroup({ group_by: groupBy, period: period === 'last_year' ? 'annual' : periodParam, ...extraParams }),
+        analyticsAPI.summary({ period: apiPeriod, ...extraParams }),
+        analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, ...extraParams }),
         analyticsAPI.salesTable({
-          period: period === 'last_year' ? 'annual' : periodParam,
+          period: apiPeriod,
           sort_by: sortBy,
           sort_order: sortOrder,
           ...extraParams,
           ...tableFilters,
           limit: 50,
         }),
-        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : period }),
+        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period) }),
       ]);
       setSummary(summaryRes.data);
       setChartData(groupRes.data.results || []);
