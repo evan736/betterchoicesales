@@ -19,30 +19,27 @@ def init_database():
 
     logger.info("Creating database tables...")
 
-    # Run enum migrations first (create_all can't modify existing enums)
+    # Run enum migrations first (ALTER TYPE ADD VALUE needs autocommit)
     from sqlalchemy import text
-    with engine.connect() as conn:
+
+    # Enum additions must run outside transactions
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
-            conn.execute(text("""
-                DO $$
-                BEGIN
-                    -- Add new carrier types
-                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'grange';
-                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'safeco';
-                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'travelers';
-                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'hartford';
-                EXCEPTION WHEN others THEN NULL;
-                END $$;
-            """))
-            conn.execute(text("""
-                DO $$
-                BEGIN
-                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'processed';
-                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'reconciled';
-                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'approved';
-                EXCEPTION WHEN others THEN NULL;
-                END $$;
-            """))
+            # Add new carrier types
+            for val in ['grange', 'safeco', 'travelers', 'hartford']:
+                try:
+                    conn.execute(text(f"ALTER TYPE carriertype ADD VALUE IF NOT EXISTS '{val}'"))
+                except Exception:
+                    pass
+
+            # Add new statement status values
+            for val in ['processed', 'reconciled', 'approved']:
+                try:
+                    conn.execute(text(f"ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS '{val}'"))
+                except Exception:
+                    pass
+
+            # Create transaction type enum if not exists
             conn.execute(text("""
                 DO $$
                 BEGIN
@@ -55,10 +52,14 @@ def init_database():
                 EXCEPTION WHEN others THEN NULL;
                 END $$;
             """))
-            conn.commit()
-            logger.info("Enum migrations applied")
 
-            # Add new columns to existing tables
+            logger.info("Enum migrations applied")
+        except Exception as e:
+            logger.warning(f"Enum migration warning (may be OK): {e}")
+
+    # Column migrations (can run in normal transaction)
+    with engine.connect() as conn:
+        try:
             conn.execute(text("""
                 DO $$
                 BEGIN

@@ -91,7 +91,7 @@ class StatementLine(Base):
     # Parsed fields (normalized across carriers)
     policy_number = Column(String, nullable=False, index=True)
     insured_name = Column(String, nullable=True)
-    transaction_type = Column(Enum(TransactionType), nullable=True)
+    transaction_type = Column(String, nullable=True)  # normalized: new_business, renewal, etc.
     transaction_type_raw = Column(String, nullable=True)  # Original from carrier
     transaction_date = Column(DateTime(timezone=True), nullable=True)
     effective_date = Column(DateTime(timezone=True), nullable=True)

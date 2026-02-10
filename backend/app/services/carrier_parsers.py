@@ -207,7 +207,7 @@ def parse_national_general(file_bytes: bytes, filename: str) -> List[Dict]:
             records.append({
                 "policy_number": policy_number,
                 "insured_name": str(row.get(col_map.get("insured", ""), "") or "").strip(),
-                "transaction_type": _map_transaction_type(raw_type),
+                "transaction_type": _map_transaction_type(raw_type).value,
                 "transaction_type_raw": raw_type,
                 "effective_date": _parse_date(row.get(col_map.get("eff_date", ""))),
                 "premium_amount": _clean_currency(row.get(col_map.get("premium", ""))),
@@ -231,7 +231,7 @@ def parse_national_general(file_bytes: bytes, filename: str) -> List[Dict]:
                 records.append({
                     "policy_number": quote,
                     "insured_name": str(row.get("Drivers Name", "") or "").strip(),
-                    "transaction_type": _map_transaction_type(raw_type),
+                    "transaction_type": _map_transaction_type(raw_type).value,
                     "transaction_type_raw": raw_type,
                     "effective_date": _parse_date(row.get("Order Date")),
                     "premium_amount": Decimal("0"),
@@ -288,7 +288,7 @@ def parse_grange(file_bytes: bytes, filename: str) -> List[Dict]:
             records.append({
                 "policy_number": policy_number,
                 "insured_name": str(row.get("Policyholder Name or Description", "") or "").strip(),
-                "transaction_type": _map_transaction_type(raw_type),
+                "transaction_type": _map_transaction_type(raw_type).value,
                 "transaction_type_raw": raw_type,
                 "transaction_date": _parse_date(row.get("Date Entered")),
                 "effective_date": _parse_date(row.get("Date")),
@@ -336,7 +336,7 @@ def parse_progressive(file_bytes: bytes, filename: str) -> List[Dict]:
             records.append({
                 "policy_number": policy_number,
                 "insured_name": str(row.get("Insured Name", "") or "").strip(),
-                "transaction_type": _map_transaction_type(raw_type),
+                "transaction_type": _map_transaction_type(raw_type).value,
                 "transaction_type_raw": raw_type,
                 "transaction_date": _parse_date(row.get("Transaction Effective Date")),
                 "effective_date": _parse_date(row.get("Policy Effective Date")),
@@ -405,7 +405,7 @@ def parse_generic(file_bytes: bytes, filename: str) -> List[Dict]:
             records.append({
                 "policy_number": policy,
                 "insured_name": str(row.get(col_map.get("insured", ""), "") or "").strip(),
-                "transaction_type": _map_transaction_type(raw_type),
+                "transaction_type": _map_transaction_type(raw_type).value,
                 "transaction_type_raw": raw_type,
                 "premium_amount": _clean_currency(row.get(col_map.get("premium", ""))),
                 "commission_rate": _clean_rate(row.get(col_map.get("rate", ""))),
