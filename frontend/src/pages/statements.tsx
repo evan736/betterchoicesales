@@ -340,7 +340,7 @@ const DetailView: React.FC<{
 
         {/* Action buttons */}
         <div className="flex space-x-3">
-          {(imp.status === 'processed' || imp.status === 'uploaded') && (
+          {(imp.status === 'matched' || imp.status === 'uploaded') && (
             <button
               onClick={onMatch}
               disabled={actionLoading === 'match'}
@@ -350,7 +350,7 @@ const DetailView: React.FC<{
               <span>{actionLoading === 'match' ? 'Matching...' : 'Run Auto-Match'}</span>
             </button>
           )}
-          {(imp.status === 'reconciled' || imp.matched_rows > 0) && (
+          {(imp.status === 'partially_matched' || imp.matched_rows > 0) && (
             <button
               onClick={onCalculate}
               disabled={actionLoading === 'calculate'}

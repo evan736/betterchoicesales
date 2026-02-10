@@ -14,9 +14,9 @@ class StatementFormat(str, enum.Enum):
 class StatementStatus(str, enum.Enum):
     UPLOADED = "uploaded"
     PROCESSING = "processing"
-    PROCESSED = "processed"
-    RECONCILED = "reconciled"
-    APPROVED = "approved"
+    MATCHED = "matched"              # was "processed" - file parsed successfully
+    PARTIALLY_MATCHED = "partially_matched"  # was "reconciled" - matching done
+    COMPLETED = "completed"          # was "approved"
     FAILED = "failed"
 
 
@@ -53,8 +53,8 @@ class StatementImport(Base):
     file_format = Column(Enum(StatementFormat), nullable=False)
     file_size = Column(Integer, nullable=True)
 
-    # Carrier & period
-    carrier = Column(Enum(CarrierType), nullable=False, index=True)
+    # Carrier & period - use String to avoid enum issues with new carriers
+    carrier = Column(String, nullable=False, index=True)
     statement_period = Column(String, nullable=False, index=True)  # "2026-01"
 
     # Status

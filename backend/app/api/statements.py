@@ -75,7 +75,7 @@ async def upload_statement(
     return {
         "id": imp.id,
         "filename": imp.filename,
-        "carrier": imp.carrier.value,
+        "carrier": imp.carrier,
         "period": imp.statement_period,
         "status": imp.status.value,
         "total_rows": imp.total_rows,
@@ -152,7 +152,7 @@ def list_imports(
         {
             "id": imp.id,
             "filename": imp.filename,
-            "carrier": imp.carrier.value,
+            "carrier": imp.carrier,
             "period": imp.statement_period,
             "status": imp.status.value,
             "total_rows": imp.total_rows,

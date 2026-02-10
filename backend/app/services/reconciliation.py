@@ -18,7 +18,7 @@ from sqlalchemy import func
 
 from app.models.statement import (
     StatementImport, StatementLine, StatementStatus,
-    CarrierType, StatementFormat, TransactionType,
+    StatementFormat,
 )
 from app.models.sale import Sale
 from app.models.user import User
@@ -55,7 +55,7 @@ class ReconciliationService:
             file_path=file_path,
             file_format=file_format,
             file_size=len(file_bytes),
-            carrier=CarrierType(carrier),
+            carrier=carrier,
             statement_period=period,
             status=StatementStatus.PROCESSING,
             processing_started_at=datetime.utcnow(),
@@ -99,7 +99,7 @@ class ReconciliationService:
 
             imp.total_premium = total_premium
             imp.total_commission = total_commission
-            imp.status = StatementStatus.PROCESSED
+            imp.status = StatementStatus.MATCHED
             imp.processing_completed_at = datetime.utcnow()
 
             self.db.commit()
@@ -169,7 +169,7 @@ class ReconciliationService:
 
         imp.matched_rows = matched
         imp.unmatched_rows = unmatched
-        imp.status = StatementStatus.RECONCILED
+        imp.status = StatementStatus.PARTIALLY_MATCHED
         self.db.commit()
 
         logger.info(f"Matching import {import_id}: {matched} matched, {unmatched} unmatched")
@@ -345,7 +345,7 @@ class ReconciliationService:
             "import": {
                 "id": imp.id,
                 "filename": imp.filename,
-                "carrier": imp.carrier.value,
+                "carrier": imp.carrier,
                 "period": imp.statement_period,
                 "status": imp.status.value,
                 "total_rows": imp.total_rows,

@@ -32,12 +32,7 @@ def init_database():
                 except Exception:
                     pass
 
-            # Add new statement status values
-            for val in ['processed', 'reconciled', 'approved']:
-                try:
-                    conn.execute(text(f"ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS '{val}'"))
-                except Exception:
-                    pass
+            # Add new statement status values (skip - using existing values)
 
             # Create transaction type enum if not exists
             conn.execute(text("""
