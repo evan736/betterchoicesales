@@ -256,12 +256,12 @@ class ReconciliationService:
                 premium = line.premium_amount or Decimal("0")
                 carrier_comm = line.commission_amount or Decimal("0")
                 
-                # Check if this is a cancellation/reinstatement within first term
                 tx_type = (line.transaction_type or "").lower()
+                is_new_business = "new" in tx_type
                 is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
                 
                 if is_cancel_or_reinstate and line.matched_sale_id:
-                    # Get the original sale to check if within first term
+                    # Check if cancellation is within first term → chargeback
                     original_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
                     
                     within_first_term = False
@@ -270,43 +270,36 @@ class ReconciliationService:
                         if hasattr(eff_date, 'date'):
                             eff_date = eff_date.date()
                         
-                        # Determine term length from policy type or statement line
-                        # Determine term: check statement line, then sale policy type
                         term_months = line.term_months
                         if term_months and term_months > 12:
-                            # Carrier may report in days or wrongly — normalize
                             term_months = 6 if term_months <= 180 else 12
                         if not term_months:
                             pt = str(original_sale.policy_type or "").lower()
                             if "6m" in pt or "6 month" in pt:
                                 term_months = 6
                             elif "auto" in pt and "12" not in pt:
-                                term_months = 6  # Default auto to 6mo unless specified as 12
+                                term_months = 6
                             else:
-                                term_months = 12  # Default to 12mo
+                                term_months = 12
                         
-                        # Calculate term end date
                         term_end = eff_date + relativedelta(months=term_months)
-                        
-                        # Statement period determines the "as of" date
                         stmt_year, stmt_month = map(int, imp.statement_period.split("-"))
                         stmt_date = date(stmt_year, stmt_month, 1)
-                        
                         within_first_term = stmt_date < term_end
                     
                     if within_first_term:
-                        # Chargeback: apply agent's tier rate to the (negative) premium
-                        # NOT the carrier's commission — agent only owes back at their rate
                         agent_comm = premium * agent_rate
                         agent_chargebacks += agent_comm
                         agent_chargeback_premium += premium
                         chargeback_count += 1
                     else:
-                        # Outside first term — no chargeback to agent
                         agent_comm = Decimal("0")
-                else:
-                    # Normal line: apply tier rate
+                elif is_new_business:
+                    # Only new business earns agent commission
                     agent_comm = premium * agent_rate
+                else:
+                    # Renewals, endorsements, audits, etc. — no agent commission
+                    agent_comm = Decimal("0")
 
                 line.agent_commission_rate = agent_rate
                 line.agent_commission_amount = agent_comm
@@ -527,12 +520,12 @@ class ReconciliationService:
                 premium = line.premium_amount or Decimal("0")
                 carrier_comm = line.commission_amount or Decimal("0")
                 
-                # Check if this is a cancellation/reinstatement within first term
                 tx_type = (line.transaction_type or "").lower()
+                is_new_business = "new" in tx_type
                 is_cancel_or_reinstate = "cancel" in tx_type or "reinstate" in tx_type
                 
                 if is_cancel_or_reinstate and line.matched_sale_id:
-                    # Get original sale to check first term
+                    # Check if cancellation is within first term → chargeback
                     original_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
                     
                     within_first_term = False
@@ -541,19 +534,17 @@ class ReconciliationService:
                         if hasattr(eff_date, 'date'):
                             eff_date = eff_date.date()
                         
-                        # Determine term: check statement line, then sale policy type
                         term_months = line.term_months
                         if term_months and term_months > 12:
-                            # Carrier may report in days or wrongly — normalize
                             term_months = 6 if term_months <= 180 else 12
                         if not term_months:
                             pt = str(original_sale.policy_type or "").lower()
                             if "6m" in pt or "6 month" in pt:
                                 term_months = 6
                             elif "auto" in pt and "12" not in pt:
-                                term_months = 6  # Default auto to 6mo unless specified as 12
+                                term_months = 6
                             else:
-                                term_months = 12  # Default to 12mo
+                                term_months = 12
                         
                         term_end = eff_date + relativedelta(months=term_months)
                         stmt_year, stmt_month = map(int, period.split("-"))
@@ -561,16 +552,18 @@ class ReconciliationService:
                         within_first_term = stmt_date < term_end
                     
                     if within_first_term:
-                        # Chargeback: apply agent's tier rate to the (negative) premium
-                        # NOT the carrier's commission — agent only owes back at their rate
                         agent_comm = premium * agent_rate
                         agent_chargebacks += agent_comm
                         agent_chargeback_premium += premium
                         chargeback_count += 1
                     else:
                         agent_comm = Decimal("0")
-                else:
+                elif is_new_business:
+                    # Only new business earns agent commission
                     agent_comm = premium * agent_rate
+                else:
+                    # Renewals, endorsements, audits, etc. — no agent commission
+                    agent_comm = Decimal("0")
 
                 line.agent_commission_rate = agent_rate
                 line.agent_commission_amount = agent_comm
@@ -741,14 +734,18 @@ class ReconciliationService:
                         is_chargeback = True
 
             if is_chargeback:
-                agent_comm = premium * agent_rate  # Agent rate, not carrier rate
+                agent_comm = premium * agent_rate
                 total_chargebacks += agent_comm
                 total_chargeback_premium += premium
                 chargeback_count += 1
             elif is_cancel_or_reinstate:
                 agent_comm = Decimal("0")
-            else:
+            elif "new" in tx_type:
+                # Only new business earns agent commission
                 agent_comm = premium * agent_rate
+            else:
+                # Renewals, endorsements, audits, etc. — no agent commission
+                agent_comm = Decimal("0")
 
             # Categorize premium
             if "new" in tx_type:
