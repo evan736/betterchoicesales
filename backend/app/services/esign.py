@@ -1,13 +1,11 @@
 """BoldSign e-signature service.
 
-Uses a two-step approach for signature field placement:
-1. Detect carrier from PDF text (first page)
-2. Use pdfplumber to find "Applicant Signature:" label and place
-   the signature field on the blank line RIGHT AFTER it
+APPROACH: Find the visible 'Applicant Signature:' label text using
+pdfplumber word extraction, then place the signature field on the
+blank line area immediately to the right of that label.
 
-This is more reliable than searching for invisible markers like
-<<named.insured.signature>> which may be stripped or extracted
-inconsistently across PDF library versions.
+Key rule: ONLY match words containing 'Applicant' followed by 'Signature'
+to avoid false matches on the 'Signature' heading.
 """
 import json
 import logging
@@ -20,70 +18,82 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _find_applicant_signature_lines(pdf_bytes: bytes) -> list:
-    """Find the exact coordinates of 'Applicant Signature:' labels.
+def _find_signature_positions(pdf_bytes: bytes) -> list:
+    """Find 'Applicant Signature:' or '<PrimarySign>' positions.
 
-    Searches for the visible label text that appears on signature lines,
-    then places the signature field on the blank line area after it.
-
-    Returns list of: {"page": int, "x": float, "y": float}
+    Returns list of {"page": int, "x": float, "y": float, "after_x": float}
+    where after_x is where the blank signature line starts.
     """
     results = []
+
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            logger.info(f"Scanning {total_pages} pages for signature positions")
+
             for page_idx, page in enumerate(pdf.pages):
                 words = page.extract_words()
                 page_num = page_idx + 1
 
-                for i, word in enumerate(words):
-                    text = word["text"].strip()
-
-                    # Match various signature label patterns
-                    # Grange: "ApplicantSignature:" (pdfplumber joins words)
-                    # National General: "<PrimarySign>" or near "Signature of applicant"
-                    matched = False
-                    match_type = ""
-
-                    if "ApplicantSignature:" in text.replace(" ", ""):
-                        matched = True
-                        match_type = "ApplicantSignature"
-                    elif text == "Applicant" and i + 1 < len(words):
-                        next_text = words[i + 1]["text"].strip()
-                        if "Signature:" in next_text.replace(" ", ""):
-                            matched = True
-                            match_type = "Applicant + Signature"
-                    elif "<PrimarySign>" in text:
-                        matched = True
-                        match_type = "PrimarySign"
-                    elif "<<named.insured.signature>>" in text:
-                        matched = True
-                        match_type = "named.insured.signature"
-
-                    if matched:
+                # Log all words on signature pages for debugging
+                if page_num <= 2:
+                    sig_words = [w for w in words if any(
+                        k in w["text"].lower()
+                        for k in ["signature", "sign", "applicant", "primary"]
+                    )]
+                    for sw in sig_words:
                         logger.info(
-                            f"FOUND [{match_type}]: word='{text}' "
-                            f"page={page_num} x0={word['x0']:.1f} "
-                            f"top={word['top']:.1f} bottom={word['bottom']:.1f}"
+                            f"  DEBUG p{page_num}: '{sw['text']}' "
+                            f"x0={sw['x0']:.1f} top={sw['top']:.1f}"
                         )
 
-                        # For "ApplicantSignature:" - place sig field on the
-                        # signature LINE (the blank area after the label)
-                        if "Applicant" in match_type:
+                for i, word in enumerate(words):
+                    text = word["text"]
+
+                    # Strategy 1: Find "ApplicantSignature:" as single word
+                    # (pdfplumber often joins adjacent words)
+                    if "Applicant" in text and "ignature" in text:
+                        results.append({
+                            "page": page_num,
+                            "x": word["x1"] + 3,   # Start AFTER the label
+                            "y": word["top"],
+                            "type": "ApplicantSignature",
+                        })
+                        logger.info(
+                            f"MATCH [ApplicantSignature]: '{text}' "
+                            f"page={page_num} label_ends={word['x1']:.1f} "
+                            f"y={word['top']:.1f}"
+                        )
+                        continue
+
+                    # Strategy 2: Find "Applicant" then "Signature:" as separate words
+                    if text.strip() == "Applicant" and i + 1 < len(words):
+                        next_word = words[i + 1]
+                        if "Signature" in next_word["text"]:
                             results.append({
                                 "page": page_num,
-                                "x": word["x0"],  # Same line as label
+                                "x": next_word["x1"] + 3,
                                 "y": word["top"],
-                                "label_width": word["x1"] - word["x0"],
-                                "type": match_type,
+                                "type": "Applicant+Signature",
                             })
-                        elif "PrimarySign" in match_type or "named.insured" in match_type:
-                            results.append({
-                                "page": page_num,
-                                "x": word["x0"],
-                                "y": word["top"],
-                                "label_width": 0,
-                                "type": match_type,
-                            })
+                            logger.info(
+                                f"MATCH [Applicant+Signature]: page={page_num} "
+                                f"y={word['top']:.1f}"
+                            )
+                            continue
+
+                    # Strategy 3: National General <PrimarySign>
+                    if "<PrimarySign>" in text:
+                        results.append({
+                            "page": page_num,
+                            "x": word["x0"],
+                            "y": word["top"],
+                            "type": "PrimarySign",
+                        })
+                        logger.info(
+                            f"MATCH [PrimarySign]: page={page_num} "
+                            f"x={word['x0']:.1f} y={word['top']:.1f}"
+                        )
 
     except Exception as e:
         logger.error(f"Error scanning PDF: {e}", exc_info=True)
@@ -92,17 +102,16 @@ def _find_applicant_signature_lines(pdf_bytes: bytes) -> list:
 
 
 def _build_form_fields(pdf_bytes: bytes) -> list:
-    """Build BoldSign form fields for all signature locations found."""
-    locations = _find_applicant_signature_lines(pdf_bytes)
+    """Build BoldSign form fields at detected signature positions."""
+    positions = _find_signature_positions(pdf_bytes)
 
-    if not locations:
-        # Fallback: last page
+    if not positions:
         try:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 page_count = len(pdf.pages)
         except Exception:
             page_count = 1
-        logger.warning(f"No signature locations found! Falling back to page {page_count}")
+        logger.warning(f"NO signature positions found! Fallback to page {page_count}")
         return [{
             "id": "sig1",
             "name": "Signature",
@@ -112,53 +121,35 @@ def _build_form_fields(pdf_bytes: bytes) -> list:
             "isRequired": True,
         }]
 
-    # For "ApplicantSignature:" matches, we want to skip any that are
-    # waiver/rejection signatures (like UMPD on page 1 of auto apps)
-    # and keep the main application signatures.
-    # Strategy: if we have both ApplicantSignature and PrimarySign/named.insured
-    # matches on the same page, prefer the label match since it's the visible line.
-
-    # Deduplicate by page - prefer "ApplicantSignature" type over marker types
-    page_map = {}
-    for loc in locations:
-        page = loc["page"]
-        if page not in page_map:
-            page_map[page] = loc
-        elif "Applicant" in loc["type"] and "Applicant" not in page_map[page]["type"]:
-            page_map[page] = loc
-
-    unique_locs = list(page_map.values())
+    # Deduplicate by page number (keep first match per page)
+    seen = set()
+    unique = []
+    for p in positions:
+        if p["page"] not in seen:
+            seen.add(p["page"])
+            unique.append(p)
 
     form_fields = []
-    for i, loc in enumerate(unique_locs):
-        # Place the signature field on the blank line AFTER the label
-        # The label is ~130pt wide, signature line starts after it
-        sig_x = loc["x"] + loc["label_width"] + 5  # Right after label
-        sig_y = loc["y"] - 2  # Align with the text baseline
-
-        # If sig_x would be off-page, reset to a reasonable position
-        if sig_x > 400:
-            sig_x = 150
-
+    for i, pos in enumerate(unique):
         form_fields.append({
             "id": f"sig{i + 1}",
-            "name": f"Signature",
+            "name": "Signature",
             "fieldType": "Signature",
-            "pageNumber": loc["page"],
+            "pageNumber": pos["page"],
             "bounds": {
-                "x": sig_x,
-                "y": sig_y,
+                "x": pos["x"],
+                "y": pos["y"] - 2,
                 "width": 200,
                 "height": 25,
             },
             "isRequired": True,
         })
         logger.info(
-            f"FIELD sig{i+1}: page={loc['page']} x={sig_x:.1f} y={sig_y:.1f} "
-            f"type={loc['type']}"
+            f"PLACED sig{i+1}: page={pos['page']} "
+            f"x={pos['x']:.1f} y={pos['y']-2:.1f} "
+            f"type={pos['type']}"
         )
 
-    logger.info(f"Total fields: {len(form_fields)}")
     return form_fields
 
 
@@ -189,9 +180,8 @@ async def send_for_signature(
     }
 
     logger.info(
-        f"BoldSign: sending to {signer_email}, name={signer_name}, "
-        f"pdf_size={len(pdf_bytes)}, title={clean_title}, "
-        f"fields={len(form_fields)}"
+        f"BoldSign: sending '{clean_title}' to {signer_email}, "
+        f"pdf_size={len(pdf_bytes)}, fields={len(form_fields)}"
     )
 
     send_data = {
@@ -226,9 +216,7 @@ async def send_for_signature(
         )
 
     result = response.json()
-    return {
-        "documentId": result.get("documentId"),
-    }
+    return {"documentId": result.get("documentId")}
 
 
 async def get_document_status(document_id: str) -> dict:
@@ -252,7 +240,4 @@ async def get_document_status(document_id: str) -> dict:
         )
 
     result = response.json()
-    return {
-        "status": result.get("status", "unknown"),
-        "raw": result,
-    }
+    return {"status": result.get("status", "unknown"), "raw": result}
