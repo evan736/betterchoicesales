@@ -295,9 +295,9 @@ class ReconciliationService:
                         within_first_term = stmt_date < term_end
                     
                     if within_first_term:
-                        # Chargeback: use carrier's commission amount (negative)
-                        # The carrier statement already shows negative premium/commission for cancels
-                        agent_comm = carrier_comm  # Pass through carrier's chargeback amount
+                        # Chargeback: apply agent's tier rate to the (negative) premium
+                        # NOT the carrier's commission — agent only owes back at their rate
+                        agent_comm = premium * agent_rate
                         agent_chargebacks += agent_comm
                         agent_chargeback_premium += premium
                         chargeback_count += 1
@@ -561,8 +561,9 @@ class ReconciliationService:
                         within_first_term = stmt_date < term_end
                     
                     if within_first_term:
-                        # Chargeback: pass through carrier's commission amount
-                        agent_comm = carrier_comm
+                        # Chargeback: apply agent's tier rate to the (negative) premium
+                        # NOT the carrier's commission — agent only owes back at their rate
+                        agent_comm = premium * agent_rate
                         agent_chargebacks += agent_comm
                         agent_chargeback_premium += premium
                         chargeback_count += 1
@@ -740,7 +741,7 @@ class ReconciliationService:
                         is_chargeback = True
 
             if is_chargeback:
-                agent_comm = carrier_comm
+                agent_comm = premium * agent_rate  # Agent rate, not carrier rate
                 total_chargebacks += agent_comm
                 total_chargeback_premium += premium
                 chargeback_count += 1
