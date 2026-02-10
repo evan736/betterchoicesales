@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     
     # BoldSign API for e-signatures
     BOLDSIGN_API_KEY: Optional[str] = None
+    BOLDSIGN_SENDER_EMAIL: Optional[str] = None
     
     class Config:
         env_file = ".env"

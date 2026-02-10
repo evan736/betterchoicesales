@@ -191,14 +191,14 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         </div>
         <div className="ml-4 flex flex-col gap-2">
           {/* Send for Signature */}
-          {sigStatus === 'not_sent' && sale.client_email && (
+          {sale.client_email && sigStatus !== 'completed' && (
             <button
               onClick={handleSendForSignature}
               disabled={sendingSig}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-all text-sm font-semibold"
             >
               <FileText size={16} />
-              <span>{sendingSig ? 'Sending...' : 'Send for Signature'}</span>
+              <span>{sendingSig ? 'Sending...' : (sigStatus === 'sent' ? 'Resend for Signature' : 'Send for Signature')}</span>
             </button>
           )}
           {/* Check Status */}

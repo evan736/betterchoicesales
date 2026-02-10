@@ -39,6 +39,18 @@ async def send_for_signature(
     logger.info(f"BoldSign: sending to {signer_email}, name={signer_name}, "
                 f"pdf_size={len(pdf_bytes)}, title={clean_title}")
 
+    send_data = {
+        "Title": clean_title,
+        "Message": "Please review and sign the attached insurance application.",
+        "Signers": json.dumps(signer_data),
+        "AutoDetectFields": "true",
+        "EnablePrintAndSign": "true",
+    }
+
+    # Use sender identity if configured (sends from your business email)
+    if settings.BOLDSIGN_SENDER_EMAIL:
+        send_data["OnBehalfOf"] = settings.BOLDSIGN_SENDER_EMAIL
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             "https://api.boldsign.com/v1/document/send",
@@ -46,13 +58,7 @@ async def send_for_signature(
                 "accept": "application/json",
                 "X-API-KEY": settings.BOLDSIGN_API_KEY,
             },
-            data={
-                "Title": clean_title,
-                "Message": "Please review and sign the attached insurance application.",
-                "Signers": json.dumps(signer_data),
-                "AutoDetectFields": "true",
-                "EnablePrintAndSign": "true",
-            },
+            data=send_data,
             files={
                 "Files": (f"{clean_title}.pdf", pdf_bytes, "application/pdf"),
             },
