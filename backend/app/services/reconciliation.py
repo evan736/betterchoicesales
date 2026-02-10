@@ -1,0 +1,386 @@
+"""Commission reconciliation service.
+
+Workflow:
+1. Upload carrier statement → parse into statement_lines
+2. Match each line to a sale in our system by policy_number
+3. Resolve agent assignment (who wrote/owns this policy)
+4. Calculate agent commission based on prior month tier
+5. Present reconciliation summary for review
+"""
+import logging
+from decimal import Decimal
+from typing import Dict, List, Optional
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from app.models.statement import (
+    StatementImport, StatementLine, StatementStatus,
+    CarrierType, StatementFormat, TransactionType,
+)
+from app.models.sale import Sale
+from app.models.user import User
+from app.models.commission import CommissionTier
+from app.services.carrier_parsers import parse_statement
+
+logger = logging.getLogger(__name__)
+
+
+class ReconciliationService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ── Upload & Parse ───────────────────────────────────────────────
+
+    def create_import(
+        self,
+        filename: str,
+        file_path: str,
+        file_bytes: bytes,
+        carrier: str,
+        period: str,
+    ) -> StatementImport:
+        """Create import record and parse the file into statement lines."""
+
+        # Determine format
+        ext = filename.rsplit(".", 1)[-1].lower()
+        fmt_map = {"csv": StatementFormat.CSV, "xlsx": StatementFormat.XLSX, "pdf": StatementFormat.PDF}
+        file_format = fmt_map.get(ext, StatementFormat.CSV)
+
+        # Create import record
+        imp = StatementImport(
+            filename=filename,
+            file_path=file_path,
+            file_format=file_format,
+            file_size=len(file_bytes),
+            carrier=CarrierType(carrier),
+            statement_period=period,
+            status=StatementStatus.PROCESSING,
+            processing_started_at=datetime.utcnow(),
+        )
+        self.db.add(imp)
+        self.db.flush()  # get imp.id
+
+        try:
+            # Parse
+            records = parse_statement(carrier, file_bytes, filename)
+            imp.total_rows = len(records)
+
+            total_premium = Decimal("0")
+            total_commission = Decimal("0")
+
+            for rec in records:
+                line = StatementLine(
+                    statement_import_id=imp.id,
+                    policy_number=rec.get("policy_number", ""),
+                    insured_name=rec.get("insured_name"),
+                    transaction_type=rec.get("transaction_type"),
+                    transaction_type_raw=rec.get("transaction_type_raw"),
+                    transaction_date=rec.get("transaction_date"),
+                    effective_date=rec.get("effective_date"),
+                    premium_amount=rec.get("premium_amount"),
+                    commission_rate=rec.get("commission_rate"),
+                    commission_amount=rec.get("commission_amount"),
+                    producer_name=rec.get("producer_name"),
+                    product_type=rec.get("product_type"),
+                    line_of_business=rec.get("line_of_business"),
+                    state=rec.get("state"),
+                    term_months=rec.get("term_months"),
+                    raw_data=rec.get("raw_data"),
+                )
+                self.db.add(line)
+
+                if rec.get("premium_amount"):
+                    total_premium += rec["premium_amount"]
+                if rec.get("commission_amount"):
+                    total_commission += rec["commission_amount"]
+
+            imp.total_premium = total_premium
+            imp.total_commission = total_commission
+            imp.status = StatementStatus.PROCESSED
+            imp.processing_completed_at = datetime.utcnow()
+
+            self.db.commit()
+            logger.info(
+                f"Import {imp.id}: {imp.total_rows} rows, "
+                f"premium={total_premium}, commission={total_commission}"
+            )
+
+        except Exception as e:
+            imp.status = StatementStatus.FAILED
+            imp.error_message = str(e)[:500]
+            imp.processing_completed_at = datetime.utcnow()
+            self.db.commit()
+            logger.error(f"Import {imp.id} failed: {e}", exc_info=True)
+            raise
+
+        return imp
+
+    # ── Match ────────────────────────────────────────────────────────
+
+    def run_matching(self, import_id: int) -> Dict:
+        """Match statement lines to sales by policy number."""
+        imp = self.db.query(StatementImport).filter(
+            StatementImport.id == import_id
+        ).first()
+        if not imp:
+            raise ValueError("Import not found")
+
+        lines = self.db.query(StatementLine).filter(
+            StatementLine.statement_import_id == import_id
+        ).all()
+
+        matched = 0
+        unmatched = 0
+
+        for line in lines:
+            # Try exact match on policy number
+            sale = self.db.query(Sale).filter(
+                Sale.policy_number == line.policy_number
+            ).first()
+
+            if sale:
+                line.is_matched = True
+                line.matched_sale_id = sale.id
+                line.match_confidence = "exact"
+                line.matched_at = datetime.utcnow()
+
+                # Assign agent from the sale
+                line.assigned_agent_id = sale.producer_id
+                matched += 1
+            else:
+                # Try fuzzy: strip leading zeros, try partial
+                cleaned = line.policy_number.lstrip("0")
+                sale = self.db.query(Sale).filter(
+                    Sale.policy_number.contains(cleaned)
+                ).first() if len(cleaned) >= 5 else None
+
+                if sale:
+                    line.is_matched = True
+                    line.matched_sale_id = sale.id
+                    line.match_confidence = "fuzzy"
+                    line.matched_at = datetime.utcnow()
+                    line.assigned_agent_id = sale.producer_id
+                    matched += 1
+                else:
+                    unmatched += 1
+
+        imp.matched_rows = matched
+        imp.unmatched_rows = unmatched
+        imp.status = StatementStatus.RECONCILED
+        self.db.commit()
+
+        logger.info(f"Matching import {import_id}: {matched} matched, {unmatched} unmatched")
+
+        return {
+            "import_id": import_id,
+            "total": len(lines),
+            "matched": matched,
+            "unmatched": unmatched,
+        }
+
+    # ── Agent Commission Calculation ─────────────────────────────────
+
+    def calculate_agent_commissions(self, import_id: int) -> Dict:
+        """Calculate what each agent is owed based on their tier.
+
+        The tier is determined by the PRIOR month's total written premium.
+        """
+        imp = self.db.query(StatementImport).filter(
+            StatementImport.id == import_id
+        ).first()
+        if not imp:
+            raise ValueError("Import not found")
+
+        # Determine prior month for tier calculation
+        period = imp.statement_period  # "2026-01"
+        year, month = map(int, period.split("-"))
+        prior_date = datetime(year, month, 1) - relativedelta(months=1)
+        prior_period = prior_date.strftime("%Y-%m")
+
+        # Get all matched lines with assigned agents
+        lines = self.db.query(StatementLine).filter(
+            StatementLine.statement_import_id == import_id,
+            StatementLine.assigned_agent_id.isnot(None),
+        ).all()
+
+        # Group by agent
+        agent_lines: Dict[int, List[StatementLine]] = {}
+        for line in lines:
+            agent_lines.setdefault(line.assigned_agent_id, []).append(line)
+
+        agent_summaries = []
+
+        for agent_id, agent_line_list in agent_lines.items():
+            agent = self.db.query(User).filter(User.id == agent_id).first()
+            if not agent:
+                continue
+
+            # Get agent's prior month written premium to determine tier
+            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+            tier = self._get_tier_for_premium(prior_premium)
+
+            agent_rate = tier.commission_rate if tier else Decimal("0.03")
+            tier_level = tier.tier_level if tier else 1
+
+            # Calculate commission for each line
+            agent_total_premium = Decimal("0")
+            agent_total_commission = Decimal("0")
+
+            for line in agent_line_list:
+                premium = line.premium_amount or Decimal("0")
+                agent_comm = premium * agent_rate
+
+                line.agent_commission_rate = agent_rate
+                line.agent_commission_amount = agent_comm
+
+                agent_total_premium += premium
+                agent_total_commission += agent_comm
+
+            agent_summaries.append({
+                "agent_id": agent_id,
+                "agent_name": agent.full_name or agent.username,
+                "tier_level": tier_level,
+                "commission_rate": float(agent_rate),
+                "prior_month_premium": float(prior_premium),
+                "total_premium": float(agent_total_premium),
+                "total_agent_commission": float(agent_total_commission),
+                "line_count": len(agent_line_list),
+            })
+
+        self.db.commit()
+
+        return {
+            "import_id": import_id,
+            "period": period,
+            "prior_period": prior_period,
+            "agent_summaries": agent_summaries,
+        }
+
+    def _get_agent_period_premium(self, agent_id: int, period: str) -> Decimal:
+        """Get total written premium for an agent in a given period."""
+        year, month = map(int, period.split("-"))
+        total = (
+            self.db.query(func.sum(Sale.written_premium))
+            .filter(
+                Sale.producer_id == agent_id,
+                func.extract("year", Sale.sale_date) == year,
+                func.extract("month", Sale.sale_date) == month,
+            )
+            .scalar()
+        )
+        return total or Decimal("0")
+
+    def _get_tier_for_premium(self, premium: Decimal) -> Optional[CommissionTier]:
+        """Find the tier for a given premium amount."""
+        return (
+            self.db.query(CommissionTier)
+            .filter(
+                CommissionTier.is_active == True,
+                CommissionTier.min_written_premium <= premium,
+                (CommissionTier.max_written_premium >= premium)
+                | (CommissionTier.max_written_premium.is_(None)),
+            )
+            .order_by(CommissionTier.tier_level.desc())
+            .first()
+        )
+
+    # ── Summary / Reports ────────────────────────────────────────────
+
+    def get_reconciliation_summary(self, import_id: int) -> Dict:
+        """Get full reconciliation summary for review."""
+        imp = self.db.query(StatementImport).filter(
+            StatementImport.id == import_id
+        ).first()
+        if not imp:
+            raise ValueError("Import not found")
+
+        lines = self.db.query(StatementLine).filter(
+            StatementLine.statement_import_id == import_id
+        ).all()
+
+        matched_lines = []
+        unmatched_lines = []
+
+        for line in lines:
+            line_data = {
+                "id": line.id,
+                "policy_number": line.policy_number,
+                "insured_name": line.insured_name,
+                "transaction_type": line.transaction_type.value if line.transaction_type else None,
+                "transaction_type_raw": line.transaction_type_raw,
+                "premium_amount": float(line.premium_amount) if line.premium_amount else 0,
+                "commission_amount": float(line.commission_amount) if line.commission_amount else 0,
+                "commission_rate": float(line.commission_rate) if line.commission_rate else 0,
+                "producer_name": line.producer_name,
+                "state": line.state,
+                "term_months": line.term_months,
+                "is_matched": line.is_matched,
+                "match_confidence": line.match_confidence,
+            }
+
+            if line.is_matched:
+                # Add agent info
+                if line.assigned_agent:
+                    line_data["assigned_agent"] = line.assigned_agent.full_name or line.assigned_agent.username
+                    line_data["agent_commission"] = float(line.agent_commission_amount) if line.agent_commission_amount else None
+                    line_data["agent_rate"] = float(line.agent_commission_rate) if line.agent_commission_rate else None
+                matched_lines.append(line_data)
+            else:
+                unmatched_lines.append(line_data)
+
+        # Transaction type breakdown
+        type_summary = {}
+        for line in lines:
+            tt = line.transaction_type_raw or "Unknown"
+            if tt not in type_summary:
+                type_summary[tt] = {"count": 0, "premium": 0, "commission": 0}
+            type_summary[tt]["count"] += 1
+            type_summary[tt]["premium"] += float(line.premium_amount or 0)
+            type_summary[tt]["commission"] += float(line.commission_amount or 0)
+
+        return {
+            "import": {
+                "id": imp.id,
+                "filename": imp.filename,
+                "carrier": imp.carrier.value,
+                "period": imp.statement_period,
+                "status": imp.status.value,
+                "total_rows": imp.total_rows,
+                "matched_rows": imp.matched_rows,
+                "unmatched_rows": imp.unmatched_rows,
+                "total_premium": float(imp.total_premium or 0),
+                "total_commission": float(imp.total_commission or 0),
+                "created_at": imp.created_at.isoformat() if imp.created_at else None,
+            },
+            "matched_lines": matched_lines,
+            "unmatched_lines": unmatched_lines,
+            "type_summary": type_summary,
+        }
+
+    def manually_match_line(self, line_id: int, sale_id: int) -> StatementLine:
+        """Manually match an unmatched line to a sale."""
+        line = self.db.query(StatementLine).filter(StatementLine.id == line_id).first()
+        if not line:
+            raise ValueError("Statement line not found")
+
+        sale = self.db.query(Sale).filter(Sale.id == sale_id).first()
+        if not sale:
+            raise ValueError("Sale not found")
+
+        line.is_matched = True
+        line.matched_sale_id = sale.id
+        line.match_confidence = "manual"
+        line.matched_at = datetime.utcnow()
+        line.assigned_agent_id = sale.producer_id
+
+        # Update import counts
+        imp = line.statement_import
+        if imp:
+            imp.matched_rows = (imp.matched_rows or 0) + 1
+            imp.unmatched_rows = max(0, (imp.unmatched_rows or 0) - 1)
+
+        self.db.commit()
+        return line

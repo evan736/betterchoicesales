@@ -1,184 +1,185 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+"""Commission reconciliation API endpoints.
+
+Workflow:
+  POST /api/reconciliation/upload     → Upload carrier statement
+  POST /api/reconciliation/{id}/match → Run auto-matching
+  POST /api/reconciliation/{id}/calculate → Calculate agent commissions
+  GET  /api/reconciliation/{id}       → Get reconciliation summary
+  GET  /api/reconciliation/           → List all imports
+  POST /api/reconciliation/lines/{id}/match → Manually match a line
+"""
+import os
+import logging
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from pathlib import Path
-import shutil
+
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.user import User
-from app.models.statement import StatementImport, StatementFormat, CarrierType
-from app.services.statement_import import StatementImportService
 from app.core.config import settings
+from app.models.user import User
+from app.models.statement import StatementImport, StatementStatus
+from app.services.reconciliation import ReconciliationService
 
-router = APIRouter(prefix="/api/statements", tags=["statements"])
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/reconciliation", tags=["reconciliation"])
 
 
 @router.post("/upload")
 async def upload_statement(
-    carrier: CarrierType,
     file: UploadFile = File(...),
+    carrier: str = Form(...),
+    period: str = Form(...),  # "2026-01"
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Upload a commission statement file"""
-    # Only admins can upload statements
-    if current_user.role not in ["admin", "manager"]:
+    """Upload a carrier commission statement for reconciliation."""
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    # Validate carrier
+    valid_carriers = [
+        "national_general", "progressive", "grange",
+        "safeco", "travelers", "hartford", "other",
+    ]
+    if carrier not in valid_carriers:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or Manager access required"
+            status_code=400,
+            detail=f"Invalid carrier. Must be one of: {valid_carriers}",
         )
-    
-    # Determine file format
-    file_extension = Path(file.filename).suffix.lower()
-    
-    if file_extension == '.csv':
-        file_format = StatementFormat.CSV
-    elif file_extension in ['.xlsx', '.xls']:
-        file_format = StatementFormat.XLSX
-    elif file_extension == '.pdf':
-        file_format = StatementFormat.PDF
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file format. Use CSV, XLSX, or PDF"
-        )
-    
-    # Create upload directory
-    upload_dir = Path(settings.UPLOAD_DIR) / "statements"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    # Read file
+    file_bytes = await file.read()
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
     # Save file
-    file_path = upload_dir / file.filename
-    
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Get file size
-    file_size = file_path.stat().st_size
-    
-    # Create import record
-    service = StatementImportService(db)
-    import_record = service.create_import_record(
-        filename=file.filename,
-        file_path=str(file_path),
-        carrier=carrier,
-        file_format=file_format,
-        file_size=file_size
-    )
-    
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "statements")
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, f"{period}_{carrier}_{file.filename}")
+    with open(file_path, "wb") as f:
+        f.write(file_bytes)
+
+    # Parse
+    service = ReconciliationService(db)
+    try:
+        imp = service.create_import(
+            filename=file.filename,
+            file_path=file_path,
+            file_bytes=file_bytes,
+            carrier=carrier,
+            period=period,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)[:300]}")
+
     return {
-        "message": "File uploaded successfully",
-        "import_id": import_record.id,
-        "filename": file.filename,
-        "carrier": carrier,
-        "format": file_format
+        "id": imp.id,
+        "filename": imp.filename,
+        "carrier": imp.carrier.value,
+        "period": imp.statement_period,
+        "status": imp.status.value,
+        "total_rows": imp.total_rows,
+        "total_premium": float(imp.total_premium or 0),
+        "total_commission": float(imp.total_commission or 0),
     }
 
 
-@router.post("/{import_id}/process")
-def process_statement(
+@router.post("/{import_id}/match")
+def run_matching(
     import_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Process an uploaded statement"""
-    if current_user.role not in ["admin", "manager"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or Manager access required"
-        )
-    
-    service = StatementImportService(db)
-    
+    """Run auto-matching on a processed statement."""
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
     try:
-        import_record = service.process_import(import_id)
-        
-        return {
-            "message": "Statement processed",
-            "import_id": import_record.id,
-            "status": import_record.status,
-            "total_rows": import_record.total_rows,
-            "matched_rows": import_record.matched_rows,
-            "unmatched_rows": import_record.unmatched_rows,
-            "error_rows": import_record.error_rows
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Processing failed: {str(e)}"
-        )
+        result = service.run_matching(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
 
 
-@router.get("/", response_model=List[dict])
-def list_statement_imports(
-    skip: int = 0,
-    limit: int = 100,
+@router.post("/{import_id}/calculate")
+def calculate_commissions(
+    import_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """List all statement imports"""
-    imports = db.query(StatementImport).order_by(
-        StatementImport.created_at.desc()
-    ).offset(skip).limit(limit).all()
-    
+    """Calculate agent commissions based on tier from prior month."""
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        result = service.calculate_agent_commissions(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.get("/{import_id}")
+def get_reconciliation(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get full reconciliation summary with matched/unmatched lines."""
+    service = ReconciliationService(db)
+    try:
+        return service.get_reconciliation_summary(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/")
+def list_imports(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all statement imports."""
+    imports = (
+        db.query(StatementImport)
+        .order_by(StatementImport.created_at.desc())
+        .limit(50)
+        .all()
+    )
     return [
         {
             "id": imp.id,
             "filename": imp.filename,
-            "carrier": imp.carrier,
-            "status": imp.status,
+            "carrier": imp.carrier.value,
+            "period": imp.statement_period,
+            "status": imp.status.value,
             "total_rows": imp.total_rows,
             "matched_rows": imp.matched_rows,
             "unmatched_rows": imp.unmatched_rows,
-            "created_at": imp.created_at
+            "total_premium": float(imp.total_premium or 0),
+            "total_commission": float(imp.total_commission or 0),
+            "created_at": imp.created_at.isoformat() if imp.created_at else None,
         }
         for imp in imports
     ]
 
 
-@router.get("/{import_id}")
-def get_statement_import(
-    import_id: int,
+@router.post("/lines/{line_id}/match")
+def manually_match_line(
+    line_id: int,
+    sale_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get details of a specific statement import"""
-    import_record = db.query(StatementImport).filter(
-        StatementImport.id == import_id
-    ).first()
-    
-    if not import_record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Import not found"
-        )
-    
-    from app.models.statement import StatementLine
-    
-    # Get sample unmatched lines
-    unmatched_lines = db.query(StatementLine).filter(
-        StatementLine.statement_import_id == import_id,
-        StatementLine.is_matched == False
-    ).limit(10).all()
-    
-    return {
-        "id": import_record.id,
-        "filename": import_record.filename,
-        "carrier": import_record.carrier,
-        "status": import_record.status,
-        "total_rows": import_record.total_rows,
-        "matched_rows": import_record.matched_rows,
-        "unmatched_rows": import_record.unmatched_rows,
-        "error_rows": import_record.error_rows,
-        "processing_started_at": import_record.processing_started_at,
-        "processing_completed_at": import_record.processing_completed_at,
-        "error_message": import_record.error_message,
-        "sample_unmatched": [
-            {
-                "policy_number": line.policy_number,
-                "premium_amount": str(line.premium_amount) if line.premium_amount else None,
-                "commission_amount": str(line.commission_amount) if line.commission_amount else None
-            }
-            for line in unmatched_lines
-        ]
-    }
+    """Manually match an unmatched statement line to a sale."""
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        line = service.manually_match_line(line_id, sale_id)
+        return {"success": True, "line_id": line.id, "matched_sale_id": sale_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

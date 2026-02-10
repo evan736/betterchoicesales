@@ -1,6 +1,9 @@
 from app.models.user import User, UserRole
 from app.models.sale import Sale, SaleStatus, LeadSource
-from app.models.statement import StatementImport, StatementLine, StatementFormat, StatementStatus, CarrierType
+from app.models.statement import (
+    StatementImport, StatementLine, StatementFormat,
+    StatementStatus, CarrierType, TransactionType,
+)
 from app.models.commission import Commission, CommissionTier, CommissionStatus
 
 __all__ = [
@@ -14,6 +17,7 @@ __all__ = [
     "StatementFormat",
     "StatementStatus",
     "CarrierType",
+    "TransactionType",
     "Commission",
     "CommissionTier",
     "CommissionStatus",

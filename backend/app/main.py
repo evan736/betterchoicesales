@@ -18,6 +18,48 @@ def init_database():
     from decimal import Decimal
 
     logger.info("Creating database tables...")
+
+    # Run enum migrations first (create_all can't modify existing enums)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    -- Add new carrier types
+                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'grange';
+                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'safeco';
+                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'travelers';
+                    ALTER TYPE carriertype ADD VALUE IF NOT EXISTS 'hartford';
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'processed';
+                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'reconciled';
+                    ALTER TYPE statementstatus ADD VALUE IF NOT EXISTS 'approved';
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transactiontype') THEN
+                        CREATE TYPE transactiontype AS ENUM (
+                            'new_business', 'renewal', 'endorsement', 'cancellation',
+                            'reinstatement', 'audit', 'adjustment', 'other'
+                        );
+                    END IF;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("Enum migrations applied")
+        except Exception as e:
+            logger.warning(f"Enum migration warning (may be OK): {e}")
+
     Base.metadata.create_all(bind=engine)
     logger.info("Tables created successfully")
 
