@@ -41,6 +41,11 @@ class SaleInDB(SaleBase):
     producer_id: int
     recognized_premium: Optional[Decimal] = None
     status: Optional[str] = None
+    commission_status: Optional[str] = None
+    commission_paid_date: Optional[datetime] = None
+    commission_paid_period: Optional[str] = None
+    cancelled_date: Optional[datetime] = None
+    days_to_cancel: Optional[int] = None
     application_pdf_path: Optional[str] = None
     signature_request_id: Optional[str] = None
     signature_status: Optional[str] = None
