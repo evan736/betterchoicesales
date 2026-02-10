@@ -50,6 +50,14 @@ export const salesAPI = {
     return api.post(`/api/sales/${id}/send-for-signature`, {}, { timeout: 120000 });
   },
   signatureStatus: (id: number) => api.get(`/api/sales/${id}/signature-status`),
+  importCSV: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/api/sales/import-csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
 };
 
 // Commissions API

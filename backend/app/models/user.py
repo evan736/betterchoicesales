@@ -9,6 +9,7 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     PRODUCER = "producer"
     MANAGER = "manager"
+    RETENTION_SPECIALIST = "retention_specialist"
 
 
 class User(Base):
@@ -20,7 +21,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
     
-    role = Column(Enum(UserRole), default=UserRole.PRODUCER, nullable=False)
+    role = Column(String, default="producer", nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     

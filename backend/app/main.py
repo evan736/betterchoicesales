@@ -140,6 +140,42 @@ def init_database():
         except Exception as e:
             logger.warning(f"Enum migration warning (may be OK): {e}")
 
+    # Convert enum columns to varchar for flexibility
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TABLE users ALTER COLUMN role TYPE VARCHAR USING role::VARCHAR;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TABLE sales ALTER COLUMN lead_source TYPE VARCHAR USING lead_source::VARCHAR;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TABLE sales ALTER COLUMN policy_type TYPE VARCHAR USING policy_type::VARCHAR;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TABLE sales ALTER COLUMN status TYPE VARCHAR USING status::VARCHAR;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("Enum columns converted to varchar")
+        except Exception as e:
+            logger.warning(f"Column conversion warning: {e}")
+
     Base.metadata.create_all(bind=engine)
     logger.info("Tables created successfully")
 
@@ -153,25 +189,91 @@ def init_database():
                 username="admin",
                 full_name="System Administrator",
                 hashed_password=get_password_hash("admin123"),
-                role=UserRole.ADMIN,
+                role="admin",
                 is_superuser=True,
                 producer_code="ADMIN001",
             )
             db.add(admin)
             logger.info("Admin user created")
 
-        producer = db.query(User).filter(User.username == "producer1").first()
-        if not producer:
-            producer = User(
-                email="producer@insurance.com",
-                username="producer1",
-                full_name="John Producer",
-                hashed_password=get_password_hash("producer123"),
-                role=UserRole.PRODUCER,
-                producer_code="PROD001",
+        # Evan Larson - admin/producer
+        evan = db.query(User).filter(User.email == "evan@betterchoiceins.com").first()
+        if not evan:
+            evan = User(
+                email="evan@betterchoiceins.com",
+                username="evan.larson",
+                full_name="Evan Larson",
+                hashed_password=get_password_hash("BetterChoice2026!"),
+                role="admin",
+                is_superuser=True,
+                producer_code="EVAN001",
             )
-            db.add(producer)
-            logger.info("Sample producer created")
+            db.add(evan)
+            logger.info("Evan Larson account created")
+
+        # Giulian Baez - New Business Producer
+        giulian = db.query(User).filter(User.email == "giulian@betterchoiceins.com").first()
+        if not giulian:
+            giulian = User(
+                email="giulian@betterchoiceins.com",
+                username="giulian.baez",
+                full_name="Giulian Baez",
+                hashed_password=get_password_hash("BetterChoice2026!"),
+                role="producer",
+                producer_code="GIUL001",
+            )
+            db.add(giulian)
+            logger.info("Giulian Baez account created")
+
+        # Joseph Rivera - New Business Producer
+        joseph = db.query(User).filter(User.email == "joseph@betterchoiceins.com").first()
+        if not joseph:
+            joseph = User(
+                email="joseph@betterchoiceins.com",
+                username="joseph.rivera",
+                full_name="Joseph Rivera",
+                hashed_password=get_password_hash("BetterChoice2026!"),
+                role="producer",
+                producer_code="JOSE001",
+            )
+            db.add(joseph)
+            logger.info("Joseph Rivera account created")
+
+        # Salma Marquez - Retention Specialist
+        salma = db.query(User).filter(User.email == "salma@betterchoiceins.com").first()
+        if not salma:
+            salma = User(
+                email="salma@betterchoiceins.com",
+                username="salma.marquez",
+                full_name="Salma Marquez",
+                hashed_password=get_password_hash("BetterChoice2026!"),
+                role="retention_specialist",
+                producer_code="SALM001",
+            )
+            db.add(salma)
+            logger.info("Salma Marquez account created")
+
+        # Michelle Robles - Retention Specialist
+        michelle = db.query(User).filter(User.email == "michelle@betterchoiceins.com").first()
+        if not michelle:
+            michelle = User(
+                email="michelle@betterchoiceins.com",
+                username="michelle.robles",
+                full_name="Michelle Robles",
+                hashed_password=get_password_hash("BetterChoice2026!"),
+                role="retention_specialist",
+                producer_code="MICH001",
+            )
+            db.add(michelle)
+            logger.info("Michelle Robles account created")
+
+        # Remove old sample producer if exists
+        old_producer = db.query(User).filter(User.username == "producer1").first()
+        if old_producer:
+            # Only delete if they have no sales
+            if not old_producer.sales:
+                db.delete(old_producer)
+                logger.info("Removed sample producer1")
 
         # Create commission tiers
         tiers = [

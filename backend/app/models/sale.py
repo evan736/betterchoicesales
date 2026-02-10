@@ -51,7 +51,7 @@ class Sale(Base):
     
     # Policy information
     policy_number = Column(String, unique=True, index=True, nullable=False)
-    policy_type = Column(Enum(PolicyType), nullable=True, index=True)
+    policy_type = Column(String, nullable=True, index=True)
     carrier = Column(String, nullable=True, index=True)
     state = Column(String(2), nullable=True, index=True)
     written_premium = Column(Numeric(10, 2), nullable=False)
@@ -61,7 +61,7 @@ class Sale(Base):
     producer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # Lead and client info
-    lead_source = Column(Enum(LeadSource), nullable=False)
+    lead_source = Column(String, nullable=True)
     item_count = Column(Integer, default=1)
     
     # Client information
@@ -70,7 +70,7 @@ class Sale(Base):
     client_phone = Column(String, nullable=True)
     
     # Status
-    status = Column(Enum(SaleStatus), default=SaleStatus.PENDING, nullable=False)
+    status = Column(String, default="active", nullable=False)
     
     # Application document
     application_pdf_path = Column(String, nullable=True)

@@ -8,7 +8,7 @@ class UserBase(BaseModel):
     email: EmailStr
     username: str
     full_name: Optional[str] = None
-    role: UserRole = UserRole.PRODUCER
+    role: str = "producer"
 
 
 class UserCreate(UserBase):

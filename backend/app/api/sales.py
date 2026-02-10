@@ -15,22 +15,22 @@ from app.core.config import settings
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
 
-def determine_status(effective_date) -> SaleStatus:
+def determine_status(effective_date) -> str:
     """Determine sale status based on effective date vs today."""
     if effective_date is None:
-        return SaleStatus.ACTIVE
+        return "active"
     if isinstance(effective_date, datetime):
         eff_date = effective_date.date()
     elif isinstance(effective_date, date):
         eff_date = effective_date
     else:
-        return SaleStatus.ACTIVE
+        return "active"
     
     today = date.today()
     if eff_date <= today:
-        return SaleStatus.ACTIVE
+        return "active"
     else:
-        return SaleStatus.PENDING
+        return "pending"
 
 
 @router.post("/extract-pdf")
@@ -414,3 +414,187 @@ async def get_signature_status(
         }
     except Exception as e:
         return {"status": sale.signature_status, "error": str(e)}
+
+
+@router.post("/import-csv")
+async def import_sales_csv(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Import sales from a CSV file.
+    
+    Expected columns: Sale Date, Effective Date, Policy #, Customer,
+    Policy Type, Company, Items, Premium, Source, Producer
+    """
+    if current_user.role not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    import pandas as pd
+    import io
+    from decimal import Decimal
+
+    file_bytes = await file.read()
+    df = pd.read_csv(io.BytesIO(file_bytes))
+
+    # Build producer name -> user ID mapping
+    users = db.query(User).filter(User.is_active == True).all()
+    producer_map = {}
+    for u in users:
+        if u.full_name:
+            producer_map[u.full_name.lower()] = u.id
+            # Also map common variations
+            parts = u.full_name.split()
+            if len(parts) >= 2:
+                # "Giulian Baez" also matches "Guilian Baez"
+                producer_map[f"{parts[0].lower()} {parts[-1].lower()}"] = u.id
+
+    # Special mappings for CSV name variations
+    producer_map["guilian baez"] = producer_map.get("giulian baez", None)
+
+    # Find Evan Larson's ID for Missy Hall reassignment
+    evan_id = None
+    for u in users:
+        if u.full_name and "evan" in u.full_name.lower() and "larson" in u.full_name.lower():
+            evan_id = u.id
+            break
+    if not evan_id:
+        # Fall back to admin
+        admin = db.query(User).filter(User.role == "admin").first()
+        evan_id = admin.id if admin else users[0].id
+
+    created = 0
+    skipped = 0
+    errors = []
+
+    for _, row in df.iterrows():
+        try:
+            policy_number = str(row.get("Policy #", "")).strip()
+            if not policy_number or policy_number == "nan":
+                skipped += 1
+                continue
+
+            # Check if policy already exists
+            existing = db.query(Sale).filter(Sale.policy_number == policy_number).first()
+            if existing:
+                skipped += 1
+                continue
+
+            # Resolve producer
+            producer_name = str(row.get("Producer", "")).strip()
+            producer_id = producer_map.get(producer_name.lower())
+
+            # Handle Missy Hall -> Evan Larson
+            if not producer_id and "missy" in producer_name.lower():
+                producer_id = evan_id
+
+            if not producer_id:
+                # Try partial match
+                for name, uid in producer_map.items():
+                    if name and producer_name.lower() in name or name in producer_name.lower():
+                        producer_id = uid
+                        break
+
+            if not producer_id:
+                errors.append(f"No producer match for '{producer_name}' on policy {policy_number}")
+                producer_id = evan_id  # Default to Evan
+
+            # Parse premium
+            premium_str = str(row.get("Premium", "0")).replace("$", "").replace(",", "").strip()
+            try:
+                premium = Decimal(premium_str)
+            except Exception:
+                premium = Decimal("0")
+
+            # Parse dates
+            sale_date = None
+            eff_date = None
+            try:
+                sale_date = pd.to_datetime(row.get("Sale Date"))
+            except Exception:
+                pass
+            try:
+                eff_date = pd.to_datetime(row.get("Effective Date"))
+            except Exception:
+                pass
+
+            # Map source
+            source_raw = str(row.get("Source", "other")).strip().lower()
+            source_map = {
+                "rewrite": "rewrite",
+                "insurance ai call": "insurance_ai_call",
+                "quote wizard": "quote_wizard",
+                "call in": "call_in",
+                "customer referral": "customer_referral",
+                "family & friends": "referral",
+                "everquote call": "other",
+                "avenge digital": "other",
+                "datalot": "other",
+                "mortgage lender": "referral",
+                "cross sell - all other": "other",
+                "tribe": "other",
+            }
+            lead_source = source_map.get(source_raw, "other")
+            # Check if it starts with a known prefix
+            for prefix, mapped in source_map.items():
+                if source_raw.startswith(prefix):
+                    lead_source = mapped
+                    break
+
+            # Map policy type
+            policy_raw = str(row.get("Policy Type", "")).strip().lower()
+            if "bundled" in policy_raw:
+                policy_type = "bundled"
+            elif "auto" in policy_raw:
+                policy_type = "auto"
+            elif "home" in policy_raw:
+                policy_type = "home"
+            elif "renter" in policy_raw:
+                policy_type = "renters"
+            elif "condo" in policy_raw:
+                policy_type = "condo"
+            elif "motorcycle" in policy_raw:
+                policy_type = "motorcycle"
+            elif "dwelling" in policy_raw:
+                policy_type = "home"
+            elif "mobile" in policy_raw:
+                policy_type = "other"
+            elif "trailer" in policy_raw:
+                policy_type = "other"
+            else:
+                policy_type = "other"
+
+            # Items count
+            try:
+                items = int(row.get("Items", 1))
+            except Exception:
+                items = 1
+
+            sale = Sale(
+                policy_number=policy_number,
+                policy_type=policy_type,
+                carrier=str(row.get("Company", "")).strip(),
+                written_premium=premium,
+                recognized_premium=premium,
+                producer_id=producer_id,
+                lead_source=lead_source,
+                item_count=items,
+                client_name=str(row.get("Customer", "")).strip(),
+                status="active",
+                sale_date=sale_date,
+                effective_date=eff_date,
+            )
+            db.add(sale)
+            created += 1
+
+        except Exception as e:
+            errors.append(f"Error on row: {str(e)[:100]}")
+
+    db.commit()
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+        "total_rows": len(df),
+    }
