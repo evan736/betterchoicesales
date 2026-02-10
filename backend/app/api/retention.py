@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, and_, extract
 
@@ -413,5 +413,3 @@ def _sync_cancellation_data(db: Session, period: Optional[str] = None):
         db.rollback()
 
 
-# Import HTTPException at module level
-from fastapi import HTTPException

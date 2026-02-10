@@ -7,7 +7,6 @@ import {
   Upload,
   FileText,
   CheckCircle,
-  XCircle,
   AlertCircle,
   ChevronDown,
   ChevronUp,

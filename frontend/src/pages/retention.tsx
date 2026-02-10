@@ -5,10 +5,10 @@ import Navbar from '../components/Navbar';
 import { retentionAPI } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Cell, PieChart, Pie, Legend
+  LineChart, Line, Cell
 } from 'recharts';
 import {
-  Shield, TrendingDown, AlertTriangle, Users, Building, Megaphone, Calendar, ChevronDown
+  Shield, AlertTriangle, Users, Building, Megaphone, ChevronDown
 } from 'lucide-react';
 
 const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -56,8 +56,6 @@ const RetentionPage = () => {
       setLoading(false);
     }
   };
-
-  const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
   if (!isAuthenticated || user?.role?.toLowerCase() !== 'admin') return null;
 
