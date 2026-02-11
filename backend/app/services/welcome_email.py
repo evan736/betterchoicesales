@@ -1,4 +1,4 @@
-"""Welcome email service — carrier-specific templates sent via Mailgun."""
+"""Welcome email service - carrier-specific templates sent via Mailgun."""
 import logging
 import requests
 from typing import Optional
@@ -6,7 +6,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# ── Carrier-specific content ──────────────────────────────────────────
+# Carrier-specific content
 
 CARRIER_INFO = {
     "national_general": {
@@ -72,37 +72,56 @@ CARRIER_INFO = {
 }
 
 
-def _get_carrier_key(carrier: str) -> Optional[str]:
-    """Normalize carrier name to our key."""
+def _get_carrier_key(carrier):
     if not carrier:
         return None
     c = carrier.lower().replace(" ", "_").replace("-", "_")
-    # Try exact match first
     if c in CARRIER_INFO:
         return c
-    # Try partial matches
     for key in CARRIER_INFO:
         if key in c or c in key:
             return key
     return None
 
 
+def _btn(url, bg, icon, label):
+    if not url:
+        return ""
+    return (
+        '<a href="' + url + '" style="display:block; background:' + bg
+        + '; color:#fff; padding:14px 24px; border-radius:10px; text-decoration:none;'
+        + ' font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">'
+        + icon + " " + label + "</a>"
+    )
+
+
+def _phone_row(label, phone):
+    if not phone:
+        return ""
+    return (
+        '<tr><td style="padding:4px 0; color:#94a3b8;">' + label
+        + '</td><td style="padding:4px 0; font-weight:600;">' + phone + "</td></tr>"
+    )
+
+
+def _star(survey_url, n):
+    return (
+        '<a href="' + survey_url + "?rating=" + str(n)
+        + '" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>'
+    )
+
+
 def build_welcome_email_html(
-    client_name: str,
-    policy_number: str,
-    carrier: str,
-    producer_name: str,
-    sale_id: int,
-    policy_type: Optional[str] = None,
-) -> tuple[str, str]:
-    """Build the welcome email HTML and subject line.
-    
-    Returns: (subject, html_body)
-    """
+    client_name,
+    policy_number,
+    carrier,
+    producer_name,
+    sale_id,
+    policy_type=None,
+):
     carrier_key = _get_carrier_key(carrier)
     info = CARRIER_INFO.get(carrier_key or "", None)
-    
-    # Fallback for unknown carriers
+
     if not info:
         info = {
             "display_name": carrier or "Your Insurance",
@@ -117,135 +136,118 @@ def build_welcome_email_html(
             "extra_tip": "",
         }
 
-    survey_url = f"{settings.APP_URL}/survey/{sale_id}"
+    survey_url = settings.APP_URL + "/survey/" + str(sale_id)
     first_name = client_name.split()[0] if client_name else "Valued Customer"
-    
-    policy_type_display = ""
+    producer_first = producer_name.split()[0] if producer_name else "Your Agent"
+
+    # Optional rows
+    pt_row = ""
     if policy_type:
-        policy_type_display = policy_type.replace("_", " ").title()
-    
-    subject = f"Welcome to {info['display_name']}! Your policy is ready &#127881;"
-    
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0; padding:0; background-color:#f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-<div style="max-width:600px; margin:0 auto; padding:20px;">
-  
-  <!-- Header -->
-  <div style="background: linear-gradient(135deg, {info['logo_color']}, #1e293b); border-radius:16px 16px 0 0; padding:32px 24px; text-align:center;">
-    <h1 style="color:#ffffff; margin:0; font-size:28px; font-weight:700;">Welcome, {first_name}! &#127881;</h1>
-    <p style="color:rgba(255,255,255,0.85); margin:8px 0 0; font-size:16px;">Your {info['display_name']} policy is all set</p>
-  </div>
-  
-  <!-- Body -->
-  <div style="background:#ffffff; padding:32px 24px; border-radius:0 0 16px 16px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">
-    
-    <!-- Policy Info Card -->
-    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px;">
-      <h2 style="margin:0 0 12px; font-size:16px; color:#64748b; font-weight:600;">YOUR POLICY DETAILS</h2>
-      <table style="width:100%; font-size:15px; color:#334155;">
-        <tr>
-          <td style="padding:6px 0; color:#94a3b8; width:140px;">Policy Number</td>
-          <td style="padding:6px 0; font-weight:700; font-size:17px; color:{info['logo_color']};">{policy_number}</td>
-        </tr>
-        <tr>
-          <td style="padding:6px 0; color:#94a3b8;">Carrier</td>
-          <td style="padding:6px 0; font-weight:600;">{info['display_name']}</td>
-        </tr>
-        {f'<tr><td style="padding:6px 0; color:#94a3b8;">Coverage Type</td><td style="padding:6px 0; font-weight:600;">{policy_type_display}</td></tr>' if policy_type_display else ''}
-        <tr>
-          <td style="padding:6px 0; color:#94a3b8;">Your Agent</td>
-          <td style="padding:6px 0; font-weight:600;">{producer_name}</td>
-        </tr>
-      </table>
-    </div>
-    
-    <!-- Getting Started -->
-    <h2 style="margin:0 0 16px; font-size:18px; color:#1e293b;">Get Started with {info['display_name']}</h2>
-    
-    <!-- Action Buttons -->
-    <div style="margin-bottom:12px;">
-      {f"""
-      <a href="{info['online_account_url']}" style="display:block; background:{info['logo_color']}; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        &#127760; {info['online_account_text']}
-      </a>
-      """ if info['online_account_url'] else ""}
-      
-      {f"""
-      <a href="{info['mobile_app_url']}" style="display:block; background:#059669; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        &#128241; Download the {info['mobile_app_name']}
-      </a>
-      """ if info['mobile_app_url'] else ""}
-      
-      {f"""
-      <a href="{info['payment_url']}" style="display:block; background:#475569; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        &#128179; Make a Payment
-      </a>
-      """ if info['payment_url'] else ""}
-    </div>
-    
-    {f'<p style="color:#64748b; font-size:14px; margin:16px 0; padding:12px 16px; background:#f0fdf4; border-radius:8px; border-left:4px solid #22c55e;">&#128161; <strong>Pro Tip:</strong> {info["extra_tip"]}</p>' if info.get("extra_tip") else ""}
-    
-    <!-- Important Numbers -->
-    <div style="margin:24px 0; padding:16px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">
-      <h3 style="margin:0 0 10px; font-size:14px; color:#64748b; font-weight:600;">IMPORTANT NUMBERS</h3>
-      <table style="width:100%; font-size:14px; color:#334155;">
-        {f'<tr><td style="padding:4px 0; color:#94a3b8;">Claims</td><td style="padding:4px 0; font-weight:600;">{info["claims_phone"]}</td></tr>' if info.get("claims_phone") else ''}
-        {f'<tr><td style="padding:4px 0; color:#94a3b8;">Roadside Assistance</td><td style="padding:4px 0; font-weight:600;">{info["roadside_phone"]}</td></tr>' if info.get("roadside_phone") else ''}
-        <tr><td style="padding:4px 0; color:#94a3b8;">Your Agent</td><td style="padding:4px 0; font-weight:600;">{producer_name} at Better Choice Insurance</td></tr>
-      </table>
-    </div>
-    
-    <!-- Divider -->
-    <hr style="border:none; border-top:1px solid #e2e8f0; margin:28px 0;">
-    
-    <!-- Survey CTA -->
-    <div style="text-align:center; padding:20px; background:#faf5ff; border-radius:12px;">
-      <h3 style="margin:0 0 8px; font-size:18px; color:#7c3aed;">How did {producer_name.split()[0]} do?</h3>
-      <p style="color:#64748b; font-size:14px; margin:0 0 16px;">Your feedback takes just 5 seconds — tap a star below!</p>
-      <div style="margin:0 auto;">
-        <a href="{survey_url}?rating=1" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
-        <a href="{survey_url}?rating=2" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
-        <a href="{survey_url}?rating=3" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
-        <a href="{survey_url}?rating=4" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
-        <a href="{survey_url}?rating=5" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
-      </div>
-    </div>
-    
-  </div>
-  
-  <!-- Footer -->
-  <div style="text-align:center; padding:24px 0; color:#94a3b8; font-size:12px;">
-    <p style="margin:4px 0;">Better Choice Insurance</p>
-    <p style="margin:4px 0;">Thank you for choosing us!</p>
-  </div>
-  
-</div>
-</body>
-</html>"""
-    
+        ptd = policy_type.replace("_", " ").title()
+        pt_row = (
+            '<tr><td style="padding:6px 0; color:#94a3b8;">Coverage Type</td>'
+            '<td style="padding:6px 0; font-weight:600;">' + ptd + "</td></tr>"
+        )
+
+    tip = ""
+    if info.get("extra_tip"):
+        tip = (
+            '<p style="color:#64748b; font-size:14px; margin:16px 0; padding:12px 16px;'
+            " background:#f0fdf4; border-radius:8px; border-left:4px solid #22c55e;\">"
+            "&#128161; <strong>Pro Tip:</strong> " + info["extra_tip"] + "</p>"
+        )
+
+    stars = "".join(_star(survey_url, i) for i in range(1, 6))
+
+    subject = "Welcome to " + info["display_name"] + "! Your policy is ready &#127881;"
+
+    h = []
+    h.append('<!DOCTYPE html><html><head><meta charset="utf-8">')
+    h.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+    h.append("</head>")
+    h.append('<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">')
+    h.append('<div style="max-width:600px; margin:0 auto; padding:20px;">')
+
+    # Header
+    h.append('<div style="background:linear-gradient(135deg,' + info["logo_color"] + ',#1e293b); border-radius:16px 16px 0 0; padding:32px 24px; text-align:center;">')
+    h.append('<h1 style="color:#fff; margin:0; font-size:28px; font-weight:700;">Welcome, ' + first_name + "! &#127881;</h1>")
+    h.append('<p style="color:rgba(255,255,255,0.85); margin:8px 0 0; font-size:16px;">Your ' + info["display_name"] + " policy is all set</p>")
+    h.append("</div>")
+
+    # Body
+    h.append('<div style="background:#fff; padding:32px 24px; border-radius:0 0 16px 16px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">')
+
+    # Policy card
+    h.append('<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px;">')
+    h.append('<h2 style="margin:0 0 12px; font-size:16px; color:#64748b; font-weight:600;">YOUR POLICY DETAILS</h2>')
+    h.append('<table style="width:100%; font-size:15px; color:#334155;">')
+    h.append('<tr><td style="padding:6px 0; color:#94a3b8; width:140px;">Policy Number</td>')
+    h.append('<td style="padding:6px 0; font-weight:700; font-size:17px; color:' + info["logo_color"] + ';">' + policy_number + "</td></tr>")
+    h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Carrier</td>')
+    h.append('<td style="padding:6px 0; font-weight:600;">' + info["display_name"] + "</td></tr>")
+    h.append(pt_row)
+    h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Your Agent</td>')
+    h.append('<td style="padding:6px 0; font-weight:600;">' + producer_name + "</td></tr>")
+    h.append("</table></div>")
+
+    # Get started
+    h.append('<h2 style="margin:0 0 16px; font-size:18px; color:#1e293b;">Get Started with ' + info["display_name"] + "</h2>")
+
+    # Buttons
+    h.append('<div style="margin-bottom:12px;">')
+    h.append(_btn(info["online_account_url"], info["logo_color"], "&#127760;", info["online_account_text"]))
+    h.append(_btn(info["mobile_app_url"], "#059669", "&#128241;", "Download the " + info["mobile_app_name"]))
+    h.append(_btn(info["payment_url"], "#475569", "&#128179;", "Make a Payment"))
+    h.append("</div>")
+
+    h.append(tip)
+
+    # Important numbers
+    h.append('<div style="margin:24px 0; padding:16px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">')
+    h.append('<h3 style="margin:0 0 10px; font-size:14px; color:#64748b; font-weight:600;">IMPORTANT NUMBERS</h3>')
+    h.append('<table style="width:100%; font-size:14px; color:#334155;">')
+    h.append(_phone_row("Claims", info.get("claims_phone", "")))
+    h.append(_phone_row("Roadside Assistance", info.get("roadside_phone", "")))
+    h.append('<tr><td style="padding:4px 0; color:#94a3b8;">Your Agent</td>')
+    h.append('<td style="padding:4px 0; font-weight:600;">' + producer_name + " at Better Choice Insurance</td></tr>")
+    h.append("</table></div>")
+
+    # Divider
+    h.append('<hr style="border:none; border-top:1px solid #e2e8f0; margin:28px 0;">')
+
+    # Survey
+    h.append('<div style="text-align:center; padding:20px; background:#faf5ff; border-radius:12px;">')
+    h.append('<h3 style="margin:0 0 8px; font-size:18px; color:#7c3aed;">How did ' + producer_first + " do?</h3>")
+    h.append('<p style="color:#64748b; font-size:14px; margin:0 0 16px;">Your feedback takes just 5 seconds - tap a star below!</p>')
+    h.append('<div style="margin:0 auto;">' + stars + "</div>")
+    h.append("</div>")
+
+    # Close body
+    h.append("</div>")
+
+    # Footer
+    h.append('<div style="text-align:center; padding:24px 0; color:#94a3b8; font-size:12px;">')
+    h.append('<p style="margin:4px 0;">Better Choice Insurance</p>')
+    h.append('<p style="margin:4px 0;">Thank you for choosing us!</p>')
+    h.append("</div>")
+
+    h.append("</div></body></html>")
+
+    html = "\n".join(h)
     return subject, html
 
 
 def send_welcome_email(
-    to_email: str,
-    client_name: str,
-    policy_number: str,
-    carrier: str,
-    producer_name: str,
-    sale_id: int,
-    policy_type: Optional[str] = None,
-) -> dict:
-    """Send the carrier-specific welcome email via Mailgun.
-    
-    Returns dict with success status and message_id.
-    """
+    to_email,
+    client_name,
+    policy_number,
+    carrier,
+    producer_name,
+    sale_id,
+    policy_type=None,
+):
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
-        logger.warning("Mailgun not configured — skipping welcome email")
+        logger.warning("Mailgun not configured - skipping welcome email")
         return {"success": False, "error": "Mailgun not configured"}
 
     if not to_email:
@@ -261,25 +263,25 @@ def send_welcome_email(
     )
 
     try:
-        response = requests.post(
-            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+        resp = requests.post(
+            "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"{settings.MAILGUN_FROM_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+                "from": settings.MAILGUN_FROM_NAME + " <" + settings.MAILGUN_FROM_EMAIL + ">",
                 "to": [to_email],
                 "subject": subject,
                 "html": html_body,
             },
             timeout=15,
         )
-        
-        if response.status_code == 200:
-            msg_id = response.json().get("id", "")
-            logger.info(f"Welcome email sent to {to_email} (policy {policy_number}) — msg_id: {msg_id}")
+
+        if resp.status_code == 200:
+            msg_id = resp.json().get("id", "")
+            logger.info("Welcome email sent to %s - msg_id: %s", to_email, msg_id)
             return {"success": True, "message_id": msg_id}
         else:
-            logger.error(f"Mailgun error {response.status_code}: {response.text}")
-            return {"success": False, "error": f"Mailgun returned {response.status_code}"}
+            logger.error("Mailgun error %s: %s", resp.status_code, resp.text)
+            return {"success": False, "error": "Mailgun returned " + str(resp.status_code)}
     except Exception as e:
-        logger.error(f"Failed to send welcome email: {e}")
+        logger.error("Failed to send welcome email: %s", e)
         return {"success": False, "error": str(e)}
