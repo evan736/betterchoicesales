@@ -124,7 +124,7 @@ def build_welcome_email_html(
     if policy_type:
         policy_type_display = policy_type.replace("_", " ").title()
     
-    subject = f"Welcome to {info['display_name']}! Your policy is ready 🎉"
+    subject = f"Welcome to {info['display_name']}! Your policy is ready &#127881;"
     
     html = f"""<!DOCTYPE html>
 <html>
@@ -137,7 +137,7 @@ def build_welcome_email_html(
   
   <!-- Header -->
   <div style="background: linear-gradient(135deg, {info['logo_color']}, #1e293b); border-radius:16px 16px 0 0; padding:32px 24px; text-align:center;">
-    <h1 style="color:#ffffff; margin:0; font-size:28px; font-weight:700;">Welcome, {first_name}! 🎉</h1>
+    <h1 style="color:#ffffff; margin:0; font-size:28px; font-weight:700;">Welcome, {first_name}! &#127881;</h1>
     <p style="color:rgba(255,255,255,0.85); margin:8px 0 0; font-size:16px;">Your {info['display_name']} policy is all set</p>
   </div>
   
@@ -171,24 +171,24 @@ def build_welcome_email_html(
     <div style="margin-bottom:12px;">
       {f"""
       <a href="{info['online_account_url']}" style="display:block; background:{info['logo_color']}; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        🌐 {info['online_account_text']}
+        &#127760; {info['online_account_text']}
       </a>
       """ if info['online_account_url'] else ""}
       
       {f"""
       <a href="{info['mobile_app_url']}" style="display:block; background:#059669; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        📱 Download the {info['mobile_app_name']}
+        &#128241; Download the {info['mobile_app_name']}
       </a>
       """ if info['mobile_app_url'] else ""}
       
       {f"""
       <a href="{info['payment_url']}" style="display:block; background:#475569; color:#ffffff; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:600; font-size:15px; text-align:center; margin-bottom:10px;">
-        💳 Make a Payment
+        &#128179; Make a Payment
       </a>
       """ if info['payment_url'] else ""}
     </div>
     
-    {f'<p style="color:#64748b; font-size:14px; margin:16px 0; padding:12px 16px; background:#f0fdf4; border-radius:8px; border-left:4px solid #22c55e;">💡 <strong>Pro Tip:</strong> {info["extra_tip"]}</p>' if info.get("extra_tip") else ""}
+    {f'<p style="color:#64748b; font-size:14px; margin:16px 0; padding:12px 16px; background:#f0fdf4; border-radius:8px; border-left:4px solid #22c55e;">&#128161; <strong>Pro Tip:</strong> {info["extra_tip"]}</p>' if info.get("extra_tip") else ""}
     
     <!-- Important Numbers -->
     <div style="margin:24px 0; padding:16px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">
@@ -208,11 +208,11 @@ def build_welcome_email_html(
       <h3 style="margin:0 0 8px; font-size:18px; color:#7c3aed;">How did {producer_name.split()[0]} do?</h3>
       <p style="color:#64748b; font-size:14px; margin:0 0 16px;">Your feedback takes just 5 seconds — tap a star below!</p>
       <div style="margin:0 auto;">
-        <a href="{survey_url}?rating=1" style="text-decoration:none; font-size:32px; padding:0 4px;">⭐</a>
-        <a href="{survey_url}?rating=2" style="text-decoration:none; font-size:32px; padding:0 4px;">⭐</a>
-        <a href="{survey_url}?rating=3" style="text-decoration:none; font-size:32px; padding:0 4px;">⭐</a>
-        <a href="{survey_url}?rating=4" style="text-decoration:none; font-size:32px; padding:0 4px;">⭐</a>
-        <a href="{survey_url}?rating=5" style="text-decoration:none; font-size:32px; padding:0 4px;">⭐</a>
+        <a href="{survey_url}?rating=1" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
+        <a href="{survey_url}?rating=2" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
+        <a href="{survey_url}?rating=3" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
+        <a href="{survey_url}?rating=4" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
+        <a href="{survey_url}?rating=5" style="text-decoration:none; font-size:32px; padding:0 4px;">&#11088;</a>
       </div>
     </div>
     
