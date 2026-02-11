@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import api from '../lib/api';
+import api from '../../lib/api';
 
 const SurveyPage = () => {
   const router = useRouter();
