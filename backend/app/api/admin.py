@@ -317,34 +317,25 @@ def list_lead_sources(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all lead sources in use + configured ones."""
+    """List all lead sources in use, merging duplicates."""
     require_admin(current_user)
 
-    # Get all unique lead sources from sales
     in_use = db.query(Sale.lead_source, func.count(Sale.id)).filter(
         Sale.lead_source.isnot(None),
         Sale.lead_source != "",
     ).group_by(Sale.lead_source).all()
 
-    # Default/known sources
-    default_sources = [
-        "referral", "customer_referral", "website", "cold_call", "call_in",
-        "social_media", "email_campaign", "walk_in", "quote_wizard",
-        "insurance_ai_call", "rewrite", "other",
-    ]
-
-    # Merge
     source_map = {}
-    for src in default_sources:
-        source_map[src] = {"name": src, "display_name": src.replace("_", " ").title(), "sale_count": 0}
     for row in in_use:
-        key = row[0]
-        if key in source_map:
-            source_map[key]["sale_count"] = row[1]
-        else:
-            source_map[key] = {"name": key, "display_name": key.replace("_", " ").title(), "sale_count": row[1]}
+        raw = row[0]
+        key = raw.lower().replace(" ", "_").replace("-", "_")
+        if key not in source_map:
+            source_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0}
+        source_map[key]["sale_count"] += row[1]
+        if " " in raw or raw[0].isupper():
+            source_map[key]["display_name"] = raw
 
-    return sorted(source_map.values(), key=lambda x: x["name"])
+    return sorted(source_map.values(), key=lambda x: x["display_name"])
 
 
 @router.post("/lead-sources")
@@ -367,7 +358,7 @@ def list_carriers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all carriers in use."""
+    """List all carriers in use, merging duplicates."""
     require_admin(current_user)
 
     in_use = db.query(Sale.carrier, func.count(Sale.id)).filter(
@@ -375,32 +366,33 @@ def list_carriers(
         Sale.carrier != "",
     ).group_by(Sale.carrier).all()
 
-    # Also get carriers from statement imports
     from app.models.statement import StatementImport
     stmt_carriers = db.query(StatementImport.carrier, func.count(StatementImport.id)).group_by(StatementImport.carrier).all()
 
-    # Default/known carriers
-    default_carriers = [
-        "national_general", "progressive", "safeco", "travelers", "grange",
-    ]
-
+    # Build merged map — normalize keys for grouping but keep all raw names
     carrier_map = {}
-    for c in default_carriers:
-        carrier_map[c] = {"name": c, "display_name": c.replace("_", " ").title(), "sale_count": 0, "statement_count": 0}
     for row in in_use:
-        key = row[0]
-        if key in carrier_map:
-            carrier_map[key]["sale_count"] = row[1]
-        else:
-            carrier_map[key] = {"name": key, "display_name": key.replace("_", " ").title(), "sale_count": row[1], "statement_count": 0}
-    for row in stmt_carriers:
-        key = row[0]
-        if key in carrier_map:
-            carrier_map[key]["statement_count"] = row[1]
-        else:
-            carrier_map[key] = {"name": key, "display_name": key.replace("_", " ").title(), "sale_count": 0, "statement_count": row[1]}
+        raw = row[0]
+        key = raw.lower().replace(" ", "_").replace("-", "_")
+        if key not in carrier_map:
+            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0, "statement_count": 0, "raw_names": []}
+        carrier_map[key]["sale_count"] += row[1]
+        if raw not in carrier_map[key]["raw_names"]:
+            carrier_map[key]["raw_names"].append(raw)
+        # Use the prettiest display name (prefer one with spaces/caps)
+        if " " in raw or raw[0].isupper():
+            carrier_map[key]["display_name"] = raw
 
-    return sorted(carrier_map.values(), key=lambda x: x["name"])
+    for row in stmt_carriers:
+        raw = row[0]
+        key = raw.lower().replace(" ", "_").replace("-", "_")
+        if key not in carrier_map:
+            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0, "statement_count": 0, "raw_names": []}
+        carrier_map[key]["statement_count"] += row[1]
+        if raw not in carrier_map[key]["raw_names"]:
+            carrier_map[key]["raw_names"].append(raw)
+
+    return sorted(carrier_map.values(), key=lambda x: x["display_name"])
 
 
 @router.post("/carriers")
@@ -424,7 +416,15 @@ def delete_carrier(
     """Remove a carrier. Blocks if sales or statements reference it."""
     require_admin(current_user)
 
-    sale_count = db.query(func.count(Sale.id)).filter(Sale.carrier == carrier_name).scalar() or 0
+    # Check all possible name variants
+    key = carrier_name.lower().replace(" ", "_").replace("-", "_")
+    variants = [carrier_name, key, key.replace("_", " "), key.replace("_", " ").title()]
+
+    from sqlalchemy import or_
+    sale_count = db.query(func.count(Sale.id)).filter(
+        or_(*[Sale.carrier == v for v in variants])
+    ).scalar() or 0
+
     if sale_count > 0:
         raise HTTPException(
             status_code=400,
