@@ -48,6 +48,11 @@ const Navbar: React.FC = () => {
                   Retention
                 </NavLink>
               )}
+              {user.role?.toLowerCase() === 'admin' && (
+                <NavLink href="/admin" icon={<Upload size={18} />}>
+                  Admin
+                </NavLink>
+              )}
             </div>
           )}
 

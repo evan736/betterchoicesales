@@ -8,6 +8,7 @@ from app.api import auth, sales, commissions, statements, analytics
 from app.api import payroll as payroll_api
 from app.api import retention as retention_api
 from app.api import survey as survey_api
+from app.api import admin as admin_api
 
 logger = logging.getLogger(__name__)
 
@@ -401,3 +402,4 @@ app.include_router(analytics.router)
 app.include_router(payroll_api.router)
 app.include_router(retention_api.router)
 app.include_router(survey_api.router)
+app.include_router(admin_api.router)

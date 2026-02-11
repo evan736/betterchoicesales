@@ -150,3 +150,26 @@ export const surveyAPI = {
   responses: () => api.get('/api/survey/responses'),
   stats: () => api.get('/api/survey/stats'),
 };
+
+// Admin API
+export const adminAPI = {
+  // Employees
+  listEmployees: () => api.get('/api/admin/employees'),
+  createEmployee: (data: any) => api.post('/api/admin/employees', data),
+  updateEmployee: (id: number, data: any) => api.put(`/api/admin/employees/${id}`, data),
+  deleteEmployee: (id: number) => api.delete(`/api/admin/employees/${id}`),
+  resetPassword: (id: number, newPassword: string) =>
+    api.post(`/api/admin/employees/${id}/reset-password`, { new_password: newPassword }),
+  // Commission Tiers
+  listTiers: () => api.get('/api/admin/commission-tiers'),
+  createTier: (data: any) => api.post('/api/admin/commission-tiers', data),
+  updateTier: (id: number, data: any) => api.put(`/api/admin/commission-tiers/${id}`, data),
+  deleteTier: (id: number) => api.delete(`/api/admin/commission-tiers/${id}`),
+  // Lead Sources & Carriers
+  listLeadSources: () => api.get('/api/admin/lead-sources'),
+  addLeadSource: (data: any) => api.post('/api/admin/lead-sources', data),
+  listCarriers: () => api.get('/api/admin/carriers'),
+  addCarrier: (data: any) => api.post('/api/admin/carriers', data),
+  // Survey stats
+  surveyStats: () => api.get('/api/admin/survey-stats'),
+};
