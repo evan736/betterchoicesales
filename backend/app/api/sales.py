@@ -33,6 +33,54 @@ def determine_status(effective_date) -> str:
         return "pending"
 
 
+def _trigger_welcome_email(sale: Sale, producer: User, db: Session):
+    """Send welcome email in background after sale creation."""
+    import threading
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not sale.client_email:
+        logger.info(f"No email for sale {sale.id} — skipping welcome email")
+        return
+    
+    if not settings.MAILGUN_API_KEY:
+        logger.info("Mailgun not configured — skipping welcome email")
+        return
+
+    def _send():
+        try:
+            from app.services.welcome_email import send_welcome_email
+            result = send_welcome_email(
+                to_email=sale.client_email,
+                client_name=sale.client_name,
+                policy_number=sale.policy_number,
+                carrier=sale.carrier or "",
+                producer_name=producer.full_name if producer else "Your Agent",
+                sale_id=sale.id,
+                policy_type=sale.policy_type,
+            )
+            if result.get("success"):
+                # Update sale in a new session
+                from app.core.database import SessionLocal
+                new_db = SessionLocal()
+                try:
+                    s = new_db.query(Sale).filter(Sale.id == sale.id).first()
+                    if s:
+                        s.welcome_email_sent = True
+                        s.welcome_email_sent_at = datetime.utcnow()
+                        new_db.commit()
+                finally:
+                    new_db.close()
+                logger.info(f"Welcome email sent for sale {sale.id}")
+            else:
+                logger.warning(f"Welcome email failed for sale {sale.id}: {result}")
+        except Exception as e:
+            logger.error(f"Welcome email error for sale {sale.id}: {e}")
+
+    # Fire and forget in background thread
+    threading.Thread(target=_send, daemon=True).start()
+
+
 @router.post("/extract-pdf")
 async def extract_pdf(
     file: UploadFile = File(...),
@@ -97,6 +145,9 @@ def create_from_pdf(
     db.commit()
     db.refresh(sale)
 
+    # Trigger welcome email
+    _trigger_welcome_email(sale, current_user, db)
+
     # Check for household grouping — same client name, same month
     sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month
     sale_year = sale.sale_date.year if sale.sale_date else datetime.utcnow().year
@@ -151,6 +202,9 @@ def create_sale(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+    
+    # Trigger welcome email
+    _trigger_welcome_email(sale, current_user, db)
     
     return sale
 

@@ -142,3 +142,11 @@ export const retentionAPI = {
   earlyCancellations: (days?: number, period?: string) =>
     api.get('/api/retention/early-cancellations', { params: { days: days || 90, ...(period ? { period } : {}) } }),
 };
+
+// Survey / Welcome Email API
+export const surveyAPI = {
+  sendWelcome: (saleId: number) => api.post(`/api/survey/send-welcome/${saleId}`),
+  previewEmail: (saleId: number) => api.get(`/api/survey/preview/${saleId}`),
+  responses: () => api.get('/api/survey/responses'),
+  stats: () => api.get('/api/survey/stats'),
+};

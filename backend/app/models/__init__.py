@@ -6,6 +6,7 @@ from app.models.statement import (
 )
 from app.models.commission import Commission, CommissionTier, CommissionStatus
 from app.models.payroll import PayrollRecord, PayrollAgentLine
+from app.models.survey import SurveyResponse
 
 __all__ = [
     "User",
@@ -24,4 +25,5 @@ __all__ = [
     "CommissionStatus",
     "PayrollRecord",
     "PayrollAgentLine",
+    "SurveyResponse",
 ]

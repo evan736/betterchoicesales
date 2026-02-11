@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.api import auth, sales, commissions, statements, analytics
 from app.api import payroll as payroll_api
 from app.api import retention as retention_api
+from app.api import survey as survey_api
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,14 @@ def init_database():
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='days_to_cancel') THEN
                         ALTER TABLE sales ADD COLUMN days_to_cancel INTEGER;
                     END IF;
+                    
+                    -- Welcome email tracking
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='welcome_email_sent') THEN
+                        ALTER TABLE sales ADD COLUMN welcome_email_sent BOOLEAN DEFAULT FALSE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='welcome_email_sent_at') THEN
+                        ALTER TABLE sales ADD COLUMN welcome_email_sent_at TIMESTAMPTZ;
+                    END IF;
                 END $$;
             """))
             conn.commit()
@@ -391,3 +400,4 @@ app.include_router(statements.router)
 app.include_router(analytics.router)
 app.include_router(payroll_api.router)
 app.include_router(retention_api.router)
+app.include_router(survey_api.router)

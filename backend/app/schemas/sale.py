@@ -46,6 +46,8 @@ class SaleInDB(SaleBase):
     commission_paid_period: Optional[str] = None
     cancelled_date: Optional[datetime] = None
     days_to_cancel: Optional[int] = None
+    welcome_email_sent: Optional[bool] = None
+    welcome_email_sent_at: Optional[datetime] = None
     application_pdf_path: Optional[str] = None
     signature_request_id: Optional[str] = None
     signature_status: Optional[str] = None

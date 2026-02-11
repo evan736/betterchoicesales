@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     BOLDSIGN_API_KEY: Optional[str] = None
     BOLDSIGN_SENDER_EMAIL: Optional[str] = None
     
+    # Mailgun for welcome emails
+    MAILGUN_API_KEY: Optional[str] = None
+    MAILGUN_DOMAIN: Optional[str] = None
+    MAILGUN_FROM_EMAIL: str = "welcome@betterchoiceins.com"
+    MAILGUN_FROM_NAME: str = "Better Choice Insurance"
+    
+    # Google Review
+    GOOGLE_REVIEW_URL: Optional[str] = None
+    
+    # App URL (frontend)
+    APP_URL: str = "https://better-choice-web.onrender.com"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

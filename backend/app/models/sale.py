@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, Text
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, Text, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -94,6 +94,10 @@ class Sale(Base):
     
     # Notes
     notes = Column(Text, nullable=True)
+    
+    # Welcome email tracking
+    welcome_email_sent = Column(Boolean, default=False)
+    welcome_email_sent_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     producer = relationship("User", back_populates="sales")

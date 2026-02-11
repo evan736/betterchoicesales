@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { salesAPI } from '../lib/api';
+import { salesAPI, surveyAPI } from '../lib/api';
 import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown } from 'lucide-react';
 
 // ── Date range helpers ──────────────────────────────────────────────
@@ -335,6 +335,8 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
   const [deleting, setDeleting] = useState(false);
   const [sendingSig, setSendingSig] = useState(false);
   const [sigStatus, setSigStatus] = useState(sale.signature_status || 'not_sent');
+  const [sendingWelcome, setSendingWelcome] = useState(false);
+  const [welcomeSent, setWelcomeSent] = useState(sale.welcome_email_sent || false);
 
   const handleDelete = async () => {
     if (!confirm(`Delete sale for ${sale.client_name} (${sale.policy_number})?`)) return;
@@ -431,6 +433,9 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             ) : (
               <span className="badge bg-amber-100 text-amber-700">⏳ Comm Pending</span>
             )}
+            {sale.welcome_email_sent && (
+              <span className="badge bg-purple-100 text-purple-700">📧 Welcome Sent</span>
+            )}
             {sale.policy_type && (
               <span className="badge bg-blue-100 text-blue-800 capitalize">{sale.policy_type.replace(/_/g, ' ')}</span>
             )}
@@ -466,6 +471,31 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-yellow-300 text-yellow-700 hover:bg-yellow-50 transition-all text-sm font-semibold"
             >
               <span>Check Status</span>
+            </button>
+          )}
+          {/* Send Welcome Email */}
+          {sale.client_email && (
+            <button
+              onClick={async () => {
+                setSendingWelcome(true);
+                try {
+                  await surveyAPI.sendWelcome(sale.id);
+                  setWelcomeSent(true);
+                  alert('Welcome email sent!');
+                } catch (err: any) {
+                  alert(err.response?.data?.detail || 'Failed to send welcome email');
+                } finally {
+                  setSendingWelcome(false);
+                }
+              }}
+              disabled={sendingWelcome}
+              className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                welcomeSent
+                  ? 'border border-green-200 text-green-700 bg-green-50'
+                  : 'border border-purple-200 text-purple-700 hover:bg-purple-50'
+              }`}
+            >
+              <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
             </button>
           )}
           {/* Delete */}
