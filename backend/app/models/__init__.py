@@ -7,6 +7,7 @@ from app.models.statement import (
 from app.models.commission import Commission, CommissionTier, CommissionStatus
 from app.models.payroll import PayrollRecord, PayrollAgentLine
 from app.models.survey import SurveyResponse
+from app.models.agency_config import AgencyConfig
 
 __all__ = [
     "User",

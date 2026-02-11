@@ -12,6 +12,7 @@ from app.core.security import get_current_user, get_password_hash
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.commission import CommissionTier
+from app.models.agency_config import AgencyConfig
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -317,8 +318,13 @@ def list_lead_sources(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all lead sources in use, merging duplicates."""
+    """List all lead sources from config table + sales."""
     require_admin(current_user)
+
+    configs = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "lead_source",
+        AgencyConfig.is_active == True,
+    ).all()
 
     in_use = db.query(Sale.lead_source, func.count(Sale.id)).filter(
         Sale.lead_source.isnot(None),
@@ -326,14 +332,17 @@ def list_lead_sources(
     ).group_by(Sale.lead_source).all()
 
     source_map = {}
+    for c in configs:
+        source_map[c.name] = {"name": c.name, "display_name": c.display_name, "sale_count": 0, "id": c.id}
     for row in in_use:
         raw = row[0]
         key = raw.lower().replace(" ", "_").replace("-", "_")
-        if key not in source_map:
-            source_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0}
-        source_map[key]["sale_count"] += row[1]
-        if " " in raw or raw[0].isupper():
-            source_map[key]["display_name"] = raw
+        if key in source_map:
+            source_map[key]["sale_count"] += row[1]
+        else:
+            source_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": row[1], "id": None}
+            if " " in raw or (raw and raw[0].isupper()):
+                source_map[key]["display_name"] = raw
 
     return sorted(source_map.values(), key=lambda x: x["display_name"])
 
@@ -344,11 +353,20 @@ def add_lead_source(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Add a new lead source to the known list (updates the enum in code)."""
+    """Add a new lead source to the config table."""
     require_admin(current_user)
-    # Lead sources are free-text on the sale, so we just validate the name
     name = data.name.lower().replace(" ", "_").replace("-", "_")
-    return {"success": True, "name": name, "display_name": data.display_name or name.replace("_", " ").title()}
+    display = data.display_name or data.name.replace("_", " ").title()
+
+    existing = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "lead_source", AgencyConfig.name == name,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Lead source already exists")
+
+    db.add(AgencyConfig(config_type="lead_source", name=name, display_name=display))
+    db.commit()
+    return {"success": True, "name": name, "display_name": display}
 
 
 # ── Carriers ─────────────────────────────────────────────────────────
@@ -358,8 +376,13 @@ def list_carriers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all carriers in use, merging duplicates."""
+    """List all carriers from config table + sales/statements."""
     require_admin(current_user)
+
+    configs = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "carrier",
+        AgencyConfig.is_active == True,
+    ).all()
 
     in_use = db.query(Sale.carrier, func.count(Sale.id)).filter(
         Sale.carrier.isnot(None),
@@ -369,28 +392,25 @@ def list_carriers(
     from app.models.statement import StatementImport
     stmt_carriers = db.query(StatementImport.carrier, func.count(StatementImport.id)).group_by(StatementImport.carrier).all()
 
-    # Build merged map — normalize keys for grouping but keep all raw names
     carrier_map = {}
+    for c in configs:
+        carrier_map[c.name] = {"name": c.name, "display_name": c.display_name, "sale_count": 0, "statement_count": 0, "id": c.id}
     for row in in_use:
         raw = row[0]
         key = raw.lower().replace(" ", "_").replace("-", "_")
-        if key not in carrier_map:
-            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0, "statement_count": 0, "raw_names": []}
-        carrier_map[key]["sale_count"] += row[1]
-        if raw not in carrier_map[key]["raw_names"]:
-            carrier_map[key]["raw_names"].append(raw)
-        # Use the prettiest display name (prefer one with spaces/caps)
-        if " " in raw or raw[0].isupper():
-            carrier_map[key]["display_name"] = raw
-
+        if key in carrier_map:
+            carrier_map[key]["sale_count"] += row[1]
+        else:
+            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": row[1], "statement_count": 0, "id": None}
+            if " " in raw or (raw and raw[0].isupper()):
+                carrier_map[key]["display_name"] = raw
     for row in stmt_carriers:
         raw = row[0]
         key = raw.lower().replace(" ", "_").replace("-", "_")
-        if key not in carrier_map:
-            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0, "statement_count": 0, "raw_names": []}
-        carrier_map[key]["statement_count"] += row[1]
-        if raw not in carrier_map[key]["raw_names"]:
-            carrier_map[key]["raw_names"].append(raw)
+        if key in carrier_map:
+            carrier_map[key]["statement_count"] += row[1]
+        else:
+            carrier_map[key] = {"name": key, "display_name": raw.replace("_", " ").title(), "sale_count": 0, "statement_count": row[1], "id": None}
 
     return sorted(carrier_map.values(), key=lambda x: x["display_name"])
 
@@ -401,10 +421,20 @@ def add_carrier(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Add a new carrier."""
+    """Add a new carrier to the config table."""
     require_admin(current_user)
     name = data.name.lower().replace(" ", "_").replace("-", "_")
-    return {"success": True, "name": name, "display_name": data.display_name or name.replace("_", " ").title()}
+    display = data.display_name or data.name.replace("_", " ").title()
+
+    existing = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "carrier", AgencyConfig.name == name,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Carrier already exists")
+
+    db.add(AgencyConfig(config_type="carrier", name=name, display_name=display))
+    db.commit()
+    return {"success": True, "name": name, "display_name": display}
 
 
 @router.delete("/carriers/{carrier_name}")
@@ -413,10 +443,9 @@ def delete_carrier(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove a carrier. Blocks if sales or statements reference it."""
+    """Remove a carrier. Blocks if sales reference it."""
     require_admin(current_user)
 
-    # Check all possible name variants
     key = carrier_name.lower().replace(" ", "_").replace("-", "_")
     variants = [carrier_name, key, key.replace("_", " "), key.replace("_", " ").title()]
 
@@ -430,6 +459,11 @@ def delete_carrier(
             status_code=400,
             detail="Cannot delete " + carrier_name.replace("_", " ").title() + " - it has " + str(sale_count) + " sales linked to it."
         )
+
+    db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "carrier", AgencyConfig.name == key,
+    ).delete()
+    db.commit()
     return {"success": True, "deleted": carrier_name}
 
 
@@ -442,12 +476,24 @@ def delete_lead_source(
     """Remove a lead source. Blocks if sales reference it."""
     require_admin(current_user)
 
-    sale_count = db.query(func.count(Sale.id)).filter(Sale.lead_source == source_name).scalar() or 0
+    key = source_name.lower().replace(" ", "_").replace("-", "_")
+    variants = [source_name, key, key.replace("_", " "), key.replace("_", " ").title()]
+
+    from sqlalchemy import or_
+    sale_count = db.query(func.count(Sale.id)).filter(
+        or_(*[Sale.lead_source == v for v in variants])
+    ).scalar() or 0
+
     if sale_count > 0:
         raise HTTPException(
             status_code=400,
             detail="Cannot delete " + source_name.replace("_", " ").title() + " - it has " + str(sale_count) + " sales linked to it."
         )
+
+    db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "lead_source", AgencyConfig.name == key,
+    ).delete()
+    db.commit()
     return {"success": True, "deleted": source_name}
 
 
