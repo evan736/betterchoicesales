@@ -415,6 +415,42 @@ def add_carrier(
     return {"success": True, "name": name, "display_name": data.display_name or name.replace("_", " ").title()}
 
 
+@router.delete("/carriers/{carrier_name}")
+def delete_carrier(
+    carrier_name: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a carrier. Blocks if sales or statements reference it."""
+    require_admin(current_user)
+
+    sale_count = db.query(func.count(Sale.id)).filter(Sale.carrier == carrier_name).scalar() or 0
+    if sale_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete " + carrier_name.replace("_", " ").title() + " - it has " + str(sale_count) + " sales linked to it."
+        )
+    return {"success": True, "deleted": carrier_name}
+
+
+@router.delete("/lead-sources/{source_name}")
+def delete_lead_source(
+    source_name: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a lead source. Blocks if sales reference it."""
+    require_admin(current_user)
+
+    sale_count = db.query(func.count(Sale.id)).filter(Sale.lead_source == source_name).scalar() or 0
+    if sale_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete " + source_name.replace("_", " ").title() + " - it has " + str(sale_count) + " sales linked to it."
+        )
+    return {"success": True, "deleted": source_name}
+
+
 # ── Survey Stats (for admin dashboard) ───────────────────────────────
 
 @router.get("/survey-stats")

@@ -466,7 +466,20 @@ const LeadSourcesTab = () => {
             {sources.map(s => (
               <div key={s.name} className="flex items-center justify-between bg-slate-50 rounded-lg px-4 py-3 border border-slate-200">
                 <span className="text-sm font-medium capitalize">{s.display_name}</span>
-                <span className="text-xs text-slate-400">{s.sale_count} sales</span>
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs text-slate-400">{s.sale_count} sales</span>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Delete lead source "' + s.display_name + '"?')) return;
+                      try { await adminAPI.deleteLeadSource(s.name); load(); }
+                      catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete'); }
+                    }}
+                    className="text-red-400 hover:text-red-600 text-xs font-semibold"
+                    title="Delete source"
+                  >
+                    &times;
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -526,9 +539,22 @@ const CarriersTab = () => {
             {carriers.map(c => (
               <div key={c.name} className="flex items-center justify-between bg-slate-50 rounded-lg px-4 py-3 border border-slate-200">
                 <span className="text-sm font-medium capitalize">{c.display_name}</span>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block">{c.sale_count} sales</span>
-                  {c.statement_count > 0 && <span className="text-xs text-blue-400">{c.statement_count} statements</span>}
+                <div className="flex items-center space-x-3">
+                  <div className="text-right">
+                    <span className="text-xs text-slate-400 block">{c.sale_count} sales</span>
+                    {c.statement_count > 0 && <span className="text-xs text-blue-400">{c.statement_count} statements</span>}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Delete carrier "' + c.display_name + '"?')) return;
+                      try { await adminAPI.deleteCarrier(c.name); load(); }
+                      catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete'); }
+                    }}
+                    className="text-red-400 hover:text-red-600 text-xs font-semibold"
+                    title="Delete carrier"
+                  >
+                    &times;
+                  </button>
                 </div>
               </div>
             ))}

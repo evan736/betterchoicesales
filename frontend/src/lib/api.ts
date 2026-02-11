@@ -170,6 +170,8 @@ export const adminAPI = {
   addLeadSource: (data: any) => api.post('/api/admin/lead-sources', data),
   listCarriers: () => api.get('/api/admin/carriers'),
   addCarrier: (data: any) => api.post('/api/admin/carriers', data),
+  deleteCarrier: (name: string) => api.delete('/api/admin/carriers/' + encodeURIComponent(name)),
+  deleteLeadSource: (name: string) => api.delete('/api/admin/lead-sources/' + encodeURIComponent(name)),
   // Survey stats
   surveyStats: () => api.get('/api/admin/survey-stats'),
 };
