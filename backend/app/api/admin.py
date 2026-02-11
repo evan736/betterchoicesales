@@ -520,3 +520,55 @@ def get_survey_stats(
         "average_rating": round(float(avg_rating), 1) if avg_rating else 0,
         "five_star_count": five_stars,
     }
+
+
+# ── Public config endpoints (for dropdowns, any logged-in user) ──────
+
+@router.get("/dropdown-options")
+def get_dropdown_options(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get lead sources and carriers for form dropdowns. Any logged-in user."""
+    # Lead sources: config table + in-use on sales
+    ls_configs = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "lead_source", AgencyConfig.is_active == True,
+    ).all()
+    ls_in_use = db.query(Sale.lead_source).filter(
+        Sale.lead_source.isnot(None), Sale.lead_source != "",
+    ).distinct().all()
+
+    source_map = {}
+    for c in ls_configs:
+        source_map[c.name] = c.display_name
+    for row in ls_in_use:
+        raw = row[0]
+        key = raw.lower().replace(" ", "_").replace("-", "_")
+        if key not in source_map:
+            source_map[key] = raw.replace("_", " ").title()
+            if " " in raw or (raw and raw[0].isupper()):
+                source_map[key] = raw
+
+    # Carriers: config table + in-use
+    cr_configs = db.query(AgencyConfig).filter(
+        AgencyConfig.config_type == "carrier", AgencyConfig.is_active == True,
+    ).all()
+    cr_in_use = db.query(Sale.carrier).filter(
+        Sale.carrier.isnot(None), Sale.carrier != "",
+    ).distinct().all()
+
+    carrier_map = {}
+    for c in cr_configs:
+        carrier_map[c.name] = c.display_name
+    for row in cr_in_use:
+        raw = row[0]
+        key = raw.lower().replace(" ", "_").replace("-", "_")
+        if key not in carrier_map:
+            carrier_map[key] = raw.replace("_", " ").title()
+            if " " in raw or (raw and raw[0].isupper()):
+                carrier_map[key] = raw
+
+    return {
+        "lead_sources": sorted([{"value": k, "label": v} for k, v in source_map.items()], key=lambda x: x["label"]),
+        "carriers": sorted([{"value": k, "label": v} for k, v in carrier_map.items()], key=lambda x: x["label"]),
+    }

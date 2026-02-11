@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { salesAPI, surveyAPI } from '../lib/api';
+import { salesAPI, surveyAPI, adminAPI } from '../lib/api';
 import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown } from 'lucide-react';
 
 // ── Date range helpers ──────────────────────────────────────────────
@@ -55,6 +55,7 @@ export default function Sales() {
   const [sales, setSales] = useState<any[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loadingSales, setLoadingSales] = useState(true);
+  const [dropdownOptions, setDropdownOptions] = useState<any>({ lead_sources: [], carriers: [] });
 
   // Date filter state
   const [activePreset, setActivePreset] = useState('all');
@@ -65,8 +66,18 @@ export default function Sales() {
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
-    else if (user) loadSales();
+    else if (user) {
+      loadSales();
+      loadDropdowns();
+    }
   }, [user, loading]);
+
+  const loadDropdowns = async () => {
+    try {
+      const res = await adminAPI.dropdownOptions();
+      setDropdownOptions(res.data);
+    } catch (e) { console.error('Failed to load dropdown options:', e); }
+  };
 
   const loadSales = async (from?: string, to?: string) => {
     setLoadingSales(true);
@@ -323,6 +334,7 @@ export default function Sales() {
           <CreateSaleModal
             onClose={() => setShowCreateModal(false)}
             onSuccess={() => { setShowCreateModal(false); loadSales(); }}
+            dropdownOptions={dropdownOptions}
           />
         )}
       </main>
@@ -523,7 +535,7 @@ const InfoItem: React.FC<{ label: string; value: any }> = ({ label, value }) => 
 /* ========== CREATE SALE MODAL — 3 STEPS ========== */
 type Step = 'upload' | 'review' | 'manual';
 
-const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
+const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dropdownOptions: any }> = ({ onClose, onSuccess, dropdownOptions }) => {
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [leadSource, setLeadSource] = useState('referral');
@@ -727,18 +739,10 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Lead Source *</label>
                 <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} className="input-field">
-                  <option value="referral">Referral</option>
-                  <option value="customer_referral">Customer Referral</option>
-                  <option value="website">Website</option>
-                  <option value="cold_call">Cold Call</option>
-                  <option value="call_in">Call In</option>
-                  <option value="social_media">Social Media</option>
-                  <option value="email_campaign">Email Campaign</option>
-                  <option value="walk_in">Walk In</option>
-                  <option value="quote_wizard">Quote Wizard</option>
-                  <option value="insurance_ai_call">Insurance AI Call</option>
-                  <option value="rewrite">Rewrite</option>
-                  <option value="other">Other</option>
+                  {(dropdownOptions?.lead_sources || []).map((s: any) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                  {(!dropdownOptions?.lead_sources?.length) && <option value="referral">Referral</option>}
                 </select>
               </div>
 
@@ -807,8 +811,8 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Lead Source</label>
                     <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} className="input-field capitalize">
-                      {['referral','customer_referral','website','cold_call','call_in','social_media','email_campaign','walk_in','quote_wizard','insurance_ai_call','rewrite','other'].map(s => (
-                        <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                      {(dropdownOptions?.lead_sources || []).map((s: any) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
                       ))}
                     </select>
                   </div>
@@ -922,8 +926,8 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Lead Source *</label>
                   <select value={manualData.lead_source} onChange={(e) => setManualData({ ...manualData, lead_source: e.target.value })} className="input-field">
-                    {['referral','customer_referral','website','cold_call','call_in','social_media','email_campaign','walk_in','quote_wizard','insurance_ai_call','rewrite','other'].map(s => (
-                      <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                    {(dropdownOptions?.lead_sources || []).map((s: any) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
                     ))}
                   </select>
                 </div>
@@ -938,7 +942,12 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Carrier</label>
-                  <input value={manualData.carrier} onChange={(e) => setManualData({ ...manualData, carrier: e.target.value })} className="input-field" />
+                  <select value={manualData.carrier} onChange={(e) => setManualData({ ...manualData, carrier: e.target.value })} className="input-field">
+                    <option value="">Select carrier...</option>
+                    {(dropdownOptions?.carriers || []).map((c: any) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">State</label>

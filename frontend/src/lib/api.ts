@@ -174,4 +174,6 @@ export const adminAPI = {
   deleteLeadSource: (name: string) => api.delete('/api/admin/lead-sources/' + encodeURIComponent(name)),
   // Survey stats
   surveyStats: () => api.get('/api/admin/survey-stats'),
+  // Dropdown options (any user)
+  dropdownOptions: () => api.get('/api/admin/dropdown-options'),
 };
