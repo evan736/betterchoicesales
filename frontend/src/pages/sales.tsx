@@ -369,21 +369,20 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       return;
     }
 
-    const hasSavedPdf = !!sale.application_pdf_path;
+    // Prompt user to select the PDF file
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf';
+    input.onchange = async (e: any) => {
+      const selectedFile = e.target.files?.[0];
+      if (!selectedFile) return;
 
-    const doSend = async (file?: File) => {
+      if (!confirm(`Send "${selectedFile.name}" to ${sale.client_email} for electronic signature?`)) return;
       setSendingSig(true);
       try {
-        const res = await salesAPI.sendForSignature(sale.id, file);
-        const sendUrl = res.data?.send_url;
-        setSigStatus('draft');
-
-        if (sendUrl) {
-          window.open(sendUrl, '_blank');
-          alert('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
-        } else {
-          alert('Document created but no BoldSign URL returned. Check the BoldSign dashboard.');
-        }
+        const res = await salesAPI.sendForSignature(sale.id, selectedFile);
+        setSigStatus('sent');
+        alert(`✓ Signature request sent to ${sale.client_email}!`);
         onUpdate();
       } catch (error: any) {
         console.error('Send for signature error:', error);
@@ -401,24 +400,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         setSendingSig(false);
       }
     };
-
-    if (hasSavedPdf) {
-      // PDF already uploaded with the sale — use it directly
-      if (!confirm(`Open BoldSign to place signature fields for ${sale.client_email}?`)) return;
-      await doSend();
-    } else {
-      // No PDF on file — prompt agent to upload one
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.pdf';
-      input.onchange = async (e: any) => {
-        const selectedFile = e.target.files?.[0];
-        if (!selectedFile) return;
-        if (!confirm(`Upload "${selectedFile.name}" and open BoldSign to place signature fields for ${sale.client_email}?`)) return;
-        await doSend(selectedFile);
-      };
-      input.click();
-    }
+    input.click();
   };
 
   const handleCheckStatus = async () => {
@@ -442,7 +424,6 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
 
   const sigBadge = () => {
     switch (sigStatus) {
-      case 'draft': return <span className="badge bg-blue-100 text-blue-800">📝 Draft - Place Fields</span>;
       case 'sent': return <span className="badge bg-yellow-100 text-yellow-800">⏳ Awaiting Signature</span>;
       case 'completed': return <span className="badge bg-green-100 text-green-800">✓ Signed</span>;
       case 'declined': return <span className="badge bg-red-100 text-red-800">✗ Declined</span>;
@@ -492,11 +473,11 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-all text-sm font-semibold"
             >
               <FileText size={16} />
-              <span>{sendingSig ? 'Uploading...' : (sigStatus === 'sent' || sigStatus === 'draft' ? 'Resend for Signature' : 'Send for Signature')}</span>
+              <span>{sendingSig ? 'Sending...' : (sigStatus === 'sent' ? 'Resend for Signature' : 'Send for Signature')}</span>
             </button>
           )}
           {/* Check Status */}
-          {(sigStatus === 'sent' || sigStatus === 'draft') && (
+          {sigStatus === 'sent' && (
             <button
               onClick={handleCheckStatus}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-yellow-300 text-yellow-700 hover:bg-yellow-50 transition-all text-sm font-semibold"
@@ -506,64 +487,28 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
           )}
           {/* Send Welcome Email */}
           {sale.client_email && (
-            <div className="relative">
-              <button
-                onClick={async () => {
-                  const hasPdf = !!sale.application_pdf_path;
-
-                  // Build options
-                  const choices = ['Send without attachment'];
-                  if (hasPdf) choices.push('Attach saved application PDF');
-                  choices.push('Attach a different PDF...');
-
-                  const msg = choices.map((c, i) => `${i + 1}. ${c}`).join('\n');
-                  const pick = prompt(
-                    `Send welcome email to ${sale.client_email}?\n\n${msg}\n\nEnter choice (1-${choices.length}):`,
-                    '1'
-                  );
-                  if (!pick) return;
-
-                  const choice = parseInt(pick.trim(), 10);
-                  if (isNaN(choice) || choice < 1 || choice > choices.length) return;
-
-                  setSendingWelcome(true);
-                  try {
-                    if (choice === 1) {
-                      // No attachment
-                      await surveyAPI.sendWelcome(sale.id);
-                    } else if (hasPdf && choice === 2) {
-                      // Attach saved PDF
-                      await surveyAPI.sendWelcome(sale.id, { attachSavedPdf: true });
-                    } else {
-                      // Upload a different PDF
-                      const uploaded = await new Promise<File | null>((resolve) => {
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.accept = '.pdf';
-                        input.onchange = (e: any) => resolve(e.target.files?.[0] || null);
-                        input.click();
-                      });
-                      if (!uploaded) { setSendingWelcome(false); return; }
-                      await surveyAPI.sendWelcome(sale.id, { file: uploaded });
-                    }
-                    setWelcomeSent(true);
-                    alert('Welcome email sent!');
-                  } catch (err: any) {
-                    alert(err.response?.data?.detail || 'Failed to send welcome email');
-                  } finally {
-                    setSendingWelcome(false);
-                  }
-                }}
-                disabled={sendingWelcome}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  welcomeSent
-                    ? 'border border-green-200 text-green-700 bg-green-50'
-                    : 'border border-purple-200 text-purple-700 hover:bg-purple-50'
-                }`}
-              >
-                <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
-              </button>
-            </div>
+            <button
+              onClick={async () => {
+                setSendingWelcome(true);
+                try {
+                  await surveyAPI.sendWelcome(sale.id);
+                  setWelcomeSent(true);
+                  alert('Welcome email sent!');
+                } catch (err: any) {
+                  alert(err.response?.data?.detail || 'Failed to send welcome email');
+                } finally {
+                  setSendingWelcome(false);
+                }
+              }}
+              disabled={sendingWelcome}
+              className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                welcomeSent
+                  ? 'border border-green-200 text-green-700 bg-green-50'
+                  : 'border border-purple-200 text-purple-700 hover:bg-purple-50'
+              }`}
+            >
+              <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
+            </button>
           )}
           {/* Delete */}
           <button
@@ -602,8 +547,6 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
   const [saving, setSaving] = useState(false);
   const [saveResults, setSaveResults] = useState<any[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [welcomeAttach, setWelcomeAttach] = useState<'none' | 'application' | 'custom'>('none');
-  const [welcomeFile, setWelcomeFile] = useState<File | null>(null);
 
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(true); }, []);
@@ -678,8 +621,6 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       }
     }
 
-    const createdSaleIds: number[] = [];
-
     for (const pol of includedPolicies) {
       try {
         // Fix effective_date format — append time if it's just a date
@@ -711,8 +652,6 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
             console.warn('PDF upload failed but sale was created:', uploadErr);
           }
         }
-
-        if (saleId) createdSaleIds.push(saleId);
         
         results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household, saleId });
       } catch (err: any) {
@@ -722,24 +661,6 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       }
     }
     setSaveResults(results);
-
-    // Send welcome emails for all successfully created sales
-    if (clientInfo.client_email && createdSaleIds.length > 0) {
-      // Only send welcome email for the first sale to avoid spamming
-      const firstSaleId = createdSaleIds[0];
-      try {
-        if (welcomeAttach === 'application' && file) {
-          await surveyAPI.sendWelcome(firstSaleId, { file });
-        } else if (welcomeAttach === 'custom' && welcomeFile) {
-          await surveyAPI.sendWelcome(firstSaleId, { file: welcomeFile });
-        } else {
-          await surveyAPI.sendWelcome(firstSaleId);
-        }
-      } catch (err) {
-        console.warn('Welcome email failed but sale was created:', err);
-      }
-    }
-
     const anySuccess = results.some(r => r.success);
     if (anySuccess && results.every(r => r.success)) {
       setTimeout(() => onSuccess(), 1500);
@@ -970,42 +891,6 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                       {r.household?.is_bundle && <span className="ml-2 font-semibold">📦 Household: {r.household.total_items} items, ${r.household.total_premium.toLocaleString()}</span>}
                     </div>
                   ))}
-                </div>
-              )}
-
-              {/* Welcome Email Attachment */}
-              {clientInfo.client_email && (
-                <div className="card bg-purple-50 border border-purple-200">
-                  <h3 className="font-bold text-purple-900 mb-2">📧 Welcome Email</h3>
-                  <p className="text-sm text-purple-700 mb-3">
-                    A welcome email will be sent to <strong>{clientInfo.client_email}</strong> when you save.
-                  </p>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input type="radio" name="welcomeAttach" value="none" checked={welcomeAttach === 'none'} onChange={() => { setWelcomeAttach('none'); setWelcomeFile(null); }} className="w-4 h-4" />
-                      <span className="text-slate-700">No attachment</span>
-                    </label>
-                    {file && (
-                      <label className="flex items-center gap-2 cursor-pointer text-sm">
-                        <input type="radio" name="welcomeAttach" value="application" checked={welcomeAttach === 'application'} onChange={() => { setWelcomeAttach('application'); setWelcomeFile(null); }} className="w-4 h-4" />
-                        <span className="text-slate-700">Attach uploaded application <span className="text-purple-600 font-medium">({file.name})</span></span>
-                      </label>
-                    )}
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input type="radio" name="welcomeAttach" value="custom" checked={welcomeAttach === 'custom'} onChange={() => setWelcomeAttach('custom')} className="w-4 h-4" />
-                      <span className="text-slate-700">Attach a different PDF</span>
-                    </label>
-                    {welcomeAttach === 'custom' && (
-                      <div className="ml-6 mt-1">
-                        <input
-                          type="file"
-                          accept=".pdf"
-                          onChange={(e) => setWelcomeFile(e.target.files?.[0] || null)}
-                          className="text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200"
-                        />
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
 

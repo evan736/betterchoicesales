@@ -145,20 +145,7 @@ export const retentionAPI = {
 
 // Survey / Welcome Email API
 export const surveyAPI = {
-  sendWelcome: (saleId: number, opts?: { file?: File; attachSavedPdf?: boolean }) => {
-    if (opts?.file) {
-      const formData = new FormData();
-      formData.append('file', opts.file);
-      return api.post(`/api/survey/send-welcome/${saleId}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30000,
-      });
-    }
-    if (opts?.attachSavedPdf) {
-      return api.post(`/api/survey/send-welcome/${saleId}?attach_saved_pdf=true`, {}, { timeout: 30000 });
-    }
-    return api.post(`/api/survey/send-welcome/${saleId}`);
-  },
+  sendWelcome: (saleId: number) => api.post(`/api/survey/send-welcome/${saleId}`),
   previewEmail: (saleId: number) => api.get(`/api/survey/preview/${saleId}`),
   responses: () => api.get('/api/survey/responses'),
   stats: () => api.get('/api/survey/stats'),

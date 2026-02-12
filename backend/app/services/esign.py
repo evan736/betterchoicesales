@@ -1,84 +1,194 @@
 """BoldSign e-signature service.
 
-APPROACH: Instead of trying to auto-detect signature positions in the PDF
-(which is unreliable across different carrier forms), we use BoldSign's
-Embedded Request API to create a draft document and return a URL where
-a human can visually place signature fields, then hit Send.
+APPROACH: Find the visible 'Applicant Signature:' label text using
+pdfplumber word extraction, then place the signature field on the
+blank line area immediately to the right of that label.
 
-Flow:
-  1. Agent clicks "Send for Signature" in the CRM
-  2. Backend uploads the PDF to BoldSign via createEmbeddedRequestUrl
-  3. BoldSign returns a URL that opens their document editor
-  4. Backend returns this URL to the frontend
-  5. Frontend opens the URL in a new tab
-  6. Agent drags signature boxes where needed, clicks Send
-  7. Client receives the signing email from BoldSign
-
-The signer name/email are pre-filled. The agent just places the fields.
+Key rule: ONLY match words containing 'Applicant' followed by 'Signature'
+to avoid false matches on the 'Signature' heading.
 """
+import json
 import logging
 import re
+import io
 import httpx
+import pdfplumber
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-async def create_signature_request(
+def _find_signature_positions(pdf_bytes: bytes) -> list:
+    """Find 'Applicant Signature:' or '<PrimarySign>' positions.
+
+    Returns list of {"page": int, "x": float, "y": float, "after_x": float}
+    where after_x is where the blank signature line starts.
+    """
+    results = []
+
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            logger.info(f"Scanning {total_pages} pages for signature positions")
+
+            for page_idx, page in enumerate(pdf.pages):
+                words = page.extract_words()
+                page_num = page_idx + 1
+
+                # Log all words on signature pages for debugging
+                if page_num <= 2:
+                    sig_words = [w for w in words if any(
+                        k in w["text"].lower()
+                        for k in ["signature", "sign", "applicant", "primary"]
+                    )]
+                    for sw in sig_words:
+                        logger.info(
+                            f"  DEBUG p{page_num}: '{sw['text']}' "
+                            f"x0={sw['x0']:.1f} top={sw['top']:.1f}"
+                        )
+
+                for i, word in enumerate(words):
+                    text = word["text"]
+
+                    # Strategy 1: Find "ApplicantSignature:" as single word
+                    # (pdfplumber often joins adjacent words)
+                    if "Applicant" in text and "ignature" in text:
+                        results.append({
+                            "page": page_num,
+                            "x": word["x1"] + 3,   # Start AFTER the label
+                            "y": word["top"],
+                            "type": "ApplicantSignature",
+                        })
+                        logger.info(
+                            f"MATCH [ApplicantSignature]: '{text}' "
+                            f"page={page_num} label_ends={word['x1']:.1f} "
+                            f"y={word['top']:.1f}"
+                        )
+                        continue
+
+                    # Strategy 2: Find "Applicant" then "Signature:" as separate words
+                    if text.strip() == "Applicant" and i + 1 < len(words):
+                        next_word = words[i + 1]
+                        if "Signature" in next_word["text"]:
+                            results.append({
+                                "page": page_num,
+                                "x": next_word["x1"] + 3,
+                                "y": word["top"],
+                                "type": "Applicant+Signature",
+                            })
+                            logger.info(
+                                f"MATCH [Applicant+Signature]: page={page_num} "
+                                f"y={word['top']:.1f}"
+                            )
+                            continue
+
+                    # Strategy 3: National General <PrimarySign>
+                    if "<PrimarySign>" in text:
+                        results.append({
+                            "page": page_num,
+                            "x": word["x0"],
+                            "y": word["top"],
+                            "type": "PrimarySign",
+                        })
+                        logger.info(
+                            f"MATCH [PrimarySign]: page={page_num} "
+                            f"x={word['x0']:.1f} y={word['top']:.1f}"
+                        )
+
+    except Exception as e:
+        logger.error(f"Error scanning PDF: {e}", exc_info=True)
+
+    return results
+
+
+def _build_form_fields(pdf_bytes: bytes) -> list:
+    """Build BoldSign form fields at detected signature positions."""
+    positions = _find_signature_positions(pdf_bytes)
+
+    if not positions:
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                page_count = len(pdf.pages)
+        except Exception:
+            page_count = 1
+        logger.warning(f"NO signature positions found! Fallback to page {page_count}")
+        return [{
+            "id": "sig1",
+            "name": "Signature",
+            "fieldType": "Signature",
+            "pageNumber": page_count,
+            "bounds": {"x": 100, "y": 600, "width": 200, "height": 40},
+            "isRequired": True,
+        }]
+
+    # Deduplicate by page number (keep first match per page)
+    seen = set()
+    unique = []
+    for p in positions:
+        if p["page"] not in seen:
+            seen.add(p["page"])
+            unique.append(p)
+
+    form_fields = []
+    for i, pos in enumerate(unique):
+        form_fields.append({
+            "id": f"sig{i + 1}",
+            "name": "Signature",
+            "fieldType": "Signature",
+            "pageNumber": pos["page"],
+            "bounds": {
+                "x": pos["x"],
+                "y": pos["y"] - 2,
+                "width": 200,
+                "height": 25,
+            },
+            "isRequired": True,
+        })
+        logger.info(
+            f"PLACED sig{i+1}: page={pos['page']} "
+            f"x={pos['x']:.1f} y={pos['y']-2:.1f} "
+            f"type={pos['type']}"
+        )
+
+    return form_fields
+
+
+async def send_for_signature(
     pdf_bytes: bytes,
     signer_name: str,
     signer_email: str,
     title: str,
     carrier: str = None,
-    redirect_url: str = None,
 ) -> dict:
-    """Create a BoldSign embedded request and return the sender URL.
-
-    Returns:
-        {
-            "documentId": "...",
-            "sendUrl": "https://app.boldsign.com/document/...",
-        }
-
-    The sendUrl opens BoldSign's prepare page where the agent can
-    drag-and-drop signature fields onto the PDF, then click Send.
-    """
+    """Send document to BoldSign for electronic signature."""
     if not settings.BOLDSIGN_API_KEY:
         raise ValueError(
             "BOLDSIGN_API_KEY not configured. Set it in Render environment variables."
         )
 
     clean_title = re.sub(r'[^a-zA-Z0-9_ -]', '', title)[:80] or "Application"
+    form_fields = _build_form_fields(pdf_bytes)
 
-    if not redirect_url:
-        redirect_url = settings.APP_URL + "/sales"
+    signer_data = {
+        "name": signer_name,
+        "emailAddress": signer_email,
+        "signerType": "Signer",
+        "signerRole": "Signer",
+        "deliveryMode": "Email",
+        "locale": "EN",
+        "formFields": form_fields,
+    }
 
     logger.info(
-        f"BoldSign embedded request: '{clean_title}' for {signer_email}, "
-        f"pdf_size={len(pdf_bytes)}"
+        f"BoldSign: sending '{clean_title}' to {signer_email}, "
+        f"pdf_size={len(pdf_bytes)}, fields={len(form_fields)}"
     )
 
-    # Build the multipart form data for BoldSign's embedded request API.
-    # We pre-fill the signer info but do NOT send any formFields —
-    # the agent will place them manually in the BoldSign UI.
     send_data = {
         "Title": clean_title,
         "Message": "Please review and sign the attached insurance application.",
-        "ShowToolbar": "true",
-        "ShowNavigationButtons": "true",
-        "ShowPreviewButton": "true",
-        "ShowSendButton": "true",
-        "ShowSaveButton": "true",
-        "SendViewOption": "PreparePage",
-        "ShowTooltip": "false",
-        "Locale": "EN",
+        "Signers": json.dumps(signer_data),
         "EnablePrintAndSign": "true",
-        "RedirectUrl": redirect_url,
-        "Signers[0][Name]": signer_name,
-        "Signers[0][EmailAddress]": signer_email,
-        "Signers[0][SignerType]": "Signer",
-        "Signers[0][SignerOrder]": "1",
-        "Signers[0][Locale]": "EN",
     }
 
     if settings.BOLDSIGN_SENDER_EMAIL:
@@ -86,7 +196,7 @@ async def create_signature_request(
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
-            "https://api.boldsign.com/v1/document/createEmbeddedRequestUrl",
+            "https://api.boldsign.com/v1/document/send",
             headers={
                 "accept": "application/json",
                 "X-API-KEY": settings.BOLDSIGN_API_KEY,
@@ -106,39 +216,7 @@ async def create_signature_request(
         )
 
     result = response.json()
-    document_id = result.get("documentId", "")
-    send_url = result.get("sendUrl", "")
-
-    if not send_url:
-        raise ValueError(
-            "BoldSign did not return a sendUrl. Response: " + str(result)[:300]
-        )
-
-    logger.info(f"BoldSign embedded URL created: doc={document_id}")
-
-    return {
-        "documentId": document_id,
-        "sendUrl": send_url,
-    }
-
-
-# ── Keep the old function name as a wrapper for backward compatibility ──
-
-async def send_for_signature(
-    pdf_bytes: bytes,
-    signer_name: str,
-    signer_email: str,
-    title: str,
-    carrier: str = None,
-) -> dict:
-    """Legacy wrapper — now creates an embedded request instead of auto-sending."""
-    return await create_signature_request(
-        pdf_bytes=pdf_bytes,
-        signer_name=signer_name,
-        signer_email=signer_email,
-        title=title,
-        carrier=carrier,
-    )
+    return {"documentId": result.get("documentId")}
 
 
 async def get_document_status(document_id: str) -> dict:

@@ -384,19 +384,25 @@ def _star(survey_url, n):
 
 
 def _logo_html():
-    """BCI logo for email header - PNG image on dark background."""
-    app_url = "https://better-choice-web.onrender.com"
-    try:
-        from app.core.config import settings as _s
-        app_url = getattr(_s, "APP_URL", app_url)
-    except Exception:
-        pass
-    logo_url = app_url + "/carrier-logos/bci_header_white.png"
+    """BCI logo for email header - white text on dark background."""
     return (
-        '<div style="text-align:center;">'
-        '<img src="' + logo_url + '" alt="Better Choice Insurance Group"'
-        ' style="max-height:56px; width:auto; height:auto;" />'
+        '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">'
+        "<tr>"
+        '<td style="vertical-align:middle; padding-right:14px;">'
+        '<div style="width:48px; text-align:center;">'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
         '</div>'
+        "</td>"
+        '<td style="vertical-align:middle; text-align:left;">'
+        '<div style="font-size:22px; font-weight:800; color:#ffffff; line-height:1.15; letter-spacing:0.5px;">Better<br>Choice</div>'
+        '<div style="font-size:10px; font-weight:600; color:' + BCI_CYAN + '; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px;">Insurance Group</div>'
+        "</td>"
+        "</tr>"
+        "</table>"
     )
 
 
@@ -408,23 +414,18 @@ def _carrier_logo_html(info, carrier_key):
     # Map carrier keys to their logo filenames hosted on the frontend
     LOGO_FILES = {
         "grange": "grange.png",
-        "integrity": "integrity.png",
         "branch": "branch.png",
-        "universal_property": "universal_property.png",
-        "next": "next.png",
-        "hippo": "hippo.png",
-        "gainsco": "gainsco.png",
-        "steadily": "steadily.png",
-        "geico": "geico.png",
-        "american_modern": "american_modern.png",
-        "progressive": "progressive.png",
-        "clearcover": "clearcover.png",
-        "safeco": "safeco.png",
-        "travelers": "travelers.png",
-        "national_general": "national_general.png",
-        "openly": "openly.png",
         "bristol_west": "bristol_west.png",
         "covertree": "covertree.png",
+        "gainsco": "gainsco.png",
+        "geico": "geico.png",
+        "hippo": "hippo.png",
+        "national_general": "national_general.png",
+        "openly": "openly.png",
+        "progressive": "progressive.png",
+        "safeco": "safeco.png",
+        "steadily": "steadily.png",
+        "travelers": "travelers.png",
     }
 
     logo_file = LOGO_FILES.get(carrier_key, "")
@@ -448,19 +449,22 @@ def _carrier_logo_html(info, carrier_key):
 
 def _agency_footer():
     """Agency footer with phone - subtle, not prominent."""
-    app_url = "https://better-choice-web.onrender.com"
-    try:
-        from app.core.config import settings as _s
-        app_url = getattr(_s, "APP_URL", app_url)
-    except Exception:
-        pass
-    footer_url = app_url + "/carrier-logos/bci_footer.png"
     return (
         '<div style="text-align:center; padding:24px 20px; color:#94a3b8; font-size:12px;">'
-        '<div style="margin:0 auto 8px;">'
-        '<img src="' + footer_url + '" alt="Better Choice Insurance Group"'
-        ' style="max-height:36px; width:auto; height:auto;" />'
-        '</div>'
+        '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 8px;">'
+        "<tr>"
+        '<td style="vertical-align:middle; padding-right:8px;">'
+        '<div style="width:24px; text-align:center;">'
+        '<div style="font-size:5px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+        '<div style="font-size:5px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:5px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+        "</div>"
+        "</td>"
+        '<td style="vertical-align:middle;">'
+        '<span style="font-size:13px; font-weight:700; color:#64748b;">' + AGENCY_NAME + "</span>"
+        "</td>"
+        "</tr>"
+        "</table>"
         '<p style="margin:4px 0;">'
         '<a href="tel:8479085665" style="color:#94a3b8; text-decoration:none;">' + AGENCY_PHONE + "</a>"
         "</p>"
@@ -516,15 +520,6 @@ def build_welcome_email_html(
     h.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     h.append("</head>")
     h.append('<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">')
-
-    # Hidden preheader text - prevents email clients from showing BCI logo dots as preview
-    if is_generic:
-        preheader = "Your new policy is all set! Here's everything you need to get started with " + AGENCY_NAME + "."
-    else:
-        preheader = "Your " + info["display_name"] + " policy is all set! Here's everything you need to get started."
-    h.append('<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">' + preheader + '</div>')
-    h.append('<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">' + '&nbsp;' * 80 + '</div>')
-
     h.append('<div style="max-width:600px; margin:0 auto; padding:20px;">')
 
     # ── Header with BCI branding ─────────────────────────────────
@@ -546,11 +541,25 @@ def build_welcome_email_html(
         h.append(_carrier_logo_html(info, carrier_key))
     else:
         # BCI logo for generic emails
-        dark_logo_url = app_url + "/carrier-logos/bci_header_dark.png"
         h.append(
             '<div style="text-align:center; margin:0 0 20px; padding:20px;">'
-            '<img src="' + dark_logo_url + '" alt="Better Choice Insurance Group"'
-            ' style="max-height:56px; width:auto; height:auto;" />'
+            '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">'
+            "<tr>"
+            '<td style="vertical-align:middle; padding-right:14px;">'
+            '<div style="width:48px; text-align:center;">'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+            '</div>'
+            "</td>"
+            '<td style="vertical-align:middle; text-align:left;">'
+            '<div style="font-size:22px; font-weight:800; color:' + BCI_NAVY + '; line-height:1.15; letter-spacing:0.5px;">Better<br>Choice</div>'
+            '<div style="font-size:10px; font-weight:600; color:' + BCI_CYAN + '; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px;">Insurance Group</div>'
+            "</td>"
+            "</tr>"
+            "</table>"
             "</div>"
         )
 
@@ -660,13 +669,7 @@ def send_welcome_email(
     producer_name,
     sale_id,
     policy_type=None,
-    producer_email=None,
-    attachment=None,
 ):
-    """Send welcome email via Mailgun.
-
-    attachment: optional tuple of (filename, bytes) to attach a PDF.
-    """
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         logger.warning("Mailgun not configured - skipping welcome email")
         return {"success": False, "error": "Mailgun not configured"}
@@ -683,33 +686,17 @@ def send_welcome_email(
         policy_type=policy_type,
     )
 
-    mail_data = {
-        "from": AGENCY_NAME + " <" + settings.MAILGUN_FROM_EMAIL + ">",
-        "to": [to_email],
-        "subject": subject,
-        "html": html_body,
-    }
-
-    # CC the selling agent for QA review (toggle via WELCOME_EMAIL_CC_AGENT env var)
-    cc_enabled = getattr(settings, "WELCOME_EMAIL_CC_AGENT", False)
-    if cc_enabled and producer_email:
-        mail_data["cc"] = [producer_email]
-        logger.info("CC'ing agent %s on welcome email to %s", producer_email, to_email)
-
-    # Optional PDF attachment
-    files = None
-    if attachment:
-        att_name, att_bytes = attachment
-        files = [("attachment", (att_name, att_bytes, "application/pdf"))]
-        logger.info("Attaching %s (%d bytes) to welcome email", att_name, len(att_bytes))
-
     try:
         resp = requests.post(
             "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),
-            data=mail_data,
-            files=files,
-            timeout=30,
+            data={
+                "from": AGENCY_NAME + " <" + settings.MAILGUN_FROM_EMAIL + ">",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body,
+            },
+            timeout=15,
         )
 
         if resp.status_code == 200:

@@ -1,7 +1,6 @@
 """Survey API — public endpoints for customer feedback from welcome emails."""
 import logging
-from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -39,8 +38,9 @@ def submit_survey(
         return {
             "success": True,
             "already_submitted": True,
-            "redirect_to_google": existing.rating == 5 and settings.GOOGLE_REVIEW_URL,
-            "google_review_url": settings.GOOGLE_REVIEW_URL if existing.rating == 5 else None,
+            "redirect_to_google": existing.rating >= 4 and bool(settings.GOOGLE_REVIEW_URL),
+            "google_review_url": settings.GOOGLE_REVIEW_URL if existing.rating >= 4 else None,
+            "show_feedback_form": existing.rating <= 3,
         }
 
     ip = request.client.host if request and request.client else None
@@ -49,7 +49,7 @@ def submit_survey(
         sale_id=sale_id,
         rating=rating,
         feedback=feedback,
-        redirected_to_google=(rating == 5 and bool(settings.GOOGLE_REVIEW_URL)),
+        redirected_to_google=(rating >= 4 and bool(settings.GOOGLE_REVIEW_URL)),
         ip_address=ip,
     )
     db.add(response)
@@ -60,9 +60,93 @@ def submit_survey(
     return {
         "success": True,
         "rating": rating,
-        "redirect_to_google": rating == 5 and bool(settings.GOOGLE_REVIEW_URL),
-        "google_review_url": settings.GOOGLE_REVIEW_URL if rating == 5 else None,
+        "redirect_to_google": rating >= 4 and bool(settings.GOOGLE_REVIEW_URL),
+        "google_review_url": settings.GOOGLE_REVIEW_URL if rating >= 4 else None,
+        "show_feedback_form": rating <= 3,
     }
+
+
+@router.post("/feedback")
+def submit_feedback(
+    body: dict,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — submit detailed feedback (1-3 star customers).
+    
+    Sends an email to the agency with the customer's feedback so the team
+    can follow up.
+    """
+    sale_id = body.get("sale_id")
+    message = body.get("message", "").strip()
+    email = body.get("email", "")
+    rating = body.get("rating")
+
+    if not sale_id or not message:
+        raise HTTPException(status_code=400, detail="sale_id and message are required")
+
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    # Update the survey response with feedback text
+    existing = db.query(SurveyResponse).filter(SurveyResponse.sale_id == sale_id).first()
+    if existing and not existing.feedback:
+        existing.feedback = message
+        db.commit()
+
+    # Send notification email to agency via Mailgun
+    producer = sale.producer
+    producer_name = producer.full_name if producer else "Unknown"
+    client_name = sale.client_name or "Unknown"
+    carrier = sale.carrier or "Unknown"
+    policy_number = sale.policy_number or "N/A"
+
+    subject = f"⚠️ {rating}-Star Feedback from {client_name}"
+
+    html_body = f"""
+    <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif; max-width:600px; margin:0 auto; padding:20px;">
+      <div style="background:#dc2626; color:white; padding:20px 24px; border-radius:12px 12px 0 0;">
+        <h2 style="margin:0; font-size:20px;">Customer Feedback Alert</h2>
+        <p style="margin:8px 0 0; opacity:0.9;">{rating} out of 5 stars</p>
+      </div>
+      <div style="background:white; padding:24px; border:1px solid #e2e8f0; border-top:none; border-radius:0 0 12px 12px;">
+        <table style="width:100%; font-size:14px; color:#334155; margin-bottom:20px;" cellpadding="0" cellspacing="0">
+          <tr><td style="padding:6px 0; color:#94a3b8; width:120px;">Customer</td><td style="padding:6px 0; font-weight:600;">{client_name}</td></tr>
+          <tr><td style="padding:6px 0; color:#94a3b8;">Policy</td><td style="padding:6px 0;">{policy_number}</td></tr>
+          <tr><td style="padding:6px 0; color:#94a3b8;">Carrier</td><td style="padding:6px 0;">{carrier}</td></tr>
+          <tr><td style="padding:6px 0; color:#94a3b8;">Agent</td><td style="padding:6px 0;">{producer_name}</td></tr>
+          <tr><td style="padding:6px 0; color:#94a3b8;">Reply Email</td><td style="padding:6px 0;"><a href="mailto:{email}" style="color:#2cb5e8;">{email or "Not provided"}</a></td></tr>
+        </table>
+        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px;">
+          <h3 style="margin:0 0 8px; font-size:14px; color:#991b1b;">Customer's Feedback:</h3>
+          <p style="margin:0; font-size:15px; color:#1e293b; line-height:1.6; white-space:pre-wrap;">{message}</p>
+        </div>
+      </div>
+    </div>
+    """
+
+    # Send via Mailgun
+    try:
+        if settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN:
+            import requests as req
+            resp = req.post(
+                f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+                auth=("api", settings.MAILGUN_API_KEY),
+                data={
+                    "from": f"Better Choice Feedback <feedback@{settings.MAILGUN_DOMAIN}>",
+                    "to": [settings.FEEDBACK_EMAIL if hasattr(settings, 'FEEDBACK_EMAIL') and settings.FEEDBACK_EMAIL else "evan@betterchoiceins.com"],
+                    "subject": subject,
+                    "html": html_body,
+                    "h:Reply-To": email or "",
+                },
+                timeout=15,
+            )
+            logger.info(f"Feedback email sent: {resp.status_code}")
+    except Exception as e:
+        logger.error(f"Failed to send feedback email: {e}")
+        # Don't fail the request — feedback was still saved to DB
+
+    return {"success": True, "message": "Feedback received"}
 
 
 @router.get("/info/{sale_id}")
@@ -118,38 +202,18 @@ def list_survey_responses(
 
 
 @router.post("/send-welcome/{sale_id}")
-async def manually_send_welcome_email(
+def manually_send_welcome_email(
     sale_id: int,
-    file: UploadFile = File(None),
-    attach_saved_pdf: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Admin — manually trigger welcome email for a sale.
-
-    Optionally attach a PDF:
-      - Upload a file directly via the `file` field
-      - Or set attach_saved_pdf=true to use the sale's saved application PDF
-    """
+    """Admin — manually trigger welcome email for a sale."""
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
 
     if not sale.client_email:
         raise HTTPException(status_code=400, detail="Sale has no client email address")
-
-    # Resolve attachment
-    attachment = None
-    if file and file.filename:
-        att_bytes = await file.read()
-        att_name = file.filename
-        attachment = (att_name, att_bytes)
-    elif attach_saved_pdf and sale.application_pdf_path:
-        pdf_path = Path(sale.application_pdf_path)
-        if pdf_path.exists():
-            att_bytes = pdf_path.read_bytes()
-            att_name = f"{sale.carrier or 'Policy'}_{sale.policy_number or sale.id}_Application.pdf"
-            attachment = (att_name, att_bytes)
 
     producer = sale.producer
     result = send_welcome_email(
@@ -160,8 +224,6 @@ async def manually_send_welcome_email(
         producer_name=producer.full_name if producer else "Your Agent",
         sale_id=sale.id,
         policy_type=sale.policy_type,
-        producer_email=producer.email if producer else None,
-        attachment=attachment,
     )
 
     if result["success"]:
@@ -210,7 +272,8 @@ def get_survey_stats(
     
     total = db.query(func.count(SurveyResponse.id)).scalar() or 0
     avg_rating = db.query(func.avg(SurveyResponse.rating)).scalar()
-    five_stars = db.query(func.count(SurveyResponse.id)).filter(SurveyResponse.rating == 5).scalar() or 0
+    positive = db.query(func.count(SurveyResponse.id)).filter(SurveyResponse.rating >= 4).scalar() or 0
+    needs_followup = db.query(func.count(SurveyResponse.id)).filter(SurveyResponse.rating <= 3).scalar() or 0
     google_redirects = db.query(func.count(SurveyResponse.id)).filter(SurveyResponse.redirected_to_google == True).scalar() or 0
 
     # Rating distribution
@@ -222,7 +285,8 @@ def get_survey_stats(
     return {
         "total_responses": total,
         "average_rating": round(float(avg_rating), 1) if avg_rating else 0,
-        "five_star_count": five_stars,
+        "positive_count": positive,
+        "needs_followup_count": needs_followup,
         "google_redirects": google_redirects,
         "distribution": distribution,
     }
