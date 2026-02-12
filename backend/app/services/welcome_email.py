@@ -76,11 +76,22 @@ def _get_carrier_key(carrier):
     if not carrier:
         return None
     c = carrier.lower().replace(" ", "_").replace("-", "_")
+    # Aliases — carriers that should map to another
+    aliases = {
+        "trustgard": "grange",
+        "trustgard_insurance": "grange",
+    }
+    if c in aliases:
+        return aliases[c]
     if c in CARRIER_INFO:
         return c
     for key in CARRIER_INFO:
         if key in c or c in key:
             return key
+    # Check aliases with partial matching too
+    for alias, target in aliases.items():
+        if alias in c:
+            return target
     return None
 
 
