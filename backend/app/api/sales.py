@@ -58,6 +58,7 @@ def _trigger_welcome_email(sale: Sale, producer: User, db: Session):
                 producer_name=producer.full_name if producer else "Your Agent",
                 sale_id=sale.id,
                 policy_type=sale.policy_type,
+                producer_email=producer.email if producer else None,
             )
             if result.get("success"):
                 # Update sale in a new session

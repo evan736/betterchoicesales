@@ -139,6 +139,7 @@ def manually_send_welcome_email(
         producer_name=producer.full_name if producer else "Your Agent",
         sale_id=sale.id,
         policy_type=sale.policy_type,
+        producer_email=producer.email if producer else None,
     )
 
     if result["success"]:

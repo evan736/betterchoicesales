@@ -660,6 +660,7 @@ def send_welcome_email(
     producer_name,
     sale_id,
     policy_type=None,
+    producer_email=None,
 ):
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         logger.warning("Mailgun not configured - skipping welcome email")
@@ -677,16 +678,24 @@ def send_welcome_email(
         policy_type=policy_type,
     )
 
+    mail_data = {
+        "from": AGENCY_NAME + " <" + settings.MAILGUN_FROM_EMAIL + ">",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+
+    # CC the selling agent for QA review (toggle via WELCOME_EMAIL_CC_AGENT env var)
+    cc_enabled = getattr(settings, "WELCOME_EMAIL_CC_AGENT", False)
+    if cc_enabled and producer_email:
+        mail_data["cc"] = [producer_email]
+        logger.info("CC'ing agent %s on welcome email to %s", producer_email, to_email)
+
     try:
         resp = requests.post(
             "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),
-            data={
-                "from": AGENCY_NAME + " <" + settings.MAILGUN_FROM_EMAIL + ">",
-                "to": [to_email],
-                "subject": subject,
-                "html": html_body,
-            },
+            data=mail_data,
             timeout=15,
         )
 
