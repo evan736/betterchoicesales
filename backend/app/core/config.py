@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # App URL (frontend)
     APP_URL: str = "https://better-choice-web.onrender.com"
     
+    # Welcome email: CC the selling agent for QA (set to false to disable)
+    WELCOME_EMAIL_CC_AGENT: bool = True
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

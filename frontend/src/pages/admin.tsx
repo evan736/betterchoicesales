@@ -186,6 +186,7 @@ const EmployeesTab = () => {
           <thead className="bg-slate-50">
             <tr>
               <th className="text-left py-3 px-4 font-semibold text-slate-600">Name</th>
+              <th className="text-left py-3 px-4 font-semibold text-slate-600">Username</th>
               <th className="text-left py-3 px-4 font-semibold text-slate-600">Email</th>
               <th className="text-center py-3 px-4 font-semibold text-slate-600">Role</th>
               <th className="text-center py-3 px-4 font-semibold text-slate-600">Code</th>
@@ -202,6 +203,7 @@ const EmployeesTab = () => {
                 {editingId === emp.id ? (
                   <>
                     <td className="py-2 px-4"><input value={editForm.full_name} onChange={e => setEditForm({ ...editForm, full_name: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" /></td>
+                    <td className="py-2 px-4 text-slate-400 text-xs font-mono">{emp.username}</td>
                     <td className="py-2 px-4"><input value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" /></td>
                     <td className="py-2 px-4 text-center">
                       <select value={editForm.role} onChange={e => setEditForm({ ...editForm, role: e.target.value })} className="border rounded px-2 py-1 text-sm">
@@ -230,6 +232,7 @@ const EmployeesTab = () => {
                 ) : (
                   <>
                     <td className="py-2.5 px-4 font-medium">{emp.full_name}</td>
+                    <td className="py-2.5 px-4 text-slate-500 font-mono text-xs">{emp.username}</td>
                     <td className="py-2.5 px-4 text-slate-500">{emp.email}</td>
                     <td className="py-2.5 px-4 text-center">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${

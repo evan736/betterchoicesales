@@ -58,6 +58,7 @@ def _trigger_welcome_email(sale: Sale, producer: User, db: Session):
                 producer_name=producer.full_name if producer else "Your Agent",
                 sale_id=sale.id,
                 policy_type=sale.policy_type,
+                producer_email=producer.email if producer else None,
             )
             if result.get("success"):
                 # Update sale in a new session
@@ -145,8 +146,8 @@ def create_from_pdf(
     db.commit()
     db.refresh(sale)
 
-    # Trigger welcome email
-    _trigger_welcome_email(sale, current_user, db)
+    # Welcome email is now sent manually from the frontend after save,
+    # so the agent can choose whether to attach a PDF.
 
     # Check for household grouping — same client name, same month
     sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month
@@ -203,8 +204,8 @@ def create_sale(
     db.commit()
     db.refresh(sale)
     
-    # Trigger welcome email
-    _trigger_welcome_email(sale, current_user, db)
+    # Welcome email is now sent manually from the frontend after save,
+    # so the agent can choose whether to attach a PDF.
     
     return sale
 
@@ -390,8 +391,12 @@ async def send_for_signature_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a sale's PDF application for electronic signature via DocuSeal.
-    Accepts optional file upload, or uses the saved application_pdf_path."""
+    """Create a BoldSign embedded request for e-signature.
+
+    Uploads the PDF to BoldSign and returns a URL where the agent
+    can place signature fields manually, then hit Send.
+    The frontend should open this URL in a new tab.
+    """
     import logging
     logger = logging.getLogger(__name__)
 
@@ -420,13 +425,13 @@ async def send_for_signature_endpoint(
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF when clicking Send for Signature.")
 
-    logger.info(f"Sending for signature: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
+    logger.info(f"Creating signature request: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
 
     try:
-        from app.services.esign import send_for_signature as boldsign_send
+        from app.services.esign import create_signature_request
 
         title = f"Insurance Application - {sale.client_name}"
-        result = await boldsign_send(
+        result = await create_signature_request(
             pdf_bytes=pdf_bytes,
             signer_name=sale.client_name,
             signer_email=sale.client_email,
@@ -434,16 +439,17 @@ async def send_for_signature_endpoint(
             carrier=sale.carrier,
         )
 
-        logger.info(f"DocuSeal success: {result}")
+        logger.info(f"BoldSign embedded request created: {result}")
 
-        # Update sale with signature info
+        # Update sale — status is "draft" until agent places fields and clicks Send
         sale.signature_request_id = result.get("documentId")
-        sale.signature_status = "sent"
+        sale.signature_status = "draft"
         db.commit()
 
         return {
-            "message": "Signature request sent successfully",
+            "message": "Document ready — place signature fields and click Send",
             "document_id": result.get("documentId"),
+            "send_url": result.get("sendUrl"),
             "signer_email": sale.client_email,
         }
 
@@ -452,7 +458,7 @@ async def send_for_signature_endpoint(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.error(f"BoldSign Exception: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to send for signature: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create signature request: {str(e)}")
 
 
 @router.get("/{sale_id}/signature-status")
