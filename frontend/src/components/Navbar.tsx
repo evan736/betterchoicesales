@@ -12,14 +12,12 @@ const Navbar: React.FC = () => {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/dashboard" className="flex items-center space-x-3 group">
-            <div className="w-10 h-10 bg-gradient-to-br from-brand-600 to-brand-700 rounded-lg flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-              <span className="text-white font-bold text-xl">BC</span>
-            </div>
+            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-10 w-auto" />
             <div>
-              <h1 className="font-display font-bold text-lg text-slate-900 tracking-tight">
+              <h1 className="font-display font-bold text-lg text-brand-900 tracking-tight">
                 Better Choice
               </h1>
-              <p className="text-xs text-brand-600 font-medium -mt-1">Insurance</p>
+              <p className="text-xs text-brand-500 font-medium -mt-1">Insurance Group</p>
             </div>
           </Link>
 

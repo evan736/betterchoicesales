@@ -111,7 +111,7 @@ const SurveyPage = () => {
           <div className="text-5xl mb-4">🙏</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You!</h1>
           <p className="text-slate-600">
-            Your feedback helps us improve. We appreciate you choosing Better Choice Insurance!
+            Your feedback helps us improve. We appreciate you choosing Better Choice Insurance Group!
           </p>
         </div>
       </div>
@@ -124,14 +124,12 @@ const SurveyPage = () => {
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <span className="text-white font-bold text-2xl">BC</span>
-          </div>
+          <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-14 w-auto mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
             How did {info?.producer_name?.split(' ')[0]} do?
           </h1>
           <p className="text-slate-500">
-            Thanks for choosing Better Choice Insurance, {info?.client_name}!
+            Thanks for choosing Better Choice Insurance Group, {info?.client_name}!
           </p>
         </div>
 

@@ -34,11 +34,9 @@ export default function Login() {
         
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
           <div className="mb-8">
-            <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mb-6 shadow-2xl">
-              <span className="text-white font-bold text-2xl">BC</span>
-            </div>
+            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-16 w-auto mb-6 brightness-0 invert" />
             <h1 className="font-display font-bold text-5xl mb-4">
-              Better Choice Insurance
+              Better Choice Insurance Group
             </h1>
             <p className="text-xl text-blue-100 font-light">
               Your partner in protection and prosperity
@@ -64,11 +62,9 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden mb-8 text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-brand-600 to-brand-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">
-              <span className="text-white font-bold text-2xl">BC</span>
-            </div>
-            <h2 className="font-display font-bold text-3xl text-slate-900">Better Choice</h2>
-            <p className="text-brand-600 font-medium">Insurance</p>
+            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-16 w-auto mx-auto mb-4" />
+            <h2 className="font-display font-bold text-3xl text-brand-900">Better Choice</h2>
+            <p className="text-brand-500 font-medium">Insurance Group</p>
           </div>
 
           <div className="card animate-fade-in">
