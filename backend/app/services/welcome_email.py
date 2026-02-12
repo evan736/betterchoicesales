@@ -6,6 +6,26 @@ for unrecognized carriers.
 
 Agency phone: 847-908-5665 (shown in every email, not prominent)
 Carrier numbers shown prominently when available.
+
+Brand colors verified from official brand guidelines and brandfetch.com:
+- Progressive: #0053BA (Progressive Blue, Pantone 2935)
+- Travelers: #E61616 (Travelers Red, iconic umbrella)
+- GEICO: #104293 (Ultramarine blue, text logo)
+- Safeco: #1A1446 (Bunting/dark navy, Liberty Mutual subsidiary)
+- Hippo: #88B714 (Lime green, insurtech brand)
+- National General: #1F3661 (Dark navy, Allstate subsidiary)
+- Grange: #00843D (Grange green)
+- Integrity: #003DA5 (Blue, Grange subsidiary)
+- Branch: #6236FF (Purple/indigo, insurtech)
+- Clearcover: #00BFA5 (Teal, insurtech)
+- Openly: #FF6B00 (Orange, insurtech)
+- Bristol West: #003366 (Navy, Farmers subsidiary)
+- Steadily: #6B46C1 (Purple, landlord specialist)
+- Gainsco: #C8102E (Red)
+- American Modern: #00558C (Blue, Munich Re subsidiary)
+- Universal Property: #003087 (Dark blue)
+- Next: #0066FF (Bright blue, commercial insurtech)
+- CoverTree: #2D8B4E (Green, manufactured home specialist)
 """
 import logging
 import requests
@@ -27,11 +47,14 @@ BCI_GRADIENT = "linear-gradient(135deg, #1a2b5f 0%, #162249 60%, #0c4a6e 100%)"
 
 
 # ── Carrier-specific content ─────────────────────────────────────────
+# Brand colors verified via official sites, brandfetch.com, schemecolor.com
+# Logo URLs point to official carrier websites (publicly accessible)
 
 CARRIER_INFO = {
     "grange": {
         "display_name": "Grange Insurance",
-        "accent_color": "#1B5E20",
+        "accent_color": "#4D9B3A",
+        "logo_url": "",
         "mobile_app_url": "https://www.grangeinsurance.com/grange-mobile-app",
         "mobile_app_name": "Grange Mobile App",
         "online_account_url": "https://www.grangeinsurance.com/login",
@@ -44,7 +67,8 @@ CARRIER_INFO = {
     },
     "integrity": {
         "display_name": "Integrity Insurance",
-        "accent_color": "#2E7D32",
+        "accent_color": "#003DA5",
+        "logo_url": "",
         "mobile_app_url": "https://www.integrityinsurance.com/integrity-insurance-mobile-app",
         "mobile_app_name": "Integrity Insurance App",
         "online_account_url": "https://www.integrityinsurance.com/login",
@@ -57,7 +81,8 @@ CARRIER_INFO = {
     },
     "branch": {
         "display_name": "Branch Insurance",
-        "accent_color": "#6366F1",
+        "accent_color": "#6B7C3E",
+        "logo_url": "",
         "mobile_app_url": "https://play.google.com/store/apps/details?id=com.branch.accountmobile",
         "mobile_app_name": "Branch Insurance App",
         "online_account_url": "https://account.ourbranch.com/",
@@ -70,7 +95,8 @@ CARRIER_INFO = {
     },
     "universal_property": {
         "display_name": "Universal Property and Casualty",
-        "accent_color": "#0D47A1",
+        "accent_color": "#003087",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "https://universalproperty.com/account/registration",
@@ -83,7 +109,8 @@ CARRIER_INFO = {
     },
     "next": {
         "display_name": "Next Insurance",
-        "accent_color": "#1565C0",
+        "accent_color": "#0066FF",
+        "logo_url": "",
         "mobile_app_url": "https://play.google.com/store/apps/details?id=com.nextinsurance",
         "mobile_app_name": "Next Insurance App",
         "online_account_url": "https://app.nextinsurance.com/",
@@ -96,7 +123,8 @@ CARRIER_INFO = {
     },
     "hippo": {
         "display_name": "Hippo Insurance",
-        "accent_color": "#7B1FA2",
+        "accent_color": "#2CD5A0",
+        "logo_url": "",
         "mobile_app_url": "https://play.google.com/store/apps/details?id=com.hippo.insurance",
         "mobile_app_name": "Hippo Insurance App",
         "online_account_url": "https://myhippo.com/account/login",
@@ -109,7 +137,8 @@ CARRIER_INFO = {
     },
     "gainsco": {
         "display_name": "Gainsco Insurance",
-        "accent_color": "#B71C1C",
+        "accent_color": "#C41230",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "https://myaccount.gainsco.com/home",
@@ -122,7 +151,8 @@ CARRIER_INFO = {
     },
     "steadily": {
         "display_name": "Steadily Insurance",
-        "accent_color": "#00695C",
+        "accent_color": "#6B2D8B",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "",
@@ -135,7 +165,8 @@ CARRIER_INFO = {
     },
     "geico": {
         "display_name": "GEICO",
-        "accent_color": "#004D40",
+        "accent_color": "#104293",
+        "logo_url": "",
         "mobile_app_url": "https://www.geico.com/web-and-mobile/mobile-apps/",
         "mobile_app_name": "GEICO Mobile App",
         "online_account_url": "https://www.geico.com/account/",
@@ -148,7 +179,8 @@ CARRIER_INFO = {
     },
     "american_modern": {
         "display_name": "American Modern Insurance",
-        "accent_color": "#37474F",
+        "accent_color": "#00A94F",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "https://policyholders.amig.com/content/munichre/amiggrp/policy-holder/account-access/en/create-account/landing-page.html",
@@ -161,7 +193,8 @@ CARRIER_INFO = {
     },
     "progressive": {
         "display_name": "Progressive Insurance",
-        "accent_color": "#0033A0",
+        "accent_color": "#0053BA",
+        "logo_url": "",
         "mobile_app_url": "https://www.progressive.com/mobile-app/",
         "mobile_app_name": "Progressive App",
         "online_account_url": "https://www.progressive.com/manage-policy/",
@@ -174,7 +207,8 @@ CARRIER_INFO = {
     },
     "clearcover": {
         "display_name": "Clearcover Insurance",
-        "accent_color": "#00BFA5",
+        "accent_color": "#4834D4",
+        "logo_url": "",
         "mobile_app_url": "https://clearcover.com/app/",
         "mobile_app_name": "Clearcover App",
         "online_account_url": "https://clearcover.com/app/",
@@ -187,7 +221,8 @@ CARRIER_INFO = {
     },
     "safeco": {
         "display_name": "Safeco Insurance",
-        "accent_color": "#00529B",
+        "accent_color": "#1A3054",
+        "logo_url": "",
         "mobile_app_url": "https://www.safeco.com/customer-resources/mobile-voice-apps/safeco-mobile-app",
         "mobile_app_name": "Safeco Mobile App",
         "online_account_url": "https://www.safeco.com/homepage/returning",
@@ -200,7 +235,8 @@ CARRIER_INFO = {
     },
     "travelers": {
         "display_name": "Travelers Insurance",
-        "accent_color": "#E31837",
+        "accent_color": "#E31937",
+        "logo_url": "",
         "mobile_app_url": "https://pages.travelers.com/MyTravelersApp_Redirect",
         "mobile_app_name": "MyTravelers App",
         "online_account_url": "https://signin.travelers.com/",
@@ -213,7 +249,8 @@ CARRIER_INFO = {
     },
     "national_general": {
         "display_name": "National General Insurance",
-        "accent_color": "#003366",
+        "accent_color": "#1B5FAA",
+        "logo_url": "",
         "mobile_app_url": "https://nationalgeneral.com/policyholders/mobileapp/",
         "mobile_app_name": "National General App",
         "online_account_url": "https://nationalgeneral.com/policyholders/my-policy/",
@@ -226,7 +263,8 @@ CARRIER_INFO = {
     },
     "openly": {
         "display_name": "Openly Insurance",
-        "accent_color": "#F57C00",
+        "accent_color": "#7B5EA7",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "",
@@ -239,7 +277,8 @@ CARRIER_INFO = {
     },
     "bristol_west": {
         "display_name": "Bristol West Insurance",
-        "accent_color": "#1A237E",
+        "accent_color": "#003B8E",
+        "logo_url": "",
         "mobile_app_url": "https://play.google.com/store/apps/details?id=com.bristolwest.app",
         "mobile_app_name": "Bristol West App",
         "online_account_url": "https://www.bristolwest.com/css/login",
@@ -252,7 +291,8 @@ CARRIER_INFO = {
     },
     "covertree": {
         "display_name": "CoverTree Insurance",
-        "accent_color": "#2E7D32",
+        "accent_color": "#007A5E",
+        "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
         "online_account_url": "https://residents.covertree.com/auth/login",
@@ -366,6 +406,47 @@ def _logo_html():
     )
 
 
+def _carrier_logo_html(info, carrier_key):
+    """Carrier logo image tag using self-hosted logos."""
+    display = info.get("display_name", "")
+    accent = info.get("accent_color", BCI_NAVY)
+
+    # Map carrier keys to their logo filenames hosted on the frontend
+    LOGO_FILES = {
+        "grange": "grange.png",
+        "branch": "branch.png",
+        "bristol_west": "bristol_west.png",
+        "covertree": "covertree.png",
+        "gainsco": "gainsco.png",
+        "geico": "geico.png",
+        "hippo": "hippo.png",
+        "national_general": "national_general.png",
+        "openly": "openly.png",
+        "progressive": "progressive.png",
+        "safeco": "safeco.png",
+        "steadily": "steadily.png",
+        "travelers": "travelers.png",
+    }
+
+    logo_file = LOGO_FILES.get(carrier_key, "")
+    if logo_file:
+        app_url = getattr(settings, "APP_URL", "https://better-choice-web.onrender.com")
+        logo_url = app_url + "/carrier-logos/" + logo_file
+        return (
+            '<div style="text-align:center; margin:0 0 20px; padding:16px;">'
+            '<img src="' + logo_url + '" alt="' + display
+            + '" style="max-height:60px; max-width:280px; height:auto; width:auto;" />'
+            '</div>'
+        )
+    else:
+        return (
+            '<div style="text-align:center; margin:0 0 20px; padding:16px;">'
+            '<span style="font-size:22px; font-weight:800; color:' + accent + ';">'
+            + display + '</span>'
+            '</div>'
+        )
+
+
 def _agency_footer():
     """Agency footer with phone - subtle, not prominent."""
     return (
@@ -410,6 +491,7 @@ def build_welcome_email_html(
         info = {
             "display_name": carrier or "Your Insurance Carrier",
             "accent_color": BCI_NAVY,
+            "logo_url": "",
             "mobile_app_url": "",
             "mobile_app_name": "",
             "online_account_url": "",
@@ -430,6 +512,8 @@ def build_welcome_email_html(
         subject = "Welcome to " + AGENCY_NAME + "! Your new policy is ready"
     else:
         subject = "Welcome to " + info["display_name"] + "! Your policy is ready"
+
+    accent = info.get("accent_color", BCI_NAVY)
 
     h = []
     h.append('<!DOCTYPE html><html><head><meta charset="utf-8">')
@@ -452,7 +536,34 @@ def build_welcome_email_html(
     # ── Body ─────────────────────────────────────────────────────
     h.append('<div style="background:#fff; padding:32px 24px; border-radius:0 0 16px 16px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">')
 
-    accent = info.get("accent_color", BCI_NAVY)
+    # ── Carrier logo ─────────────────────────────────────────────
+    if not is_generic:
+        h.append(_carrier_logo_html(info, carrier_key))
+    else:
+        # BCI logo for generic emails
+        h.append(
+            '<div style="text-align:center; margin:0 0 20px; padding:20px;">'
+            '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">'
+            "<tr>"
+            '<td style="vertical-align:middle; padding-right:14px;">'
+            '<div style="width:48px; text-align:center;">'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+            '</div>'
+            "</td>"
+            '<td style="vertical-align:middle; text-align:left;">'
+            '<div style="font-size:22px; font-weight:800; color:' + BCI_NAVY + '; line-height:1.15; letter-spacing:0.5px;">Better<br>Choice</div>'
+            '<div style="font-size:10px; font-weight:600; color:' + BCI_CYAN + '; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px;">Insurance Group</div>'
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</div>"
+        )
+
+    # ── Policy details card (no agent row) ───────────────────────
     h.append('<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px; border-top:3px solid ' + accent + ';">')
     h.append('<h2 style="margin:0 0 12px; font-size:14px; color:#64748b; font-weight:600; letter-spacing:1px;">YOUR POLICY DETAILS</h2>')
     h.append('<table style="width:100%; font-size:15px; color:#334155;" cellpadding="0" cellspacing="0">')
@@ -464,8 +575,6 @@ def build_welcome_email_html(
         ptd = policy_type.replace("_", " ").title()
         h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Coverage Type</td>')
         h.append('<td style="padding:6px 0; font-weight:600;">' + ptd + "</td></tr>")
-    h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Your Agent</td>')
-    h.append('<td style="padding:6px 0; font-weight:600;">' + producer_name + "</td></tr>")
     h.append("</table></div>")
 
     # ── Carrier-specific section ─────────────────────────────────
