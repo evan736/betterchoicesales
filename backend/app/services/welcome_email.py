@@ -414,18 +414,23 @@ def _carrier_logo_html(info, carrier_key):
     # Map carrier keys to their logo filenames hosted on the frontend
     LOGO_FILES = {
         "grange": "grange.png",
+        "integrity": "integrity.png",
         "branch": "branch.png",
-        "bristol_west": "bristol_west.png",
-        "covertree": "covertree.png",
-        "gainsco": "gainsco.png",
-        "geico": "geico.png",
+        "universal_property": "universal_property.png",
+        "next": "next.png",
         "hippo": "hippo.png",
+        "gainsco": "gainsco.png",
+        "steadily": "steadily.png",
+        "geico": "geico.png",
+        "american_modern": "american_modern.png",
+        "progressive": "progressive.png",
+        "clearcover": "clearcover.png",
+        "safeco": "safeco.png",
+        "travelers": "travelers.png",
         "national_general": "national_general.png",
         "openly": "openly.png",
-        "progressive": "progressive.png",
-        "safeco": "safeco.png",
-        "steadily": "steadily.png",
-        "travelers": "travelers.png",
+        "bristol_west": "bristol_west.png",
+        "covertree": "covertree.png",
     }
 
     logo_file = LOGO_FILES.get(carrier_key, "")
@@ -520,6 +525,15 @@ def build_welcome_email_html(
     h.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
     h.append("</head>")
     h.append('<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">')
+
+    # Hidden preheader text - prevents email clients from showing BCI logo dots as preview
+    if is_generic:
+        preheader = "Your new policy is all set! Here's everything you need to get started with " + AGENCY_NAME + "."
+    else:
+        preheader = "Your " + info["display_name"] + " policy is all set! Here's everything you need to get started."
+    h.append('<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">' + preheader + '</div>')
+    h.append('<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">' + '&nbsp;' * 80 + '</div>')
+
     h.append('<div style="max-width:600px; margin:0 auto; padding:20px;">')
 
     # ── Header with BCI branding ─────────────────────────────────
