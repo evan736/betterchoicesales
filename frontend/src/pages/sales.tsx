@@ -377,12 +377,21 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       const selectedFile = e.target.files?.[0];
       if (!selectedFile) return;
 
-      if (!confirm(`Send "${selectedFile.name}" to ${sale.client_email} for electronic signature?`)) return;
+      if (!confirm(`Upload "${selectedFile.name}" and open BoldSign to place signature fields for ${sale.client_email}?`)) return;
       setSendingSig(true);
       try {
         const res = await salesAPI.sendForSignature(sale.id, selectedFile);
-        setSigStatus('sent');
-        alert(`✓ Signature request sent to ${sale.client_email}!`);
+        const sendUrl = res.data?.send_url;
+        setSigStatus('draft');
+
+        if (sendUrl) {
+          // Open BoldSign's prepare page in a new tab so agent can
+          // drag-and-drop signature fields, then click Send
+          window.open(sendUrl, '_blank');
+          alert('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
+        } else {
+          alert('Document created but no BoldSign URL returned. Check the BoldSign dashboard.');
+        }
         onUpdate();
       } catch (error: any) {
         console.error('Send for signature error:', error);
@@ -424,6 +433,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
 
   const sigBadge = () => {
     switch (sigStatus) {
+      case 'draft': return <span className="badge bg-blue-100 text-blue-800">📝 Draft - Place Fields</span>;
       case 'sent': return <span className="badge bg-yellow-100 text-yellow-800">⏳ Awaiting Signature</span>;
       case 'completed': return <span className="badge bg-green-100 text-green-800">✓ Signed</span>;
       case 'declined': return <span className="badge bg-red-100 text-red-800">✗ Declined</span>;
@@ -473,11 +483,11 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-all text-sm font-semibold"
             >
               <FileText size={16} />
-              <span>{sendingSig ? 'Sending...' : (sigStatus === 'sent' ? 'Resend for Signature' : 'Send for Signature')}</span>
+              <span>{sendingSig ? 'Uploading...' : (sigStatus === 'sent' || sigStatus === 'draft' ? 'Resend for Signature' : 'Send for Signature')}</span>
             </button>
           )}
           {/* Check Status */}
-          {sigStatus === 'sent' && (
+          {(sigStatus === 'sent' || sigStatus === 'draft') && (
             <button
               onClick={handleCheckStatus}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-yellow-300 text-yellow-700 hover:bg-yellow-50 transition-all text-sm font-semibold"
