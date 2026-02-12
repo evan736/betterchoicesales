@@ -146,8 +146,8 @@ def create_from_pdf(
     db.commit()
     db.refresh(sale)
 
-    # Trigger welcome email
-    _trigger_welcome_email(sale, current_user, db)
+    # Welcome email is now sent manually from the frontend after save,
+    # so the agent can choose whether to attach a PDF.
 
     # Check for household grouping — same client name, same month
     sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month
@@ -204,8 +204,8 @@ def create_sale(
     db.commit()
     db.refresh(sale)
     
-    # Trigger welcome email
-    _trigger_welcome_email(sale, current_user, db)
+    # Welcome email is now sent manually from the frontend after save,
+    # so the agent can choose whether to attach a PDF.
     
     return sale
 

@@ -602,6 +602,8 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
   const [saving, setSaving] = useState(false);
   const [saveResults, setSaveResults] = useState<any[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [welcomeAttach, setWelcomeAttach] = useState<'none' | 'application' | 'custom'>('none');
+  const [welcomeFile, setWelcomeFile] = useState<File | null>(null);
 
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragOver(true); }, []);
@@ -676,6 +678,8 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       }
     }
 
+    const createdSaleIds: number[] = [];
+
     for (const pol of includedPolicies) {
       try {
         // Fix effective_date format — append time if it's just a date
@@ -707,6 +711,8 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
             console.warn('PDF upload failed but sale was created:', uploadErr);
           }
         }
+
+        if (saleId) createdSaleIds.push(saleId);
         
         results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household, saleId });
       } catch (err: any) {
@@ -716,6 +722,24 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       }
     }
     setSaveResults(results);
+
+    // Send welcome emails for all successfully created sales
+    if (clientInfo.client_email && createdSaleIds.length > 0) {
+      // Only send welcome email for the first sale to avoid spamming
+      const firstSaleId = createdSaleIds[0];
+      try {
+        if (welcomeAttach === 'application' && file) {
+          await surveyAPI.sendWelcome(firstSaleId, { file });
+        } else if (welcomeAttach === 'custom' && welcomeFile) {
+          await surveyAPI.sendWelcome(firstSaleId, { file: welcomeFile });
+        } else {
+          await surveyAPI.sendWelcome(firstSaleId);
+        }
+      } catch (err) {
+        console.warn('Welcome email failed but sale was created:', err);
+      }
+    }
+
     const anySuccess = results.some(r => r.success);
     if (anySuccess && results.every(r => r.success)) {
       setTimeout(() => onSuccess(), 1500);
@@ -946,6 +970,42 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                       {r.household?.is_bundle && <span className="ml-2 font-semibold">📦 Household: {r.household.total_items} items, ${r.household.total_premium.toLocaleString()}</span>}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Welcome Email Attachment */}
+              {clientInfo.client_email && (
+                <div className="card bg-purple-50 border border-purple-200">
+                  <h3 className="font-bold text-purple-900 mb-2">📧 Welcome Email</h3>
+                  <p className="text-sm text-purple-700 mb-3">
+                    A welcome email will be sent to <strong>{clientInfo.client_email}</strong> when you save.
+                  </p>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                      <input type="radio" name="welcomeAttach" value="none" checked={welcomeAttach === 'none'} onChange={() => { setWelcomeAttach('none'); setWelcomeFile(null); }} className="w-4 h-4" />
+                      <span className="text-slate-700">No attachment</span>
+                    </label>
+                    {file && (
+                      <label className="flex items-center gap-2 cursor-pointer text-sm">
+                        <input type="radio" name="welcomeAttach" value="application" checked={welcomeAttach === 'application'} onChange={() => { setWelcomeAttach('application'); setWelcomeFile(null); }} className="w-4 h-4" />
+                        <span className="text-slate-700">Attach uploaded application <span className="text-purple-600 font-medium">({file.name})</span></span>
+                      </label>
+                    )}
+                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                      <input type="radio" name="welcomeAttach" value="custom" checked={welcomeAttach === 'custom'} onChange={() => setWelcomeAttach('custom')} className="w-4 h-4" />
+                      <span className="text-slate-700">Attach a different PDF</span>
+                    </label>
+                    {welcomeAttach === 'custom' && (
+                      <div className="ml-6 mt-1">
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          onChange={(e) => setWelcomeFile(e.target.files?.[0] || null)}
+                          className="text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
