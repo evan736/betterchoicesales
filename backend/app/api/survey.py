@@ -1,6 +1,7 @@
 """Survey API — public endpoints for customer feedback from welcome emails."""
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -117,18 +118,38 @@ def list_survey_responses(
 
 
 @router.post("/send-welcome/{sale_id}")
-def manually_send_welcome_email(
+async def manually_send_welcome_email(
     sale_id: int,
+    file: UploadFile = File(None),
+    attach_saved_pdf: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Admin — manually trigger welcome email for a sale."""
+    """Admin — manually trigger welcome email for a sale.
+
+    Optionally attach a PDF:
+      - Upload a file directly via the `file` field
+      - Or set attach_saved_pdf=true to use the sale's saved application PDF
+    """
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
 
     if not sale.client_email:
         raise HTTPException(status_code=400, detail="Sale has no client email address")
+
+    # Resolve attachment
+    attachment = None
+    if file and file.filename:
+        att_bytes = await file.read()
+        att_name = file.filename
+        attachment = (att_name, att_bytes)
+    elif attach_saved_pdf and sale.application_pdf_path:
+        pdf_path = Path(sale.application_pdf_path)
+        if pdf_path.exists():
+            att_bytes = pdf_path.read_bytes()
+            att_name = f"{sale.carrier or 'Policy'}_{sale.policy_number or sale.id}_Application.pdf"
+            attachment = (att_name, att_bytes)
 
     producer = sale.producer
     result = send_welcome_email(
@@ -140,6 +161,7 @@ def manually_send_welcome_email(
         sale_id=sale.id,
         policy_type=sale.policy_type,
         producer_email=producer.email if producer else None,
+        attachment=attachment,
     )
 
     if result["success"]:

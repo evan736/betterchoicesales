@@ -506,28 +506,64 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
           )}
           {/* Send Welcome Email */}
           {sale.client_email && (
-            <button
-              onClick={async () => {
-                setSendingWelcome(true);
-                try {
-                  await surveyAPI.sendWelcome(sale.id);
-                  setWelcomeSent(true);
-                  alert('Welcome email sent!');
-                } catch (err: any) {
-                  alert(err.response?.data?.detail || 'Failed to send welcome email');
-                } finally {
-                  setSendingWelcome(false);
-                }
-              }}
-              disabled={sendingWelcome}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-                welcomeSent
-                  ? 'border border-green-200 text-green-700 bg-green-50'
-                  : 'border border-purple-200 text-purple-700 hover:bg-purple-50'
-              }`}
-            >
-              <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={async () => {
+                  const hasPdf = !!sale.application_pdf_path;
+
+                  // Build options
+                  const choices = ['Send without attachment'];
+                  if (hasPdf) choices.push('Attach saved application PDF');
+                  choices.push('Attach a different PDF...');
+
+                  const msg = choices.map((c, i) => `${i + 1}. ${c}`).join('\n');
+                  const pick = prompt(
+                    `Send welcome email to ${sale.client_email}?\n\n${msg}\n\nEnter choice (1-${choices.length}):`,
+                    '1'
+                  );
+                  if (!pick) return;
+
+                  const choice = parseInt(pick.trim(), 10);
+                  if (isNaN(choice) || choice < 1 || choice > choices.length) return;
+
+                  setSendingWelcome(true);
+                  try {
+                    if (choice === 1) {
+                      // No attachment
+                      await surveyAPI.sendWelcome(sale.id);
+                    } else if (hasPdf && choice === 2) {
+                      // Attach saved PDF
+                      await surveyAPI.sendWelcome(sale.id, { attachSavedPdf: true });
+                    } else {
+                      // Upload a different PDF
+                      const uploaded = await new Promise<File | null>((resolve) => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.pdf';
+                        input.onchange = (e: any) => resolve(e.target.files?.[0] || null);
+                        input.click();
+                      });
+                      if (!uploaded) { setSendingWelcome(false); return; }
+                      await surveyAPI.sendWelcome(sale.id, { file: uploaded });
+                    }
+                    setWelcomeSent(true);
+                    alert('Welcome email sent!');
+                  } catch (err: any) {
+                    alert(err.response?.data?.detail || 'Failed to send welcome email');
+                  } finally {
+                    setSendingWelcome(false);
+                  }
+                }}
+                disabled={sendingWelcome}
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  welcomeSent
+                    ? 'border border-green-200 text-green-700 bg-green-50'
+                    : 'border border-purple-200 text-purple-700 hover:bg-purple-50'
+                }`}
+              >
+                <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
+              </button>
+            </div>
           )}
           {/* Delete */}
           <button

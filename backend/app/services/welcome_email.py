@@ -661,7 +661,12 @@ def send_welcome_email(
     sale_id,
     policy_type=None,
     producer_email=None,
+    attachment=None,
 ):
+    """Send welcome email via Mailgun.
+
+    attachment: optional tuple of (filename, bytes) to attach a PDF.
+    """
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         logger.warning("Mailgun not configured - skipping welcome email")
         return {"success": False, "error": "Mailgun not configured"}
@@ -691,12 +696,20 @@ def send_welcome_email(
         mail_data["cc"] = [producer_email]
         logger.info("CC'ing agent %s on welcome email to %s", producer_email, to_email)
 
+    # Optional PDF attachment
+    files = None
+    if attachment:
+        att_name, att_bytes = attachment
+        files = [("attachment", (att_name, att_bytes, "application/pdf"))]
+        logger.info("Attaching %s (%d bytes) to welcome email", att_name, len(att_bytes))
+
     try:
         resp = requests.post(
             "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data=mail_data,
-            timeout=15,
+            files=files,
+            timeout=30,
         )
 
         if resp.status_code == 200:
