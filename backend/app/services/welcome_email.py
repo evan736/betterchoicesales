@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 AGENCY_PHONE = "847-908-5665"
 AGENCY_NAME = "Better Choice Insurance Group"
 
-# Brand colors from logo
 BCI_NAVY = "#1a2b5f"
 BCI_DARK = "#162249"
 BCI_CYAN = "#2cb5e8"
@@ -30,70 +29,239 @@ BCI_GRADIENT = "linear-gradient(135deg, #1a2b5f 0%, #162249 60%, #0c4a6e 100%)"
 # ── Carrier-specific content ─────────────────────────────────────────
 
 CARRIER_INFO = {
-    "national_general": {
-        "display_name": "National General Insurance",
-        "accent_color": "#003366",
-        "mobile_app_url": "https://www.nationalgeneral.com/about/mobile-app",
-        "mobile_app_name": "National General Insurance App",
-        "online_account_url": "https://www.nationalgeneral.com/manage-your-policy",
-        "online_account_text": "Set Up Your Online Account",
-        "claims_phone": "1-800-325-1088",
-        "roadside_phone": "1-877-468-3466",
-        "billing_phone": "1-800-462-2123",
-        "payment_url": "https://www.nationalgeneral.com/make-a-payment",
-        "extra_tip": "You can manage your policy, view ID cards, and make payments right from the app.",
+    "grange": {
+        "display_name": "Grange Insurance",
+        "accent_color": "#1B5E20",
+        "mobile_app_url": "https://www.grangeinsurance.com/grange-mobile-app",
+        "mobile_app_name": "Grange Mobile App",
+        "online_account_url": "https://www.grangeinsurance.com/login",
+        "online_account_text": "Log In to Your Grange Account",
+        "claims_url": "https://www.grangeinsurance.com/claims/report-or-track-a-claim",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://www.grangeinsurance.com/pay-your-bill",
+        "extra_tip": "Download the Grange app for instant access to ID cards, claims filing, and payment options.",
+    },
+    "integrity": {
+        "display_name": "Integrity Insurance",
+        "accent_color": "#2E7D32",
+        "mobile_app_url": "https://www.integrityinsurance.com/integrity-insurance-mobile-app",
+        "mobile_app_name": "Integrity Insurance App",
+        "online_account_url": "https://www.integrityinsurance.com/login",
+        "online_account_text": "Log In to Your Integrity Account",
+        "claims_url": "https://www.integrityinsurance.com/claims/file-a-claim",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://www.integrityinsurance.com/pay-your-bill",
+        "extra_tip": "Use the Integrity app to manage your policy, view documents, and file claims on the go.",
+    },
+    "branch": {
+        "display_name": "Branch Insurance",
+        "accent_color": "#6366F1",
+        "mobile_app_url": "https://play.google.com/store/apps/details?id=com.branch.accountmobile",
+        "mobile_app_name": "Branch Insurance App",
+        "online_account_url": "https://account.ourbranch.com/",
+        "online_account_text": "Log In to Your Branch Account",
+        "claims_url": "https://www.ourbranch.com/s/claims",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://account.ourbranch.com/?getHelpNextPath=billing",
+        "extra_tip": "The Branch app makes it easy to manage your policy and billing right from your phone.",
+    },
+    "universal_property": {
+        "display_name": "Universal Property and Casualty",
+        "accent_color": "#0D47A1",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "https://universalproperty.com/account/registration",
+        "online_account_text": "Create Your Universal Property Account",
+        "claims_url": "https://universalproperty.com/claims/",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://universalproperty.com/account/visitorpayment/",
+        "extra_tip": "Set up your online account to view policy documents, make payments, and track claims.",
+    },
+    "next": {
+        "display_name": "Next Insurance",
+        "accent_color": "#1565C0",
+        "mobile_app_url": "https://play.google.com/store/apps/details?id=com.nextinsurance",
+        "mobile_app_name": "Next Insurance App",
+        "online_account_url": "https://app.nextinsurance.com/",
+        "online_account_text": "Log In to Your Next Insurance Account",
+        "claims_url": "https://www.nextinsurance.com/claim-page/",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://app.nextinsurance.com/",
+        "extra_tip": "The Next Insurance app lets you manage your commercial policy and access your certificate of insurance anytime.",
+    },
+    "hippo": {
+        "display_name": "Hippo Insurance",
+        "accent_color": "#7B1FA2",
+        "mobile_app_url": "https://play.google.com/store/apps/details?id=com.hippo.insurance",
+        "mobile_app_name": "Hippo Insurance App",
+        "online_account_url": "https://myhippo.com/account/login",
+        "online_account_text": "Log In to Your Hippo Account",
+        "claims_url": "https://www.hippo.com/claim",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://myhippo.com/account/login",
+        "extra_tip": "Hippo offers smart home monitoring and proactive protection. Check the app for home care tips and alerts.",
+    },
+    "gainsco": {
+        "display_name": "Gainsco Insurance",
+        "accent_color": "#B71C1C",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "https://myaccount.gainsco.com/home",
+        "online_account_text": "Log In to Your Gainsco Account",
+        "claims_url": "https://www.gainsco.com/customers/report-a-claim/",
+        "claims_phone": "",
+        "customer_service": AGENCY_PHONE,
+        "payment_url": "https://www.gainsco.com/customers/make-a-payment/",
+        "extra_tip": "Set up your online account to view ID cards, make payments, and manage your policy easily.",
+    },
+    "steadily": {
+        "display_name": "Steadily Insurance",
+        "accent_color": "#00695C",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "",
+        "online_account_text": "",
+        "claims_url": "https://www.steadily.com/claims",
+        "claims_phone": "888-966-1611",
+        "customer_service": "888-966-1611",
+        "payment_url": "",
+        "extra_tip": "For billing or policy questions, call Steadily directly at 888-966-1611.",
+    },
+    "geico": {
+        "display_name": "GEICO",
+        "accent_color": "#004D40",
+        "mobile_app_url": "https://www.geico.com/web-and-mobile/mobile-apps/",
+        "mobile_app_name": "GEICO Mobile App",
+        "online_account_url": "https://www.geico.com/account/",
+        "online_account_text": "Log In to Your GEICO Account",
+        "claims_url": "https://claims.geico.com/ReportClaim#/",
+        "claims_phone": "1-800-207-7847",
+        "customer_service": "1-800-207-7847",
+        "payment_url": "https://www.geico.com/information/make-a-payment/",
+        "extra_tip": "The GEICO app lets you view ID cards, file claims, request roadside assistance, and manage your policy instantly.",
+    },
+    "american_modern": {
+        "display_name": "American Modern Insurance",
+        "accent_color": "#37474F",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "https://policyholders.amig.com/content/munichre/amiggrp/policy-holder/account-access/en/create-account/landing-page.html",
+        "online_account_text": "Create Your American Modern Account",
+        "claims_url": "https://myclaim.amig.com/",
+        "claims_phone": "1-800-543-2644",
+        "customer_service": "1-800-543-2644",
+        "payment_url": "",
+        "extra_tip": "Set up your online account to manage your specialty insurance policy and file claims easily.",
     },
     "progressive": {
         "display_name": "Progressive Insurance",
         "accent_color": "#0033A0",
-        "mobile_app_url": "https://www.progressive.com/app/",
+        "mobile_app_url": "https://www.progressive.com/mobile-app/",
         "mobile_app_name": "Progressive App",
-        "online_account_url": "https://www.progressive.com/register/",
-        "online_account_text": "Create Your Progressive Account",
-        "claims_phone": "1-800-776-4737",
-        "roadside_phone": "1-800-776-4737",
-        "billing_phone": "1-800-776-4737",
-        "payment_url": "https://www.progressive.com/pay-bill/",
+        "online_account_url": "https://www.progressive.com/manage-policy/",
+        "online_account_text": "Manage Your Progressive Policy",
+        "claims_url": "https://www.progressive.com/claims/",
+        "claims_phone": "1-800-687-5581",
+        "customer_service": "1-800-687-5581",
+        "payment_url": "https://account.apps.progressive.com/access/ez-payment/policy-info",
         "extra_tip": "Download the Progressive app to get your digital ID card, track claims, and manage your policy.",
+    },
+    "clearcover": {
+        "display_name": "Clearcover Insurance",
+        "accent_color": "#00BFA5",
+        "mobile_app_url": "https://clearcover.com/app/",
+        "mobile_app_name": "Clearcover App",
+        "online_account_url": "https://clearcover.com/app/",
+        "online_account_text": "Log In to Your Clearcover Account",
+        "claims_url": "https://support.clearcover.com/hc/en-us/articles/360046229514-Filing-a-claim",
+        "claims_phone": "1-855-444-1875",
+        "customer_service": "1-855-444-1875",
+        "payment_url": "https://clearcover.com/app/",
+        "extra_tip": "Use the Clearcover app to manage payments, view your ID card, and file claims quickly.",
     },
     "safeco": {
         "display_name": "Safeco Insurance",
         "accent_color": "#00529B",
-        "mobile_app_url": "https://www.safeco.com/about/mobile",
+        "mobile_app_url": "https://www.safeco.com/customer-resources/mobile-voice-apps/safeco-mobile-app",
         "mobile_app_name": "Safeco Mobile App",
-        "online_account_url": "https://www.safeco.com/manage-your-policy",
-        "online_account_text": "Set Up Your Safeco Account",
-        "claims_phone": "1-800-332-3226",
-        "roadside_phone": "1-877-762-3101",
-        "billing_phone": "1-800-332-3226",
-        "payment_url": "https://www.safeco.com/manage-your-policy",
+        "online_account_url": "https://www.safeco.com/homepage/returning",
+        "online_account_text": "Log In to Your Safeco Account",
+        "claims_url": "https://www.safeco.com/claims",
+        "claims_phone": "1-866-272-3326",
+        "customer_service": "1-866-272-3326",
+        "payment_url": "https://customer.safeco.com/accountmanager/billing/guest-payment?view=customerSearch",
         "extra_tip": "The Safeco app lets you view ID cards, file claims, and contact roadside assistance instantly.",
     },
     "travelers": {
         "display_name": "Travelers Insurance",
         "accent_color": "#E31837",
-        "mobile_app_url": "https://www.travelers.com/tools-resources/apps/mytravelers",
+        "mobile_app_url": "https://pages.travelers.com/MyTravelersApp_Redirect",
         "mobile_app_name": "MyTravelers App",
-        "online_account_url": "https://www.travelers.com/online-account-access",
-        "online_account_text": "Create Your MyTravelers Account",
-        "claims_phone": "1-800-252-4633",
-        "roadside_phone": "1-800-252-4633",
-        "billing_phone": "1-800-842-5075",
-        "payment_url": "https://www.travelers.com/pay-your-bill",
+        "online_account_url": "https://signin.travelers.com/",
+        "online_account_text": "Log In to Your Travelers Account",
+        "claims_url": "https://www.travelers.com/claims/file-claim",
+        "claims_phone": "1-866-933-7287",
+        "customer_service": "1-866-933-7287",
+        "payment_url": "https://personal.travelers.com/paybill/#/findAccount?flow=otp",
         "extra_tip": "With MyTravelers, you can view policy documents, report claims, and manage billing all in one place.",
     },
-    "grange": {
-        "display_name": "Grange Insurance",
-        "accent_color": "#1B5E20",
-        "mobile_app_url": "https://www.grangeinsurance.com/manage-your-policy/download-our-app",
-        "mobile_app_name": "Grange Mobile App",
-        "online_account_url": "https://www.grangeinsurance.com/manage-your-policy",
-        "online_account_text": "Set Up Your Grange Online Account",
-        "claims_phone": "1-800-445-3030",
-        "roadside_phone": "1-800-445-3030",
-        "billing_phone": "1-800-445-3030",
-        "payment_url": "https://www.grangeinsurance.com/manage-your-policy/pay-my-bill",
-        "extra_tip": "The Grange app gives you instant access to ID cards, claims filing, and payment options.",
+    "national_general": {
+        "display_name": "National General Insurance",
+        "accent_color": "#003366",
+        "mobile_app_url": "https://nationalgeneral.com/policyholders/mobileapp/",
+        "mobile_app_name": "National General App",
+        "online_account_url": "https://nationalgeneral.com/policyholders/my-policy/",
+        "online_account_text": "Log In to Your National General Account",
+        "claims_url": "https://claims.nationalgeneral.com/report",
+        "claims_phone": "1-877-468-3466",
+        "customer_service": "1-877-468-3466",
+        "payment_url": "https://mynatgenpolicy.com/pay",
+        "extra_tip": "You can manage your policy, view ID cards, and make payments right from the National General app.",
+    },
+    "openly": {
+        "display_name": "Openly Insurance",
+        "accent_color": "#F57C00",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "",
+        "online_account_text": "",
+        "claims_url": "https://fnol.openly.com/file-a-claim/intro",
+        "claims_phone": "1-888-808-4842",
+        "customer_service": "1-888-808-4842",
+        "payment_url": "",
+        "extra_tip": "For policy questions, billing, or to file a claim, call Openly at 1-888-808-4842.",
+    },
+    "bristol_west": {
+        "display_name": "Bristol West Insurance",
+        "accent_color": "#1A237E",
+        "mobile_app_url": "https://play.google.com/store/apps/details?id=com.bristolwest.app",
+        "mobile_app_name": "Bristol West App",
+        "online_account_url": "https://www.bristolwest.com/css/login",
+        "online_account_text": "Log In to Your Bristol West Account",
+        "claims_url": "https://www.bristolwest.com/home/claims/",
+        "claims_phone": "1-888-888-0080",
+        "customer_service": "1-888-888-0080",
+        "payment_url": "https://www.bristolwest.com/payments/",
+        "extra_tip": "Download the Bristol West app to view your ID card, make payments, and manage your policy.",
+    },
+    "covertree": {
+        "display_name": "CoverTree Insurance",
+        "accent_color": "#2E7D32",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "https://residents.covertree.com/auth/login",
+        "online_account_text": "Log In to Your CoverTree Account",
+        "claims_url": "https://www.covertree.com/claims/",
+        "claims_phone": "877-417-8733",
+        "customer_service": "877-417-8733",
+        "payment_url": "",
+        "extra_tip": "Log in to your CoverTree account to manage your manufactured home policy and file claims.",
     },
 }
 
@@ -104,6 +272,23 @@ CARRIER_ALIASES = {
     "trustgard_insurance": "grange",
     "trust_gard": "grange",
     "trustgard_mutual": "grange",
+    "universal_property_and_casualty": "universal_property",
+    "universal_property_casualty": "universal_property",
+    "upcic": "universal_property",
+    "next_insurance": "next",
+    "hippo_insurance": "hippo",
+    "gainsco_auto": "gainsco",
+    "american_modern_insurance": "american_modern",
+    "amig": "american_modern",
+    "clearcover_insurance": "clearcover",
+    "openly_insurance": "openly",
+    "bristol_west_insurance": "bristol_west",
+    "covertree_insurance": "covertree",
+    "cover_tree": "covertree",
+    "geico_insurance": "geico",
+    "steadily_insurance": "steadily",
+    "integrity_insurance": "integrity",
+    "branch_insurance": "branch",
 }
 
 
@@ -165,16 +350,11 @@ def _logo_html():
         "<tr>"
         '<td style="vertical-align:middle; padding-right:14px;">'
         '<div style="width:48px; text-align:center;">'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">'
-        '&#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">'
-        '&#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">'
-        '&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">'
-        '&#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">'
-        '&#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
+        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
         '</div>'
         "</td>"
         '<td style="vertical-align:middle; text-align:left;">'
@@ -234,9 +414,9 @@ def build_welcome_email_html(
             "mobile_app_name": "",
             "online_account_url": "",
             "online_account_text": "",
+            "claims_url": "",
             "claims_phone": "",
-            "roadside_phone": "",
-            "billing_phone": "",
+            "customer_service": "",
             "payment_url": "",
             "extra_tip": "",
         }
@@ -246,7 +426,6 @@ def build_welcome_email_html(
     first_name = client_name.split()[0] if client_name else "Valued Customer"
     producer_first = producer_name.split()[0] if producer_name else "Your Agent"
 
-    # Subject line
     if is_generic:
         subject = "Welcome to " + AGENCY_NAME + "! Your new policy is ready"
     else:
@@ -264,47 +443,42 @@ def build_welcome_email_html(
     h.append(_logo_html())
     h.append('<div style="height:20px;"></div>')
     h.append('<h1 style="color:#fff; margin:0; font-size:26px; font-weight:700;">Welcome, ' + first_name + "!</h1>")
-
     if is_generic:
         h.append('<p style="color:rgba(255,255,255,0.85); margin:8px 0 0; font-size:15px;">Your new policy is all set and ready to go</p>')
     else:
         h.append('<p style="color:rgba(255,255,255,0.85); margin:8px 0 0; font-size:15px;">Your ' + info["display_name"] + " policy is all set</p>")
-
     h.append("</div>")
 
     # ── Body ─────────────────────────────────────────────────────
     h.append('<div style="background:#fff; padding:32px 24px; border-radius:0 0 16px 16px; box-shadow:0 4px 6px rgba(0,0,0,0.05);">')
 
-    # Policy details card
     accent = info.get("accent_color", BCI_NAVY)
     h.append('<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:20px; margin-bottom:24px; border-top:3px solid ' + accent + ';">')
     h.append('<h2 style="margin:0 0 12px; font-size:14px; color:#64748b; font-weight:600; letter-spacing:1px;">YOUR POLICY DETAILS</h2>')
     h.append('<table style="width:100%; font-size:15px; color:#334155;" cellpadding="0" cellspacing="0">')
-
     h.append('<tr><td style="padding:8px 0; color:#94a3b8; width:140px;">Policy Number</td>')
     h.append('<td style="padding:8px 0; font-weight:700; font-size:17px; color:' + accent + ';">' + (policy_number or "Pending") + "</td></tr>")
-
     h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Carrier</td>')
     h.append('<td style="padding:6px 0; font-weight:600;">' + info["display_name"] + "</td></tr>")
-
     if policy_type:
         ptd = policy_type.replace("_", " ").title()
         h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Coverage Type</td>')
         h.append('<td style="padding:6px 0; font-weight:600;">' + ptd + "</td></tr>")
-
     h.append('<tr><td style="padding:6px 0; color:#94a3b8;">Your Agent</td>')
     h.append('<td style="padding:6px 0; font-weight:600;">' + producer_name + "</td></tr>")
-
     h.append("</table></div>")
 
-    # ── Carrier-specific section (recognized carriers) ───────────
+    # ── Carrier-specific section ─────────────────────────────────
     if not is_generic:
         h.append('<h2 style="margin:0 0 16px; font-size:18px; color:#1e293b;">Get Started with ' + info["display_name"] + "</h2>")
 
         h.append('<div style="margin-bottom:16px;">')
-        h.append(_btn(info["online_account_url"], accent, "&#127760;", info["online_account_text"]))
-        h.append(_btn(info["mobile_app_url"], "#059669", "&#128241;", "Download the " + info["mobile_app_name"]))
-        h.append(_btn(info["payment_url"], "#475569", "&#128179;", "Make a Payment"))
+        h.append(_btn(info.get("online_account_url", ""), accent, "&#127760;", info.get("online_account_text", "Set Up Your Account")))
+        if info.get("mobile_app_url"):
+            h.append(_btn(info["mobile_app_url"], "#059669", "&#128241;", "Download the " + info["mobile_app_name"]))
+        h.append(_btn(info.get("payment_url", ""), "#475569", "&#128179;", "Make a Payment"))
+        if info.get("claims_url"):
+            h.append(_btn(info["claims_url"], "#dc2626", "&#128221;", "File a Claim"))
         h.append("</div>")
 
         if info.get("extra_tip"):
@@ -314,15 +488,17 @@ def build_welcome_email_html(
                 + "&#128161; <strong>Pro Tip:</strong> " + info["extra_tip"] + "</p>"
             )
 
-        # Carrier numbers - PROMINENT
-        has_numbers = info.get("claims_phone") or info.get("roadside_phone") or info.get("billing_phone")
+        # Carrier contact numbers - PROMINENT
+        has_numbers = info.get("claims_phone") or info.get("customer_service")
         if has_numbers:
             h.append('<div style="margin:24px 0; padding:20px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0; border-left:4px solid ' + accent + ';">')
-            h.append('<h3 style="margin:0 0 12px; font-size:15px; color:' + accent + '; font-weight:700; letter-spacing:0.5px;">' + info["display_name"].upper() + " CONTACT NUMBERS</h3>")
+            h.append('<h3 style="margin:0 0 12px; font-size:15px; color:' + accent + '; font-weight:700; letter-spacing:0.5px;">' + info["display_name"].upper() + " CONTACT</h3>")
             h.append('<table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">')
-            h.append(_phone_row("Claims", info.get("claims_phone", ""), bold=True))
-            h.append(_phone_row("Roadside Assistance", info.get("roadside_phone", ""), bold=True))
-            h.append(_phone_row("Billing", info.get("billing_phone", ""), bold=True))
+            if info.get("claims_phone"):
+                h.append(_phone_row("Claims", info["claims_phone"], bold=True))
+            cs = info.get("customer_service", "")
+            if cs and cs != AGENCY_PHONE:
+                h.append(_phone_row("Customer Service", cs, bold=True))
             h.append("</table></div>")
 
     else:
@@ -344,7 +520,6 @@ def build_welcome_email_html(
         h.append('<tr><td style="padding:8px 0; color:#64748b; font-size:16px;">&#128200;</td><td style="padding:8px 0;">Coverage reviews and re-quotes</td></tr>')
         h.append("</table></div>")
 
-        # Contact us button for generic
         h.append('<div style="margin-bottom:16px;">')
         h.append(_btn("tel:8479085665", BCI_NAVY, "&#128222;", "Call Us: " + AGENCY_PHONE))
         h.append("</div>")
@@ -358,7 +533,6 @@ def build_welcome_email_html(
     h.append('<a href="tel:8479085665" style="color:' + BCI_CYAN + '; text-decoration:none; font-weight:600;">' + AGENCY_PHONE + "</a>")
     h.append("</p></div>")
 
-    # ── Divider ──────────────────────────────────────────────────
     h.append('<hr style="border:none; border-top:1px solid #e2e8f0; margin:28px 0;">')
 
     # ── Survey ───────────────────────────────────────────────────
@@ -369,16 +543,11 @@ def build_welcome_email_html(
     h.append('<div style="margin:0 auto;">' + stars + "</div>")
     h.append("</div>")
 
-    # Close body card
     h.append("</div>")
-
-    # ── Footer ───────────────────────────────────────────────────
     h.append(_agency_footer())
-
     h.append("</div></body></html>")
 
-    html = "\n".join(h)
-    return subject, html
+    return subject, "\n".join(h)
 
 
 # ── Send via Mailgun ─────────────────────────────────────────────────
