@@ -384,25 +384,19 @@ def _star(survey_url, n):
 
 
 def _logo_html():
-    """BCI logo for email header - white text on dark background."""
+    """BCI logo for email header - PNG image on dark background."""
+    app_url = "https://better-choice-web.onrender.com"
+    try:
+        from app.core.config import settings as _s
+        app_url = getattr(_s, "APP_URL", app_url)
+    except Exception:
+        pass
+    logo_url = app_url + "/carrier-logos/bci_header_white.png"
     return (
-        '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">'
-        "<tr>"
-        '<td style="vertical-align:middle; padding-right:14px;">'
-        '<div style="width:48px; text-align:center;">'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
+        '<div style="text-align:center;">'
+        '<img src="' + logo_url + '" alt="Better Choice Insurance Group"'
+        ' style="max-height:56px; width:auto; height:auto;" />'
         '</div>'
-        "</td>"
-        '<td style="vertical-align:middle; text-align:left;">'
-        '<div style="font-size:22px; font-weight:800; color:#ffffff; line-height:1.15; letter-spacing:0.5px;">Better<br>Choice</div>'
-        '<div style="font-size:10px; font-weight:600; color:' + BCI_CYAN + '; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px;">Insurance Group</div>'
-        "</td>"
-        "</tr>"
-        "</table>"
     )
 
 
@@ -454,22 +448,19 @@ def _carrier_logo_html(info, carrier_key):
 
 def _agency_footer():
     """Agency footer with phone - subtle, not prominent."""
+    app_url = "https://better-choice-web.onrender.com"
+    try:
+        from app.core.config import settings as _s
+        app_url = getattr(_s, "APP_URL", app_url)
+    except Exception:
+        pass
+    footer_url = app_url + "/carrier-logos/bci_footer.png"
     return (
         '<div style="text-align:center; padding:24px 20px; color:#94a3b8; font-size:12px;">'
-        '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 8px;">'
-        "<tr>"
-        '<td style="vertical-align:middle; padding-right:8px;">'
-        '<div style="width:24px; text-align:center;">'
-        '<div style="font-size:5px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
-        '<div style="font-size:5px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
-        '<div style="font-size:5px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
-        "</div>"
-        "</td>"
-        '<td style="vertical-align:middle;">'
-        '<span style="font-size:13px; font-weight:700; color:#64748b;">' + AGENCY_NAME + "</span>"
-        "</td>"
-        "</tr>"
-        "</table>"
+        '<div style="margin:0 auto 8px;">'
+        '<img src="' + footer_url + '" alt="Better Choice Insurance Group"'
+        ' style="max-height:36px; width:auto; height:auto;" />'
+        '</div>'
         '<p style="margin:4px 0;">'
         '<a href="tel:8479085665" style="color:#94a3b8; text-decoration:none;">' + AGENCY_PHONE + "</a>"
         "</p>"
@@ -555,25 +546,11 @@ def build_welcome_email_html(
         h.append(_carrier_logo_html(info, carrier_key))
     else:
         # BCI logo for generic emails
+        dark_logo_url = app_url + "/carrier-logos/bci_header_dark.png"
         h.append(
             '<div style="text-align:center; margin:0 0 20px; padding:20px;">'
-            '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">'
-            "<tr>"
-            '<td style="vertical-align:middle; padding-right:14px;">'
-            '<div style="width:48px; text-align:center;">'
-            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
-            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
-            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679; &#9679; &#9679; &#9679; &#9679;</div>'
-            '<div style="font-size:8px; line-height:1.4; color:' + BCI_LIGHT_CYAN + ';">&#9679; &#9679; &#9679;</div>'
-            '<div style="font-size:8px; line-height:1.4; color:' + BCI_CYAN + ';">&#9679;</div>'
-            '</div>'
-            "</td>"
-            '<td style="vertical-align:middle; text-align:left;">'
-            '<div style="font-size:22px; font-weight:800; color:' + BCI_NAVY + '; line-height:1.15; letter-spacing:0.5px;">Better<br>Choice</div>'
-            '<div style="font-size:10px; font-weight:600; color:' + BCI_CYAN + '; letter-spacing:2.5px; text-transform:uppercase; margin-top:3px;">Insurance Group</div>'
-            "</td>"
-            "</tr>"
-            "</table>"
+            '<img src="' + dark_logo_url + '" alt="Better Choice Insurance Group"'
+            ' style="max-height:56px; width:auto; height:auto;" />'
             "</div>"
         )
 
