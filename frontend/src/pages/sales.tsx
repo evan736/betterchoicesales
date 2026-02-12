@@ -369,24 +369,16 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
       return;
     }
 
-    // Prompt user to select the PDF file
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf';
-    input.onchange = async (e: any) => {
-      const selectedFile = e.target.files?.[0];
-      if (!selectedFile) return;
+    const hasSavedPdf = !!sale.application_pdf_path;
 
-      if (!confirm(`Upload "${selectedFile.name}" and open BoldSign to place signature fields for ${sale.client_email}?`)) return;
+    const doSend = async (file?: File) => {
       setSendingSig(true);
       try {
-        const res = await salesAPI.sendForSignature(sale.id, selectedFile);
+        const res = await salesAPI.sendForSignature(sale.id, file);
         const sendUrl = res.data?.send_url;
         setSigStatus('draft');
 
         if (sendUrl) {
-          // Open BoldSign's prepare page in a new tab so agent can
-          // drag-and-drop signature fields, then click Send
           window.open(sendUrl, '_blank');
           alert('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
         } else {
@@ -409,7 +401,24 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
         setSendingSig(false);
       }
     };
-    input.click();
+
+    if (hasSavedPdf) {
+      // PDF already uploaded with the sale — use it directly
+      if (!confirm(`Open BoldSign to place signature fields for ${sale.client_email}?`)) return;
+      await doSend();
+    } else {
+      // No PDF on file — prompt agent to upload one
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.pdf';
+      input.onchange = async (e: any) => {
+        const selectedFile = e.target.files?.[0];
+        if (!selectedFile) return;
+        if (!confirm(`Upload "${selectedFile.name}" and open BoldSign to place signature fields for ${sale.client_email}?`)) return;
+        await doSend(selectedFile);
+      };
+      input.click();
+    }
   };
 
   const handleCheckStatus = async () => {
