@@ -2,23 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import api from '../../lib/api';
 
+// Hard-code the Google Review URL here so the frontend can redirect
+// even if the backend env var is not set. Update this with your actual link.
+const GOOGLE_REVIEW_URL = 'https://g.page/r/betterchoiceinsurance/review';
+
 const SurveyPage = () => {
   const router = useRouter();
   const { id, rating: urlRating } = router.query;
   const [info, setInfo] = useState<any>(null);
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
   const [feedback, setFeedback] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [redirecting, setRedirecting] = useState(false);
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
-  const [feedbackSent, setFeedbackSent] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<
+    'loading' | 'error' | 'rate' | 'redirecting' | 'feedback_form' | 'feedback_sent' | 'thankyou'
+  >('loading');
 
   // Feedback form fields
   const [feedbackName, setFeedbackName] = useState('');
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [sendingFeedback, setSendingFeedback] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -26,26 +28,26 @@ const SurveyPage = () => {
   }, [id]);
 
   useEffect(() => {
-    if (urlRating && !submitted && info) {
+    if (urlRating && info && phase === 'rate') {
       const r = parseInt(urlRating as string);
       if (r >= 1 && r <= 5) {
         setSelectedRating(r);
         handleSubmit(r);
       }
     }
-  }, [urlRating, info]);
+  }, [urlRating, info, phase]);
 
   const loadSurveyInfo = async () => {
     try {
       const res = await api.get(`/api/survey/info/${id}`);
       setInfo(res.data);
       if (res.data.already_submitted) {
-        setSubmitted(true);
+        setPhase('thankyou');
+      } else {
+        setPhase('rate');
       }
     } catch (err) {
-      setError('Survey not found');
-    } finally {
-      setLoading(false);
+      setPhase('error');
     }
   };
 
@@ -54,45 +56,70 @@ const SurveyPage = () => {
     if (!r || !id) return;
 
     try {
-      const res = await api.post('/api/survey/submit', null, {
+      await api.post('/api/survey/submit', null, {
         params: { sale_id: id, rating: r, feedback: feedback || undefined },
       });
-      setSubmitted(true);
 
-      if (res.data.redirect_to_google && res.data.google_review_url) {
-        // 4-5 stars -> Google Review
-        setRedirecting(true);
+      // Route based on rating — decided client-side
+      if (r >= 4) {
+        // 4-5 stars: redirect to Google Review
+        setPhase('redirecting');
         setTimeout(() => {
-          window.location.href = res.data.google_review_url;
+          window.location.href = GOOGLE_REVIEW_URL;
         }, 2500);
-      } else if (res.data.show_feedback_form) {
-        // 1-3 stars -> show feedback form
-        setShowFeedbackForm(true);
-        if (info?.client_name) {
-          setFeedbackName(info.client_name);
-        }
+      } else {
+        // 1-3 stars: show feedback form
+        setFeedbackName(info?.client_name || '');
+        setPhase('feedback_form');
       }
-    } catch (err) {
-      console.error('Submit failed:', err);
+    } catch (err: any) {
+      // If already submitted, still route them
+      if (r >= 4) {
+        setPhase('redirecting');
+        setTimeout(() => {
+          window.location.href = GOOGLE_REVIEW_URL;
+        }, 2500);
+      } else {
+        setFeedbackName(info?.client_name || '');
+        setPhase('feedback_form');
+      }
     }
   };
 
-  const handleSendFeedback = () => {
-    const subject = encodeURIComponent(
-      `Feedback - ${feedbackName || info?.client_name || 'Customer'} (${selectedRating} star)`
-    );
-    const body = encodeURIComponent(
-      `Name: ${feedbackName || info?.client_name || ''}\n` +
-      `Email: ${feedbackEmail}\n` +
-      `Policy: ${info?.policy_number || ''}\n` +
-      `Rating: ${selectedRating} out of 5 stars\n\n` +
-      `Feedback:\n${feedbackMessage}\n`
-    );
-    window.location.href = `mailto:evan@betterchoiceins.com?subject=${subject}&body=${body}`;
-    setFeedbackSent(true);
+  const handleSendFeedback = async () => {
+    if (!feedbackMessage.trim()) return;
+    setSendingFeedback(true);
+
+    // Try to send via backend API first (so it's captured in the database)
+    try {
+      await api.post('/api/survey/feedback', {
+        sale_id: parseInt(id as string),
+        name: feedbackName,
+        email: feedbackEmail,
+        message: feedbackMessage,
+        rating: selectedRating,
+      });
+    } catch (err) {
+      // If backend endpoint doesn't exist yet, fall back to mailto
+      const subject = encodeURIComponent(
+        `Customer Feedback - ${feedbackName || info?.client_name || 'Customer'} (${selectedRating} star)`
+      );
+      const body = encodeURIComponent(
+        `Name: ${feedbackName || info?.client_name || ''}\n` +
+        `Email: ${feedbackEmail}\n` +
+        `Policy: ${info?.policy_number || ''}\n` +
+        `Carrier: ${info?.carrier || ''}\n` +
+        `Rating: ${selectedRating} out of 5 stars\n\n` +
+        `Feedback:\n${feedbackMessage}\n`
+      );
+      window.open(`mailto:evan@betterchoiceins.com?subject=${subject}&body=${body}`, '_self');
+    }
+
+    setPhase('feedback_sent');
   };
 
-  if (loading) {
+  // ─── LOADING ───────────────────────────────────────────────
+  if (phase === 'loading') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center">
         <div className="text-slate-500 animate-pulse">Loading...</div>
@@ -100,7 +127,8 @@ const SurveyPage = () => {
     );
   }
 
-  if (error) {
+  // ─── ERROR ─────────────────────────────────────────────────
+  if (phase === 'error') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center">
         <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md">
@@ -112,27 +140,33 @@ const SurveyPage = () => {
     );
   }
 
-  // 4-5 star submitted — redirecting to Google
-  if (submitted && redirecting) {
+  // ─── REDIRECTING TO GOOGLE (4-5 stars) ─────────────────────
+  if (phase === 'redirecting') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🌟</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you so much!</h1>
           <p className="text-slate-600 mb-4">
             We&apos;re thrilled you had a great experience with {info?.producer_name}!
           </p>
-          <p className="text-green-700 font-semibold mb-2">
+          <p className="text-green-700 font-semibold mb-4">
             Redirecting you to leave a Google review...
           </p>
-          <div className="animate-spin w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto"></div>
+          <div className="animate-spin w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto mb-6"></div>
+          <a
+            href={GOOGLE_REVIEW_URL}
+            className="text-sm text-green-600 hover:underline"
+          >
+            Click here if not redirected automatically
+          </a>
         </div>
       </div>
     );
   }
 
-  // 1-3 star submitted — show detailed feedback form
-  if (submitted && showFeedbackForm && !feedbackSent) {
+  // ─── FEEDBACK FORM (1-3 stars) ─────────────────────────────
+  if (phase === 'feedback_form') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
@@ -142,8 +176,8 @@ const SurveyPage = () => {
             <h1 className="text-2xl font-bold text-slate-900 mb-2">
               We want to make it right
             </h1>
-            <p className="text-slate-500">
-              We&apos;re sorry your experience wasn&apos;t 100%.
+            <p className="text-slate-600">
+              We&apos;re sorry your experience wasn&apos;t 100% satisfactory.
               Please share more details so we can address your concerns directly.
             </p>
           </div>
@@ -155,7 +189,7 @@ const SurveyPage = () => {
                 type="text"
                 value={feedbackName}
                 onChange={(e) => setFeedbackName(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 placeholder="Your full name"
               />
             </div>
@@ -166,7 +200,7 @@ const SurveyPage = () => {
                 type="email"
                 value={feedbackEmail}
                 onChange={(e) => setFeedbackEmail(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 placeholder="So we can follow up with you"
               />
             </div>
@@ -178,7 +212,7 @@ const SurveyPage = () => {
               <textarea
                 value={feedbackMessage}
                 onChange={(e) => setFeedbackMessage(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 rows={5}
                 placeholder="Please tell us about your experience — we take every response seriously and will follow up personally."
               />
@@ -186,14 +220,14 @@ const SurveyPage = () => {
 
             <button
               onClick={handleSendFeedback}
-              disabled={!feedbackMessage.trim()}
+              disabled={!feedbackMessage.trim() || sendingFeedback}
               className={`w-full font-semibold py-3.5 rounded-xl text-lg transition-all shadow-lg ${
-                feedbackMessage.trim()
+                feedbackMessage.trim() && !sendingFeedback
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
-              ✉️ Send Feedback
+              {sendingFeedback ? 'Sending...' : '✉️ Send Feedback'}
             </button>
           </div>
 
@@ -213,11 +247,11 @@ const SurveyPage = () => {
     );
   }
 
-  // Feedback sent confirmation
-  if (feedbackSent) {
+  // ─── FEEDBACK SENT CONFIRMATION ────────────────────────────
+  if (phase === 'feedback_sent') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
           <div className="text-5xl mb-4">✅</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You for Your Feedback</h1>
           <p className="text-slate-600 mb-4">
@@ -231,11 +265,11 @@ const SurveyPage = () => {
     );
   }
 
-  // Already submitted (no special flow needed)
-  if (submitted && !showFeedbackForm) {
+  // ─── ALREADY SUBMITTED ─────────────────────────────────────
+  if (phase === 'thankyou') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🙏</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You!</h1>
           <p className="text-slate-600">
@@ -246,7 +280,7 @@ const SurveyPage = () => {
     );
   }
 
-  // Rating form (initial view)
+  // ─── RATING FORM (initial view) ────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
@@ -284,7 +318,7 @@ const SurveyPage = () => {
             <textarea
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
-              className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
               rows={3}
               placeholder="Optional — your feedback helps us get better"
             />

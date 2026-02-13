@@ -201,6 +201,82 @@ def preview_welcome_email(
     return {"subject": subject, "html": html}
 
 
+from pydantic import BaseModel as FeedbackBase
+
+class FeedbackRequest(FeedbackBase):
+    sale_id: int
+    name: Optional[str] = ''
+    email: Optional[str] = ''
+    message: str
+    rating: Optional[int] = None
+
+
+@router.post("/feedback")
+def submit_feedback(
+    data: FeedbackRequest,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — receive detailed feedback from unhappy customers (1-3 stars).
+    Sends an email notification to the agency and updates the survey record."""
+    sale = db.query(Sale).filter(Sale.id == data.sale_id).first()
+
+    # Update existing survey response with the detailed feedback
+    existing = db.query(SurveyResponse).filter(SurveyResponse.sale_id == data.sale_id).first()
+    if existing and data.message:
+        detail_prefix = '\n\n--- Detailed Feedback ---\n' if existing.feedback else ''
+        existing.feedback = (existing.feedback or '') + detail_prefix + data.message
+        db.commit()
+
+    # Send email notification to Evan
+    try:
+        import requests as http_requests
+        if settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN:
+            policy_num = sale.policy_number if sale else 'Unknown'
+            carrier = sale.carrier if sale else 'Unknown'
+            client_name = sale.client_name if sale else data.name
+
+            email_html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #dc2626; color: white; padding: 20px; border-radius: 12px 12px 0 0;">
+                    <h2 style="margin: 0;">⚠️ Low Rating Feedback Received</h2>
+                </div>
+                <div style="background: #fff; padding: 24px; border: 1px solid #e5e7eb; border-radius: 0 0 12px 12px;">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+                        <tr><td style="padding: 8px 0; color: #6b7280; width: 100px;">Customer:</td><td style="padding: 8px 0; font-weight: 600;">{client_name}</td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Email:</td><td style="padding: 8px 0;"><a href="mailto:{data.email}">{data.email or 'Not provided'}</a></td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Policy:</td><td style="padding: 8px 0;">{policy_num}</td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Carrier:</td><td style="padding: 8px 0;">{carrier}</td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Rating:</td><td style="padding: 8px 0; font-size: 20px;">{'⭐' * (data.rating or 0)} ({data.rating}/5)</td></tr>
+                    </table>
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-top: 12px;">
+                        <p style="color: #991b1b; font-weight: 600; margin: 0 0 8px 0;">Customer Feedback:</p>
+                        <p style="color: #1f2937; margin: 0; white-space: pre-wrap;">{data.message}</p>
+                    </div>
+                    {f'<p style="margin-top: 16px;"><a href="mailto:{data.email}?subject=Re: Your Better Choice Insurance Experience&body=Hi {data.name}," style="background: #2563eb; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Reply to Customer</a></p>' if data.email else ''}
+                </div>
+            </div>
+            """
+
+            http_requests.post(
+                f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+                auth=("api", settings.MAILGUN_API_KEY),
+                data={
+                    "from": f"{settings.MAILGUN_FROM_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+                    "to": "evan@betterchoiceins.com",
+                    "subject": f"⚠️ Low Rating ({data.rating} star) - {client_name} - {policy_num}",
+                    "html": email_html,
+                },
+                timeout=15,
+            )
+            logger.info(f"Feedback notification sent for sale_id={data.sale_id}")
+    except Exception as e:
+        logger.error(f"Failed to send feedback notification: {e}")
+
+    logger.info(f"Detailed feedback received: sale_id={data.sale_id}, rating={data.rating}, from={data.name}")
+    return {"success": True}
+
+
 @router.get("/stats")
 def get_survey_stats(
     current_user: User = Depends(get_current_user),
