@@ -28,6 +28,33 @@ from app.services.nonpay_email import send_nonpay_email
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nonpay", tags=["nonpay"])
 
+
+@router.get("/diag")
+def nonpay_diagnostic():
+    """Diagnostic endpoint - no auth required."""
+    diag = {"status": "ok", "xlrd": False, "openpyxl": False, "tables": False}
+    try:
+        import xlrd
+        diag["xlrd"] = True
+        diag["xlrd_version"] = xlrd.__VERSION__
+    except ImportError as e:
+        diag["xlrd_error"] = str(e)
+    try:
+        import openpyxl
+        diag["openpyxl"] = True
+    except ImportError as e:
+        diag["openpyxl_error"] = str(e)
+    try:
+        from app.core.database import get_db, engine
+        from sqlalchemy import inspect
+        insp = inspect(engine)
+        tables = insp.get_table_names()
+        diag["tables"] = "nonpay_notices" in tables and "nonpay_emails" in tables
+        diag["all_tables"] = [t for t in tables if "nonpay" in t]
+    except Exception as e:
+        diag["table_error"] = str(e)
+    return diag
+
 # ── Extraction prompt for Claude ──────────────────────────────────────
 
 NONPAY_EXTRACTION_PROMPT = """You are an expert insurance document parser. This document is a non-pay / past-due / cancellation notice from an insurance carrier or agency management system.
