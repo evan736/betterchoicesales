@@ -127,7 +127,16 @@ export default function CustomersPage() {
       const r = await nonpayAPI.upload(file, nonpayDryRun);
       setNonpayResult(r.data);
       loadNonpayHistory();
-    } catch (e: any) { alert(e.response?.data?.detail || e.response?.data?.message || e.message || 'Upload failed. Check Render logs for details.'); }
+    } catch (e: any) {
+      console.error('Upload error full:', e);
+      console.error('Response:', e.response);
+      console.error('Request:', e.request);
+      console.error('Config:', e.config);
+      const msg = e.response?.data?.detail
+        || e.response?.data?.message
+        || (e.response ? `HTTP ${e.response.status}: ${JSON.stringify(e.response.data).slice(0,200)}` : `${e.message} — Open browser console (F12) for details`);
+      alert(msg);
+    }
     setNonpayUploading(false);
   };
 
