@@ -47,6 +47,29 @@ def build_nonpay_email_html(
     # ── White card body ──
     h.append('<div style="background:#ffffff; padding:32px; border-radius:0 0 16px 16px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">')
 
+    # ── Carrier logo ──
+    LOGO_FILES = {
+        "grange": "grange.png", "integrity": "integrity.png", "branch": "branch.png",
+        "universal_property": "universal_property.png", "next": "next.png", "hippo": "hippo.png",
+        "gainsco": "gainsco.png", "steadily": "steadily.png", "geico": "geico.png",
+        "american_modern": "american_modern.png", "progressive": "progressive.png",
+        "clearcover": "clearcover.png", "safeco": "safeco.png", "travelers": "travelers.png",
+        "national_general": "national_general.png", "openly": "openly.png",
+        "bristol_west": "bristol_west.png", "covertree": "covertree.png",
+    }
+    logo_file = LOGO_FILES.get(carrier_key, "")
+    if logo_file:
+        app_url = "https://better-choice-web.onrender.com"
+        try:
+            from app.core.config import settings
+            app_url = getattr(settings, "APP_URL", app_url)
+        except Exception:
+            pass
+        logo_url = f"{app_url}/carrier-logos/{logo_file}"
+        h.append(f'<div style="text-align:center; margin:0 0 20px; padding:16px 0 8px;">')
+        h.append(f'<img src="{logo_url}" alt="{display_carrier}" style="max-height:50px; max-width:240px; height:auto; width:auto;" />')
+        h.append('</div>')
+
     # Greeting
     h.append(f'<p style="font-size:16px; color:#1e293b; margin:0 0 16px; line-height:1.6;">Hi {first_name},</p>')
     h.append(f'<p style="font-size:15px; color:#334155; margin:0 0 20px; line-height:1.7;">')
