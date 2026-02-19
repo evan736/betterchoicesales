@@ -231,10 +231,10 @@ export const customersAPI = {
 };
 
 export const nonpayAPI = {
-  upload: (file: File) => {
+  upload: (file: File, dryRun?: boolean) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post('/api/nonpay/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+    return api.post(`/api/nonpay/upload?dry_run=${dryRun ? 'true' : 'false'}`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
   },
   history: (limit?: number) => api.get('/api/nonpay/history', { params: { limit: limit || 20 } }),
   emails: (policyNumber?: string) => api.get('/api/nonpay/emails', { params: { policy_number: policyNumber } }),

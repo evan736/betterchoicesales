@@ -34,6 +34,7 @@ export default function CustomersPage() {
   const [showNonPay, setShowNonPay] = useState(false);
   const [nonpayUploading, setNonpayUploading] = useState(false);
   const [nonpayResult, setNonpayResult] = useState<any>(null);
+  const [nonpayDryRun, setNonpayDryRun] = useState(true);
   const [nonpayHistory, setNonpayHistory] = useState<any[]>([]);
   const [nonpayHistLoading, setNonpayHistLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -123,7 +124,7 @@ export default function CustomersPage() {
     }
     setNonpayUploading(true); setNonpayResult(null);
     try {
-      const r = await nonpayAPI.upload(file);
+      const r = await nonpayAPI.upload(file, nonpayDryRun);
       setNonpayResult(r.data);
       loadNonpayHistory();
     } catch (e: any) { alert(e.response?.data?.detail || 'Upload failed'); }
@@ -347,6 +348,8 @@ export default function CustomersPage() {
             onDrop={onDrop}
             onFileSelect={onFileSelect}
             fileInputRef={fileInputRef}
+            dryRun={nonpayDryRun}
+            setDryRun={setNonpayDryRun}
           />
         )}
       </main>
@@ -413,7 +416,9 @@ const NonPayModal: React.FC<{
   onDrop: (e: React.DragEvent) => void;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
-}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef }) => {
+  dryRun: boolean;
+  setDryRun: (v: boolean) => void;
+}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef, dryRun, setDryRun }) => {
   const [tab, setTab] = useState<'upload' | 'preview'>('upload');
   const [carriers, setCarriers] = useState<any[]>([]);
   const [selectedCarrier, setSelectedCarrier] = useState('');
@@ -471,6 +476,24 @@ const NonPayModal: React.FC<{
         <div className="flex-1 overflow-y-auto p-5">
           {tab === 'upload' ? (
             <>
+              {/* Dry Run Toggle */}
+              <div className={`flex items-center justify-between p-4 rounded-xl mb-4 ${dryRun ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
+                <div>
+                  <p className={`font-semibold text-sm ${dryRun ? 'text-amber-800' : 'text-green-800'}`}>
+                    {dryRun ? '🧪 Test Mode — No emails will be sent' : '🚀 Live Mode — Emails will be sent to customers'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${dryRun ? 'text-amber-600' : 'text-green-600'}`}>
+                    {dryRun ? 'Upload a file to preview which customers would be emailed' : 'Emails will go out to real customer addresses'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDryRun(!dryRun)}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${dryRun ? 'bg-amber-400' : 'bg-green-500'}`}
+                >
+                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${dryRun ? 'translate-x-1' : 'translate-x-6'}`} />
+                </button>
+              </div>
+
               {/* Drop zone */}
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -501,23 +524,38 @@ const NonPayModal: React.FC<{
 
               {/* Upload result */}
               {result && (
-                <div className="mt-5 border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="p-4 bg-slate-50 border-b border-slate-200"><h3 className="font-bold text-slate-900">Processing Results</h3></div>
+                  <div className={`mt-5 border rounded-xl overflow-hidden ${result.dry_run ? 'border-amber-200' : 'border-slate-200'}`}>
+                    <div className={`p-4 border-b ${result.dry_run ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <h3 className="font-bold text-slate-900">
+                        {result.dry_run ? '🧪 Test Results — No emails were sent' : 'Processing Results'}
+                      </h3>
+                    </div>
                   <div className="p-4">
                     <div className="grid grid-cols-4 gap-3 mb-4">
                       <div className="text-center p-3 bg-blue-50 rounded-lg"><p className="text-xl font-bold text-blue-700">{result.policies_found}</p><p className="text-xs text-blue-600">Found</p></div>
                       <div className="text-center p-3 bg-green-50 rounded-lg"><p className="text-xl font-bold text-green-700">{result.policies_matched}</p><p className="text-xs text-green-600">Matched</p></div>
-                      <div className="text-center p-3 bg-emerald-50 rounded-lg"><p className="text-xl font-bold text-emerald-700">{result.emails_sent}</p><p className="text-xs text-emerald-600">Sent</p></div>
+                      <div className={`text-center p-3 rounded-lg ${result.dry_run ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+                        <p className={`text-xl font-bold ${result.dry_run ? 'text-amber-700' : 'text-emerald-700'}`}>
+                          {result.dry_run ? result.details?.filter((d: any) => d.would_send).length || 0 : result.emails_sent}
+                        </p>
+                        <p className={`text-xs ${result.dry_run ? 'text-amber-600' : 'text-emerald-600'}`}>{result.dry_run ? 'Would Send' : 'Sent'}</p>
+                      </div>
                       <div className="text-center p-3 bg-amber-50 rounded-lg"><p className="text-xl font-bold text-amber-700">{result.emails_skipped}</p><p className="text-xs text-amber-600">Skipped</p></div>
                     </div>
                     {result.details?.length > 0 && (
                       <div className="max-h-60 overflow-y-auto">
-                        <table className="w-full text-xs"><thead><tr className="text-left text-slate-500 border-b"><th className="pb-2 font-semibold">Policy</th><th className="pb-2 font-semibold">Customer</th><th className="pb-2 font-semibold">Status</th></tr></thead>
+                        <table className="w-full text-xs"><thead><tr className="text-left text-slate-500 border-b"><th className="pb-2 font-semibold">Policy</th><th className="pb-2 font-semibold">Customer</th><th className="pb-2 font-semibold">Email</th><th className="pb-2 font-semibold">Status</th></tr></thead>
                           <tbody>{result.details.map((d: any, i: number) => (
                             <tr key={i} className="border-b border-slate-100">
                               <td className="py-2 font-mono font-semibold">{d.policy_number}</td>
                               <td className="py-2">{d.customer_name || <span className="text-slate-400">—</span>}</td>
-                              <td className="py-2">{d.email_sent ? <span className="flex items-center gap-1 text-green-600"><Send size={11} />Sent to {d.customer_email}</span> : d.skipped_rate_limit ? <span className="flex items-center gap-1 text-amber-600"><Clock size={11} />Sent recently</span> : <span className="text-red-500">{d.error || 'Not matched'}</span>}</td>
+                              <td className="py-2 text-slate-500">{d.customer_email || '—'}</td>
+                              <td className="py-2">
+                                {d.would_send ? <span className="flex items-center gap-1 text-amber-600">✓ Would email {d.customer_email}</span>
+                                : d.email_sent ? <span className="flex items-center gap-1 text-green-600"><Send size={11} />Sent to {d.customer_email}</span>
+                                : d.skipped_rate_limit ? <span className="flex items-center gap-1 text-amber-600"><Clock size={11} />Sent recently</span>
+                                : <span className="text-red-500">{d.error || 'Not matched'}</span>}
+                              </td>
                             </tr>
                           ))}</tbody>
                         </table>

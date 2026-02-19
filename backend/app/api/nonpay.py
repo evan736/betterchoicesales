@@ -59,10 +59,12 @@ IMPORTANT:
 @router.post("/upload")
 async def upload_nonpay_file(
     file: UploadFile = File(...),
+    dry_run: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a non-pay PDF or CSV. Extracts policy info, matches customers, sends emails."""
+    """Upload a non-pay PDF or CSV. Extracts policy info, matches customers, sends emails.
+    Set dry_run=true to preview matches without sending any emails."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
@@ -114,6 +116,7 @@ async def upload_nonpay_file(
                 insured_name=pol.get("insured_name", ""),
                 amount_due=pol.get("amount_due"),
                 due_date=pol.get("due_date"),
+                dry_run=dry_run,
             )
             results.append(result)
             if result.get("matched"):
@@ -126,12 +129,13 @@ async def upload_nonpay_file(
         notice.policies_matched = matched
         notice.emails_sent = sent
         notice.emails_skipped = skipped
-        notice.status = "completed"
+        notice.status = "dry_run" if dry_run else "completed"
         db.commit()
 
         return {
             "notice_id": notice.id,
             "filename": file.filename,
+            "dry_run": dry_run,
             "policies_found": len(policies),
             "policies_matched": matched,
             "emails_sent": sent,
@@ -155,6 +159,7 @@ def _process_single_policy(
     insured_name: str,
     amount_due: Optional[float],
     due_date: Optional[str],
+    dry_run: bool = False,
 ) -> dict:
     """Match a policy to a customer and send email if within rate limit."""
     result = {
@@ -213,6 +218,13 @@ def _process_single_policy(
 
     # Use carrier from policy record if not in the upload
     effective_carrier = carrier or policy.carrier or ""
+
+    # In dry_run mode, report what WOULD happen but don't send
+    if dry_run:
+        result["email_sent"] = False
+        result["would_send"] = True
+        result["dry_run"] = True
+        return result
 
     # Send the email
     email_result = send_nonpay_email(
