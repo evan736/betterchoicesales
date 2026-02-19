@@ -129,16 +129,21 @@ async def upload_nonpay_b64(
     if len(file_bytes) > 25 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 25MB)")
 
-    # Create notice record
-    notice = NonPayNotice(
-        filename=filename,
-        upload_type=ext,
-        uploaded_by=current_user.name or current_user.username,
-        status="processing",
-    )
-    db.add(notice)
-    db.commit()
-    db.refresh(notice)
+    try:
+        # Create notice record
+        notice = NonPayNotice(
+            filename=filename,
+            upload_type=ext,
+            uploaded_by=current_user.name or current_user.username,
+            status="processing",
+        )
+        db.add(notice)
+        db.commit()
+        db.refresh(notice)
+    except Exception as e:
+        db.rollback()
+        import traceback
+        raise HTTPException(status_code=500, detail=f"DB error creating notice: {str(e)}\n{traceback.format_exc()[-500:]}")
 
     try:
         if ext == "pdf":
@@ -238,15 +243,20 @@ async def upload_nonpay_file(
         raise HTTPException(status_code=400, detail="File too large (max 25MB)")
 
     # Create notice record
-    notice = NonPayNotice(
-        filename=file.filename,
-        upload_type=ext,
-        uploaded_by=current_user.name or current_user.username,
-        status="processing",
-    )
-    db.add(notice)
-    db.commit()
-    db.refresh(notice)
+    try:
+        notice = NonPayNotice(
+            filename=file.filename,
+            upload_type=ext,
+            uploaded_by=current_user.name or current_user.username,
+            status="processing",
+        )
+        db.add(notice)
+        db.commit()
+        db.refresh(notice)
+    except Exception as e:
+        db.rollback()
+        import traceback
+        raise HTTPException(status_code=500, detail=f"DB error creating notice: {str(e)}\n{traceback.format_exc()[-500:]}")
 
     try:
         # Extract policies from file

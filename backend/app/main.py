@@ -441,6 +441,27 @@ app = FastAPI(
     redoc_url=redoc_url,
 )
 
+
+# Global exception handler - always return JSON (never plain text)
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal error: {str(exc)}"},
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
+
 # CORS — allow Render frontend URL + local dev
 allowed_origins = [
     "http://localhost:3000",
