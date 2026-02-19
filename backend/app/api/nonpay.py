@@ -134,7 +134,7 @@ async def upload_nonpay_b64(
         notice = NonPayNotice(
             filename=filename,
             upload_type=ext,
-            uploaded_by=current_user.name or current_user.username,
+            uploaded_by=current_user.full_name or current_user.username,
             status="processing",
         )
         db.add(notice)
@@ -247,7 +247,7 @@ async def upload_nonpay_file(
         notice = NonPayNotice(
             filename=file.filename,
             upload_type=ext,
-            uploaded_by=current_user.name or current_user.username,
+            uploaded_by=current_user.full_name or current_user.username,
             status="processing",
         )
         db.add(notice)
