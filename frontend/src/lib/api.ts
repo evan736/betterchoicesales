@@ -232,17 +232,26 @@ export const customersAPI = {
 
 export const nonpayAPI = {
   upload: async (file: File, dryRun?: boolean) => {
-    // Use base64 JSON upload (avoids multipart issues)
+    // Convert file to base64
     const reader = new FileReader();
     const b64 = await new Promise<string>((resolve, reject) => {
       reader.onload = () => resolve((reader.result as string).split(',')[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-    return api.post(`/api/nonpay/upload-b64?dry_run=${dryRun ? 'true' : 'false'}`, {
-      filename: file.name,
-      data: b64,
-    }, { timeout: 120000 });
+    // Route through same-origin Next.js API proxy to avoid CORS
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`/api/nonpay-upload?dry_run=${dryRun ? 'true' : 'false'}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ filename: file.name, data: b64 }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw { response: { status: resp.status, data } };
+    return { data };
   },
   history: (limit?: number) => api.get('/api/nonpay/history', { params: { limit: limit || 20 } }),
   emails: (policyNumber?: string) => api.get('/api/nonpay/emails', { params: { policy_number: policyNumber } }),
