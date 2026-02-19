@@ -55,6 +55,31 @@ def nonpay_diagnostic():
         diag["table_error"] = str(e)
     return diag
 
+
+@router.post("/test-extract")
+async def test_extract(payload: dict = Body(...)):
+    """Test file extraction without auth or DB. Returns extracted policies."""
+    try:
+        data_b64 = payload.get("data", "")
+        filename = payload.get("filename", "test.csv")
+        if not data_b64:
+            return {"error": "No data provided"}
+
+        file_bytes = base64.b64decode(data_b64)
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+        if ext in ("xlsx", "xls"):
+            policies = _extract_from_excel(file_bytes, ext)
+        elif ext == "pdf":
+            policies = await _extract_from_pdf(file_bytes)
+        else:
+            policies = _extract_from_csv(file_bytes)
+
+        return {"filename": filename, "ext": ext, "policies_found": len(policies), "policies": policies[:5]}
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 # ── Extraction prompt for Claude ──────────────────────────────────────
 
 NONPAY_EXTRACTION_PROMPT = """You are an expert insurance document parser. This document is a non-pay / past-due / cancellation notice from an insurance carrier or agency management system.

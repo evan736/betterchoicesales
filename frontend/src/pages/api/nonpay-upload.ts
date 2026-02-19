@@ -26,7 +26,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: JSON.stringify(req.body),
     });
 
-    const data = await response.json();
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: `Backend error (${response.status}): ${text.slice(0, 500)}` };
+    }
     return res.status(response.status).json(data);
   } catch (error: any) {
     return res.status(500).json({ detail: `Proxy error: ${error.message}` });
