@@ -205,11 +205,16 @@ async def upload_nonpay_b64(
             "emails_sent": sent, "emails_skipped": skipped, "details": results,
         }
     except Exception as e:
-        notice.status = "error"
-        notice.error_message = str(e)[:500]
-        db.commit()
-        logger.error("Non-pay processing error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            notice.status = "error"
+            notice.error_message = str(e)[:500]
+            db.commit()
+        except Exception:
+            db.rollback()
+        logger.error("Non-pay processing error: %s\n%s", e, tb)
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}\n{tb[-500:]}")
 
 
 @router.post("/upload")
@@ -324,10 +329,16 @@ async def upload_nonpay_file(
         }
 
     except Exception as e:
-        notice.status = "error"
-        notice.error_message = str(e)[:500]
-        db.commit()
-        logger.error("Non-pay processing error: %s", e)
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            notice.status = "error"
+            notice.error_message = str(e)[:500]
+            db.commit()
+        except Exception:
+            db.rollback()
+        logger.error("Non-pay processing error: %s\n%s", e, tb)
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}\n{tb[-500:]}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
