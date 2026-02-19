@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -85,7 +85,7 @@ IMPORTANT:
 
 @router.post("/upload-b64")
 async def upload_nonpay_b64(
-    payload: dict,
+    payload: dict = Body(...),
     dry_run: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
