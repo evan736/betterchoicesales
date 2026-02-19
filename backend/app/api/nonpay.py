@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -59,7 +59,7 @@ IMPORTANT:
 @router.post("/upload")
 async def upload_nonpay_file(
     file: UploadFile = File(...),
-    dry_run: bool = False,
+    dry_run: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -448,11 +448,19 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
     else:  # xls
         try:
             import xlrd
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            ws = wb.sheet_by_index(0)
+            rows = [ws.row_values(r) for r in range(ws.nrows)]
         except ImportError:
-            raise ValueError("XLS format requires xlrd package. Please install it or convert to XLSX.")
-        wb = xlrd.open_workbook(file_contents=file_bytes)
-        ws = wb.sheet_by_index(0)
-        rows = [ws.row_values(r) for r in range(ws.nrows)]
+            # xlrd not installed — try reading as CSV (some .xls are actually HTML/CSV)
+            try:
+                text = file_bytes.decode("utf-8", errors="ignore")
+                reader = csv.reader(io.StringIO(text), delimiter="\t")
+                rows = [row for row in reader]
+            except Exception:
+                raise ValueError("XLS support requires xlrd package. Please convert to XLSX or CSV.")
+        except Exception as e:
+            raise ValueError(f"Failed to read XLS file: {str(e)}")
 
     if not rows:
         return results

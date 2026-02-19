@@ -445,9 +445,10 @@ app = FastAPI(
 allowed_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
+    "https://better-choice-web.onrender.com",
 ]
 frontend_url = os.environ.get("FRONTEND_URL", "")
-if frontend_url:
+if frontend_url and frontend_url not in allowed_origins:
     allowed_origins.append(frontend_url)
     if not frontend_url.startswith("https"):
         allowed_origins.append(frontend_url.replace("http://", "https://"))
