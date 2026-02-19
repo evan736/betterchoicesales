@@ -446,7 +446,10 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
         ws = wb.active
         rows = list(ws.iter_rows(values_only=True))
     else:  # xls
-        import xlrd
+        try:
+            import xlrd
+        except ImportError:
+            raise ValueError("XLS format requires xlrd package. Please install it or convert to XLSX.")
         wb = xlrd.open_workbook(file_contents=file_bytes)
         ws = wb.sheet_by_index(0)
         rows = [ws.row_values(r) for r in range(ws.nrows)]

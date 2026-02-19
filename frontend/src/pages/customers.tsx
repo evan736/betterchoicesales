@@ -127,7 +127,7 @@ export default function CustomersPage() {
       const r = await nonpayAPI.upload(file, nonpayDryRun);
       setNonpayResult(r.data);
       loadNonpayHistory();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Upload failed'); }
+    } catch (e: any) { alert(e.response?.data?.detail || e.response?.data?.message || e.message || 'Upload failed. Check Render logs for details.'); }
     setNonpayUploading(false);
   };
 
