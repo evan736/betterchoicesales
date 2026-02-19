@@ -69,8 +69,8 @@ async def upload_nonpay_file(
         raise HTTPException(status_code=400, detail="No file provided")
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ("pdf", "csv", "tsv", "txt"):
-        raise HTTPException(status_code=400, detail="Supported formats: PDF, CSV")
+    if ext not in ("pdf", "csv", "tsv", "txt", "xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="Supported formats: PDF, CSV, XLS, XLSX")
 
     file_bytes = await file.read()
     if len(file_bytes) > 25 * 1024 * 1024:
@@ -91,6 +91,8 @@ async def upload_nonpay_file(
         # Extract policies from file
         if ext == "pdf":
             policies = await _extract_from_pdf(file_bytes)
+        elif ext in ("xlsx", "xls"):
+            policies = _extract_from_excel(file_bytes, ext)
         else:
             policies = _extract_from_csv(file_bytes)
 
@@ -383,6 +385,79 @@ def _extract_from_csv(file_bytes: bytes) -> list[dict]:
             "insured_name": row.get(n_col, "").strip() if n_col else "",
             "amount_due": amt,
             "due_date": row.get(d_col, "").strip() if d_col else "",
+            "notice_type": "non-pay",
+        })
+
+    return results
+
+
+def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
+    """Extract policy data from .xlsx or .xls files."""
+    import io
+
+    # Column name patterns (same as CSV)
+    policy_pats = ["policy_number", "policynumber", "policy #", "policy#", "policy no",
+                   "policyno", "policy", "pol_number", "pol_num", "pol#", "number"]
+    carrier_pats = ["carrier", "carrier_name", "carriername", "company", "insurer", "insurance_company"]
+    name_pats = ["insured_name", "insuredname", "name", "client", "customer", "policyholder",
+                 "insured", "named_insured", "named insured", "first name", "first_name"]
+    amount_pats = ["amount_due", "amountdue", "amount", "balance", "premium_due", "premiumdue",
+                   "past_due", "pastdue", "total_due", "totaldue", "premium"]
+    date_pats = ["due_date", "duedate", "cancel_date", "canceldate", "effective_date",
+                 "cancellation_date", "cancellationdate"]
+
+    def _match_col(headers, patterns):
+        for i, h in enumerate(headers):
+            if h and str(h).lower().strip().replace(" ", "_") in patterns:
+                return i
+        return None
+
+    results = []
+
+    if ext == "xlsx":
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    else:  # xls
+        import xlrd
+        wb = xlrd.open_workbook(file_contents=file_bytes)
+        ws = wb.sheet_by_index(0)
+        rows = [ws.row_values(r) for r in range(ws.nrows)]
+
+    if not rows:
+        return results
+
+    headers = [str(c).strip() if c else "" for c in rows[0]]
+    p_col = _match_col(headers, policy_pats)
+    c_col = _match_col(headers, carrier_pats)
+    n_col = _match_col(headers, name_pats)
+    a_col = _match_col(headers, amount_pats)
+    d_col = _match_col(headers, date_pats)
+
+    for row in rows[1:]:
+        cells = list(row)
+        pnum = str(cells[p_col]).strip() if p_col is not None and p_col < len(cells) and cells[p_col] else ""
+        if not pnum or pnum.lower() == "none":
+            continue
+
+        amt = None
+        if a_col is not None and a_col < len(cells) and cells[a_col]:
+            try:
+                val = cells[a_col]
+                if isinstance(val, (int, float)):
+                    amt = float(val)
+                else:
+                    amt = float(str(val).replace(",", "").replace("$", "").strip())
+            except (ValueError, TypeError):
+                pass
+
+        results.append({
+            "policy_number": pnum,
+            "carrier": str(cells[c_col]).strip() if c_col is not None and c_col < len(cells) and cells[c_col] else "",
+            "insured_name": str(cells[n_col]).strip() if n_col is not None and n_col < len(cells) and cells[n_col] else "",
+            "amount_due": amt,
+            "due_date": str(cells[d_col]).strip() if d_col is not None and d_col < len(cells) and cells[d_col] else "",
             "notice_type": "non-pay",
         })
 

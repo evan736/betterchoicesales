@@ -119,8 +119,8 @@ export default function CustomersPage() {
 
   const handleNonpayUpload = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'csv', 'tsv', 'txt'].includes(ext || '')) {
-      alert('Please upload a PDF or CSV file.'); return;
+    if (!['pdf', 'csv', 'tsv', 'txt', 'xlsx', 'xls'].includes(ext || '')) {
+      alert('Please upload a PDF, CSV, or Excel file.'); return;
     }
     setNonpayUploading(true); setNonpayResult(null);
     try {
@@ -504,11 +504,11 @@ const NonPayModal: React.FC<{
                   dragOver ? 'border-brand-500 bg-brand-50' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50'
                 } ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
               >
-                <input ref={fileInputRef as any} type="file" accept=".pdf,.csv,.tsv,.txt" onChange={onFileSelect} className="hidden" />
+                <input ref={fileInputRef as any} type="file" accept=".pdf,.csv,.tsv,.txt,.xlsx,.xls" onChange={onFileSelect} className="hidden" />
                 {uploading ? (
                   <><Loader2 size={36} className="mx-auto mb-3 text-brand-500 animate-spin" /><p className="font-semibold text-slate-700">Processing file...</p><p className="text-sm text-slate-500 mt-1">Extracting policies and sending emails</p></>
                 ) : (
-                  <><Upload size={36} className="mx-auto mb-3 text-slate-400" /><p className="font-semibold text-slate-700">Drop non-pay file here or click to browse</p><p className="text-sm text-slate-500 mt-1">Supports PDF and CSV files</p></>
+                  <><Upload size={36} className="mx-auto mb-3 text-slate-400" /><p className="font-semibold text-slate-700">Drop non-pay file here or click to browse</p><p className="text-sm text-slate-500 mt-1">Supports PDF, CSV, and Excel files</p></>
                 )}
               </div>
 
