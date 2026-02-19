@@ -232,7 +232,7 @@ export const customersAPI = {
 
 export const nonpayAPI = {
   upload: async (file: File, dryRun?: boolean) => {
-    // Try FormData first, fall back to base64 if network error
+    // Try FormData first, fall back to base64 if true network error
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -241,20 +241,21 @@ export const nonpayAPI = {
         timeout: 120000,
       });
     } catch (err: any) {
-      // If network error (not HTTP error), try base64 approach
-      if (err.message === 'Network Error' || !err.response) {
-        const reader = new FileReader();
-        const b64 = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve((reader.result as string).split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        return api.post(`/api/nonpay/upload-b64?dry_run=${dryRun ? 'true' : 'false'}`, {
-          filename: file.name,
-          data: b64,
-        }, { timeout: 120000 });
+      // If server returned an error (4xx/5xx), throw it so we see the message
+      if (err.response) {
+        throw err;
       }
-      throw err;
+      // Only retry via base64 on true network error (no response)
+      const reader = new FileReader();
+      const b64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      return api.post(`/api/nonpay/upload-b64?dry_run=${dryRun ? 'true' : 'false'}`, {
+        filename: file.name,
+        data: b64,
+      }, { timeout: 120000 });
     }
   },
   history: (limit?: number) => api.get('/api/nonpay/history', { params: { limit: limit || 20 } }),
