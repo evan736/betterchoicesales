@@ -83,6 +83,110 @@ IMPORTANT:
 
 # ── Upload + Process ─────────────────────────────────────────────────
 
+@router.post("/upload-b64")
+async def upload_nonpay_b64(
+    payload: dict,
+    dry_run: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fallback upload via base64 JSON body instead of multipart form."""
+    filename = payload.get("filename", "upload.csv")
+    data_b64 = payload.get("data", "")
+    if not data_b64:
+        raise HTTPException(status_code=400, detail="No file data provided")
+
+    file_bytes = base64.b64decode(data_b64)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ("pdf", "csv", "tsv", "txt", "xlsx", "xls"):
+        raise HTTPException(status_code=400, detail="Supported formats: PDF, CSV, XLS, XLSX")
+
+    if len(file_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 25MB)")
+
+    # Create notice record
+    notice = NonPayNotice(
+        filename=filename,
+        upload_type=ext,
+        uploaded_by=current_user.name or current_user.username,
+        status="processing",
+    )
+    db.add(notice)
+    db.commit()
+    db.refresh(notice)
+
+    try:
+        if ext == "pdf":
+            policies = await _extract_from_pdf(file_bytes)
+        elif ext in ("xlsx", "xls"):
+            policies = _extract_from_excel(file_bytes, ext)
+        else:
+            policies = _extract_from_csv(file_bytes)
+
+        notice.raw_extracted = policies
+        notice.policies_found = len(policies)
+
+        # Carrier inference from filename
+        FILENAME_CARRIER_MAP = {
+            "trv": "travelers", "travelers": "travelers",
+            "prog": "progressive", "progressive": "progressive",
+            "safeco": "safeco", "geico": "geico", "grange": "grange",
+            "hippo": "hippo", "branch": "branch", "next": "next",
+            "gainsco": "gainsco", "steadily": "steadily",
+            "integrity": "integrity", "clearcover": "clearcover",
+            "openly": "openly", "bristol": "bristol_west",
+            "natgen": "national_general", "national_general": "national_general",
+            "universal": "universal_property", "upcic": "universal_property",
+            "american_modern": "american_modern", "covertree": "covertree",
+        }
+        has_any_carrier = any(p.get("carrier") for p in policies)
+        if not has_any_carrier and filename:
+            fn_lower = filename.lower()
+            for pattern, carrier_key in FILENAME_CARRIER_MAP.items():
+                if pattern in fn_lower:
+                    for p in policies:
+                        p["carrier"] = carrier_key
+                    break
+
+        results = []
+        matched = 0
+        sent = 0
+        skipped = 0
+
+        for pol in policies:
+            pnum = (pol.get("policy_number") or "").strip()
+            if not pnum:
+                continue
+            result = _process_single_policy(
+                db=db, notice_id=notice.id, policy_number=pnum,
+                carrier=pol.get("carrier", ""), insured_name=pol.get("insured_name", ""),
+                amount_due=pol.get("amount_due"), due_date=pol.get("due_date"),
+                dry_run=dry_run,
+            )
+            results.append(result)
+            if result.get("matched"): matched += 1
+            if result.get("email_sent"): sent += 1
+            if result.get("skipped_rate_limit"): skipped += 1
+
+        notice.policies_matched = matched
+        notice.emails_sent = sent
+        notice.emails_skipped = skipped
+        notice.status = "dry_run" if dry_run else "completed"
+        db.commit()
+
+        return {
+            "notice_id": notice.id, "filename": filename, "dry_run": dry_run,
+            "policies_found": len(policies), "policies_matched": matched,
+            "emails_sent": sent, "emails_skipped": skipped, "details": results,
+        }
+    except Exception as e:
+        notice.status = "error"
+        notice.error_message = str(e)[:500]
+        db.commit()
+        logger.error("Non-pay processing error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
 @router.post("/upload")
 async def upload_nonpay_file(
     file: UploadFile = File(...),

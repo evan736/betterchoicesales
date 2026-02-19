@@ -231,10 +231,31 @@ export const customersAPI = {
 };
 
 export const nonpayAPI = {
-  upload: (file: File, dryRun?: boolean) => {
+  upload: async (file: File, dryRun?: boolean) => {
+    // Try FormData first, fall back to base64 if network error
     const formData = new FormData();
     formData.append('file', file);
-    return api.post(`/api/nonpay/upload?dry_run=${dryRun ? 'true' : 'false'}`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+    try {
+      return await api.post(`/api/nonpay/upload?dry_run=${dryRun ? 'true' : 'false'}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+      });
+    } catch (err: any) {
+      // If network error (not HTTP error), try base64 approach
+      if (err.message === 'Network Error' || !err.response) {
+        const reader = new FileReader();
+        const b64 = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        return api.post(`/api/nonpay/upload-b64?dry_run=${dryRun ? 'true' : 'false'}`, {
+          filename: file.name,
+          data: b64,
+        }, { timeout: 120000 });
+      }
+      throw err;
+    }
   },
   history: (limit?: number) => api.get('/api/nonpay/history', { params: { limit: limit || 20 } }),
   emails: (policyNumber?: string) => api.get('/api/nonpay/emails', { params: { policy_number: policyNumber } }),
