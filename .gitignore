@@ -1,0 +1,8 @@
+.cache/
+.local/
+.npm-global/
+.npm/
+node_modules/
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,478 @@
+/*  APPLE CLEAN — Light, minimal, modern
+    Scoped: body.mission-control.apple-clean
+    Overrides mission-control back to a light theme with Apple-style aesthetics  */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+body.mission-control.apple-clean {
+  --mc-bg-primary: #f5f5f7;
+  --mc-bg-secondary: #ffffff;
+  --mc-bg-elevated: #ffffff;
+  --mc-bg-surface: #f9fafb;
+  --mc-glass: rgba(0, 0, 0, 0.02);
+  --mc-glass-border: rgba(0, 0, 0, 0.06);
+  --mc-glass-strong: rgba(0, 0, 0, 0.04);
+  --mc-glass-hover: rgba(0, 0, 0, 0.05);
+  --mc-text-primary: #1d1d1f;
+  --mc-text-secondary: #6e6e73;
+  --mc-text-tertiary: #86868b;
+  --mc-text-muted: #aeaeb2;
+  --mc-accent: #0071e3;
+  --mc-accent-glow: rgba(0, 113, 227, 0.08);
+  --mc-accent-subtle: rgba(0, 113, 227, 0.04);
+  --mc-accent-bright: #2997ff;
+  --mc-cyan: #5ac8fa;
+  --mc-green: #30d158;
+  --mc-green-glow: rgba(48, 209, 88, 0.08);
+  --mc-amber: #ff9f0a;
+  --mc-amber-glow: rgba(255, 159, 10, 0.08);
+  --mc-red: #ff3b30;
+  --mc-red-glow: rgba(255, 59, 48, 0.08);
+  --mc-purple: #af52de;
+  --mc-purple-glow: rgba(175, 82, 222, 0.08);
+  --mc-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --mc-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --mc-shadow-glow: 0 0 0 transparent;
+  --mc-radius-sm: 10px;
+  --mc-radius: 16px;
+  --mc-radius-lg: 22px;
+  --mc-radius-xl: 28px;
+}
+
+/* Base body */
+body.mission-control.apple-clean {
+  background: #f5f5f7 !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif !important;
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean * {
+  font-family: inherit;
+}
+
+/* Remove grain overlay */
+body.mission-control.apple-clean::after {
+  display: none !important;
+}
+
+/* Navbar — clean white frosted glass */
+body.mission-control.apple-clean nav {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: none !important;
+}
+
+body.mission-control.apple-clean nav h1,
+body.mission-control.apple-clean nav .text-brand-900 {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean nav .text-brand-500,
+body.mission-control.apple-clean nav .text-brand-600,
+body.mission-control.apple-clean nav p {
+  color: #6e6e73 !important;
+}
+
+body.mission-control.apple-clean nav a {
+  color: #1d1d1f !important;
+  border-radius: 8px;
+}
+
+body.mission-control.apple-clean nav a:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean nav a.border-b-2 {
+  border-color: #0071e3 !important;
+  color: #0071e3 !important;
+  background: transparent !important;
+}
+
+/* Cards — clean white with subtle shadow */
+body.mission-control.apple-clean .card,
+body.mission-control.apple-clean main .bg-white {
+  background: #ffffff !important;
+  border: 0.5px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02) !important;
+  backdrop-filter: none !important;
+}
+
+/* Stat cards */
+body.mission-control.apple-clean .stat-card {
+  background: #ffffff !important;
+  border: 0.5px solid rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+body.mission-control.apple-clean .stat-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+body.mission-control.apple-clean .stat-card .bg-gradient-to-br {
+  background: #f5f5f7 !important;
+}
+
+/* Text colors — dark on light */
+body.mission-control.apple-clean .text-slate-900,
+body.mission-control.apple-clean .text-brand-900 {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .text-slate-700,
+body.mission-control.apple-clean .text-slate-600 {
+  color: #6e6e73 !important;
+}
+
+body.mission-control.apple-clean .text-slate-500 {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean .text-slate-400 {
+  color: #aeaeb2 !important;
+}
+
+/* Primary buttons — Apple blue pill */
+body.mission-control.apple-clean .btn-primary,
+body.mission-control.apple-clean .bg-brand-600,
+body.mission-control.apple-clean .bg-blue-600 {
+  background: #0071e3 !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 980px !important;
+}
+
+body.mission-control.apple-clean .btn-primary:hover,
+body.mission-control.apple-clean .bg-brand-600:hover,
+body.mission-control.apple-clean .bg-blue-600:hover {
+  background: #0077ED !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.2) !important;
+}
+
+/* Brand text */
+body.mission-control.apple-clean .text-brand-600,
+body.mission-control.apple-clean .text-brand-500 {
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .text-brand-700,
+body.mission-control.apple-clean .hover\:text-brand-700:hover {
+  color: #0077ED !important;
+}
+
+/* Green text */
+body.mission-control.apple-clean .text-green-600,
+body.mission-control.apple-clean .text-green-700 {
+  color: #248a3d !important;
+}
+
+/* Amber text */
+body.mission-control.apple-clean .text-amber-600 {
+  color: #b25000 !important;
+}
+
+/* Input fields */
+body.mission-control.apple-clean input,
+body.mission-control.apple-clean select,
+body.mission-control.apple-clean textarea {
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: #1d1d1f !important;
+  border-radius: 10px !important;
+}
+
+body.mission-control.apple-clean input:focus,
+body.mission-control.apple-clean select:focus,
+body.mission-control.apple-clean textarea:focus {
+  border-color: #0071e3 !important;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12) !important;
+}
+
+body.mission-control.apple-clean select option {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+}
+
+/* Badges */
+body.mission-control.apple-clean .badge-success {
+  background: rgba(48, 209, 88, 0.1) !important;
+  color: #248a3d !important;
+}
+
+body.mission-control.apple-clean .badge-warning {
+  background: rgba(255, 159, 10, 0.1) !important;
+  color: #b25000 !important;
+}
+
+body.mission-control.apple-clean .badge-danger {
+  background: rgba(255, 59, 48, 0.1) !important;
+  color: #d70015 !important;
+}
+
+/* Sale list items */
+body.mission-control.apple-clean .border-slate-200 {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .hover\:border-brand-300:hover {
+  border-color: rgba(0, 113, 227, 0.3) !important;
+}
+
+body.mission-control.apple-clean .hover\:bg-brand-50\/50:hover {
+  background: rgba(0, 113, 227, 0.03) !important;
+}
+
+/* Quick action buttons */
+body.mission-control.apple-clean .group .bg-brand-100 {
+  background: rgba(0, 113, 227, 0.08) !important;
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .group:hover .group-hover\:bg-brand-600 {
+  background: #0071e3 !important;
+  color: white !important;
+}
+
+body.mission-control.apple-clean .group:hover .group-hover\:text-brand-700 {
+  color: #0071e3 !important;
+}
+
+/* Commission tier card */
+body.mission-control.apple-clean .bg-gradient-to-br.from-brand-600 {
+  background: linear-gradient(135deg, #0071e3, #0055b3) !important;
+  border: none !important;
+}
+
+body.mission-control.apple-clean .bg-gradient-to-br.from-brand-600 .text-blue-100 {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Tables */
+body.mission-control.apple-clean table th {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean table td {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .hover\:bg-slate-50:hover {
+  background: #f5f5f7 !important;
+}
+
+body.mission-control.apple-clean .border-slate-100 {
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Scrollbar */
+body.mission-control.apple-clean ::-webkit-scrollbar {
+  width: 8px;
+}
+
+body.mission-control.apple-clean ::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+body.mission-control.apple-clean ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-radius: 4px !important;
+}
+
+body.mission-control.apple-clean ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Selection */
+body.mission-control.apple-clean ::selection {
+  background: rgba(0, 113, 227, 0.2) !important;
+  color: #1d1d1f !important;
+}
+
+/* Time clock widget */
+body.mission-control.apple-clean main .bg-green-50.border-green-200 {
+  background: rgba(48, 209, 88, 0.06) !important;
+  border-color: rgba(48, 209, 88, 0.2) !important;
+}
+
+body.mission-control.apple-clean main .text-green-800 {
+  color: #248a3d !important;
+}
+
+body.mission-control.apple-clean main .text-green-900 {
+  color: #1b6d30 !important;
+}
+
+body.mission-control.apple-clean main .text-green-700 {
+  color: #248a3d !important;
+}
+
+body.mission-control.apple-clean main .border-blue-200.shadow-md {
+  background: #ffffff !important;
+  border-color: rgba(0, 113, 227, 0.15) !important;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.06) !important;
+}
+
+body.mission-control.apple-clean main .bg-blue-100 {
+  background: rgba(0, 113, 227, 0.08) !important;
+}
+
+body.mission-control.apple-clean main .text-blue-800 {
+  color: #0055b3 !important;
+}
+
+body.mission-control.apple-clean main .font-mono.font-bold.text-green-900 {
+  color: #1b6d30 !important;
+  text-shadow: none !important;
+}
+
+/* Upload carrier pills */
+body.mission-control.apple-clean main .bg-green-50 {
+  background: rgba(48, 209, 88, 0.08) !important;
+  border-color: rgba(48, 209, 88, 0.2) !important;
+}
+
+body.mission-control.apple-clean main .bg-green-50 .text-green-700,
+body.mission-control.apple-clean main .bg-green-50.text-green-700 {
+  color: #248a3d !important;
+}
+
+body.mission-control.apple-clean main span.bg-slate-50 {
+  background: #f5f5f7 !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Amber warning */
+body.mission-control.apple-clean main .bg-amber-50 {
+  background: rgba(255, 159, 10, 0.06) !important;
+  border-color: rgba(255, 159, 10, 0.15) !important;
+}
+
+body.mission-control.apple-clean main .bg-amber-50 .text-amber-800 {
+  color: #8a3800 !important;
+}
+
+/* User menu */
+body.mission-control.apple-clean nav .text-slate-600 {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean nav .hover\:text-brand-600:hover {
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean nav .hover\:bg-brand-50:hover {
+  background: rgba(0, 113, 227, 0.06) !important;
+}
+
+/* Green buttons keep green */
+body.mission-control.apple-clean .bg-green-600 {
+  background: #30d158 !important;
+  color: white !important;
+}
+
+body.mission-control.apple-clean .bg-green-600:hover {
+  background: #28b74b !important;
+}
+
+/* Theme picker */
+body.mission-control.apple-clean .theme-picker-dropdown {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1) !important;
+}
+
+body.mission-control.apple-clean .theme-picker-header {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .theme-picker-label {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean .theme-picker-item:hover {
+  background: #f5f5f7 !important;
+}
+
+body.mission-control.apple-clean .theme-picker-name {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .theme-picker-desc {
+  color: #86868b !important;
+}
+
+/* Nav menu */
+body.mission-control.apple-clean .nav-menu-trigger {
+  color: #1d1d1f !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .nav-menu-trigger:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .nav-menu-active {
+  background: rgba(0, 113, 227, 0.06) !important;
+}
+
+body.mission-control.apple-clean .nav-menu-icon {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean .nav-menu-active .nav-menu-icon {
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .nav-menu-active .theme-picker-name {
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .nav-divider {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Sales ticker */
+body.mission-control.apple-clean .ticker-container {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .ticker-fade-left {
+  background: linear-gradient(to right, #ffffff, transparent) !important;
+}
+
+body.mission-control.apple-clean .ticker-fade-right {
+  background: linear-gradient(to left, #ffffff, transparent) !important;
+}
+
+/* Ticker text */
+body.mission-control.apple-clean .ticker-name {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .ticker-amount {
+  color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .ticker-sep,
+body.mission-control.apple-clean .ticker-source {
+  color: #86868b !important;
+}
+
+/* Link dropdowns */
+body.mission-control.apple-clean .link-dropdown-trigger {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .link-dropdown-trigger:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.apple-clean .link-dropdown-label {
+  color: #1d1d1f !important;
+}

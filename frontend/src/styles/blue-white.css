@@ -1,0 +1,433 @@
+/*  CLASSIC BLUE — Clean blue & white professional
+    Scoped: body.mission-control.blue-white
+    Overrides mission-control back to a light blue theme  */
+
+body.mission-control.blue-white {
+  --mc-bg-primary: #eef2ff;
+  --mc-bg-secondary: #ffffff;
+  --mc-bg-elevated: #ffffff;
+  --mc-bg-surface: #f0f4ff;
+  --mc-glass: rgba(30, 64, 175, 0.02);
+  --mc-glass-border: rgba(30, 64, 175, 0.08);
+  --mc-glass-strong: rgba(30, 64, 175, 0.04);
+  --mc-glass-hover: rgba(30, 64, 175, 0.06);
+  --mc-text-primary: #1e293b;
+  --mc-text-secondary: #475569;
+  --mc-text-tertiary: #64748b;
+  --mc-text-muted: #94a3b8;
+  --mc-accent: #1e40af;
+  --mc-accent-glow: rgba(30, 64, 175, 0.1);
+  --mc-accent-subtle: rgba(30, 64, 175, 0.04);
+  --mc-accent-bright: #3b82f6;
+  --mc-cyan: #3b82f6;
+  --mc-green: #22c55e;
+  --mc-green-glow: rgba(34, 197, 94, 0.08);
+  --mc-amber: #f59e0b;
+  --mc-amber-glow: rgba(245, 158, 11, 0.08);
+  --mc-red: #ef4444;
+  --mc-red-glow: rgba(239, 68, 68, 0.08);
+  --mc-purple: #8b5cf6;
+  --mc-purple-glow: rgba(139, 92, 246, 0.08);
+  --mc-shadow: 0 1px 3px rgba(30, 64, 175, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --mc-shadow-lg: 0 4px 16px rgba(30, 64, 175, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --mc-shadow-glow: 0 0 0 transparent;
+}
+
+/* Base body */
+body.mission-control.blue-white {
+  background: #eef2ff !important;
+  color: #1e293b !important;
+}
+
+/* Remove grain */
+body.mission-control.blue-white::after {
+  display: none !important;
+}
+
+/* Navbar — white with blue accent line */
+body.mission-control.blue-white nav {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 2px solid #1e40af !important;
+  box-shadow: 0 1px 4px rgba(30, 64, 175, 0.06) !important;
+}
+
+body.mission-control.blue-white nav h1,
+body.mission-control.blue-white nav .text-brand-900 {
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white nav .text-brand-500,
+body.mission-control.blue-white nav p {
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white nav a {
+  color: #475569 !important;
+}
+
+body.mission-control.blue-white nav a:hover {
+  background: rgba(30, 64, 175, 0.06) !important;
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white nav a.border-b-2 {
+  border-color: #1e40af !important;
+  color: #1e40af !important;
+}
+
+/* Cards */
+body.mission-control.blue-white .card,
+body.mission-control.blue-white main .bg-white {
+  background: #ffffff !important;
+  border: 1px solid rgba(30, 64, 175, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(30, 64, 175, 0.04) !important;
+  backdrop-filter: none !important;
+}
+
+/* Stat cards */
+body.mission-control.blue-white .stat-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(30, 64, 175, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(30, 64, 175, 0.04) !important;
+}
+
+body.mission-control.blue-white .stat-card:hover {
+  border-color: rgba(30, 64, 175, 0.2) !important;
+  box-shadow: 0 2px 8px rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .stat-card .bg-gradient-to-br {
+  background: #eef2ff !important;
+}
+
+/* Text */
+body.mission-control.blue-white .text-slate-900,
+body.mission-control.blue-white .text-brand-900 {
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white .text-slate-700,
+body.mission-control.blue-white .text-slate-600 {
+  color: #475569 !important;
+}
+
+body.mission-control.blue-white .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Primary buttons — solid blue */
+body.mission-control.blue-white .btn-primary,
+body.mission-control.blue-white .bg-brand-600,
+body.mission-control.blue-white .bg-blue-600 {
+  background: #1e40af !important;
+  box-shadow: 0 2px 4px rgba(30, 64, 175, 0.2) !important;
+}
+
+body.mission-control.blue-white .btn-primary:hover,
+body.mission-control.blue-white .bg-brand-600:hover,
+body.mission-control.blue-white .bg-blue-600:hover {
+  background: #1d4ed8 !important;
+  box-shadow: 0 4px 12px rgba(30, 64, 175, 0.25) !important;
+}
+
+/* Brand text */
+body.mission-control.blue-white .text-brand-600,
+body.mission-control.blue-white .text-brand-500 {
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white .text-brand-700,
+body.mission-control.blue-white .hover\:text-brand-700:hover {
+  color: #1d4ed8 !important;
+}
+
+/* Green text */
+body.mission-control.blue-white .text-green-600,
+body.mission-control.blue-white .text-green-700 {
+  color: #16a34a !important;
+}
+
+body.mission-control.blue-white .text-amber-600 {
+  color: #d97706 !important;
+}
+
+/* Inputs */
+body.mission-control.blue-white input,
+body.mission-control.blue-white select,
+body.mission-control.blue-white textarea {
+  background: #ffffff !important;
+  border: 1px solid rgba(30, 64, 175, 0.15) !important;
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white input:focus,
+body.mission-control.blue-white select:focus,
+body.mission-control.blue-white textarea:focus {
+  border-color: #1e40af !important;
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1) !important;
+}
+
+body.mission-control.blue-white select option {
+  background: #ffffff !important;
+  color: #1e293b !important;
+}
+
+/* Badges */
+body.mission-control.blue-white .badge-success {
+  background: rgba(34, 197, 94, 0.1) !important;
+  color: #16a34a !important;
+}
+
+body.mission-control.blue-white .badge-warning {
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: #d97706 !important;
+}
+
+body.mission-control.blue-white .badge-danger {
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #dc2626 !important;
+}
+
+/* List items */
+body.mission-control.blue-white .border-slate-200 {
+  border-color: rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .hover\:border-brand-300:hover {
+  border-color: rgba(30, 64, 175, 0.25) !important;
+}
+
+body.mission-control.blue-white .hover\:bg-brand-50\/50:hover {
+  background: rgba(30, 64, 175, 0.03) !important;
+}
+
+/* Quick actions */
+body.mission-control.blue-white .group .bg-brand-100 {
+  background: rgba(30, 64, 175, 0.08) !important;
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white .group:hover .group-hover\:bg-brand-600 {
+  background: #1e40af !important;
+  color: white !important;
+}
+
+body.mission-control.blue-white .group:hover .group-hover\:text-brand-700 {
+  color: #1e40af !important;
+}
+
+/* Commission tier card */
+body.mission-control.blue-white .bg-gradient-to-br.from-brand-600 {
+  background: linear-gradient(135deg, #1e40af, #1e3a8a) !important;
+  border: none !important;
+}
+
+body.mission-control.blue-white .bg-gradient-to-br.from-brand-600 .text-blue-100 {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Tables */
+body.mission-control.blue-white table th {
+  color: #64748b !important;
+}
+
+body.mission-control.blue-white table td {
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white .hover\:bg-slate-50:hover {
+  background: #eef2ff !important;
+}
+
+body.mission-control.blue-white .border-slate-100 {
+  border-color: rgba(30, 64, 175, 0.05) !important;
+}
+
+/* Scrollbar */
+body.mission-control.blue-white ::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+body.mission-control.blue-white ::-webkit-scrollbar-thumb {
+  background: rgba(30, 64, 175, 0.15) !important;
+}
+
+body.mission-control.blue-white ::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 64, 175, 0.25) !important;
+}
+
+/* Selection */
+body.mission-control.blue-white ::selection {
+  background: rgba(30, 64, 175, 0.2) !important;
+  color: #1e293b !important;
+}
+
+/* Time clock widget */
+body.mission-control.blue-white main .bg-green-50.border-green-200 {
+  background: rgba(34, 197, 94, 0.06) !important;
+  border-color: rgba(34, 197, 94, 0.2) !important;
+}
+
+body.mission-control.blue-white main .text-green-800 {
+  color: #16a34a !important;
+}
+
+body.mission-control.blue-white main .text-green-900 {
+  color: #14532d !important;
+}
+
+body.mission-control.blue-white main .border-blue-200.shadow-md {
+  background: #ffffff !important;
+  border-color: rgba(30, 64, 175, 0.2) !important;
+  box-shadow: 0 2px 8px rgba(30, 64, 175, 0.06) !important;
+}
+
+body.mission-control.blue-white main .bg-blue-100 {
+  background: rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white main .text-blue-800 {
+  color: #1e3a8a !important;
+}
+
+body.mission-control.blue-white main .font-mono.font-bold.text-green-900 {
+  color: #14532d !important;
+  text-shadow: none !important;
+}
+
+/* Green button stays green */
+body.mission-control.blue-white .bg-green-600 {
+  background: #16a34a !important;
+}
+
+body.mission-control.blue-white .bg-green-600:hover {
+  background: #15803d !important;
+}
+
+/* User menu */
+body.mission-control.blue-white nav .text-slate-600 {
+  color: #64748b !important;
+}
+
+body.mission-control.blue-white nav .hover\:bg-brand-50:hover {
+  background: rgba(30, 64, 175, 0.06) !important;
+}
+
+/* Upload pills */
+body.mission-control.blue-white main .bg-green-50 {
+  background: rgba(34, 197, 94, 0.08) !important;
+  border-color: rgba(34, 197, 94, 0.2) !important;
+}
+
+body.mission-control.blue-white main span.bg-slate-50 {
+  background: #eef2ff !important;
+  border-color: rgba(30, 64, 175, 0.08) !important;
+}
+
+/* Amber warning */
+body.mission-control.blue-white main .bg-amber-50 {
+  background: rgba(245, 158, 11, 0.06) !important;
+  border-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Theme picker */
+body.mission-control.blue-white .theme-picker-dropdown {
+  background: #ffffff !important;
+  border-color: rgba(30, 64, 175, 0.1) !important;
+  box-shadow: 0 4px 24px rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .theme-picker-header {
+  border-color: rgba(30, 64, 175, 0.06) !important;
+}
+
+body.mission-control.blue-white .theme-picker-label {
+  color: #64748b !important;
+}
+
+body.mission-control.blue-white .theme-picker-item:hover {
+  background: #eef2ff !important;
+}
+
+body.mission-control.blue-white .theme-picker-name {
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white .theme-picker-desc {
+  color: #64748b !important;
+}
+
+/* Nav menu */
+body.mission-control.blue-white .nav-menu-trigger {
+  color: #1e293b !important;
+  background: rgba(30, 64, 175, 0.04) !important;
+  border-color: rgba(30, 64, 175, 0.1) !important;
+}
+
+body.mission-control.blue-white .nav-menu-trigger:hover {
+  background: rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .nav-menu-active {
+  background: rgba(30, 64, 175, 0.06) !important;
+}
+
+body.mission-control.blue-white .nav-menu-icon {
+  color: #64748b !important;
+}
+
+body.mission-control.blue-white .nav-menu-active .nav-menu-icon {
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white .nav-menu-active .theme-picker-name {
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white .nav-divider {
+  border-color: rgba(30, 64, 175, 0.08) !important;
+}
+
+/* Sales ticker */
+body.mission-control.blue-white .ticker-container {
+  background: #ffffff !important;
+  border-color: rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .ticker-fade-left {
+  background: linear-gradient(to right, #ffffff, transparent) !important;
+}
+
+body.mission-control.blue-white .ticker-fade-right {
+  background: linear-gradient(to left, #ffffff, transparent) !important;
+}
+
+/* Ticker text */
+body.mission-control.blue-white .ticker-name {
+  color: #1e293b !important;
+}
+
+body.mission-control.blue-white .ticker-amount {
+  color: #1e40af !important;
+}
+
+body.mission-control.blue-white .ticker-sep,
+body.mission-control.blue-white .ticker-source {
+  color: #64748b !important;
+}
+
+/* Link dropdowns */
+body.mission-control.blue-white .link-dropdown-trigger {
+  background: rgba(30, 64, 175, 0.04) !important;
+  border-color: rgba(30, 64, 175, 0.1) !important;
+}
+
+body.mission-control.blue-white .link-dropdown-trigger:hover {
+  background: rgba(30, 64, 175, 0.08) !important;
+}
+
+body.mission-control.blue-white .link-dropdown-label {
+  color: #1e293b !important;
+}

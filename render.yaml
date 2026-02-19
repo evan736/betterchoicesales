@@ -1,0 +1,42 @@
+# render.yaml — Render Blueprint for Better Choice Insurance
+# Connect your GitHub repo → Render deploys everything automatically.
+
+databases:
+  - name: better-choice-db
+    plan: free
+    databaseName: insurance_db
+    user: insurance_user
+
+services:
+  # ── Backend API (FastAPI) ──
+  - type: web
+    name: better-choice-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: better-choice-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: REDIS_URL
+        value: ""
+      - key: ENVIRONMENT
+        value: production
+      - key: FRONTEND_URL
+        value: "https://better-choice-web.onrender.com"
+    healthCheckPath: /health
+
+  # ── Frontend (Next.js) ──
+  - type: web
+    name: better-choice-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://better-choice-api.onrender.com"

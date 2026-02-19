@@ -1,0 +1,493 @@
+/*  SAKURA PINK — Light pink and white theme
+    Scoped: body.mission-control.sakura-pink
+    Overrides both CSS variables AND hardcoded values from mission-control.css  */
+
+/* ── Variables ───────────────────────────────────────────────────── */
+body.mission-control.sakura-pink {
+  --mc-bg-primary: #fff5f7;
+  --mc-bg-secondary: #ffffff;
+  --mc-bg-elevated: #ffffff;
+  --mc-bg-surface: #fdf2f8;
+  --mc-glass: rgba(255, 255, 255, 0.88);
+  --mc-glass-border: rgba(236, 72, 153, 0.12);
+  --mc-glass-strong: rgba(255, 255, 255, 0.94);
+  --mc-glass-hover: rgba(252, 231, 243, 0.6);
+  --mc-text-primary: #1e1e2e;
+  --mc-text-secondary: #4a4a5a;
+  --mc-text-tertiary: #71717a;
+  --mc-text-muted: #a1a1aa;
+  --mc-accent: #ec4899;
+  --mc-accent-glow: rgba(236, 72, 153, 0.10);
+  --mc-accent-subtle: rgba(236, 72, 153, 0.06);
+  --mc-accent-bright: #f472b6;
+  --mc-cyan: #ec4899;
+  --mc-green: #10b981;
+  --mc-green-glow: rgba(16, 185, 129, 0.10);
+  --mc-amber: #f59e0b;
+  --mc-amber-glow: rgba(245, 158, 11, 0.10);
+  --mc-red: #ef4444;
+  --mc-red-glow: rgba(239, 68, 68, 0.10);
+  --mc-purple: #a855f7;
+  --mc-purple-glow: rgba(168, 85, 247, 0.10);
+  --mc-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --mc-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 12px 40px rgba(0, 0, 0, 0.06);
+  --mc-shadow-glow: 0 0 30px rgba(236, 72, 153, 0.06);
+}
+
+/* ── Base background (override hardcoded gradients) ──────────────── */
+body.mission-control.sakura-pink {
+  background: #fff5f7 !important;
+  background-image: linear-gradient(160deg, #fff5f7 0%, #fdf2f8 40%, #fce7f3 100%) !important;
+  color: #1e1e2e !important;
+}
+
+/* Remove grain overlay */
+body.mission-control.sakura-pink::before {
+  display: none !important;
+}
+
+/* ── All text colors ─────────────────────────────────────────────── */
+body.mission-control.sakura-pink h1,
+body.mission-control.sakura-pink h2,
+body.mission-control.sakura-pink h3,
+body.mission-control.sakura-pink h4,
+body.mission-control.sakura-pink h5,
+body.mission-control.sakura-pink h6 {
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink p,
+body.mission-control.sakura-pink span,
+body.mission-control.sakura-pink td,
+body.mission-control.sakura-pink th,
+body.mission-control.sakura-pink label,
+body.mission-control.sakura-pink li,
+body.mission-control.sakura-pink div {
+  color: inherit;
+}
+
+body.mission-control.sakura-pink .text-slate-900,
+body.mission-control.sakura-pink .text-slate-800,
+body.mission-control.sakura-pink .text-brand-900,
+body.mission-control.sakura-pink .font-bold,
+body.mission-control.sakura-pink .font-semibold {
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink .text-slate-700,
+body.mission-control.sakura-pink .text-slate-600 {
+  color: #4a4a5a !important;
+}
+
+body.mission-control.sakura-pink .text-slate-500,
+body.mission-control.sakura-pink .text-slate-400 {
+  color: #71717a !important;
+}
+
+body.mission-control.sakura-pink .text-slate-300 {
+  color: #a1a1aa !important;
+}
+
+/* ── Navbar (override hardcoded dark glass) ──────────────────────── */
+body.mission-control.sakura-pink .glass,
+body.mission-control.sakura-pink nav {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-bottom: 1px solid rgba(236, 72, 153, 0.12) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+body.mission-control.sakura-pink nav h1 {
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink nav p {
+  color: #ec4899 !important;
+}
+
+body.mission-control.sakura-pink nav a[href] {
+  color: #4a4a5a !important;
+}
+
+body.mission-control.sakura-pink nav a[href]:hover {
+  color: #ec4899 !important;
+  background: rgba(236, 72, 153, 0.08) !important;
+}
+
+body.mission-control.sakura-pink nav .text-sm.font-semibold {
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink nav .text-xs.capitalize,
+body.mission-control.sakura-pink nav .text-xs.text-brand-600 {
+  color: #ec4899 !important;
+}
+
+body.mission-control.sakura-pink nav button[title="Logout"] {
+  color: #71717a !important;
+}
+
+body.mission-control.sakura-pink nav button[title="Logout"]:hover {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+
+/* Theme toggle in nav */
+body.mission-control.sakura-pink nav button.rounded-lg {
+  color: #71717a !important;
+}
+
+/* ── Page backgrounds ────────────────────────────────────────────── */
+body.mission-control.sakura-pink .bg-slate-50,
+body.mission-control.sakura-pink .bg-slate-100 {
+  background-color: #fff5f7 !important;
+}
+
+body.mission-control.sakura-pink .bg-blue-50 {
+  background-color: rgba(236, 72, 153, 0.04) !important;
+}
+
+body.mission-control.sakura-pink .bg-green-50 {
+  background-color: rgba(16, 185, 129, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .bg-yellow-50 {
+  background-color: rgba(245, 158, 11, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .min-h-screen {
+  background: transparent !important;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .card {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(236, 72, 153, 0.10) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(236, 72, 153, 0.03) !important;
+  backdrop-filter: none !important;
+}
+
+body.mission-control.sakura-pink .card:hover {
+  border-color: rgba(236, 72, 153, 0.22) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(236, 72, 153, 0.06) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
+body.mission-control.sakura-pink .card .text-slate-900,
+body.mission-control.sakura-pink .card .text-brand-900 {
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink .card .text-slate-600,
+body.mission-control.sakura-pink .card .text-slate-500 {
+  color: #4a4a5a !important;
+}
+
+/* White backgrounds inside main */
+body.mission-control.sakura-pink main .bg-white {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(236, 72, 153, 0.10) !important;
+}
+
+/* ── Stat cards ──────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .stat-card {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(236, 72, 153, 0.10) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+body.mission-control.sakura-pink .stat-card:hover {
+  border-color: rgba(236, 72, 153, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(236, 72, 153, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .stat-card .bg-gradient-to-br {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.06), rgba(252, 231, 243, 0.4)) !important;
+}
+
+/* Brand gradient cards (commission tier) */
+body.mission-control.sakura-pink .card.bg-gradient-to-br.from-brand-600,
+body.mission-control.sakura-pink .bg-gradient-to-br.from-brand-600 {
+  background: linear-gradient(135deg, #ec4899, #db2777) !important;
+  border-color: rgba(236, 72, 153, 0.3) !important;
+  box-shadow: 0 4px 16px rgba(236, 72, 153, 0.2) !important;
+}
+
+body.mission-control.sakura-pink .bg-gradient-to-br.from-brand-600 .text-blue-100 {
+  color: #fce7f3 !important;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .btn-primary,
+body.mission-control.sakura-pink .bg-brand-600,
+body.mission-control.sakura-pink .bg-blue-600,
+body.mission-control.sakura-pink button.bg-slate-900,
+body.mission-control.sakura-pink a.bg-slate-900 {
+  background: linear-gradient(135deg, #ec4899, #db2777) !important;
+  color: white !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(236, 72, 153, 0.25) !important;
+}
+
+body.mission-control.sakura-pink .btn-primary:hover,
+body.mission-control.sakura-pink .bg-brand-600:hover,
+body.mission-control.sakura-pink .bg-blue-600:hover,
+body.mission-control.sakura-pink button.bg-slate-900:hover {
+  background: linear-gradient(135deg, #f472b6, #ec4899) !important;
+  box-shadow: 0 4px 16px rgba(236, 72, 153, 0.3) !important;
+}
+
+body.mission-control.sakura-pink .btn-secondary {
+  background: white !important;
+  border: 1px solid rgba(236, 72, 153, 0.20) !important;
+  color: #ec4899 !important;
+}
+
+body.mission-control.sakura-pink .btn-secondary:hover {
+  background: #fdf2f8 !important;
+  border-color: rgba(236, 72, 153, 0.35) !important;
+}
+
+body.mission-control.sakura-pink .bg-green-600 {
+  background: #10b981 !important;
+}
+
+body.mission-control.sakura-pink .bg-red-600 {
+  background: #ef4444 !important;
+}
+
+/* ── Brand accent text ───────────────────────────────────────────── */
+body.mission-control.sakura-pink .text-brand-600,
+body.mission-control.sakura-pink .text-brand-500,
+body.mission-control.sakura-pink .text-blue-600 {
+  color: #ec4899 !important;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink input,
+body.mission-control.sakura-pink select,
+body.mission-control.sakura-pink textarea {
+  background: white !important;
+  border-color: rgba(236, 72, 153, 0.18) !important;
+  color: #1e1e2e !important;
+}
+
+body.mission-control.sakura-pink input:focus,
+body.mission-control.sakura-pink select:focus,
+body.mission-control.sakura-pink textarea:focus {
+  border-color: #ec4899 !important;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12) !important;
+}
+
+body.mission-control.sakura-pink input::placeholder,
+body.mission-control.sakura-pink textarea::placeholder {
+  color: #a1a1aa !important;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink table {
+  border-color: rgba(236, 72, 153, 0.08) !important;
+}
+
+body.mission-control.sakura-pink th {
+  color: #71717a !important;
+  background: rgba(252, 231, 243, 0.3) !important;
+  border-color: rgba(236, 72, 153, 0.08) !important;
+}
+
+body.mission-control.sakura-pink td {
+  border-color: rgba(236, 72, 153, 0.06) !important;
+}
+
+body.mission-control.sakura-pink tr:hover td,
+body.mission-control.sakura-pink .hover\:bg-slate-50:hover {
+  background: rgba(252, 231, 243, 0.4) !important;
+}
+
+/* ── Tabs / pills ────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .bg-white.rounded-xl.border {
+  background: white !important;
+  border-color: rgba(236, 72, 153, 0.12) !important;
+}
+
+/* ── Quick actions ───────────────────────────────────────────────── */
+body.mission-control.sakura-pink .group .bg-brand-100 {
+  background: rgba(236, 72, 153, 0.08) !important;
+  color: #ec4899 !important;
+}
+
+body.mission-control.sakura-pink .group:hover .group-hover\:bg-brand-600 {
+  background: linear-gradient(135deg, #ec4899, #db2777) !important;
+  color: white !important;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .badge {
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+body.mission-control.sakura-pink .badge-success,
+body.mission-control.sakura-pink .bg-green-100 {
+  background: rgba(16, 185, 129, 0.10) !important;
+  color: #047857 !important;
+}
+
+body.mission-control.sakura-pink .badge-warning,
+body.mission-control.sakura-pink .bg-yellow-100 {
+  background: rgba(245, 158, 11, 0.10) !important;
+  color: #92400e !important;
+}
+
+body.mission-control.sakura-pink .badge-danger,
+body.mission-control.sakura-pink .bg-red-100 {
+  background: rgba(239, 68, 68, 0.10) !important;
+  color: #991b1b !important;
+}
+
+body.mission-control.sakura-pink .bg-blue-100 {
+  background: rgba(236, 72, 153, 0.10) !important;
+}
+
+body.mission-control.sakura-pink .bg-amber-100 {
+  background: rgba(245, 158, 11, 0.10) !important;
+}
+
+/* ── Dashboard specific ──────────────────────────────────────────── */
+body.mission-control.sakura-pink main .border-blue-200 {
+  border-color: rgba(236, 72, 153, 0.18) !important;
+}
+
+/* Time clock widget */
+body.mission-control.sakura-pink main .border-blue-200.shadow-md {
+  border-color: rgba(236, 72, 153, 0.20) !important;
+  box-shadow: 0 2px 12px rgba(236, 72, 153, 0.08) !important;
+  background: white !important;
+}
+
+body.mission-control.sakura-pink main .font-mono.font-bold.text-green-900 {
+  color: #10b981 !important;
+}
+
+/* ── Modals ──────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .fixed.inset-0 {
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+body.mission-control.sakura-pink .fixed.inset-0 > div,
+body.mission-control.sakura-pink [class*="rounded-2xl"][class*="shadow"] {
+  background: white !important;
+  border: 1px solid rgba(236, 72, 153, 0.12) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10) !important;
+}
+
+/* ── Dropdowns ───────────────────────────────────────────────────── */
+body.mission-control.sakura-pink [role="menu"],
+body.mission-control.sakura-pink [role="listbox"] {
+  background: white !important;
+  border: 1px solid rgba(236, 72, 153, 0.12) !important;
+}
+
+/* ── Borders ─────────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .border-slate-200,
+body.mission-control.sakura-pink .border-slate-100 {
+  border-color: rgba(236, 72, 153, 0.10) !important;
+}
+
+body.mission-control.sakura-pink .border-brand-200 {
+  border-color: rgba(236, 72, 153, 0.18) !important;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────── */
+body.mission-control.sakura-pink ::-webkit-scrollbar-track {
+  background: #fdf2f8 !important;
+}
+
+body.mission-control.sakura-pink ::-webkit-scrollbar-thumb {
+  background: rgba(236, 72, 153, 0.20) !important;
+}
+
+body.mission-control.sakura-pink ::-webkit-scrollbar-thumb:hover {
+  background: rgba(236, 72, 153, 0.35) !important;
+}
+
+/* ── Selection ───────────────────────────────────────────────────── */
+body.mission-control.sakura-pink ::selection {
+  background: rgba(236, 72, 153, 0.20) !important;
+  color: #1e1e2e !important;
+}
+
+/* ── Charts (Recharts) ───────────────────────────────────────────── */
+body.mission-control.sakura-pink .recharts-cartesian-grid line {
+  stroke: rgba(236, 72, 153, 0.08) !important;
+}
+
+body.mission-control.sakura-pink .recharts-text {
+  fill: #71717a !important;
+}
+
+body.mission-control.sakura-pink .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: white !important;
+  border: 1px solid rgba(236, 72, 153, 0.12) !important;
+}
+
+/* ── Login page ──────────────────────────────────────────────────── */
+body.mission-control.sakura-pink .bg-gradient-to-br.from-brand-900 {
+  background: linear-gradient(135deg, #fdf2f8, #fce7f3, #fbcfe8) !important;
+}
+
+body.mission-control.sakura-pink .bg-white\/10 {
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* ── Misc hardcoded overrides ────────────────────────────────────── */
+/* Override any remaining dark borders/glows from mission-control */
+body.mission-control.sakura-pink [style*="border-color: rgba(56, 189"] {
+  border-color: rgba(236, 72, 153, 0.15) !important;
+}
+
+/* Override all cyan accent references */
+body.mission-control.sakura-pink .border-brand-500 {
+  border-color: #ec4899 !important;
+}
+
+/* Admin panel tab override */
+body.mission-control.sakura-pink .bg-slate-900 {
+  background: linear-gradient(135deg, #ec4899, #db2777) !important;
+  color: white !important;
+}
+
+/* Info items label color */
+body.mission-control.sakura-pink .text-xs.text-slate-500,
+body.mission-control.sakura-pink .text-sm.text-slate-500 {
+  color: #71717a !important;
+}
+
+/* Sub-page backgrounds & inner cards */
+body.mission-control.sakura-pink .bg-slate-50.rounded-lg,
+body.mission-control.sakura-pink .bg-slate-50.rounded-xl,
+body.mission-control.sakura-pink .bg-slate-100.rounded-lg {
+  background: rgba(252, 231, 243, 0.3) !important;
+}
+
+/* Brand-50 backgrounds */
+body.mission-control.sakura-pink .bg-brand-50 {
+  background: rgba(236, 72, 153, 0.04) !important;
+}
+
+body.mission-control.sakura-pink .text-brand-700,
+body.mission-control.sakura-pink .text-brand-800 {
+  color: #be185d !important;
+}
+
+body.mission-control.sakura-pink .border-brand-200 {
+  border-color: rgba(236, 72, 153, 0.18) !important;
+}

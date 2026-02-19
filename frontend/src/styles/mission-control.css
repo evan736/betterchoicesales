@@ -1,0 +1,1410 @@
+/*
+ * ╔══════════════════════════════════════════════════════════════════════╗
+ * ║  MISSION CONTROL / LIQUID GLASS — Better Choice Insurance          ║
+ * ║  100% reversible: scoped under body.mission-control                ║
+ * ║                                                                     ║
+ * ║  ENABLE:  document.body.classList.add("mission-control")            ║
+ * ║  DISABLE: document.body.classList.remove("mission-control")         ║
+ * ║  REVERT:  delete this file + remove the import in globals.css       ║
+ * ╚══════════════════════════════════════════════════════════════════════╝
+ */
+
+/* ── Fonts ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+/* ── CSS Variables ──────────────────────────────────────────────────── */
+body.mission-control {
+  --mc-bg-primary: #0a0e1a;
+  --mc-bg-secondary: #0f1424;
+  --mc-bg-elevated: #151b2e;
+  --mc-bg-surface: #1a2138;
+
+  --mc-glass: rgba(255, 255, 255, 0.03);
+  --mc-glass-border: rgba(255, 255, 255, 0.06);
+  --mc-glass-strong: rgba(255, 255, 255, 0.06);
+  --mc-glass-hover: rgba(255, 255, 255, 0.08);
+
+  --mc-text-primary: #f0f2f8;
+  --mc-text-secondary: #b0b8cc;
+  --mc-text-tertiary: #8590a8;
+  --mc-text-muted: #5a6480;
+
+  --mc-accent: #38bdf8;
+  --mc-accent-glow: rgba(56, 189, 248, 0.15);
+  --mc-accent-subtle: rgba(56, 189, 248, 0.08);
+  --mc-accent-bright: #7dd3fc;
+
+  --mc-cyan: #22d3ee;
+  --mc-green: #34d399;
+  --mc-green-glow: rgba(52, 211, 153, 0.12);
+  --mc-amber: #fbbf24;
+  --mc-amber-glow: rgba(251, 191, 36, 0.12);
+  --mc-red: #f87171;
+  --mc-red-glow: rgba(248, 113, 113, 0.12);
+  --mc-purple: #a78bfa;
+  --mc-purple-glow: rgba(167, 139, 250, 0.12);
+
+  --mc-radius-sm: 8px;
+  --mc-radius: 14px;
+  --mc-radius-lg: 20px;
+  --mc-radius-xl: 28px;
+
+  --mc-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.3);
+  --mc-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5), 0 16px 64px rgba(0, 0, 0, 0.35);
+  --mc-shadow-glow: 0 0 40px var(--mc-accent-glow), 0 0 80px rgba(56, 189, 248, 0.05);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   1. BASE / BODY
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control {
+  background: var(--mc-bg-primary) !important;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% 0%, rgba(56, 189, 248, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 100%, rgba(139, 92, 246, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(56, 189, 248, 0.02) 0%, transparent 70%) !important;
+  color: var(--mc-text-primary) !important;
+  font-family: 'Plus Jakarta Sans', 'Outfit', system-ui, sans-serif !important;
+}
+
+body.mission-control h1,
+body.mission-control h2,
+body.mission-control h3,
+body.mission-control h4,
+body.mission-control h5,
+body.mission-control h6 {
+  font-family: 'Space Grotesk', 'Sora', system-ui, sans-serif !important;
+  color: var(--mc-text-primary) !important;
+  letter-spacing: -0.02em;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   2. SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body.mission-control ::-webkit-scrollbar-track {
+  background: var(--mc-bg-secondary) !important;
+}
+
+body.mission-control ::-webkit-scrollbar-thumb {
+  background: var(--mc-text-muted) !important;
+  border-radius: 99px;
+}
+
+body.mission-control ::-webkit-scrollbar-thumb:hover {
+  background: var(--mc-text-tertiary) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   3. NAVBAR — Frosted glass command bar
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .glass {
+  background: rgba(10, 14, 26, 0.75) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+  border-color: var(--mc-glass-border) !important;
+  border-bottom: 1px solid var(--mc-glass-border) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 4px 24px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Logo text */
+body.mission-control nav h1 {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control nav p {
+  color: var(--mc-accent) !important;
+}
+
+/* Nav links */
+body.mission-control nav a[href] {
+  color: var(--mc-text-secondary) !important;
+  border-radius: var(--mc-radius-sm) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.mission-control nav a[href]:hover {
+  color: var(--mc-accent-bright) !important;
+  background: var(--mc-accent-subtle) !important;
+}
+
+/* User name & role in nav */
+body.mission-control nav .text-sm.font-semibold {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control nav .text-xs.capitalize,
+body.mission-control nav .text-xs.text-brand-600 {
+  color: var(--mc-accent) !important;
+}
+
+/* Logout button */
+body.mission-control nav button[title="Logout"] {
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control nav button[title="Logout"]:hover {
+  color: var(--mc-red) !important;
+  background: var(--mc-red-glow) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   4. CARDS — Liquid glass panels
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .card {
+  background: var(--mc-glass) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius-lg) !important;
+  box-shadow: var(--mc-shadow) !important;
+  color: var(--mc-text-primary) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+body.mission-control .card:hover {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: var(--mc-shadow-lg) !important;
+  background: var(--mc-glass-hover) !important;
+}
+
+/* Inner text colors in cards */
+body.mission-control .card .text-slate-900,
+body.mission-control .card .text-brand-900 {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control .card .text-slate-600,
+body.mission-control .card .text-slate-500 {
+  color: var(--mc-text-secondary) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   5. STAT CARDS — Glowing data panels
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .stat-card {
+  background: var(--mc-glass-strong) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius-lg) !important;
+  box-shadow: var(--mc-shadow) !important;
+  color: var(--mc-text-primary) !important;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+body.mission-control .stat-card:hover {
+  transform: translateY(-4px) !important;
+  border-color: rgba(56, 189, 248, 0.15) !important;
+  box-shadow: var(--mc-shadow-lg), var(--mc-shadow-glow) !important;
+}
+
+/* Stat icon container */
+body.mission-control .stat-card .rounded-lg.bg-gradient-to-br {
+  background: var(--mc-accent-subtle) !important;
+  border: 1px solid rgba(56, 189, 248, 0.1);
+}
+
+/* Stat values */
+body.mission-control .stat-card .text-3xl {
+  color: var(--mc-text-primary) !important;
+  text-shadow: 0 0 30px var(--mc-accent-glow);
+}
+
+body.mission-control .stat-card .text-sm.text-slate-600 {
+  color: var(--mc-text-secondary) !important;
+  text-transform: uppercase;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.08em;
+  font-weight: 600 !important;
+}
+
+/* Branded gradient stat-card override (commission tier) */
+body.mission-control .stat-card.bg-gradient-to-br.from-brand-600 {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%) !important;
+  border-color: rgba(56, 189, 248, 0.2) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   6. BUTTONS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Primary */
+body.mission-control .btn-primary {
+  background: linear-gradient(135deg, var(--mc-accent) 0%, #0ea5e9 100%) !important;
+  color: var(--mc-bg-primary) !important;
+  font-weight: 700 !important;
+  border: none !important;
+  border-radius: var(--mc-radius) !important;
+  box-shadow: 0 0 20px var(--mc-accent-glow), 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+body.mission-control .btn-primary:hover {
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.3), 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  transform: translateY(-2px) !important;
+}
+
+/* Secondary */
+body.mission-control .btn-secondary {
+  background: var(--mc-glass-strong) !important;
+  color: var(--mc-text-primary) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.mission-control .btn-secondary:hover {
+  background: var(--mc-glass-hover) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   7. INPUT FIELDS — Sunken glass wells
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .input-field {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius-sm) !important;
+  color: var(--mc-text-primary) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.mission-control .input-field::placeholder {
+  color: var(--mc-text-muted) !important;
+}
+
+body.mission-control .input-field:focus {
+  border-color: var(--mc-accent) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2), 0 0 0 3px var(--mc-accent-glow) !important;
+  outline: none !important;
+}
+
+/* Select dropdowns */
+body.mission-control select.input-field {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b92a8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  -webkit-appearance: none !important;
+}
+
+/* Labels */
+body.mission-control label,
+body.mission-control .block.text-sm.font-semibold,
+body.mission-control .block.text-xs.font-semibold {
+  color: var(--mc-text-secondary) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   8. BADGES — Glowing status indicators
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .badge {
+  border-radius: 99px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  font-size: 0.65rem !important;
+  text-transform: uppercase;
+  border: 1px solid transparent !important;
+  padding: 3px 10px !important;
+}
+
+body.mission-control .badge-success,
+body.mission-control .badge.bg-green-100 {
+  background: var(--mc-green-glow) !important;
+  color: var(--mc-green) !important;
+  border-color: rgba(52, 211, 153, 0.2) !important;
+}
+
+body.mission-control .badge-warning,
+body.mission-control .badge.bg-yellow-100 {
+  background: var(--mc-amber-glow) !important;
+  color: var(--mc-amber) !important;
+  border-color: rgba(251, 191, 36, 0.2) !important;
+}
+
+body.mission-control .badge-danger,
+body.mission-control .badge.bg-red-100 {
+  background: var(--mc-red-glow) !important;
+  color: var(--mc-red) !important;
+  border-color: rgba(248, 113, 113, 0.2) !important;
+}
+
+body.mission-control .badge-info,
+body.mission-control .badge.bg-blue-100 {
+  background: var(--mc-accent-subtle) !important;
+  color: var(--mc-accent-bright) !important;
+  border-color: rgba(56, 189, 248, 0.15) !important;
+}
+
+body.mission-control .badge.bg-purple-100 {
+  background: var(--mc-purple-glow) !important;
+  color: var(--mc-purple) !important;
+  border-color: rgba(167, 139, 250, 0.2) !important;
+}
+
+body.mission-control .badge.bg-amber-100 {
+  background: var(--mc-amber-glow) !important;
+  color: var(--mc-amber) !important;
+  border-color: rgba(251, 191, 36, 0.2) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   9. GLOBAL TEXT COLOR OVERRIDES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .text-slate-900,
+body.mission-control .text-brand-900 {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control .text-slate-800,
+body.mission-control .text-brand-800 {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control .text-slate-700,
+body.mission-control .text-brand-700 {
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control .text-slate-600 {
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control .text-slate-500 {
+  color: var(--mc-text-tertiary) !important;
+}
+
+body.mission-control .text-brand-600,
+body.mission-control .text-brand-500 {
+  color: var(--mc-accent) !important;
+}
+
+body.mission-control .text-green-600,
+body.mission-control .text-green-800,
+body.mission-control .text-green-700 {
+  color: var(--mc-green) !important;
+}
+
+body.mission-control .text-blue-600,
+body.mission-control .text-blue-800,
+body.mission-control .text-blue-900,
+body.mission-control .text-blue-700 {
+  color: var(--mc-accent-bright) !important;
+}
+
+body.mission-control .text-yellow-700,
+body.mission-control .text-yellow-800 {
+  color: var(--mc-amber) !important;
+}
+
+body.mission-control .text-red-600,
+body.mission-control .text-red-800 {
+  color: var(--mc-red) !important;
+}
+
+body.mission-control .text-purple-700,
+body.mission-control .text-purple-900,
+body.mission-control .text-purple-600 {
+  color: var(--mc-purple) !important;
+}
+
+/* Lucide icon recoloring */
+body.mission-control .text-brand-600 svg,
+body.mission-control svg.text-brand-600 {
+  color: var(--mc-accent) !important;
+}
+
+body.mission-control svg.text-green-600 {
+  color: var(--mc-green) !important;
+}
+
+body.mission-control svg.text-blue-600 {
+  color: var(--mc-accent-bright) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   10. BACKGROUNDS — Dark surface overrides
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .bg-white,
+body.mission-control .bg-slate-50,
+body.mission-control .bg-slate-100 {
+  background-color: var(--mc-bg-secondary) !important;
+}
+
+body.mission-control .bg-blue-50,
+body.mission-control .bg-green-50,
+body.mission-control .bg-red-50,
+body.mission-control .bg-yellow-50,
+body.mission-control .bg-purple-50 {
+  background-color: transparent !important;
+}
+
+body.mission-control .bg-gradient-to-br.from-slate-50,
+body.mission-control .bg-gradient-to-br.from-white {
+  background: var(--mc-glass) !important;
+}
+
+/* Brand gradient cards (commission tier, header) */
+body.mission-control .card.bg-gradient-to-br.from-brand-600 {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.15) 0%, rgba(14, 165, 233, 0.2) 50%, rgba(139, 92, 246, 0.12) 100%) !important;
+  border-color: rgba(56, 189, 248, 0.2) !important;
+  box-shadow: var(--mc-shadow), 0 0 60px rgba(56, 189, 248, 0.08) !important;
+}
+
+body.mission-control .card.bg-gradient-to-br.from-brand-600 .text-blue-100 {
+  color: var(--mc-text-secondary) !important;
+}
+
+/* animated gradient bg (login page left side) */
+body.mission-control .gradient-bg {
+  background: linear-gradient(-45deg, #0a0e1a, #0f1a2e, #0c1428, #1a0e28) !important;
+  background-size: 400% 400% !important;
+  animation: mc-gradient 20s ease infinite !important;
+}
+
+@keyframes mc-gradient {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Pattern bg (login right side) */
+body.mission-control .pattern-bg {
+  background-color: var(--mc-bg-primary) !important;
+  background-image:
+    radial-gradient(circle at 20% 50%, rgba(56, 189, 248, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.03) 0%, transparent 50%) !important;
+}
+
+/* Min-h-screen containers on all pages */
+body.mission-control .min-h-screen {
+  background: transparent !important;
+}
+
+body.mission-control .min-h-screen.bg-slate-50 {
+  background: transparent !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   11. BORDERS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .border-slate-200,
+body.mission-control .border-slate-300 {
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control .border-white\/20 {
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control .border-brand-200,
+body.mission-control .border-brand-300,
+body.mission-control .border-brand-400,
+body.mission-control .border-brand-500 {
+  border-color: rgba(56, 189, 248, 0.15) !important;
+}
+
+body.mission-control .border-blue-200 {
+  border-color: rgba(56, 189, 248, 0.12) !important;
+}
+
+body.mission-control .border-green-200 {
+  border-color: rgba(52, 211, 153, 0.15) !important;
+}
+
+body.mission-control .border-red-200 {
+  border-color: rgba(248, 113, 113, 0.15) !important;
+}
+
+body.mission-control .border-yellow-200,
+body.mission-control .border-yellow-300 {
+  border-color: rgba(251, 191, 36, 0.15) !important;
+}
+
+body.mission-control .border-purple-200 {
+  border-color: rgba(167, 139, 250, 0.15) !important;
+}
+
+body.mission-control .border-t.border-slate-200 {
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control .border-t.border-blue-400\/30 {
+  border-color: rgba(56, 189, 248, 0.1) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   12. SALE LIST ITEMS — Glass rows
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .card.hover\:shadow-xl {
+  background: var(--mc-glass) !important;
+  border-color: var(--mc-glass-border) !important;
+}
+
+/* Row items within cards */
+body.mission-control .border.border-slate-200.rounded-lg {
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-color: var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.mission-control .border.border-slate-200.rounded-lg:hover {
+  background: var(--mc-glass-hover) !important;
+  border-color: rgba(56, 189, 248, 0.12) !important;
+}
+
+/* Sale card action buttons */
+body.mission-control .bg-brand-600.text-white,
+body.mission-control .rounded-lg.bg-brand-600 {
+  background: linear-gradient(135deg, var(--mc-accent) 0%, #0ea5e9 100%) !important;
+  color: var(--mc-bg-primary) !important;
+  border-color: transparent !important;
+}
+
+body.mission-control .border-purple-200.text-purple-700,
+body.mission-control .border.border-purple-200 {
+  border-color: rgba(167, 139, 250, 0.2) !important;
+  color: var(--mc-purple) !important;
+  background: transparent !important;
+}
+
+body.mission-control .border.border-purple-200:hover {
+  background: var(--mc-purple-glow) !important;
+}
+
+body.mission-control .border-red-200.text-red-600 {
+  border-color: rgba(248, 113, 113, 0.15) !important;
+  color: var(--mc-red) !important;
+}
+
+body.mission-control .border-red-200.text-red-600:hover {
+  background: var(--mc-red-glow) !important;
+}
+
+body.mission-control .border-yellow-300.text-yellow-700 {
+  border-color: rgba(251, 191, 36, 0.15) !important;
+  color: var(--mc-amber) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   13. DATE FILTER BAR
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .bg-white.rounded-xl.shadow-sm.border {
+  background: var(--mc-glass) !important;
+  border-color: var(--mc-glass-border) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+/* Filter preset buttons — inactive */
+body.mission-control .bg-slate-100.text-slate-600 {
+  background: rgba(0, 0, 0, 0.2) !important;
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control .bg-slate-100.text-slate-600:hover,
+body.mission-control .bg-slate-100.text-slate-600.hover\:bg-slate-200:hover {
+  background: rgba(0, 0, 0, 0.35) !important;
+  color: var(--mc-text-primary) !important;
+}
+
+/* Filter preset buttons — active */
+body.mission-control .bg-blue-600.text-white {
+  background: var(--mc-accent) !important;
+  color: var(--mc-bg-primary) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 16px var(--mc-accent-glow) !important;
+}
+
+/* Date inputs in filter bar */
+body.mission-control input[type="date"] {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  color: var(--mc-text-primary) !important;
+  border-radius: var(--mc-radius-sm) !important;
+}
+
+body.mission-control input[type="date"]:focus {
+  border-color: var(--mc-accent) !important;
+  box-shadow: 0 0 0 3px var(--mc-accent-glow) !important;
+}
+
+/* Calendar icon color fix for date inputs */
+body.mission-control input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   14. MODALS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .fixed.inset-0.bg-black\/40,
+body.mission-control .fixed.inset-0[class*="bg-black"] {
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Modal content card */
+body.mission-control .fixed.inset-0 .card,
+body.mission-control .fixed.inset-0 .bg-white {
+  background: var(--mc-bg-elevated) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  box-shadow: var(--mc-shadow-lg), 0 0 100px rgba(56, 189, 248, 0.05) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   15. INFO PANELS & ALERTS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Blue info panels */
+body.mission-control .bg-blue-50.border.border-blue-200,
+body.mission-control .p-3.bg-blue-50,
+body.mission-control .p-4.bg-blue-50 {
+  background: rgba(56, 189, 248, 0.06) !important;
+  border-color: rgba(56, 189, 248, 0.12) !important;
+  color: var(--mc-accent-bright) !important;
+}
+
+body.mission-control .text-blue-900,
+body.mission-control .text-sm.text-blue-900 {
+  color: var(--mc-accent-bright) !important;
+}
+
+body.mission-control .text-blue-700,
+body.mission-control .text-xs.text-blue-700 {
+  color: var(--mc-accent) !important;
+}
+
+/* Green success panels */
+body.mission-control .bg-green-50.border.border-green-200,
+body.mission-control .p-3.rounded-lg.bg-green-50 {
+  background: var(--mc-green-glow) !important;
+  border-color: rgba(52, 211, 153, 0.15) !important;
+}
+
+body.mission-control .text-green-800 {
+  color: var(--mc-green) !important;
+}
+
+/* Red error panels */
+body.mission-control .bg-red-50.border.border-red-200 {
+  background: var(--mc-red-glow) !important;
+  border-color: rgba(248, 113, 113, 0.15) !important;
+}
+
+body.mission-control .text-red-800 {
+  color: var(--mc-red) !important;
+}
+
+/* Purple welcome email panel */
+body.mission-control .card.bg-purple-50.border.border-purple-200,
+body.mission-control .bg-purple-50.border.border-purple-200 {
+  background: var(--mc-purple-glow) !important;
+  border-color: rgba(167, 139, 250, 0.15) !important;
+}
+
+body.mission-control .text-purple-700 {
+  color: var(--mc-purple) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   16. QUICK ACTION BUTTONS (Dashboard sidebar)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .border-2.border-slate-200.hover\:border-brand-400 {
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-color: var(--mc-glass-border) !important;
+  border-width: 1px !important;
+}
+
+body.mission-control .border-2.border-slate-200.hover\:border-brand-400:hover {
+  background: var(--mc-accent-subtle) !important;
+  border-color: rgba(56, 189, 248, 0.2) !important;
+}
+
+/* Icon container in quick actions */
+body.mission-control .bg-brand-100.text-brand-600 {
+  background: var(--mc-accent-subtle) !important;
+  color: var(--mc-accent) !important;
+}
+
+body.mission-control .group:hover .group-hover\:bg-brand-600 {
+  background: var(--mc-accent) !important;
+}
+
+body.mission-control .group:hover .group-hover\:text-white {
+  color: var(--mc-bg-primary) !important;
+}
+
+body.mission-control .group:hover .group-hover\:text-brand-700 {
+  color: var(--mc-accent-bright) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   17. COMMISSION TIER CARDS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .border-2.border-brand-500.bg-brand-50 {
+  background: var(--mc-accent-subtle) !important;
+  border-color: rgba(56, 189, 248, 0.25) !important;
+  box-shadow: 0 0 20px var(--mc-accent-glow) !important;
+}
+
+body.mission-control .border-2.border-slate-200.bg-white {
+  background: var(--mc-glass) !important;
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control .border-2.border-slate-200.bg-white:hover {
+  border-color: rgba(56, 189, 248, 0.12) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   18. LOGIN PAGE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Left branding panel text */
+body.mission-control .gradient-bg .text-white h1,
+body.mission-control .gradient-bg h1 {
+  color: #ffffff !important;
+}
+
+body.mission-control .gradient-bg .text-blue-100 {
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control .gradient-bg .bg-white\/10 {
+  background: rgba(56, 189, 248, 0.1) !important;
+  border: 1px solid rgba(56, 189, 248, 0.15);
+}
+
+/* Login form card */
+body.mission-control .pattern-bg .card {
+  background: var(--mc-bg-elevated) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+}
+
+/* Demo credentials box on login */
+body.mission-control .mt-8.p-4.bg-blue-50 {
+  background: rgba(56, 189, 248, 0.06) !important;
+  border-color: rgba(56, 189, 248, 0.1) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   19. CHECKBOX & RADIO — Dark theme
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control input[type="checkbox"],
+body.mission-control input[type="radio"] {
+  accent-color: var(--mc-accent);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   20. FILE INPUT BUTTONS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control input[type="file"]::file-selector-button {
+  background: var(--mc-glass-strong) !important;
+  color: var(--mc-text-primary) !important;
+  border: 1px solid var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius-sm) !important;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+body.mission-control input[type="file"]::file-selector-button:hover {
+  background: var(--mc-glass-hover) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   21. TABLES & DATA (Statements, Admin, etc.)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control table {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control th {
+  color: var(--mc-text-secondary) !important;
+  border-color: var(--mc-glass-border) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+body.mission-control td {
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control tbody tr:hover {
+  background: var(--mc-glass-hover) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   22. IMPORT / CSV BUTTON
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control label.inline-flex.border-2.border-slate-300 {
+  background: var(--mc-glass-strong) !important;
+  border-color: var(--mc-glass-border) !important;
+  border-width: 1px !important;
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control label.inline-flex.border-2.border-slate-300:hover {
+  border-color: rgba(56, 189, 248, 0.15) !important;
+  color: var(--mc-accent-bright) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   23. HOVER BACKGROUND OVERRIDES
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .hover\:bg-brand-50:hover {
+  background: var(--mc-accent-subtle) !important;
+}
+
+body.mission-control .hover\:bg-purple-50:hover {
+  background: var(--mc-purple-glow) !important;
+}
+
+body.mission-control .hover\:bg-red-50:hover {
+  background: var(--mc-red-glow) !important;
+}
+
+body.mission-control .hover\:bg-yellow-50:hover {
+  background: var(--mc-amber-glow) !important;
+}
+
+body.mission-control .hover\:bg-brand-50\/50:hover,
+body.mission-control .hover\:bg-brand-50:hover {
+  background: var(--mc-accent-subtle) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   24. DRAG & DROP ZONE (sale PDF upload)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .border-dashed {
+  border-color: var(--mc-text-muted) !important;
+  background: rgba(0, 0, 0, 0.1) !important;
+}
+
+body.mission-control .border-dashed:hover {
+  border-color: var(--mc-accent) !important;
+  background: var(--mc-accent-subtle) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   25. ANIMATIONS — Smooth entrance
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .animate-fade-in {
+  animation: mc-fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+@keyframes mc-fadeIn {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+body.mission-control .animate-pulse {
+  color: var(--mc-accent) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   26. RECHARTS (Analytics page)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .recharts-cartesian-grid line {
+  stroke: var(--mc-glass-border) !important;
+}
+
+body.mission-control .recharts-text {
+  fill: var(--mc-text-tertiary) !important;
+}
+
+body.mission-control .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--mc-bg-elevated) !important;
+  border-color: var(--mc-glass-border) !important;
+  border-radius: var(--mc-radius-sm) !important;
+  box-shadow: var(--mc-shadow-lg) !important;
+}
+
+body.mission-control .recharts-tooltip-label {
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control .recharts-tooltip-item {
+  color: var(--mc-text-secondary) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   27. MONTH PICKER DROPDOWN
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .absolute.z-10.mt-1.bg-white.border.rounded-lg.shadow-lg {
+  background: var(--mc-bg-elevated) !important;
+  border-color: var(--mc-glass-border) !important;
+  box-shadow: var(--mc-shadow-lg) !important;
+}
+
+body.mission-control .absolute.z-10 button:hover {
+  background: var(--mc-accent-subtle) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   28. RETENTION & ADMIN SPECIFIC
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .bg-gradient-to-r.from-brand-600.to-brand-700 {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.15) 0%, rgba(14, 165, 233, 0.12) 100%) !important;
+}
+
+/* Tab-style buttons */
+body.mission-control .bg-brand-50.text-brand-700 {
+  background: var(--mc-accent-subtle) !important;
+  color: var(--mc-accent-bright) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   29. SUBTLE GRAIN TEXTURE (global atmosphere)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   30. SELECTION COLOR
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control ::selection {
+  background: rgba(56, 189, 248, 0.3);
+  color: #fff;
+}
+
+body.mission-control ::-moz-selection {
+  background: rgba(56, 189, 248, 0.3);
+  color: #fff;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   31. RECONCILIATION / STATEMENTS PAGE — READABILITY BOOST
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Page heading */
+body.mission-control main h1.text-4xl {
+  font-size: 2.25rem !important;
+  letter-spacing: -0.02em;
+}
+
+/* Section headings inside cards */
+body.mission-control main h2.text-xl,
+body.mission-control main h3.font-semibold,
+body.mission-control main h3.font-bold {
+  font-size: 1.15rem !important;
+  color: var(--mc-text-primary) !important;
+}
+
+/* Sub-descriptions */
+body.mission-control main p.text-slate-600,
+body.mission-control main p.text-slate-500,
+body.mission-control main p.text-sm.text-slate-500 {
+  font-size: 0.9rem !important;
+  color: var(--mc-text-secondary) !important;
+}
+
+/* Form labels */
+body.mission-control main label.block {
+  font-size: 0.875rem !important;
+  color: var(--mc-text-primary) !important;
+  font-weight: 600;
+}
+
+/* Import list cards */
+body.mission-control main .space-y-2 button .text-sm.font-semibold {
+  font-size: 0.95rem !important;
+  color: var(--mc-text-primary) !important;
+}
+
+body.mission-control main .space-y-2 button .text-xs {
+  font-size: 0.825rem !important;
+  color: var(--mc-text-secondary) !important;
+}
+
+body.mission-control main .space-y-2 button .text-xs .text-green-600 {
+  font-size: 0.825rem !important;
+}
+
+body.mission-control main .space-y-2 button .text-xs .text-amber-600 {
+  font-size: 0.825rem !important;
+}
+
+/* Matched / unmatched counts */
+body.mission-control main .text-green-600 {
+  color: var(--mc-green) !important;
+  font-weight: 600;
+}
+
+body.mission-control main .text-amber-600 {
+  color: var(--mc-amber) !important;
+  font-weight: 600;
+}
+
+/* Table text — all small text bumped up */
+body.mission-control main table .text-xs {
+  font-size: 0.825rem !important;
+}
+
+body.mission-control main table .text-sm {
+  font-size: 0.9rem !important;
+}
+
+body.mission-control main table th {
+  font-size: 0.825rem !important;
+  color: var(--mc-text-secondary) !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+body.mission-control main table td {
+  font-size: 0.875rem !important;
+  color: var(--mc-text-primary) !important;
+}
+
+/* Status badges */
+body.mission-control main .text-xs.font-medium {
+  font-size: 0.8rem !important;
+}
+
+/* Empty state text */
+body.mission-control main .text-center.text-slate-500 p {
+  font-size: 1rem !important;
+  color: var(--mc-text-secondary) !important;
+}
+
+/* Detail panel text */
+body.mission-control main .space-y-4 .text-sm {
+  font-size: 0.9rem !important;
+}
+
+/* Monthly Pay section totals */
+body.mission-control main .text-lg.font-bold {
+  font-size: 1.2rem !important;
+  color: var(--mc-text-primary) !important;
+}
+
+/* Select and input fields on dark bg */
+body.mission-control main select,
+body.mission-control main input[type="month"],
+body.mission-control main input[type="text"],
+body.mission-control main input[type="search"] {
+  background: var(--mc-bg-surface) !important;
+  border-color: var(--mc-glass-border) !important;
+  color: var(--mc-text-primary) !important;
+  font-size: 0.9rem !important;
+}
+
+body.mission-control main select option {
+  background: var(--mc-bg-elevated);
+  color: var(--mc-text-primary);
+}
+
+/* Tab buttons */
+body.mission-control main button.text-sm {
+  font-size: 0.9rem !important;
+}
+
+/* Agent summary cards */
+body.mission-control main .font-mono {
+  font-size: 0.9rem !important;
+  color: var(--mc-text-primary) !important;
+}
+
+/* Duplicate upload warning banner */
+body.mission-control main .bg-amber-50 {
+  background: rgba(251, 191, 36, 0.08) !important;
+  border-color: rgba(251, 191, 36, 0.2) !important;
+}
+
+body.mission-control main .bg-amber-50 .text-amber-800 {
+  color: var(--mc-amber) !important;
+}
+
+body.mission-control main .bg-amber-50 .text-amber-700 {
+  color: #d4a520 !important;
+}
+
+body.mission-control main .bg-amber-50 .text-amber-600 {
+  color: #b8922a !important;
+}
+
+body.mission-control main .bg-amber-50 .text-amber-500 {
+  color: var(--mc-amber) !important;
+}
+
+/* Carrier checklist pills */
+body.mission-control main .bg-green-50 {
+  background: rgba(52, 211, 153, 0.1) !important;
+  border-color: rgba(52, 211, 153, 0.25) !important;
+}
+
+body.mission-control main .bg-green-50 .text-green-700,
+body.mission-control main .bg-green-50.text-green-700 {
+  color: var(--mc-green) !important;
+}
+
+body.mission-control main span.bg-slate-50 {
+  background: var(--mc-glass) !important;
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control main span.bg-slate-50 .text-slate-400,
+body.mission-control main span.bg-slate-50.text-slate-400 {
+  color: var(--mc-text-muted) !important;
+}
+
+/* Carrier checklist label */
+body.mission-control main .border-t.border-slate-100 {
+  border-color: var(--mc-glass-border) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   32. TIME CLOCK WIDGET
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Clock widget — clocked in state */
+body.mission-control main .bg-green-50.border-green-200 {
+  background: rgba(52, 211, 153, 0.06) !important;
+  border-color: rgba(52, 211, 153, 0.25) !important;
+}
+
+body.mission-control main .bg-green-50.border-green-200 .bg-green-100 {
+  background: rgba(52, 211, 153, 0.15) !important;
+}
+
+body.mission-control main .text-green-800 {
+  color: var(--mc-green) !important;
+}
+
+body.mission-control main .text-green-900 {
+  color: #5de8b5 !important;
+}
+
+body.mission-control main .text-green-700 {
+  color: #3dd49e !important;
+}
+
+/* Clock widget — not clocked in state */
+body.mission-control main .border-blue-200.shadow-md {
+  background: var(--mc-bg-surface) !important;
+  border-color: rgba(56, 189, 248, 0.25) !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.08) !important;
+}
+
+body.mission-control main .bg-blue-100 {
+  background: rgba(56, 189, 248, 0.12) !important;
+}
+
+body.mission-control main .text-blue-800 {
+  color: var(--mc-accent-bright) !important;
+}
+
+body.mission-control main .text-blue-600:not(a):not(button) {
+  color: var(--mc-accent) !important;
+}
+
+/* Clock widget — shift complete state */
+body.mission-control main .bg-slate-50.border-slate-200:not(.stat-card):not(.card) {
+  background: var(--mc-glass) !important;
+  border-color: var(--mc-glass-border) !important;
+}
+
+/* Elapsed time font */
+body.mission-control main .font-mono.font-bold.text-green-900 {
+  color: #5de8b5 !important;
+  text-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
+}
+
+/* Time clock page specific */
+body.mission-control main .bg-red-50\/50 {
+  background: rgba(248, 113, 113, 0.06) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   33. THEME PICKER DROPDOWN
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .theme-picker-dropdown {
+  background: var(--mc-bg-elevated);
+  border-color: var(--mc-glass-border);
+}
+
+body.mission-control .theme-picker-header {
+  border-color: var(--mc-glass-border);
+}
+
+body.mission-control .theme-picker-label {
+  color: var(--mc-text-tertiary);
+}
+
+body.mission-control .theme-picker-item:hover {
+  background: var(--mc-glass-hover) !important;
+}
+
+body.mission-control .theme-picker-name {
+  color: var(--mc-text-primary);
+}
+
+body.mission-control .theme-picker-desc {
+  color: var(--mc-text-tertiary);
+}
+
+/* Nav menu trigger */
+body.mission-control .nav-menu-trigger {
+  color: var(--mc-text-primary);
+  background: var(--mc-glass);
+  border: 1px solid var(--mc-glass-border);
+}
+
+body.mission-control .nav-menu-trigger:hover {
+  background: var(--mc-glass-hover);
+  border-color: var(--mc-accent-subtle);
+}
+
+body.mission-control .nav-menu-active {
+  background: var(--mc-accent-subtle) !important;
+}
+
+body.mission-control .nav-menu-icon {
+  color: var(--mc-text-secondary);
+}
+
+body.mission-control .nav-menu-active .nav-menu-icon {
+  color: var(--mc-accent);
+}
+
+body.mission-control .nav-menu-active .theme-picker-name {
+  color: var(--mc-accent-bright);
+}
+
+body.mission-control .nav-divider {
+  border-color: var(--mc-glass-border);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   34. SALES TICKER
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .ticker-container {
+  background: var(--mc-bg-surface) !important;
+  border-color: var(--mc-glass-border) !important;
+}
+
+body.mission-control .ticker-fade-left {
+  background: linear-gradient(to right, var(--mc-bg-surface), transparent) !important;
+}
+
+body.mission-control .ticker-fade-right {
+  background: linear-gradient(to left, var(--mc-bg-surface), transparent) !important;
+}
+
+body.mission-control .ticker-name {
+  color: var(--mc-text-primary);
+}
+
+body.mission-control .ticker-amount {
+  color: var(--mc-accent-bright);
+}
+
+body.mission-control .ticker-sep,
+body.mission-control .ticker-source {
+  color: var(--mc-text-tertiary);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   35. LINK DROPDOWNS & START A QUOTE
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body.mission-control .link-dropdown-trigger {
+  background: var(--mc-glass);
+  border-color: var(--mc-glass-border);
+}
+
+body.mission-control .link-dropdown-trigger:hover {
+  background: var(--mc-glass-hover);
+  border-color: var(--mc-accent-subtle);
+}
+
+body.mission-control .link-dropdown-label {
+  color: var(--mc-text-primary);
+}
+
+body.mission-control .start-quote-btn {
+  box-shadow: 0 2px 12px rgba(34, 197, 94, 0.25);
+}
+
+body.mission-control .start-quote-btn:hover {
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.35);
+}
