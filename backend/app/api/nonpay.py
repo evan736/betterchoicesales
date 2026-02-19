@@ -386,6 +386,72 @@ def _process_single_policy(
         ).first()
 
     if not policy:
+        # Try base number (strip suffix like 618207668-653-1 → 618207668)
+        base_number = policy_number.split("-")[0].strip()
+        if base_number and base_number != policy_number:
+            policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number.ilike(f"%{base_number}%")
+            ).first()
+
+    if not policy:
+        # Try reverse: maybe DB has longer number that contains our extracted number
+        policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number.ilike(f"{policy_number.replace('-', '%')}%")
+        ).first()
+
+    if not policy:
+        # Try matching by customer name if we have insured_name
+        if insured_name:
+            parts = insured_name.strip().split()
+            if len(parts) >= 2:
+                # Try last name match on customers
+                last_name = parts[-1]
+                customer = db.query(Customer).filter(
+                    Customer.last_name.ilike(f"%{last_name}%")
+                ).first()
+                if customer:
+                    result["matched"] = True
+                    result["customer_name"] = customer.full_name
+                    result["customer_email"] = customer.email
+                    result["customer_id"] = customer.id
+                    result["match_type"] = "name"
+                    if not customer.email:
+                        result["error"] = "Customer has no email address"
+                        return result
+                    # Skip rate limit check and sending for name matches in case of ambiguity
+                    if dry_run:
+                        result["would_send"] = True
+                        result["dry_run"] = True
+                        return result
+                    # For live mode, proceed to send
+                    effective_carrier = carrier or ""
+                    email_result = send_nonpay_email(
+                        to_email=customer.email,
+                        client_name=customer.full_name,
+                        policy_number=policy_number,
+                        carrier=effective_carrier,
+                        amount_due=amount_due,
+                        due_date=due_date,
+                    )
+                    email_record = NonPayEmail(
+                        notice_id=notice_id,
+                        policy_number=policy_number,
+                        customer_id=customer.id,
+                        customer_name=customer.full_name,
+                        customer_email=customer.email,
+                        carrier=effective_carrier,
+                        amount_due=amount_due,
+                        due_date=due_date,
+                        email_status="sent" if email_result.get("success") else "failed",
+                        mailgun_message_id=email_result.get("message_id"),
+                        error_message=email_result.get("error"),
+                    )
+                    db.add(email_record)
+                    db.commit()
+                    result["email_sent"] = email_result.get("success", False)
+                    return result
+
+    if not policy:
         result["error"] = "Policy not found in database"
         return result
 
