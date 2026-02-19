@@ -99,6 +99,28 @@ async def upload_nonpay_file(
         notice.raw_extracted = policies
         notice.policies_found = len(policies)
 
+        # If no carrier was extracted, try to infer from filename
+        FILENAME_CARRIER_MAP = {
+            "trv": "travelers", "travelers": "travelers",
+            "prog": "progressive", "progressive": "progressive",
+            "safeco": "safeco", "geico": "geico", "grange": "grange",
+            "hippo": "hippo", "branch": "branch", "next": "next",
+            "gainsco": "gainsco", "steadily": "steadily",
+            "integrity": "integrity", "clearcover": "clearcover",
+            "openly": "openly", "bristol": "bristol_west",
+            "natgen": "national_general", "national_general": "national_general",
+            "universal": "universal_property", "upcic": "universal_property",
+            "american_modern": "american_modern", "covertree": "covertree",
+        }
+        has_any_carrier = any(p.get("carrier") for p in policies)
+        if not has_any_carrier and file.filename:
+            fn_lower = file.filename.lower()
+            for pattern, carrier_key in FILENAME_CARRIER_MAP.items():
+                if pattern in fn_lower:
+                    for p in policies:
+                        p["carrier"] = carrier_key
+                    break
+
         # Process each policy
         results = []
         matched = 0
@@ -349,9 +371,11 @@ def _extract_from_csv(file_bytes: bytes) -> list[dict]:
     name_cols = ["insured_name", "insuredname", "name", "client", "customer", "policyholder",
                  "insured", "named_insured", "named insured", "first name", "first_name"]
     amount_cols = ["amount_due", "amountdue", "amount", "balance", "premium_due", "premiumdue",
-                   "past_due", "pastdue", "total_due", "totaldue", "premium"]
+                   "past_due", "pastdue", "total_due", "totaldue", "premium",
+                   "minimum_due", "remaining_balance", "amount_to_reinstate"]
     date_cols = ["due_date", "duedate", "cancel_date", "canceldate", "effective_date",
-                 "cancellation_date", "cancellationdate"]
+                 "cancellation_date", "cancellationdate",
+                 "payment_due_date", "cancellation_effective_date"]
 
     def _find_col(fieldnames, patterns):
         for f in (fieldnames or []):
@@ -402,9 +426,11 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
     name_pats = ["insured_name", "insuredname", "name", "client", "customer", "policyholder",
                  "insured", "named_insured", "named insured", "first name", "first_name"]
     amount_pats = ["amount_due", "amountdue", "amount", "balance", "premium_due", "premiumdue",
-                   "past_due", "pastdue", "total_due", "totaldue", "premium"]
+                   "past_due", "pastdue", "total_due", "totaldue", "premium",
+                   "minimum_due", "remaining_balance", "amount_to_reinstate"]
     date_pats = ["due_date", "duedate", "cancel_date", "canceldate", "effective_date",
-                 "cancellation_date", "cancellationdate"]
+                 "cancellation_date", "cancellationdate",
+                 "payment_due_date", "cancellation_effective_date"]
 
     def _match_col(headers, patterns):
         for i, h in enumerate(headers):
