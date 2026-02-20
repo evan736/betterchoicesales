@@ -1085,29 +1085,42 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
 
     logger.info("Inbound email from=%s subject=%s", sender, subject[:80])
 
-    # Determine if this is a non-pay notice from the subject line
+    # Determine if this is a non-pay notice
+    # Check subject line first, then fall back to scanning the HTML body
+    # (Forwarded emails often have generic subjects like "Fwd: GrangeWire Alerts")
     subject_lower = subject.lower()
+    html_lower = (html_body or "").lower()
+    plain_lower = (plain_body or "").lower()
+    all_text = f"{subject_lower} {html_lower} {plain_lower}"
+
+    # Check for skip keywords in subject
     if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
-        logger.info("Inbound email skipped (subject keyword): %s", subject[:80])
-        return {"status": "skipped", "reason": "Subject indicates non-actionable notice type"}
+        # But only skip if the body doesn't ALSO contain non-pay content
+        if not any(kw in html_lower for kw in NONPAY_SUBJECT_KEYWORDS):
+            logger.info("Inbound email skipped (subject keyword): %s", subject[:80])
+            return {"status": "skipped", "reason": "Subject indicates non-actionable notice type"}
 
-    is_nonpay = any(kw in subject_lower for kw in NONPAY_SUBJECT_KEYWORDS)
+    # Check for non-pay keywords in subject OR body
+    is_nonpay = any(kw in all_text for kw in NONPAY_SUBJECT_KEYWORDS)
     if not is_nonpay:
-        logger.info("Inbound email skipped (no non-pay keyword): %s", subject[:80])
-        return {"status": "skipped", "reason": "Subject does not contain non-pay keywords"}
+        logger.info("Inbound email skipped (no non-pay keyword in subject or body): %s", subject[:80])
+        return {"status": "skipped", "reason": "No non-pay keywords found in subject or body"}
 
-    # Detect carrier from sender
+    # Detect carrier from sender, forwarded-from headers, or body content
     sender_lower = sender.lower()
     carrier = ""
-    if "grange" in sender_lower:
+
+    # Check the actual sender and also the forwarded message headers in the body
+    carrier_checks = f"{sender_lower} {html_lower}"
+    if "grange" in carrier_checks:
         carrier = "grange"
-    elif "travelers" in sender_lower:
+    elif "travelers" in carrier_checks:
         carrier = "travelers"
-    elif "progressive" in sender_lower:
+    elif "progressive" in carrier_checks:
         carrier = "progressive"
-    elif "safeco" in sender_lower:
+    elif "safeco" in carrier_checks:
         carrier = "safeco"
-    elif "national" in sender_lower and "general" in sender_lower:
+    elif "national" in carrier_checks and "general" in carrier_checks:
         carrier = "national_general"
 
     # Parse the HTML body for policy data
