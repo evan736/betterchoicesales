@@ -1131,7 +1131,7 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
     # Create a notice record
     notice = NonPayNotice(
         filename=f"inbound-email-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
-        carrier=carrier,
+        upload_type="inbound-email",
         uploaded_by=f"inbound:{sender[:60]}",
         policies_found=len(policies),
         status="processing",
