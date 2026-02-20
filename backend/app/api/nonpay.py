@@ -906,6 +906,314 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
     return results
 
 
+# ── Inbound Email (Mailgun webhook) ─────────────────────────────────
+
+import os
+import re
+from fastapi import Request, Form
+
+# Env var to control mode: "dry_run" or "live"
+# Start with dry_run, switch to live after first week
+INBOUND_NONPAY_MODE = os.environ.get("INBOUND_NONPAY_MODE", "dry_run")
+
+# Subject line keywords that indicate non-pay notices
+NONPAY_SUBJECT_KEYWORDS = ["non pay", "non-pay", "nonpay", "nsf", "non payment", "non-payment"]
+SKIP_SUBJECT_KEYWORDS = ["underwriting", "policyholder request", "rewrite", "replacement"]
+
+
+def _parse_grangewire_html(html_body: str) -> list[dict]:
+    """Parse GrangeWire Alerts HTML table into policy records."""
+    from html.parser import HTMLParser
+
+    class TableParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_table = False
+            self.in_row = False
+            self.in_cell = False
+            self.current_row = []
+            self.current_cell = ""
+            self.rows = []
+            self.table_count = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "table":
+                self.in_table = True
+                self.table_count += 1
+            elif tag == "tr" and self.in_table:
+                self.in_row = True
+                self.current_row = []
+            elif tag in ("td", "th") and self.in_row:
+                self.in_cell = True
+                self.current_cell = ""
+            elif tag == "br" and self.in_cell:
+                self.current_cell += " "
+
+        def handle_endtag(self, tag):
+            if tag == "table":
+                self.in_table = False
+            elif tag == "tr" and self.in_row:
+                self.in_row = False
+                if self.current_row:
+                    self.rows.append(self.current_row)
+            elif tag in ("td", "th") and self.in_cell:
+                self.in_cell = False
+                self.current_row.append(self.current_cell.strip())
+
+        def handle_data(self, data):
+            if self.in_cell:
+                self.current_cell += data
+
+    parser = TableParser()
+    parser.feed(html_body)
+
+    if not parser.rows:
+        return []
+
+    # Find the header row — look for one containing "POLICY" or "ACCT"
+    header_idx = None
+    for i, row in enumerate(parser.rows):
+        row_text = " ".join(row).upper()
+        if "POLICY" in row_text or "ACCT" in row_text:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return []
+
+    headers = [h.upper().strip() for h in parser.rows[header_idx]]
+
+    # Map columns
+    def _find_col(headers, keywords):
+        for i, h in enumerate(headers):
+            for kw in keywords:
+                if kw in h:
+                    return i
+        return None
+
+    p_col = _find_col(headers, ["POLICY", "ACCT", "NUMBER"])
+    n_col = _find_col(headers, ["INSURED", "NAME"])
+    d_col = _find_col(headers, ["CANCEL", "DATE"])
+    max_col = _find_col(headers, ["MAX DUE", "MAX"])
+    min_col = _find_col(headers, ["MIN DUE", "MIN"])
+    msg_col = _find_col(headers, ["MESSAGE"])
+    phone_col = _find_col(headers, ["PHONE", "EMAIL"])
+
+    results = []
+    for row in parser.rows[header_idx + 1:]:
+        if not row or len(row) <= (p_col or 0):
+            continue
+
+        pnum = row[p_col].strip() if p_col is not None and p_col < len(row) else ""
+        if not pnum:
+            continue
+
+        # Parse amount — prefer MAX DUE
+        amount = None
+        for col in [max_col, min_col]:
+            if col is not None and col < len(row) and row[col]:
+                try:
+                    amount = float(row[col].replace(",", "").replace("$", "").strip())
+                    break
+                except (ValueError, TypeError):
+                    pass
+
+        # Parse message to determine notice type
+        message = row[msg_col].strip() if msg_col is not None and msg_col < len(row) else ""
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in ["non pay", "non-pay", "nsf"]):
+            notice_type = "non-pay"
+        elif any(kw in msg_lower for kw in ["underwriting"]):
+            notice_type = "underwriting"
+        elif any(kw in msg_lower for kw in ["policyholder", "rewrite"]):
+            notice_type = "voluntary"
+        else:
+            notice_type = "non-pay"  # default for Grange non-pay alerts
+
+        results.append({
+            "policy_number": pnum,
+            "carrier": "grange",
+            "insured_name": row[n_col].strip() if n_col is not None and n_col < len(row) else "",
+            "amount_due": amount,
+            "due_date": row[d_col].strip() if d_col is not None and d_col < len(row) else "",
+            "notice_type": notice_type,
+            "cancel_reason": message,
+            "phone": row[phone_col].strip() if phone_col is not None and phone_col < len(row) else "",
+        })
+
+    return results
+
+
+def _parse_generic_email_html(html_body: str, carrier: str = "") -> list[dict]:
+    """Fallback parser for non-Grange carrier email tables."""
+    # Try the same table parsing approach
+    policies = _parse_grangewire_html(html_body)
+    if policies and not carrier:
+        # Try to detect carrier from email body
+        body_lower = html_body.lower()
+        for key in ["travelers", "progressive", "safeco", "national general",
+                     "bristol west", "hippo", "branch", "clearcover"]:
+            if key in body_lower:
+                carrier = key.replace(" ", "_")
+                break
+    for p in policies:
+        if carrier and not p.get("carrier"):
+            p["carrier"] = carrier
+    return policies
+
+
+@router.post("/inbound-email")
+async def inbound_email_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Mailgun inbound webhook. Receives parsed email data and processes non-pay notices.
+
+    Mailgun POSTs form data with fields: sender, from, subject, body-html, body-plain,
+    attachment-count, attachment-1, etc.
+
+    No auth required — Mailgun calls this directly. We validate by checking sender domain.
+    """
+    try:
+        form = await request.form()
+    except Exception as e:
+        logger.error("Inbound email: failed to parse form data: %s", e)
+        return {"status": "error", "message": str(e)}
+
+    sender = form.get("sender", "") or form.get("from", "")
+    subject = form.get("subject", "")
+    html_body = form.get("body-html", "")
+    plain_body = form.get("body-plain", "")
+
+    logger.info("Inbound email from=%s subject=%s", sender, subject[:80])
+
+    # Determine if this is a non-pay notice from the subject line
+    subject_lower = subject.lower()
+    if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
+        logger.info("Inbound email skipped (subject keyword): %s", subject[:80])
+        return {"status": "skipped", "reason": "Subject indicates non-actionable notice type"}
+
+    is_nonpay = any(kw in subject_lower for kw in NONPAY_SUBJECT_KEYWORDS)
+    if not is_nonpay:
+        logger.info("Inbound email skipped (no non-pay keyword): %s", subject[:80])
+        return {"status": "skipped", "reason": "Subject does not contain non-pay keywords"}
+
+    # Detect carrier from sender
+    sender_lower = sender.lower()
+    carrier = ""
+    if "grange" in sender_lower:
+        carrier = "grange"
+    elif "travelers" in sender_lower:
+        carrier = "travelers"
+    elif "progressive" in sender_lower:
+        carrier = "progressive"
+    elif "safeco" in sender_lower:
+        carrier = "safeco"
+    elif "national" in sender_lower and "general" in sender_lower:
+        carrier = "national_general"
+
+    # Parse the HTML body for policy data
+    if not html_body:
+        logger.warning("Inbound email has no HTML body")
+        return {"status": "error", "message": "No HTML body in email"}
+
+    if "grange" in carrier:
+        policies = _parse_grangewire_html(html_body)
+    else:
+        policies = _parse_generic_email_html(html_body, carrier)
+
+    if not policies:
+        logger.warning("Inbound email: no policies extracted from body")
+        return {"status": "error", "message": "Could not extract policy data from email"}
+
+    # Determine mode
+    mode = INBOUND_NONPAY_MODE
+    dry_run = (mode != "live")
+
+    # Create a notice record
+    notice = NonPayNotice(
+        filename=f"inbound-email-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+        carrier=carrier,
+        uploaded_by=f"inbound:{sender[:60]}",
+        policies_found=len(policies),
+        status="processing",
+    )
+    db.add(notice)
+    db.commit()
+    db.refresh(notice)
+
+    # Process each policy (same logic as file upload)
+    results = []
+    matched = 0
+    sent = 0
+    letters = 0
+    skipped = 0
+
+    for pol in policies:
+        pnum = (pol.get("policy_number") or "").strip()
+        if not pnum:
+            continue
+
+        notice_type = pol.get("notice_type", "non-pay")
+        cancel_reason = pol.get("cancel_reason", "")
+
+        if notice_type not in ("non-pay",):
+            results.append({
+                "policy_number": pnum,
+                "insured_name": pol.get("insured_name", ""),
+                "cancel_reason": cancel_reason,
+                "notice_type": notice_type,
+                "skipped_reason": True,
+                "error": f"Skipped — {cancel_reason}" if cancel_reason else f"Skipped — {notice_type}",
+            })
+            continue
+
+        result = _process_single_policy(
+            db=db,
+            notice_id=notice.id,
+            policy_number=pnum,
+            carrier=pol.get("carrier", carrier),
+            insured_name=pol.get("insured_name", ""),
+            amount_due=pol.get("amount_due"),
+            due_date=pol.get("due_date"),
+            dry_run=dry_run,
+        )
+        result["cancel_reason"] = cancel_reason
+        result["notice_type"] = notice_type
+        results.append(result)
+        if result.get("matched"):
+            matched += 1
+        if result.get("email_sent"):
+            sent += 1
+        if result.get("letter_sent"):
+            letters += 1
+        if result.get("skipped_rate_limit"):
+            skipped += 1
+
+    notice.policies_matched = matched
+    notice.emails_sent = sent + letters
+    notice.emails_skipped = skipped
+    notice.status = "dry_run" if dry_run else "completed"
+    db.commit()
+
+    summary = {
+        "status": "processed",
+        "mode": "dry_run" if dry_run else "live",
+        "notice_id": notice.id,
+        "carrier": carrier,
+        "subject": subject[:100],
+        "policies_found": len(policies),
+        "policies_matched": matched,
+        "emails_sent": sent,
+        "letters_sent": letters,
+        "skipped": skipped,
+        "details": results,
+    }
+
+    logger.info("Inbound email processed: %s policies, %s matched, %s sent (mode=%s)",
+                len(policies), matched, sent, mode)
+
+    return summary
+
+
 # ── History / Status ─────────────────────────────────────────────────
 
 @router.get("/history")
