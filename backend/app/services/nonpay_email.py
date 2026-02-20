@@ -222,7 +222,7 @@ def _add_nowcerts_nonpay_note(
     try:
         from app.services.nowcerts import get_nowcerts_client
         nc = get_nowcerts_client()
-        if not nc.is_configured():
+        if not nc.is_configured:
             logger.debug("NowCerts not configured — skipping note")
             return
 

@@ -1380,7 +1380,7 @@ async def test_nowcerts_note(request: Request):
     try:
         from app.services.nowcerts import get_nowcerts_client
         nc = get_nowcerts_client()
-        if not nc.is_configured():
+        if not nc.is_configured:
             return {"error": "NowCerts not configured", "username": bool(nc.username), "password": bool(nc.password)}
 
         body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
