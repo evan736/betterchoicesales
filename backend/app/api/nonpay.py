@@ -1410,7 +1410,7 @@ async def test_nowcerts_note(request: Request):
 async def backfill_nowcerts_notes():
     """One-time backfill: add NowCerts notes for all previously sent non-pay emails."""
     from app.core.database import SessionLocal
-    from app.models.nonpay import NonPayNotice, NonPayResult
+    from app.models.nonpay import NonPayNotice, NonPayEmail
     from app.services.nowcerts import get_nowcerts_client
     from datetime import datetime
 
@@ -1421,9 +1421,9 @@ async def backfill_nowcerts_notes():
     db = SessionLocal()
     try:
         # Get all results where email was sent successfully
-        results = db.query(NonPayResult).filter(
-            NonPayResult.email_status == "sent",
-            NonPayResult.customer_email.isnot(None),
+        results = db.query(NonPayEmail).filter(
+            NonPayEmail.email_status == "sent",
+            NonPayEmail.customer_email.isnot(None),
         ).all()
 
         notes_added = 0
@@ -1452,7 +1452,7 @@ async def backfill_nowcerts_notes():
                 last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
 
                 # Use the original send date if available
-                created = r.created_at.strftime("%m/%d/%Y %I:%M %p") if r.created_at else datetime.now().strftime("%m/%d/%Y %I:%M %p")
+                created = r.sent_at.strftime("%m/%d/%Y %I:%M %p") if r.sent_at else datetime.now().strftime("%m/%d/%Y %I:%M %p")
 
                 note_data = {
                     "subject": subject,
