@@ -559,14 +559,24 @@ const NonPayModal: React.FC<{
                     </div>
                     {result.details?.length > 0 && (
                       <div className="max-h-60 overflow-y-auto">
-                        <table className="w-full text-xs"><thead><tr className="text-left text-slate-500 border-b"><th className="pb-2 font-semibold">Policy</th><th className="pb-2 font-semibold">Customer</th><th className="pb-2 font-semibold">Email</th><th className="pb-2 font-semibold">Status</th></tr></thead>
+                        <table className="w-full text-xs"><thead><tr className="text-left text-slate-500 border-b"><th className="pb-2 font-semibold">Policy</th><th className="pb-2 font-semibold">Customer</th><th className="pb-2 font-semibold">Reason</th><th className="pb-2 font-semibold">Status</th></tr></thead>
                           <tbody>{result.details.map((d: any, i: number) => (
-                            <tr key={i} className="border-b border-slate-100">
+                            <tr key={i} className={`border-b border-slate-100 ${d.skipped_reason ? 'opacity-50' : ''}`}>
                               <td className="py-2 font-mono font-semibold">{d.policy_number}</td>
-                              <td className="py-2">{d.customer_name || <span className="text-slate-400">—</span>}</td>
-                              <td className="py-2 text-slate-500">{d.customer_email || '—'}</td>
+                              <td className="py-2">{d.insured_name || d.customer_name || <span className="text-slate-400">—</span>}</td>
+                              <td className="py-2 text-slate-500 text-[11px]">
+                                {d.cancel_reason ? (
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    d.notice_type === 'non-pay' ? 'bg-red-100 text-red-700' :
+                                    d.notice_type === 'underwriting' ? 'bg-orange-100 text-orange-700' :
+                                    d.notice_type === 'voluntary' ? 'bg-slate-100 text-slate-600' :
+                                    'bg-slate-100 text-slate-600'
+                                  }`}>{d.cancel_reason}</span>
+                                ) : d.customer_email || '—'}
+                              </td>
                               <td className="py-2">
-                                {d.would_send ? <span className="flex items-center gap-1 text-amber-600">✓ Would email {d.customer_email}</span>
+                                {d.skipped_reason ? <span className="text-slate-400 italic">Ignored</span>
+                                : d.would_send ? <span className="flex items-center gap-1 text-amber-600">✓ Would email {d.customer_email}</span>
                                 : d.would_send_letter ? <span className="flex items-center gap-1 text-purple-600">✉ Would mail letter to {d.letter_address || 'address on file'}</span>
                                 : d.email_sent ? <span className="flex items-center gap-1 text-green-600"><Send size={11} />Sent to {d.customer_email}</span>
                                 : d.letter_sent ? <span className="flex items-center gap-1 text-purple-600">📬 Letter mailed via Thanks.io</span>

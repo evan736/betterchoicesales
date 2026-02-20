@@ -188,12 +188,31 @@ async def upload_nonpay_b64(
             pnum = (pol.get("policy_number") or "").strip()
             if not pnum:
                 continue
+
+            # Filter by cancellation reason — only process non-pay/NSF
+            notice_type = pol.get("notice_type", "non-pay")
+            cancel_reason = pol.get("cancel_reason", "")
+
+            if notice_type not in ("non-pay",):
+                # Skip non-actionable reasons
+                results.append({
+                    "policy_number": pnum,
+                    "insured_name": pol.get("insured_name", ""),
+                    "cancel_reason": cancel_reason,
+                    "notice_type": notice_type,
+                    "skipped_reason": True,
+                    "error": f"Skipped — {cancel_reason}" if cancel_reason else f"Skipped — {notice_type}",
+                })
+                continue
+
             result = _process_single_policy(
                 db=db, notice_id=notice.id, policy_number=pnum,
                 carrier=pol.get("carrier", ""), insured_name=pol.get("insured_name", ""),
                 amount_due=pol.get("amount_due"), due_date=pol.get("due_date"),
                 dry_run=dry_run,
             )
+            result["cancel_reason"] = cancel_reason
+            result["notice_type"] = notice_type
             results.append(result)
             if result.get("matched"): matched += 1
             if result.get("email_sent"): sent += 1
@@ -306,6 +325,21 @@ async def upload_nonpay_file(
             if not pnum:
                 continue
 
+            # Filter by cancellation reason
+            notice_type = pol.get("notice_type", "non-pay")
+            cancel_reason = pol.get("cancel_reason", "")
+
+            if notice_type not in ("non-pay",):
+                results.append({
+                    "policy_number": pnum,
+                    "insured_name": pol.get("insured_name", ""),
+                    "cancel_reason": cancel_reason,
+                    "notice_type": notice_type,
+                    "skipped_reason": True,
+                    "error": f"Skipped — {cancel_reason}" if cancel_reason else f"Skipped — {notice_type}",
+                })
+                continue
+
             result = _process_single_policy(
                 db=db,
                 notice_id=notice.id,
@@ -316,6 +350,8 @@ async def upload_nonpay_file(
                 due_date=pol.get("due_date"),
                 dry_run=dry_run,
             )
+            result["cancel_reason"] = cancel_reason
+            result["notice_type"] = notice_type
             results.append(result)
             if result.get("matched"):
                 matched += 1
@@ -766,6 +802,10 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
     date_pats = ["due_date", "duedate", "cancel_date", "canceldate", "effective_date",
                  "cancellation_date", "cancellationdate",
                  "payment_due_date", "cancellation_effective_date"]
+    reason_pats = ["reason", "cancel_reason", "cancellation_reason", "cancel_type",
+                   "notice_reason", "status", "cancellation_status"]
+    phone_pats = ["phone", "phone_#", "phone_number", "phonenumber", "phone_no",
+                  "telephone", "cell", "mobile"]
 
     def _match_col(headers, patterns):
         for i, h in enumerate(headers):
@@ -806,6 +846,8 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
     n_col = _match_col(headers, name_pats)
     a_col = _match_col(headers, amount_pats)
     d_col = _match_col(headers, date_pats)
+    r_col = _match_col(headers, reason_pats)
+    ph_col = _match_col(headers, phone_pats)
 
     for row in rows[1:]:
         cells = list(row)
@@ -824,13 +866,41 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
             except (ValueError, TypeError):
                 pass
 
+        # Extract cancellation reason
+        reason_raw = ""
+        if r_col is not None and r_col < len(cells) and cells[r_col]:
+            reason_raw = str(cells[r_col]).strip()
+
+        # Classify the reason
+        reason_lower = reason_raw.lower()
+        if any(kw in reason_lower for kw in ["non payment", "non-payment", "nonpayment", "nsf",
+                                              "non pay", "non-pay", "nonpay",
+                                              "insufficient funds", "returned payment"]):
+            notice_type = "non-pay"
+        elif any(kw in reason_lower for kw in ["underwriting", "uw reason"]):
+            notice_type = "underwriting"
+        elif any(kw in reason_lower for kw in ["policyholder", "insured request", "customer request",
+                                                "rewrite", "replacement", "policyholder's request"]):
+            notice_type = "voluntary"
+        elif reason_raw:
+            notice_type = "other"
+        else:
+            notice_type = "non-pay"  # default if no reason column
+
+        # Extract phone
+        phone = ""
+        if ph_col is not None and ph_col < len(cells) and cells[ph_col]:
+            phone = str(cells[ph_col]).strip()
+
         results.append({
             "policy_number": pnum,
             "carrier": str(cells[c_col]).strip() if c_col is not None and c_col < len(cells) and cells[c_col] else "",
             "insured_name": str(cells[n_col]).strip() if n_col is not None and n_col < len(cells) and cells[n_col] else "",
             "amount_due": amt,
             "due_date": str(cells[d_col]).strip() if d_col is not None and d_col < len(cells) and cells[d_col] else "",
-            "notice_type": "non-pay",
+            "notice_type": notice_type,
+            "cancel_reason": reason_raw,
+            "phone": phone,
         })
 
     return results
