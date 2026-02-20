@@ -247,11 +247,11 @@ def _add_nowcerts_nonpay_note(
         last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
 
         note_data = {
-            "subject": note_subject,
+            "subject": f"Non-Pay Notice Sent — {policy_number} | {note_body}",
             "insured_email": to_email,
             "insured_first_name": first_name,
             "insured_last_name": last_name,
-            "type": note_body,
+            "type": "Email",
             "creator_name": "BCI Non-Pay System",
             "create_date": __import__("datetime").datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }

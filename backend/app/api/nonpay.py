@@ -1372,3 +1372,35 @@ async def send_test_internal(request: Request):
         due_date=due_date,
     )
     return {"success": result.get("success", False), "to": "evan@betterchoiceins.com", "carrier": carrier, "error": result.get("error")}
+
+
+@router.post("/test-nowcerts-note")
+async def test_nowcerts_note(request: Request):
+    """Test NowCerts note insertion directly."""
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        if not nc.is_configured():
+            return {"error": "NowCerts not configured", "username": bool(nc.username), "password": bool(nc.password)}
+
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        first_name = body.get("first_name", "Rosa")
+        last_name = body.get("last_name", "Ayala")
+        email = body.get("email", "rosa.ayala1331@gmail.com")
+
+        from datetime import datetime
+        note_data = {
+            "subject": "TEST — Non-Pay Notice Sent — HM 6605796 | Policy: HM 6605796, Carrier: Grange, Amount: $1,494.00, Due: 02/28/2026",
+            "insured_email": email,
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "type": "Email",
+            "creator_name": "BCI Non-Pay System",
+            "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+        }
+
+        result = nc.insert_note(note_data)
+        return {"success": True, "note_data_sent": note_data, "nowcerts_response": result}
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
