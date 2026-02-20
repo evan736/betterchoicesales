@@ -1409,7 +1409,7 @@ async def test_nowcerts_note(request: Request):
 @router.post("/backfill-nowcerts-notes")
 async def backfill_nowcerts_notes():
     """One-time backfill: add NowCerts notes for all previously sent non-pay emails."""
-    from app.db.session import SessionLocal
+    from app.core.database import SessionLocal
     from app.models.nonpay import NonPayNotice, NonPayResult
     from app.services.nowcerts import get_nowcerts_client
     from datetime import datetime
