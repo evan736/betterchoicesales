@@ -25,10 +25,10 @@ THANKSIO_API_KEY = os.environ.get("THANKSIO_API_KEY", "")
 
 # Agency return address
 AGENCY_NAME = "Better Choice Insurance Group"
-AGENCY_ADDRESS = "1435 Randall Rd Ste 326"
-AGENCY_CITY = "Crystal Lake"
+AGENCY_ADDRESS = "300 Cardinal Dr Suite 220"
+AGENCY_CITY = "Saint Charles"
 AGENCY_STATE = "IL"
-AGENCY_ZIP = "60014"
+AGENCY_ZIP = "60175"
 AGENCY_PHONE = "(847) 908-5665"
 AGENCY_WEBSITE = "www.betterchoiceins.com"
 
