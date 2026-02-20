@@ -172,10 +172,11 @@ def send_nonpay_email(
     )
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+        "from": f"{AGENCY_NAME} <nonpay@{settings.MAILGUN_DOMAIN}>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "h:Reply-To": "evan@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }
 
