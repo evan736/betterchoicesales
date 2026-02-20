@@ -190,6 +190,17 @@ def send_nonpay_email(
         if resp.status_code == 200:
             msg_id = resp.json().get("id", "")
             logger.info("Non-pay email sent to %s for policy %s - msg_id: %s", to_email, policy_number, msg_id)
+
+            # Add note in NowCerts
+            _add_nowcerts_nonpay_note(
+                client_name=client_name,
+                to_email=to_email,
+                policy_number=policy_number,
+                carrier=carrier,
+                amount_due=amount_due,
+                due_date=due_date,
+            )
+
             return {"success": True, "message_id": msg_id}
         else:
             logger.error("Mailgun error %s: %s", resp.status_code, resp.text)
@@ -197,3 +208,59 @@ def send_nonpay_email(
     except Exception as e:
         logger.error("Failed to send non-pay email: %s", e)
         return {"success": False, "error": str(e)}
+
+
+def _add_nowcerts_nonpay_note(
+    client_name: str,
+    to_email: str,
+    policy_number: str,
+    carrier: str,
+    amount_due: Optional[float] = None,
+    due_date: Optional[str] = None,
+):
+    """Add a note in NowCerts when a non-pay email is sent."""
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        if not nc.is_configured():
+            logger.debug("NowCerts not configured — skipping note")
+            return
+
+        # Build note text
+        amt_str = f"${amount_due:,.2f}" if amount_due else "N/A"
+        due_str = due_date or "N/A"
+        carrier_display = carrier.replace("_", " ").title() if carrier else "Unknown"
+
+        note_subject = f"Non-Pay Notice Sent — {policy_number}"
+        note_body = (
+            f"Automated non-pay email sent to {client_name} ({to_email}).\n"
+            f"Policy: {policy_number}\n"
+            f"Carrier: {carrier_display}\n"
+            f"Amount Due: {amt_str}\n"
+            f"Due Date: {due_str}\n"
+            f"Sent via BCI CRM Non-Pay Automation"
+        )
+
+        # Split name for NowCerts lookup
+        parts = client_name.strip().split() if client_name else []
+        first_name = parts[0] if parts else ""
+        last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+        note_data = {
+            "subject": note_subject,
+            "insured_email": to_email,
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "type": note_body,
+            "creator_name": "BCI Non-Pay System",
+            "create_date": __import__("datetime").datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+        }
+
+        result = nc.insert_note(note_data)
+        if result:
+            logger.info("NowCerts note added for %s / %s", client_name, policy_number)
+        else:
+            logger.warning("NowCerts note returned None for %s / %s", client_name, policy_number)
+    except Exception as e:
+        # Never let a NowCerts failure block email sending
+        logger.error("NowCerts note failed for %s: %s", policy_number, e)
