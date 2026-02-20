@@ -506,3 +506,11 @@ app.include_router(admin_api.router)
 app.include_router(timeclock_api.router)
 app.include_router(customers_api.router)
 app.include_router(nonpay_api.router)
+
+# Serve static files (temp PDFs for Thanks.io, etc.)
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+_static_dir = Path(__file__).parent.parent / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+(_static_dir / "temp-letters").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")

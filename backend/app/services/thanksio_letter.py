@@ -401,6 +401,9 @@ def send_thanksio_letter(
     """
     Generate a past-due PDF letter and send via Thanks.io API.
 
+    Thanks.io requires a publicly accessible URL for the PDF (pdf_only_url).
+    We save the PDF to a temp endpoint on our backend and pass that URL.
+
     Returns dict with 'success', 'order_id', 'error' keys.
     """
     if not THANKSIO_API_KEY:
@@ -426,33 +429,47 @@ def send_thanksio_letter(
         logger.error("PDF generation failed: %s", e)
         return {"success": False, "error": f"PDF generation failed: {str(e)}"}
 
-    # Encode PDF as base64 for Thanks.io
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    # Upload PDF to tmpfiles.org for a public URL (Thanks.io needs a URL, not base64)
+    try:
+        with httpx.Client(timeout=30) as client:
+            upload_resp = client.post(
+                "https://tmpfiles.org/api/v1/upload",
+                files={"file": ("letter.pdf", pdf_bytes, "application/pdf")},
+            )
+        if upload_resp.status_code != 200:
+            return {"success": False, "error": f"PDF upload failed: {upload_resp.status_code}"}
+        upload_data = upload_resp.json()
+        raw_url = upload_data.get("data", {}).get("url", "")
+        # Convert to direct download URL
+        pdf_url = raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+        if not pdf_url:
+            return {"success": False, "error": "PDF upload returned no URL"}
+    except Exception as e:
+        logger.error("PDF upload failed: %s", e)
+        return {"success": False, "error": f"PDF upload failed: {str(e)}"}
 
     # Build Thanks.io API payload
+    # Correct endpoint: POST /send/letter (windowed) or /send/windowlessletter
+    # Using windowless for a cleaner look
     payload = {
-        "recipient": {
-            "name": client_name,
-            "address": address,
-            "city": city,
-            "state": state,
-            "zip": zip_code,
-        },
-        "return_address": {
-            "name": AGENCY_NAME,
-            "address": AGENCY_ADDRESS,
-            "city": AGENCY_CITY,
-            "state": AGENCY_STATE,
-            "zip": AGENCY_ZIP,
-        },
-        "letter_pdf": f"data:application/pdf;base64,{pdf_b64}",
+        "recipients": [
+            {
+                "name": client_name,
+                "address": address,
+                "city": city,
+                "province": state,
+                "postal_code": zip_code,
+                "country": "US",
+            }
+        ],
+        "pdf_only_url": pdf_url,
     }
 
     # Send via Thanks.io
     try:
         with httpx.Client(timeout=30) as client:
             resp = client.post(
-                f"{THANKSIO_API_URL}/letter/send",
+                f"{THANKSIO_API_URL}/send/windowlessletter",
                 json=payload,
                 headers={
                     "Authorization": f"Bearer {THANKSIO_API_KEY}",
@@ -467,7 +484,7 @@ def send_thanksio_letter(
             logger.info("Thanks.io letter sent: order=%s, recipient=%s", order_id, client_name)
             return {"success": True, "order_id": str(order_id), "response": data}
         else:
-            error_text = resp.text[:300]
+            error_text = resp.text[:500]
             logger.error("Thanks.io API error %s: %s", resp.status_code, error_text)
             return {"success": False, "error": f"Thanks.io API {resp.status_code}: {error_text}"}
 
