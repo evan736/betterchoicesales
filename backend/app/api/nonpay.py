@@ -1404,3 +1404,79 @@ async def test_nowcerts_note(request: Request):
     except Exception as e:
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()}
+
+
+@router.post("/backfill-nowcerts-notes")
+async def backfill_nowcerts_notes():
+    """One-time backfill: add NowCerts notes for all previously sent non-pay emails."""
+    from app.db.session import SessionLocal
+    from app.models.nonpay import NonPayNotice, NonPayResult
+    from app.services.nowcerts import get_nowcerts_client
+    from datetime import datetime
+
+    nc = get_nowcerts_client()
+    if not nc.is_configured:
+        return {"error": "NowCerts not configured"}
+
+    db = SessionLocal()
+    try:
+        # Get all results where email was sent successfully
+        results = db.query(NonPayResult).filter(
+            NonPayResult.email_status == "sent",
+            NonPayResult.customer_email.isnot(None),
+        ).all()
+
+        notes_added = 0
+        errors = []
+        skipped = 0
+
+        for r in results:
+            try:
+                # Build note
+                amt_str = f"${r.amount_due:,.2f}" if r.amount_due else "N/A"
+                due_str = r.due_date or "N/A"
+                carrier = (r.carrier or "unknown").replace("_", " ").title()
+
+                note_body = (
+                    f"Policy: {r.policy_number}\n"
+                    f"Carrier: {carrier}\n"
+                    f"Amount Due: {amt_str}\n"
+                    f"Due Date: {due_str}\n"
+                    f"Sent via BCI CRM Non-Pay Automation"
+                )
+
+                subject = f"Non-Pay Notice Sent — {r.policy_number} | {note_body}"
+
+                parts = (r.customer_name or "").strip().split()
+                first_name = parts[0] if parts else ""
+                last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+                # Use the original send date if available
+                created = r.created_at.strftime("%m/%d/%Y %I:%M %p") if r.created_at else datetime.now().strftime("%m/%d/%Y %I:%M %p")
+
+                note_data = {
+                    "subject": subject,
+                    "insured_email": r.customer_email,
+                    "insured_first_name": first_name,
+                    "insured_last_name": last_name,
+                    "type": "Email",
+                    "creator_name": "BCI Non-Pay System",
+                    "create_date": created,
+                }
+
+                result = nc.insert_note(note_data)
+                if result and result.get("status") == 1:
+                    notes_added += 1
+                else:
+                    errors.append({"policy": r.policy_number, "name": r.customer_name, "response": result})
+            except Exception as e:
+                errors.append({"policy": r.policy_number, "name": r.customer_name, "error": str(e)})
+
+        return {
+            "total_emails_found": len(results),
+            "notes_added": notes_added,
+            "errors": len(errors),
+            "error_details": errors[:20],
+        }
+    finally:
+        db.close()
