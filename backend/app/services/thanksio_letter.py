@@ -76,7 +76,7 @@ CARRIER_INFO = {
         "message": "Your GEICO policy has a past-due payment. Please make your payment promptly to keep your policy active and maintain your coverage.",
     },
     "grange": {
-        "name": "Grange Insurance", "phone": "1-800-422-0550",
+        "name": "Grange Insurance", "phone": "(800) 425-1100",
         "url": "https://www.grangeinsurance.com/pay-my-bill",
         "message": "Your Grange Insurance policy has a past-due balance. Please remit payment to avoid cancellation of your coverage.",
     },

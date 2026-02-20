@@ -103,7 +103,7 @@ def build_nonpay_email_html(
     h.append('<div style="margin:20px 0; padding:16px; background:#fffbeb; border-radius:10px; border:1px solid #fde68a;">')
     h.append('<p style="margin:0; font-size:14px; color:#92400e; line-height:1.6;">')
     h.append('<strong>💡 Already made your payment?</strong> It may take a few days to process. If you recently paid, please disregard this notice. ')
-    h.append(f'If you have any questions or need to set up a payment plan, don\'t hesitate to call us at <strong>{AGENCY_PHONE}</strong>.')
+    h.append(f'If you have any questions, don\'t hesitate to call us at <strong>{AGENCY_PHONE}</strong>.')
     h.append('</p></div>')
 
     # ── Why this matters ──
