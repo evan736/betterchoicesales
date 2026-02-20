@@ -176,7 +176,7 @@ def send_nonpay_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
-        "h:Reply-To": "evan@betterchoiceins.com",
+        "h:Reply-To": "service@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }
 
