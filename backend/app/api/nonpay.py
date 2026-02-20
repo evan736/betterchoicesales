@@ -181,6 +181,7 @@ async def upload_nonpay_b64(
         results = []
         matched = 0
         sent = 0
+        letters = 0
         skipped = 0
 
         for pol in policies:
@@ -196,10 +197,11 @@ async def upload_nonpay_b64(
             results.append(result)
             if result.get("matched"): matched += 1
             if result.get("email_sent"): sent += 1
+            if result.get("letter_sent"): letters += 1
             if result.get("skipped_rate_limit"): skipped += 1
 
         notice.policies_matched = matched
-        notice.emails_sent = sent
+        notice.emails_sent = sent + letters
         notice.emails_skipped = skipped
         notice.status = "dry_run" if dry_run else "completed"
         db.commit()
@@ -207,7 +209,7 @@ async def upload_nonpay_b64(
         return {
             "notice_id": notice.id, "filename": filename, "dry_run": dry_run,
             "policies_found": len(policies), "policies_matched": matched,
-            "emails_sent": sent, "emails_skipped": skipped, "details": results,
+            "emails_sent": sent, "letters_sent": letters, "emails_skipped": skipped, "details": results,
         }
     except Exception as e:
         import traceback
@@ -296,6 +298,7 @@ async def upload_nonpay_file(
         results = []
         matched = 0
         sent = 0
+        letters = 0
         skipped = 0
 
         for pol in policies:
@@ -416,8 +419,41 @@ def _process_single_policy(
                     result["customer_id"] = customer.id
                     result["match_type"] = "name"
                     if not customer.email:
-                        result["error"] = "Customer has no email address"
-                        return result
+                        # Try Thanks.io letter for name-matched customers without email
+                        if customer.address and customer.city and customer.state and customer.zip_code:
+                            if dry_run:
+                                result["would_send_letter"] = True
+                                result["letter_address"] = f"{customer.address}, {customer.city}, {customer.state} {customer.zip_code}"
+                                result["dry_run"] = True
+                                return result
+                            from app.services.thanksio_letter import send_thanksio_letter
+                            letter_result = send_thanksio_letter(
+                                client_name=customer.full_name,
+                                address=customer.address,
+                                city=customer.city,
+                                state=customer.state,
+                                zip_code=customer.zip_code,
+                                policy_number=policy_number,
+                                carrier=carrier,
+                                amount_due=float(amount_due) if amount_due else None,
+                                due_date=due_date,
+                            )
+                            letter_record = NonPayEmail(
+                                notice_id=notice_id, policy_number=policy_number,
+                                customer_id=customer.id, customer_name=customer.full_name,
+                                customer_email=None, carrier=carrier,
+                                amount_due=amount_due, due_date=due_date,
+                                email_status="letter_sent" if letter_result.get("success") else "letter_failed",
+                                mailgun_message_id=letter_result.get("order_id"),
+                                error_message=letter_result.get("error"),
+                            )
+                            db.add(letter_record)
+                            db.commit()
+                            result["letter_sent"] = letter_result.get("success", False)
+                            return result
+                        else:
+                            result["error"] = "No email and incomplete mailing address"
+                            return result
                     # Skip rate limit check and sending for name matches in case of ambiguity
                     if dry_run:
                         result["would_send"] = True
@@ -467,8 +503,64 @@ def _process_single_policy(
     result["customer_id"] = customer.id
 
     if not customer.email:
-        result["error"] = "Customer has no email address"
-        return result
+        # No email — try sending a physical letter via Thanks.io
+        if customer.address and customer.city and customer.state and customer.zip_code:
+            if dry_run:
+                result["would_send_letter"] = True
+                result["letter_address"] = f"{customer.address}, {customer.city}, {customer.state} {customer.zip_code}"
+                result["dry_run"] = True
+                return result
+
+            # Check 1x/week rate limit for letters too
+            one_week_ago = datetime.utcnow() - timedelta(days=7)
+            recent_letter = db.query(NonPayEmail).filter(
+                NonPayEmail.policy_number == policy_number,
+                NonPayEmail.email_status == "letter_sent",
+                NonPayEmail.sent_at >= one_week_ago,
+            ).first()
+            if recent_letter:
+                result["skipped_rate_limit"] = True
+                result["error"] = "Letter already sent this week"
+                return result
+
+            from app.services.thanksio_letter import send_thanksio_letter
+            letter_result = send_thanksio_letter(
+                client_name=customer.full_name,
+                address=customer.address,
+                city=customer.city,
+                state=customer.state,
+                zip_code=customer.zip_code,
+                policy_number=policy_number,
+                carrier=carrier,
+                amount_due=float(amount_due) if amount_due else None,
+                due_date=due_date,
+            )
+
+            # Record the letter
+            letter_record = NonPayEmail(
+                notice_id=notice_id,
+                policy_number=policy_number,
+                customer_id=customer.id,
+                customer_name=customer.full_name,
+                customer_email=None,
+                carrier=carrier,
+                amount_due=amount_due,
+                due_date=due_date,
+                email_status="letter_sent" if letter_result.get("success") else "letter_failed",
+                mailgun_message_id=letter_result.get("order_id"),
+                error_message=letter_result.get("error"),
+            )
+            db.add(letter_record)
+            db.commit()
+
+            result["letter_sent"] = letter_result.get("success", False)
+            result["letter_order_id"] = letter_result.get("order_id")
+            if not letter_result.get("success"):
+                result["error"] = letter_result.get("error")
+            return result
+        else:
+            result["error"] = "No email and incomplete mailing address"
+            return result
 
     # Check 1x/week rate limit for this policy
     one_week_ago = datetime.utcnow() - timedelta(days=7)

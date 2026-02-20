@@ -540,14 +540,20 @@ const NonPayModal: React.FC<{
                       </h3>
                     </div>
                   <div className="p-4">
-                    <div className="grid grid-cols-4 gap-3 mb-4">
+                    <div className="grid grid-cols-5 gap-3 mb-4">
                       <div className="text-center p-3 bg-blue-50 rounded-lg"><p className="text-xl font-bold text-blue-700">{result.policies_found}</p><p className="text-xs text-blue-600">Found</p></div>
                       <div className="text-center p-3 bg-green-50 rounded-lg"><p className="text-xl font-bold text-green-700">{result.policies_matched}</p><p className="text-xs text-green-600">Matched</p></div>
                       <div className={`text-center p-3 rounded-lg ${result.dry_run ? 'bg-amber-50' : 'bg-emerald-50'}`}>
                         <p className={`text-xl font-bold ${result.dry_run ? 'text-amber-700' : 'text-emerald-700'}`}>
                           {result.dry_run ? result.details?.filter((d: any) => d.would_send).length || 0 : result.emails_sent}
                         </p>
-                        <p className={`text-xs ${result.dry_run ? 'text-amber-600' : 'text-emerald-600'}`}>{result.dry_run ? 'Would Send' : 'Sent'}</p>
+                        <p className={`text-xs ${result.dry_run ? 'text-amber-600' : 'text-emerald-600'}`}>{result.dry_run ? 'Would Email' : 'Emailed'}</p>
+                      </div>
+                      <div className="text-center p-3 bg-purple-50 rounded-lg">
+                        <p className="text-xl font-bold text-purple-700">
+                          {result.dry_run ? result.details?.filter((d: any) => d.would_send_letter).length || 0 : result.letters_sent || 0}
+                        </p>
+                        <p className="text-xs text-purple-600">{result.dry_run ? 'Would Mail' : 'Mailed'}</p>
                       </div>
                       <div className="text-center p-3 bg-amber-50 rounded-lg"><p className="text-xl font-bold text-amber-700">{result.emails_skipped}</p><p className="text-xs text-amber-600">Skipped</p></div>
                     </div>
@@ -561,7 +567,9 @@ const NonPayModal: React.FC<{
                               <td className="py-2 text-slate-500">{d.customer_email || '—'}</td>
                               <td className="py-2">
                                 {d.would_send ? <span className="flex items-center gap-1 text-amber-600">✓ Would email {d.customer_email}</span>
+                                : d.would_send_letter ? <span className="flex items-center gap-1 text-purple-600">✉ Would mail letter to {d.letter_address || 'address on file'}</span>
                                 : d.email_sent ? <span className="flex items-center gap-1 text-green-600"><Send size={11} />Sent to {d.customer_email}</span>
+                                : d.letter_sent ? <span className="flex items-center gap-1 text-purple-600">📬 Letter mailed via Thanks.io</span>
                                 : d.skipped_rate_limit ? <span className="flex items-center gap-1 text-amber-600"><Clock size={11} />Sent recently</span>
                                 : <span className="text-red-500">{d.error || 'Not matched'}</span>}
                               </td>
