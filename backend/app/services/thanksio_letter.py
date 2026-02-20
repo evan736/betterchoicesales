@@ -220,10 +220,10 @@ def generate_pastdue_pdf(
         try:
             bci_img = ImageReader(str(bci_logo_path))
             biw, bih = bci_img.getSize()
-            # Scale BCI logo to max 180w x 45h
-            bratio = min(180 / biw, 45 / bih, 1)
+            # Scale BCI logo to max 280w x 65h
+            bratio = min(280 / biw, 65 / bih, 1)
             bw, bh = biw * bratio, bih * bratio
-            c.drawImage(str(bci_logo_path), left, y - bh + 8, width=bw, height=bh,
+            c.drawImage(str(bci_logo_path), left, y - bh + 12, width=bw, height=bh,
                         preserveAspectRatio=True, mask='auto')
         except Exception:
             # Fallback to text
@@ -250,13 +250,7 @@ def generate_pastdue_pdf(
         except Exception:
             pass
 
-    y -= 42
-
-    # Agency contact line
-    c.setFont("Helvetica", 8.5)
-    c.setFillColor(medium_gray)
-    c.drawString(left, y, f"{AGENCY_ADDRESS}  |  {AGENCY_CITY}, {AGENCY_STATE} {AGENCY_ZIP}  |  {AGENCY_PHONE}  |  {AGENCY_WEBSITE}")
-    y -= 8
+    y -= 46
 
     # Divider
     c.setStrokeColor(navy)
