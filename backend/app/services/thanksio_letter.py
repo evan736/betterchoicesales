@@ -32,8 +32,15 @@ AGENCY_ZIP = "60175"
 AGENCY_PHONE = "(847) 908-5665"
 AGENCY_WEBSITE = "www.betterchoiceins.com"
 
-# Path to carrier logo files
-LOGO_DIR = Path(__file__).parent.parent.parent / "frontend" / "public" / "carrier-logos"
+# Path to carrier logo files — works in both local dev and Docker
+_BACKEND_DIR = Path(__file__).parent.parent.parent  # backend/
+LOGO_DIR = _BACKEND_DIR.parent / "frontend" / "public" / "carrier-logos"
+if not LOGO_DIR.exists():
+    # Docker layout: /app/frontend/public/carrier-logos
+    LOGO_DIR = Path("/app/frontend/public/carrier-logos")
+if not LOGO_DIR.exists():
+    # Fallback: check if static dir exists in backend
+    LOGO_DIR = _BACKEND_DIR / "static" / "carrier-logos"
 
 # Carrier logo mapping
 CARRIER_LOGOS = {
