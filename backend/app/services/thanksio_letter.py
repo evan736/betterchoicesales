@@ -205,36 +205,45 @@ def generate_pastdue_pdf(
     max_width = width - 1.5 * inch
 
     # === HEADER ===
-    y = height - 0.6 * inch
+    y = height - 0.55 * inch
 
-    # Try to add carrier logo
-    logo_file = CARRIER_LOGOS.get(carrier_key, "")
-    logo_path = LOGO_DIR / logo_file if logo_file else None
-    has_logo = logo_path and logo_path.exists()
-
-    if has_logo:
+    # Always show BCI logo on the left
+    bci_logo_path = LOGO_DIR / "bci_logo.png"
+    if bci_logo_path.exists():
         try:
-            img = ImageReader(str(logo_path))
-            iw, ih = img.getSize()
-            # Scale logo to max 150w x 40h
-            ratio = min(150 / iw, 40 / ih, 1)
-            draw_w, draw_h = iw * ratio, ih * ratio
-            c.drawImage(str(logo_path), left, y - draw_h + 5, width=draw_w, height=draw_h,
+            bci_img = ImageReader(str(bci_logo_path))
+            biw, bih = bci_img.getSize()
+            # Scale BCI logo to max 180w x 45h
+            bratio = min(180 / biw, 45 / bih, 1)
+            bw, bh = biw * bratio, bih * bratio
+            c.drawImage(str(bci_logo_path), left, y - bh + 8, width=bw, height=bh,
                         preserveAspectRatio=True, mask='auto')
-            # Agency name to the right of logo
-            c.setFont("Helvetica-Bold", 14)
-            c.setFillColor(navy)
-            c.drawRightString(width - left, y - 5, AGENCY_NAME)
         except Exception:
-            has_logo = False
-
-    if not has_logo:
-        # No carrier logo — just agency name centered
+            # Fallback to text
+            c.setFont("Helvetica-Bold", 16)
+            c.setFillColor(navy)
+            c.drawString(left, y, AGENCY_NAME)
+    else:
         c.setFont("Helvetica-Bold", 16)
         c.setFillColor(navy)
         c.drawString(left, y, AGENCY_NAME)
 
-    y -= 22 if has_logo else 18
+    # Show carrier logo on the right (if available)
+    logo_file = CARRIER_LOGOS.get(carrier_key, "")
+    logo_path = LOGO_DIR / logo_file if logo_file else None
+    if logo_path and logo_path.exists():
+        try:
+            img = ImageReader(str(logo_path))
+            iw, ih = img.getSize()
+            ratio = min(120 / iw, 35 / ih, 1)
+            draw_w, draw_h = iw * ratio, ih * ratio
+            c.drawImage(str(logo_path), width - left - draw_w, y - draw_h + 5,
+                        width=draw_w, height=draw_h,
+                        preserveAspectRatio=True, mask='auto')
+        except Exception:
+            pass
+
+    y -= 42
 
     # Agency contact line
     c.setFont("Helvetica", 8.5)
