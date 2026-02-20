@@ -875,7 +875,8 @@ def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:
         reason_lower = reason_raw.lower()
         if any(kw in reason_lower for kw in ["non payment", "non-payment", "nonpayment", "nsf",
                                               "non pay", "non-pay", "nonpay",
-                                              "insufficient funds", "returned payment"]):
+                                              "insufficient funds", "returned payment",
+                                              "offer", "pending cancellation"]):
             notice_type = "non-pay"
         elif any(kw in reason_lower for kw in ["underwriting", "uw reason"]):
             notice_type = "underwriting"
@@ -1021,7 +1022,7 @@ def _parse_grangewire_html(html_body: str) -> list[dict]:
         # Parse message to determine notice type
         message = row[msg_col].strip() if msg_col is not None and msg_col < len(row) else ""
         msg_lower = message.lower()
-        if any(kw in msg_lower for kw in ["non pay", "non-pay", "nsf"]):
+        if any(kw in msg_lower for kw in ["non pay", "non-pay", "nsf", "offer", "pending cancellation"]):
             notice_type = "non-pay"
         elif any(kw in msg_lower for kw in ["underwriting"]):
             notice_type = "underwriting"
