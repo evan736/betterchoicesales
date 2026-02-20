@@ -1346,3 +1346,28 @@ def send_test_nonpay_email(
         due_date=due_date,
     )
     return {"success": result.get("success", False), "to": to_email, "carrier": carrier, "error": result.get("error")}
+
+
+@router.post("/send-test-internal")
+async def send_test_internal(request: Request):
+    """Quick test endpoint - only sends to evan@betterchoiceins.com."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    
+    carrier = body.get("carrier", "grange")
+    client_name = body.get("client_name", "Rosa Ayala")
+    policy_number = body.get("policy_number", "HM 6605796")
+    amount_due = body.get("amount_due", 1494.00)
+    due_date = body.get("due_date", "02/28/2026")
+    
+    result = send_nonpay_email(
+        to_email="evan@betterchoiceins.com",
+        client_name=client_name,
+        policy_number=policy_number,
+        carrier=carrier,
+        amount_due=amount_due,
+        due_date=due_date,
+    )
+    return {"success": result.get("success", False), "to": "evan@betterchoiceins.com", "carrier": carrier, "error": result.get("error")}
