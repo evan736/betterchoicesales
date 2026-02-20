@@ -1,7 +1,7 @@
 """
 Thanks.io integration for sending past-due letters to customers without email.
 
-Generates a professional PDF letter, uploads it, and sends via Thanks.io API.
+Generates a professional PDF letter with carrier branding, uploads it, and sends via Thanks.io API.
 """
 
 import io
@@ -9,12 +9,14 @@ import os
 import base64
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +32,141 @@ AGENCY_ZIP = "60014"
 AGENCY_PHONE = "(847) 908-5665"
 AGENCY_WEBSITE = "www.betterchoiceins.com"
 
-# Carrier info for payment details
-CARRIER_PAYMENT_INFO = {
-    "travelers": {"name": "Travelers", "phone": "1-800-842-5075", "url": "https://www.travelers.com/pay-bill"},
-    "progressive": {"name": "Progressive", "phone": "1-800-776-4737", "url": "https://www.progressive.com/pay-bill/"},
-    "safeco": {"name": "Safeco", "phone": "1-800-332-3226", "url": "https://www.safeco.com/pay-bill"},
-    "geico": {"name": "GEICO", "phone": "1-800-932-8872", "url": "https://www.geico.com/pay-bill/"},
-    "grange": {"name": "Grange Insurance", "phone": "1-800-422-0550", "url": "https://www.grangeinsurance.com/pay-my-bill"},
-    "hippo": {"name": "Hippo Insurance", "phone": "1-800-585-0705", "url": "https://www.hippo.com/pay"},
-    "branch": {"name": "Branch Insurance", "phone": "1-833-427-2624", "url": "https://www.ourbranch.com/pay"},
-    "national_general": {"name": "National General", "phone": "1-800-462-2123", "url": "https://www.nationalgeneral.com/pay-bill"},
-    "bristol_west": {"name": "Bristol West", "phone": "1-888-888-0080", "url": "https://www.bristolwest.com/pay-bill"},
-    "clearcover": {"name": "Clearcover", "phone": "1-855-444-1875", "url": "https://www.clearcover.com"},
-    "openly": {"name": "Openly", "phone": "", "url": "https://www.openly.com"},
-    "integrity": {"name": "Integrity Insurance", "phone": "1-800-898-4641", "url": "https://www.integrityinsurance.com"},
-    "steadily": {"name": "Steadily", "phone": "", "url": "https://www.steadily.com"},
-    "gainsco": {"name": "GAINSCO", "phone": "1-866-639-2860", "url": "https://www.gainsco.com"},
-    "next": {"name": "NEXT Insurance", "phone": "1-855-222-5919", "url": "https://www.nextinsurance.com"},
-    "universal_property": {"name": "Universal Property", "phone": "1-800-425-9113", "url": "https://www.universalproperty.com"},
-    "american_modern": {"name": "American Modern", "phone": "1-800-543-2644", "url": "https://www.amig.com"},
-    "covertree": {"name": "CoverTree", "phone": "", "url": "https://www.covertree.com"},
+# Path to carrier logo files
+LOGO_DIR = Path(__file__).parent.parent.parent / "frontend" / "public" / "carrier-logos"
+
+# Carrier logo mapping
+CARRIER_LOGOS = {
+    "grange": "grange.png", "integrity": "integrity.png", "branch": "branch.png",
+    "universal_property": "universal_property.png", "next": "next.png", "hippo": "hippo.png",
+    "gainsco": "gainsco.png", "steadily": "steadily.png", "geico": "geico.png",
+    "american_modern": "american_modern.png", "progressive": "progressive.png",
+    "clearcover": "clearcover.png", "safeco": "safeco.png", "travelers": "travelers.png",
+    "national_general": "national_general.png", "openly": "openly.png",
+    "bristol_west": "bristol_west.png", "covertree": "covertree.png",
 }
+
+# Carrier-specific payment info and letter messaging
+CARRIER_INFO = {
+    "travelers": {
+        "name": "Travelers", "phone": "1-800-842-5075",
+        "url": "https://www.travelers.com/pay-bill",
+        "message": "Your Travelers insurance policy has an outstanding balance. Travelers requires timely payment to maintain continuous coverage and avoid policy cancellation.",
+    },
+    "progressive": {
+        "name": "Progressive", "phone": "1-800-776-4737",
+        "url": "https://www.progressive.com/pay-bill/",
+        "message": "Your Progressive insurance policy has a past-due balance. Progressive may cancel your policy if payment is not received promptly.",
+    },
+    "safeco": {
+        "name": "Safeco", "phone": "1-800-332-3226",
+        "url": "https://www.safeco.com/pay-bill",
+        "message": "Your Safeco insurance policy has an outstanding balance that requires immediate attention to avoid a lapse in coverage.",
+    },
+    "geico": {
+        "name": "GEICO", "phone": "1-800-932-8872",
+        "url": "https://www.geico.com/pay-bill/",
+        "message": "Your GEICO policy has a past-due payment. Please make your payment promptly to keep your policy active and maintain your coverage.",
+    },
+    "grange": {
+        "name": "Grange Insurance", "phone": "1-800-422-0550",
+        "url": "https://www.grangeinsurance.com/pay-my-bill",
+        "message": "Your Grange Insurance policy has a past-due balance. Please remit payment to avoid cancellation of your coverage.",
+    },
+    "hippo": {
+        "name": "Hippo Insurance", "phone": "1-800-585-0705",
+        "url": "https://www.hippo.com/pay",
+        "message": "Your Hippo Insurance policy has an outstanding payment. Please make your payment to maintain your homeowners coverage.",
+    },
+    "branch": {
+        "name": "Branch Insurance", "phone": "1-833-427-2624",
+        "url": "https://www.ourbranch.com/pay",
+        "message": "Your Branch Insurance policy has a past-due balance. Please make your payment to keep your policy active.",
+    },
+    "national_general": {
+        "name": "National General", "phone": "1-800-462-2123",
+        "url": "https://www.nationalgeneral.com/pay-bill",
+        "message": "Your National General insurance policy has an outstanding balance. Prompt payment is required to avoid cancellation.",
+    },
+    "bristol_west": {
+        "name": "Bristol West", "phone": "1-888-888-0080",
+        "url": "https://www.bristolwest.com/pay-bill",
+        "message": "Your Bristol West insurance policy has a past-due payment. Please make your payment immediately to keep your auto coverage active.",
+    },
+    "clearcover": {
+        "name": "Clearcover", "phone": "1-855-444-1875",
+        "url": "https://www.clearcover.com",
+        "message": "Your Clearcover insurance policy has an outstanding balance. Please make your payment to maintain your coverage.",
+    },
+    "openly": {
+        "name": "Openly", "phone": "",
+        "url": "https://www.openly.com",
+        "message": "Your Openly insurance policy has a past-due balance. Please contact us for payment options.",
+    },
+    "integrity": {
+        "name": "Integrity Insurance", "phone": "1-800-898-4641",
+        "url": "https://www.integrityinsurance.com",
+        "message": "Your Integrity Insurance policy has an outstanding payment. Please remit payment promptly to avoid any lapse in coverage.",
+    },
+    "steadily": {
+        "name": "Steadily", "phone": "",
+        "url": "https://www.steadily.com",
+        "message": "Your Steadily insurance policy has a past-due balance. Please log in to your account to make payment.",
+    },
+    "gainsco": {
+        "name": "GAINSCO", "phone": "1-866-639-2860",
+        "url": "https://www.gainsco.com",
+        "message": "Your GAINSCO auto insurance policy has a past-due payment. Please make your payment to avoid cancellation of your coverage.",
+    },
+    "next": {
+        "name": "NEXT Insurance", "phone": "1-855-222-5919",
+        "url": "https://www.nextinsurance.com",
+        "message": "Your NEXT Insurance policy has an outstanding balance. Please make your payment to keep your business coverage active.",
+    },
+    "universal_property": {
+        "name": "Universal Property", "phone": "1-800-425-9113",
+        "url": "https://www.universalproperty.com",
+        "message": "Your Universal Property insurance policy has a past-due balance. Prompt payment is required to maintain your coverage.",
+    },
+    "american_modern": {
+        "name": "American Modern", "phone": "1-800-543-2644",
+        "url": "https://www.amig.com",
+        "message": "Your American Modern insurance policy has an outstanding payment. Please make your payment to avoid a lapse in coverage.",
+    },
+    "covertree": {
+        "name": "CoverTree", "phone": "",
+        "url": "https://www.covertree.com",
+        "message": "Your CoverTree insurance policy has a past-due balance. Please log in to your account to make payment.",
+    },
+}
+
+# Generic fallback message
+GENERIC_MESSAGE = (
+    "Your insurance policy has an outstanding balance that requires your immediate "
+    "attention. Failure to make payment may result in the cancellation of your policy, "
+    "leaving you without coverage."
+)
+
+
+def _draw_wrapped_text(c, text, x, y, font_name, font_size, max_width, line_height=None):
+    """Draw word-wrapped text. Returns new y position."""
+    if line_height is None:
+        line_height = font_size + 4
+    c.setFont(font_name, font_size)
+    words = text.split()
+    line = ""
+    for word in words:
+        test = f"{line} {word}".strip()
+        if c.stringWidth(test, font_name, font_size) > max_width:
+            c.drawString(x, y, line)
+            y -= line_height
+            line = word
+        else:
+            line = test
+    if line:
+        c.drawString(x, y, line)
+        y -= line_height
+    return y
 
 
 def generate_pastdue_pdf(
@@ -64,11 +180,18 @@ def generate_pastdue_pdf(
     amount_due: float = None,
     due_date: str = None,
 ) -> bytes:
-    """Generate a professional past-due notice PDF letter."""
+    """Generate a professional past-due notice PDF letter with carrier branding."""
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=letter)
     width, height = letter
+
+    carrier_key = carrier.lower().strip().replace(" ", "_") if carrier else ""
+    info = CARRIER_INFO.get(carrier_key, {})
+    carrier_name = info.get("name", carrier.replace("_", " ").title() if carrier else "your insurance carrier")
+    carrier_phone = info.get("phone", "")
+    carrier_url = info.get("url", "")
+    carrier_message = info.get("message", GENERIC_MESSAGE)
 
     # Colors
     navy = HexColor("#1a2744")
@@ -76,212 +199,177 @@ def generate_pastdue_pdf(
     dark_gray = HexColor("#333333")
     medium_gray = HexColor("#666666")
     light_line = HexColor("#cccccc")
+    light_bg = HexColor("#f8f9fa")
 
-    # --- HEADER: Agency Letterhead ---
-    y = height - 0.75 * inch
-
-    # Agency name
-    c.setFont("Helvetica-Bold", 16)
-    c.setFillColor(navy)
-    c.drawString(0.75 * inch, y, AGENCY_NAME)
-    y -= 18
-
-    # Agency address line
-    c.setFont("Helvetica", 9)
-    c.setFillColor(medium_gray)
-    c.drawString(0.75 * inch, y, f"{AGENCY_ADDRESS}  |  {AGENCY_CITY}, {AGENCY_STATE} {AGENCY_ZIP}  |  {AGENCY_PHONE}")
-    y -= 12
-    c.drawString(0.75 * inch, y, AGENCY_WEBSITE)
-    y -= 6
-
-    # Divider line
-    c.setStrokeColor(navy)
-    c.setLineWidth(2)
-    c.line(0.75 * inch, y, width - 0.75 * inch, y)
-    y -= 30
-
-    # --- DATE ---
-    today_str = datetime.now().strftime("%B %d, %Y")
-    c.setFont("Helvetica", 10)
-    c.setFillColor(dark_gray)
-    c.drawString(0.75 * inch, y, today_str)
-    y -= 30
-
-    # --- RECIPIENT ADDRESS ---
-    c.setFont("Helvetica", 11)
-    c.setFillColor(dark_gray)
-    c.drawString(0.75 * inch, y, client_name)
-    y -= 15
-    if address:
-        c.drawString(0.75 * inch, y, address)
-        y -= 15
-    city_state_zip = ", ".join(filter(None, [city, f"{state} {zip_code}" if state else zip_code]))
-    if city_state_zip:
-        c.drawString(0.75 * inch, y, city_state_zip)
-        y -= 15
-    y -= 15
-
-    # --- SUBJECT LINE ---
-    c.setFont("Helvetica-Bold", 12)
-    c.setFillColor(red)
-    c.drawString(0.75 * inch, y, "RE: IMPORTANT — Past Due Payment Notice")
-    y -= 8
-
-    # Red underline
-    c.setStrokeColor(red)
-    c.setLineWidth(1)
-    c.line(0.75 * inch, y, 4.5 * inch, y)
-    y -= 25
-
-    # --- BODY ---
-    carrier_info = CARRIER_PAYMENT_INFO.get(carrier, {})
-    carrier_name = carrier_info.get("name", carrier.replace("_", " ").title() if carrier else "your insurance carrier")
-    carrier_phone = carrier_info.get("phone", "")
-    carrier_url = carrier_info.get("url", "")
-
-    # Policy details box
-    c.setStrokeColor(light_line)
-    c.setLineWidth(0.5)
-    box_top = y + 5
-    box_height = 55
-    if amount_due:
-        box_height += 15
-    if due_date:
-        box_height += 15
-    c.roundRect(0.75 * inch, y - box_height + 10, width - 1.5 * inch, box_height, 4, stroke=1, fill=0)
-
-    c.setFont("Helvetica-Bold", 10)
-    c.setFillColor(navy)
-    c.drawString(1.0 * inch, y - 8, "Policy Details")
-    y -= 22
-
-    c.setFont("Helvetica", 10)
-    c.setFillColor(dark_gray)
-    c.drawString(1.0 * inch, y, f"Policy Number:  {policy_number}")
-    y -= 15
-    c.drawString(1.0 * inch, y, f"Carrier:  {carrier_name}")
-    y -= 15
-    if amount_due:
-        c.drawString(1.0 * inch, y, f"Amount Due:  ${amount_due:,.2f}")
-        y -= 15
-    if due_date:
-        c.drawString(1.0 * inch, y, f"Due Date:  {due_date}")
-        y -= 15
-
-    y -= 20
-
-    # Letter body paragraphs
-    c.setFont("Helvetica", 10.5)
-    c.setFillColor(dark_gray)
-    line_height = 15
     left = 0.75 * inch
     max_width = width - 1.5 * inch
 
-    paragraphs = [
-        f"Dear {client_name.split()[0] if client_name else 'Valued Customer'},",
-        "",
-        f"We are writing to inform you that your insurance policy with {carrier_name} "
-        f"has an outstanding balance that requires your immediate attention. Failure to "
-        f"make payment may result in the cancellation of your policy, leaving you without "
-        f"coverage.",
-        "",
+    # === HEADER ===
+    y = height - 0.6 * inch
+
+    # Try to add carrier logo
+    logo_file = CARRIER_LOGOS.get(carrier_key, "")
+    logo_path = LOGO_DIR / logo_file if logo_file else None
+    has_logo = logo_path and logo_path.exists()
+
+    if has_logo:
+        try:
+            img = ImageReader(str(logo_path))
+            iw, ih = img.getSize()
+            # Scale logo to max 150w x 40h
+            ratio = min(150 / iw, 40 / ih, 1)
+            draw_w, draw_h = iw * ratio, ih * ratio
+            c.drawImage(str(logo_path), left, y - draw_h + 5, width=draw_w, height=draw_h,
+                        preserveAspectRatio=True, mask='auto')
+            # Agency name to the right of logo
+            c.setFont("Helvetica-Bold", 14)
+            c.setFillColor(navy)
+            c.drawRightString(width - left, y - 5, AGENCY_NAME)
+        except Exception:
+            has_logo = False
+
+    if not has_logo:
+        # No carrier logo — just agency name centered
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(navy)
+        c.drawString(left, y, AGENCY_NAME)
+
+    y -= 22 if has_logo else 18
+
+    # Agency contact line
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(medium_gray)
+    c.drawString(left, y, f"{AGENCY_ADDRESS}  |  {AGENCY_CITY}, {AGENCY_STATE} {AGENCY_ZIP}  |  {AGENCY_PHONE}  |  {AGENCY_WEBSITE}")
+    y -= 8
+
+    # Divider
+    c.setStrokeColor(navy)
+    c.setLineWidth(2)
+    c.line(left, y, width - left, y)
+    y -= 4
+
+    # Red "PAST DUE NOTICE" bar
+    bar_height = 22
+    c.setFillColor(red)
+    c.rect(left, y - bar_height, max_width, bar_height, fill=1, stroke=0)
+    c.setFillColor(HexColor("#ffffff"))
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(width / 2, y - bar_height + 7, "IMPORTANT: PAST DUE PAYMENT NOTICE")
+    y -= bar_height + 16
+
+    # === DATE ===
+    today_str = datetime.now().strftime("%B %d, %Y")
+    c.setFont("Helvetica", 10)
+    c.setFillColor(dark_gray)
+    c.drawString(left, y, today_str)
+    y -= 24
+
+    # === RECIPIENT ADDRESS ===
+    c.setFont("Helvetica", 11)
+    c.setFillColor(dark_gray)
+    c.drawString(left, y, client_name)
+    y -= 15
+    if address:
+        c.drawString(left, y, address)
+        y -= 15
+    city_line = ", ".join(filter(None, [city, f"{state} {zip_code}" if state else zip_code]))
+    if city_line:
+        c.drawString(left, y, city_line)
+        y -= 15
+    y -= 12
+
+    # === POLICY DETAILS BOX ===
+    box_items = [f"Policy Number:  {policy_number}", f"Carrier:  {carrier_name}"]
+    if amount_due:
+        box_items.append(f"Amount Due:  ${amount_due:,.2f}")
+    if due_date:
+        box_items.append(f"Due Date:  {due_date}")
+    box_height = 28 + len(box_items) * 16
+
+    c.setFillColor(light_bg)
+    c.setStrokeColor(light_line)
+    c.setLineWidth(0.5)
+    c.roundRect(left, y - box_height + 8, max_width, box_height, 4, stroke=1, fill=1)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(navy)
+    c.drawString(left + 12, y - 6, "Policy Details")
+    y -= 20
+
+    c.setFont("Helvetica", 10)
+    c.setFillColor(dark_gray)
+    for item in box_items:
+        c.drawString(left + 12, y, item)
+        y -= 16
+    y -= 14
+
+    # === BODY — Carrier-specific message ===
+    first_name = client_name.split()[0] if client_name else "Valued Customer"
+    y = _draw_wrapped_text(c, f"Dear {first_name},", left, y, "Helvetica", 10.5, max_width)
+    y -= 6
+    y = _draw_wrapped_text(c, carrier_message, left, y, "Helvetica", 10.5, max_width)
+    y -= 4
+    y = _draw_wrapped_text(
+        c,
         "We understand that oversights happen, and we want to help you resolve this as "
         "quickly as possible. Please take a moment to make your payment using one of the "
         "following methods:",
-    ]
+        left, y, "Helvetica", 10.5, max_width,
+    )
+    y -= 8
 
-    for para in paragraphs:
-        if not para:
-            y -= 8
-            continue
-        # Simple word-wrap
-        words = para.split()
-        line = ""
-        for word in words:
-            test_line = f"{line} {word}".strip()
-            if c.stringWidth(test_line, "Helvetica", 10.5) > max_width:
-                c.drawString(left, y, line)
-                y -= line_height
-                line = word
-            else:
-                line = test_line
-        if line:
-            c.drawString(left, y, line)
-            y -= line_height
-
-    y -= 5
-
-    # Payment methods
+    # === PAYMENT METHODS ===
     bullet_items = []
     if carrier_url:
-        bullet_items.append(f"Online:  {carrier_url}")
+        bullet_items.append(("Online:", carrier_url))
     if carrier_phone:
-        bullet_items.append(f"By Phone:  Call {carrier_name} at {carrier_phone}")
-    bullet_items.append(f"Contact Us:  Call our office at {AGENCY_PHONE} for assistance")
+        bullet_items.append(("By Phone:", f"Call {carrier_name} at {carrier_phone}"))
+    bullet_items.append(("Contact Us:", f"Call our office at {AGENCY_PHONE} for assistance"))
 
-    for item in bullet_items:
+    for label, detail in bullet_items:
         c.setFont("Helvetica-Bold", 10.5)
+        c.setFillColor(dark_gray)
         c.drawString(left + 15, y, "•")
+        label_w = c.stringWidth(f"{label} ", "Helvetica-Bold", 10.5)
+        c.drawString(left + 30, y, label)
         c.setFont("Helvetica", 10.5)
-        # Word wrap bullet items
-        words = item.split()
-        line = ""
-        first_line = True
-        for word in words:
-            test_line = f"{line} {word}".strip()
-            indent = left + 30 if first_line else left + 30
-            if c.stringWidth(test_line, "Helvetica", 10.5) > (max_width - 30):
-                c.drawString(indent, y, line)
-                y -= line_height
-                line = word
-                first_line = False
-            else:
-                line = test_line
-        if line:
-            c.drawString(left + 30, y, line)
-            y -= line_height
-        y -= 3
+        c.drawString(left + 30 + label_w, y, f"  {detail}")
+        y -= 17
 
     y -= 10
 
-    # Closing paragraphs
-    closing = [
+    # === CLOSING ===
+    y = _draw_wrapped_text(
+        c,
         "Please make your payment as soon as possible to avoid any lapse in coverage. "
         "If you have already made this payment, please disregard this notice.",
-        "",
+        left, y, "Helvetica", 10.5, max_width,
+    )
+    y -= 4
+    y = _draw_wrapped_text(
+        c,
         "If you are experiencing financial difficulties or have questions about your "
         "policy, please don't hesitate to contact our office. We are here to help you "
         "find the best solution to keep your coverage active.",
-        "",
-        "Sincerely,",
-        "",
-        "",
-        AGENCY_NAME,
-        f"{AGENCY_PHONE}  |  {AGENCY_WEBSITE}",
-    ]
+        left, y, "Helvetica", 10.5, max_width,
+    )
+    y -= 16
 
-    for para in closing:
-        if not para:
-            y -= 10
-            continue
-        words = para.split()
-        line = ""
-        for word in words:
-            test_line = f"{line} {word}".strip()
-            if c.stringWidth(test_line, "Helvetica", 10.5) > max_width:
-                c.drawString(left, y, line)
-                y -= line_height
-                line = word
-            else:
-                line = test_line
-        if line:
-            c.drawString(left, y, line)
-            y -= line_height
-
-    # --- FOOTER ---
-    c.setFont("Helvetica-Oblique", 8)
+    c.setFont("Helvetica", 10.5)
+    c.setFillColor(dark_gray)
+    c.drawString(left, y, "Sincerely,")
+    y -= 28
+    c.setFont("Helvetica-Bold", 10.5)
+    c.drawString(left, y, AGENCY_NAME)
+    y -= 15
+    c.setFont("Helvetica", 10)
     c.setFillColor(medium_gray)
-    c.drawCentredString(width / 2, 0.5 * inch,
+    c.drawString(left, y, f"{AGENCY_PHONE}  |  {AGENCY_WEBSITE}")
+
+    # === FOOTER ===
+    c.setFont("Helvetica-Oblique", 7.5)
+    c.setFillColor(medium_gray)
+    c.drawCentredString(width / 2, 0.4 * inch,
                         "This is an automated notice from Better Choice Insurance Group. Please retain for your records.")
 
     c.save()
