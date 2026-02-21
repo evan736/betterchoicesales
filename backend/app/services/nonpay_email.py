@@ -265,7 +265,8 @@ def _add_nowcerts_nonpay_note(
         # Split name for NowCerts lookup
         parts = client_name.strip().split() if client_name else []
         first_name = parts[0] if parts else ""
-        last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+        # Use last element as last name (skip middle initials like "SAMANTHA I GRANT")
+        last_name = parts[-1] if len(parts) > 1 else ""
 
         note_data = {
             "subject": f"Non-Pay Notice Sent — {policy_number} | {note_body}",

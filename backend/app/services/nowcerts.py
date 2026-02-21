@@ -497,21 +497,49 @@ class NowCertsClient:
             insured_db_id = note_data.get("insured_database_id") or note_data.get("insuredDatabaseId") or ""
             if not insured_db_id:
                 try:
-                    search_query = email or f"{first_name} {last_name}".strip()
-                    if search_query:
+                    # Try multiple search strategies
+                    search_queries = []
+                    if email:
+                        search_queries.append(email)
+                    if first_name and last_name:
+                        search_queries.append(f"{first_name} {last_name}")
+                    if last_name:
+                        search_queries.append(last_name)
+                    
+                    for search_query in search_queries:
+                        if insured_db_id:
+                            break
                         results = self.search_insureds(search_query, limit=5)
-                        if results:
-                            matched = None
+                        if not results:
+                            continue
+                        
+                        # Match by email first
+                        matched = None
+                        if email:
                             for r in results:
                                 r_email = (r.get("email") or "").lower()
-                                if email and r_email == email.lower():
+                                if r_email == email.lower():
                                     matched = r
                                     break
-                            if not matched:
-                                matched = results[0]
-                            insured_db_id = matched.get("database_id") or matched.get("_raw", {}).get("id") or ""
-                            if insured_db_id:
-                                logger.info("Found NowCerts insured databaseId: %s", insured_db_id)
+                        
+                        # Then match by last name
+                        if not matched and last_name:
+                            last_lower = last_name.lower()
+                            for r in results:
+                                r_name = (r.get("commercial_name") or "").lower()
+                                r_last = (r.get("_raw", {}).get("lastName") or "").lower()
+                                if r_last == last_lower or last_lower in r_name:
+                                    matched = r
+                                    break
+                        
+                        # Fallback to first result
+                        if not matched:
+                            matched = results[0]
+                        
+                        insured_db_id = matched.get("database_id") or matched.get("_raw", {}).get("id") or ""
+                    
+                    if insured_db_id:
+                        logger.info("Found NowCerts insured databaseId: %s", insured_db_id)
                 except Exception as e:
                     logger.warning("NowCerts insured search failed: %s", e)
             

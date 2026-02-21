@@ -1666,7 +1666,7 @@ async def backfill_nowcerts_notes():
 
                 parts = (r.customer_name or "").strip().split()
                 first_name = parts[0] if parts else ""
-                last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+                last_name = parts[-1] if len(parts) > 1 else ""
 
                 # Use the original send date if available
                 created = r.sent_at.strftime("%m/%d/%Y %I:%M %p") if r.sent_at else datetime.now().strftime("%m/%d/%Y %I:%M %p")
