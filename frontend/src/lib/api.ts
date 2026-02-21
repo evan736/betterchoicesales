@@ -286,6 +286,7 @@ export const quotesAPI = {
   },
   sendEmail: (id: number, data?: { additional_notes?: string; premium_term?: string }) =>
     api.post(`/api/quotes/${id}/send-email`, data || {}),
+  emailPreview: (id: number) => api.get(`/api/quotes/${id}/email-preview`),
   markConverted: (id: number, saleId?: number) =>
     api.post(`/api/quotes/${id}/mark-converted`, null, { params: saleId ? { sale_id: saleId } : {} }),
   markLost: (id: number, reason?: string) =>

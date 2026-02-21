@@ -707,3 +707,45 @@ def _quote_to_dict(q: Quote) -> dict:
     }
 
 
+
+
+@router.get("/{quote_id}/email-preview")
+def preview_quote_email(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the quote email HTML for preview without sending."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    from app.services.quote_email import build_quote_email_html
+
+    premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "$0.00"
+    eff_str = ""
+    if quote.effective_date:
+        eff_str = quote.effective_date.strftime("%B %d, %Y")
+
+    producer_name = quote.producer_name or current_user.username
+    producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
+
+    html = build_quote_email_html(
+        prospect_name=quote.prospect_name,
+        carrier=quote.carrier,
+        policy_type=quote.policy_type,
+        premium=premium_str,
+        premium_term="6 months",
+        effective_date=eff_str,
+        agent_name=producer_name,
+        agent_email=producer_email,
+        agent_phone="(847) 908-5665",
+    )
+
+    return {
+        "html": html,
+        "to": quote.prospect_email,
+        "prospect_name": quote.prospect_name,
+        "carrier": quote.carrier,
+        "premium": premium_str,
+    }

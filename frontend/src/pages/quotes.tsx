@@ -692,6 +692,9 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
   const [message, setMessage] = useState('');
   const [msgType, setMsgType] = useState<'success' | 'error'>('success');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const sc = STATUS_COLORS[q.status] || STATUS_COLORS.quoted;
 
@@ -943,15 +946,59 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
                 placeholder="e.g., This is $120 less than your current carrier!"
               />
             </div>
-            <button
-              onClick={handleSendEmail}
-              disabled={sending}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white w-full justify-center"
-              style={{ background: '#0ea5e9' }}
-            >
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              Send Quote Email {q.pdf_uploaded ? '+ PDF' : '(no PDF attached)'}
-            </button>
+
+            {/* Preview Panel */}
+            {showPreview && previewHtml && (
+              <div className="mb-3 rounded-lg border border-white/10 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-white/5">
+                  <span className="text-xs font-medium page-subtitle">Email Preview</span>
+                  <button onClick={() => setShowPreview(false)} className="text-xs page-subtitle hover:text-white">Close</button>
+                </div>
+                <div className="bg-white rounded-b" style={{ maxHeight: '400px', overflow: 'auto' }}>
+                  <iframe
+                    srcDoc={previewHtml}
+                    className="w-full border-0"
+                    style={{ height: '400px' }}
+                    title="Email Preview"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  setLoadingPreview(true);
+                  try {
+                    const res = await quotesAPI.emailPreview(q.id);
+                    setPreviewHtml(res.data.html);
+                    setShowPreview(true);
+                  } catch (e: any) {
+                    setMessage(e.response?.data?.detail || 'Preview failed');
+                    setMsgType('error');
+                  } finally {
+                    setLoadingPreview(false);
+                  }
+                }}
+                disabled={loadingPreview}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium filter-chip"
+              >
+                {loadingPreview ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                Preview
+              </button>
+              <button
+                onClick={handleSendEmail}
+                disabled={sending}
+                className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white justify-center"
+                style={{ background: '#0ea5e9' }}
+              >
+                {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                Send Quote Email {q.pdf_uploaded ? '+ PDF' : '(no PDF attached)'}
+              </button>
+            </div>
+            <p className="text-xs page-subtitle mt-2 opacity-60">
+              Sending will also create a prospect in NowCerts
+            </p>
           </div>
         )}
 
