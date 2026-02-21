@@ -1400,6 +1400,27 @@ async def test_nowcerts_note(request: Request):
             "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
 
+        # First search for the insured to get their database ID
+        search_resp = req.get(
+            f"{nc.base_url}/api/Customers/GetCustomers",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"Email": email, "Name": f"{first_name} {last_name}"},
+            timeout=30,
+        )
+        search_result = None
+        insured_db_id = None
+        try:
+            search_result = search_resp.json()
+            # NowCerts returns a list of matching customers
+            if isinstance(search_result, list) and len(search_result) > 0:
+                insured_db_id = search_result[0].get("databaseId") or search_result[0].get("database_id")
+        except:
+            search_result = search_resp.text[:500]
+
+        # If we found the database ID, add it to payload
+        if insured_db_id:
+            raw_payload["insuredDatabaseId"] = insured_db_id
+
         # Also do a raw POST to see exactly what NowCerts returns
         import requests as req
         token = nc._authenticate()
@@ -1433,6 +1454,11 @@ async def test_nowcerts_note(request: Request):
             "note_data_sent": note_data,
             "normalized_payload": raw_payload,
             "nowcerts_response": result,
+            "search_result": {
+                "status_code": search_resp.status_code,
+                "insured_db_id": insured_db_id,
+                "data": search_result if isinstance(search_result, (list, dict)) else str(search_result)[:300],
+            },
             "raw_debug": {
                 "InsertNotesForSameInsured": {
                     "status_code": raw_resp.status_code,
