@@ -61,10 +61,10 @@ class QuoteUpdate(BaseModel):
     prospect_phone: Optional[str] = None
 
 
-# ── Helper: Create NowCerts prospect ──
+# ── Helper: Create NowCerts prospect (or merge into existing) ──
 
 def _create_nowcerts_prospect(quote: Quote):
-    """Create a prospect in NowCerts from quote data."""
+    """Create a prospect in NowCerts, or add note to existing customer/prospect."""
     try:
         from app.services.nowcerts import get_nowcerts_client
         nc = get_nowcerts_client()
@@ -73,40 +73,86 @@ def _create_nowcerts_prospect(quote: Quote):
 
         parts = quote.prospect_name.strip().split(maxsplit=1)
         first = parts[0] if parts else ""
-        last = parts[1] if len(parts) > 1 else ""
+        last = parts[-1] if len(parts) > 1 else parts[0] if parts else ""
 
-        insured_data = {
-            "firstName": first,
-            "lastName": last,
-            "email": quote.prospect_email or "",
-            "phone": quote.prospect_phone or "",
-            "address1": quote.prospect_address or "",
-            "city": quote.prospect_city or "",
-            "state": quote.prospect_state or "",
-            "zipCode": quote.prospect_zip or "",
-            "insuredType": "Prospect",
+        # Search NowCerts for existing customer/prospect
+        existing = None
+        for search_query in [quote.prospect_email, f"{first} {last}", last]:
+            if not search_query:
+                continue
+            try:
+                results = nc.search_insureds(search_query, limit=5)
+                if results:
+                    # Match by email first
+                    if quote.prospect_email:
+                        for r in results:
+                            if (r.get("email") or "").lower() == quote.prospect_email.lower():
+                                existing = r
+                                break
+                    # Then by last name
+                    if not existing:
+                        for r in results:
+                            r_last = (r.get("_raw", {}).get("lastName") or "").lower()
+                            r_name = (r.get("commercial_name") or "").lower()
+                            if last.lower() in r_name or r_last == last.lower():
+                                existing = r
+                                break
+                    if existing:
+                        break
+            except Exception as e:
+                logger.warning("NowCerts search failed for %s: %s", search_query, e)
+
+        if existing:
+            logger.info(
+                "Found existing NowCerts customer: %s (id=%s) — adding quote note only",
+                existing.get("commercial_name"), existing.get("database_id")
+            )
+        else:
+            # Create new prospect
+            insured_data = {
+                "firstName": first,
+                "lastName": last,
+                "email": quote.prospect_email or "",
+                "phone": quote.prospect_phone or "",
+                "address1": quote.prospect_address or "",
+                "city": quote.prospect_city or "",
+                "state": quote.prospect_state or "",
+                "zipCode": quote.prospect_zip or "",
+                "insuredType": "Prospect",
+            }
+            result = nc.insert_insured(insured_data)
+            if result:
+                logger.info("NowCerts prospect created for %s", quote.prospect_name)
+            else:
+                logger.warning("NowCerts prospect creation returned no result for %s", quote.prospect_name)
+
+        # Add quote note (works for both existing and new)
+        premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "N/A"
+        carrier_name = (quote.carrier or "").replace("_", " ").title()
+        policy_type = (quote.policy_type or "").title()
+
+        note_data = {
+            "subject": (
+                f"Quote Sent — {carrier_name} {policy_type} | "
+                f"Premium: {premium_str} | "
+                f"Sent via BCI CRM"
+            ),
+            "insured_email": quote.prospect_email or "",
+            "insured_first_name": first,
+            "insured_last_name": last,
+            "type": "Email",
+            "creator_name": quote.producer_name or "BCI Quote System",
         }
-        result = nc.insert_insured(insured_data)
-        if result:
-            logger.info(f"NowCerts prospect created for {quote.prospect_name}")
-            # Add a note with quote details
-            nc.insert_note({
-                "subject": (
-                    f"Quote Sent — {(quote.carrier or '').title()} {(quote.policy_type or '').title()} | "
-                    f"Premium: ${float(quote.quoted_premium):,.2f} | "
-                    f"Sent via BCI CRM"
-                ),
-                "insured_email": quote.prospect_email or "",
-                "insured_first_name": first,
-                "insured_last_name": last,
-                "type": "Email",
-                "creator_name": quote.producer_name or "BCI Quote System",
-                "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
-            })
-            return result
-        return None
+
+        # If we found an existing customer, pass their database ID for reliable matching
+        if existing:
+            note_data["insured_database_id"] = existing.get("database_id") or ""
+
+        nc.insert_note(note_data)
+        return {"existing_customer": bool(existing), "name": existing.get("commercial_name") if existing else quote.prospect_name}
+
     except Exception as e:
-        logger.error(f"NowCerts prospect creation failed: {e}")
+        logger.error("NowCerts prospect/note failed: %s", e)
         return None
 
 
