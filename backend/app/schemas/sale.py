@@ -11,7 +11,7 @@ class SaleBase(BaseModel):
     policy_type: Optional[str] = None
     carrier: Optional[str] = None
     state: Optional[str] = None
-    item_count: int = Field(default=1, ge=1)
+    item_count: int = Field(default=1, ge=0)
     client_name: str
     client_email: Optional[str] = None
     client_phone: Optional[str] = None
