@@ -1637,8 +1637,7 @@ async def backfill_nowcerts_notes():
     try:
         # Get all results where email was sent successfully
         results = db.query(NonPayEmail).filter(
-            NonPayEmail.email_status == "sent",
-            NonPayEmail.customer_email.isnot(None),
+            NonPayEmail.email_status.in_(["sent", "letter_sent"]),
         ).all()
 
         notes_added = 0
@@ -1652,11 +1651,14 @@ async def backfill_nowcerts_notes():
                 due_str = r.due_date or "N/A"
                 carrier = (r.carrier or "unknown").replace("_", " ").title()
 
+                send_method = "Letter (Thanks.io)" if r.email_status == "letter_sent" else "Email"
+
                 note_body = (
                     f"Policy: {r.policy_number}\n"
                     f"Carrier: {carrier}\n"
                     f"Amount Due: {amt_str}\n"
                     f"Due Date: {due_str}\n"
+                    f"Method: {send_method}\n"
                     f"Sent via BCI CRM Non-Pay Automation"
                 )
 
@@ -1717,6 +1719,35 @@ def list_sent_nonpay_emails():
                 "carrier": r.carrier,
                 "amount_due": f"${r.amount_due:,.2f}" if r.amount_due else "N/A",
                 "due_date": r.due_date,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            }
+            for r in results
+        ]
+    finally:
+        db.close()
+
+
+@router.get("/letter-list")
+def list_sent_nonpay_letters():
+    """List all sent non-pay letters via Thanks.io."""
+    from app.core.database import SessionLocal
+    from app.models.nonpay import NonPayEmail
+
+    db = SessionLocal()
+    try:
+        results = db.query(NonPayEmail).filter(
+            NonPayEmail.email_status.in_(["letter_sent", "letter_failed"]),
+        ).order_by(NonPayEmail.sent_at.desc()).all()
+
+        return [
+            {
+                "customer_name": r.customer_name,
+                "customer_email": r.customer_email or "(no email)",
+                "policy_number": r.policy_number,
+                "carrier": r.carrier,
+                "amount_due": f"${r.amount_due:,.2f}" if r.amount_due else "N/A",
+                "due_date": r.due_date,
+                "status": r.email_status,
                 "sent_at": r.sent_at.isoformat() if r.sent_at else None,
             }
             for r in results
