@@ -151,26 +151,127 @@ def create_quote(
 
 
 # ── Quote PDF Extraction ─────────────────────────────────────────
+
+QUOTE_EXTRACTION_PROMPT = """You are an expert insurance document parser. Analyze this quote/proposal PDF and extract ALL information.
+
+Return ONLY a valid JSON object with these fields:
+
+{
+  "client_name": "Full name of the primary insured/applicant",
+  "client_email": "Email address if found, or null",
+  "client_phone": "Phone number if found, or null",
+  "client_address": "Street address (e.g. '3011 Wayland Ave')",
+  "client_city": "City name",
+  "client_state": "Two-letter state code (e.g. IL, CA, FL)",
+  "client_zip": "ZIP code",
+  "carrier": "Insurance carrier/company name (e.g. 'Encompass Insurance Company', 'Travelers', 'Grange')",
+  "quote_number": "Quote or proposal number if visible",
+  "effective_date": "YYYY-MM-DD format",
+  "total_premium": 8160.94,
+  "policies": [
+    {
+      "policy_type": "home|auto|renters|condo|landlord|umbrella|motorcycle|boat|rv|life|bundled|commercial|other",
+      "written_premium": 2885.00,
+      "item_count": 1,
+      "notes": "Brief description of coverage"
+    }
+  ]
+}
+
+CRITICAL RULES:
+- If the document contains MULTIPLE policy types (e.g. home + auto bundle), list EACH as a separate entry in policies[]
+- total_premium should be the TOTAL for ALL policies combined, not just one
+- Extract the ANNUAL premium, not monthly
+- For auto policies, list all vehicles in the notes field and set item_count to the number of vehicles
+- Always extract the mailing address into client_address, client_city, client_state, client_zip separately
+- Return ONLY the JSON, no markdown, no explanation"""
+
+
 @router.post("/extract-pdf")
 async def extract_quote_pdf(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
     """Upload a quote PDF and extract prospect/quote info via Claude."""
+    import base64
+    import httpx
+
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     pdf_bytes = await file.read()
 
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+
+    # Truncate large PDFs
+    from app.services.pdf_extract import truncate_pdf
+    pdf_bytes = truncate_pdf(pdf_bytes, max_pages=10)
+    pdf_base64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 2000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_base64}},
+                        {"type": "text", "text": QUOTE_EXTRACTION_PROMPT},
+                    ],
+                }],
+            },
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Claude API error ({response.status_code})")
+
+    # Parse response
+    import json as jsonlib
+    text = ""
+    for block in response.json().get("content", []):
+        if block.get("type") == "text":
+            text += block["text"]
+    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
     try:
-        from app.services.pdf_extract import extract_pdf_data
-        raw = await extract_pdf_data(pdf_bytes)
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raw = jsonlib.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse extraction: {e}")
 
     # Map extracted data to quote form fields
     policies = raw.get("policies") or []
-    first_policy = policies[0] if policies else {}
+    total_premium = raw.get("total_premium")
+
+    # Determine policy type: if multiple policies, it's "bundled"
+    if len(policies) > 1:
+        policy_type = "bundled"
+    elif len(policies) == 1:
+        policy_type = policies[0].get("policy_type") or "other"
+    else:
+        policy_type = "other"
+
+    # Build notes from all policies
+    notes_parts = []
+    for p in policies:
+        ptype = (p.get("policy_type") or "").capitalize()
+        pprem = p.get("written_premium")
+        pnotes = p.get("notes") or ""
+        prem_str = f"${pprem:,.2f}" if pprem else ""
+        notes_parts.append(f"{ptype}: {prem_str} — {pnotes}".strip(" —"))
+    combined_notes = " | ".join(notes_parts) if notes_parts else ""
+
+    # Use total premium (not just first policy)
+    premium = total_premium
+    if not premium and policies:
+        premium = sum(p.get("written_premium") or 0 for p in policies)
 
     result = {
         "prospect_name": raw.get("client_name") or "",
@@ -178,16 +279,15 @@ async def extract_quote_pdf(
         "prospect_phone": raw.get("client_phone") or "",
         "prospect_address": raw.get("client_address") or "",
         "prospect_city": raw.get("client_city") or "",
-        "prospect_state": raw.get("state") or "",
+        "prospect_state": raw.get("client_state") or raw.get("state") or "",
         "prospect_zip": raw.get("client_zip") or "",
         "carrier": (raw.get("carrier") or "").lower().replace(" ", "_"),
-        "policy_type": first_policy.get("policy_type") or "other",
-        "quoted_premium": str(first_policy.get("written_premium") or raw.get("total_premium") or ""),
-        "effective_date": first_policy.get("effective_date") or "",
-        "notes": first_policy.get("notes") or "",
-        "policy_number": first_policy.get("policy_number") or "",
+        "policy_type": policy_type,
+        "quoted_premium": str(premium) if premium else "",
+        "effective_date": raw.get("effective_date") or "",
+        "notes": combined_notes,
+        "policy_number": raw.get("quote_number") or "",
         "all_policies": policies,
-        "extraction_raw": raw,
     }
 
     return result
