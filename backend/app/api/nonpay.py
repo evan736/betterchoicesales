@@ -1450,6 +1450,28 @@ async def test_nowcerts_note(request: Request):
             timeout=30,
         )
 
+        # Try with just "databaseId" instead of "insuredDatabaseId"
+        alt_payload = dict(raw_payload)
+        if found_db_id:
+            alt_payload.pop("insuredDatabaseId", None)
+            alt_payload["databaseId"] = found_db_id
+        raw_resp_alt = req.post(
+            f"{nc.base_url}/api/Zapier/InsertNote",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=alt_payload,
+            timeout=30,
+        )
+
+        # Try with insuredId (numeric) via the Insured/InsuredNotes approach
+        # Also try InsertNote with just databaseId and subject, minimal payload
+        minimal_payload = {"subject": subject, "databaseId": found_db_id} if found_db_id else {}
+        raw_resp_min = req.post(
+            f"{nc.base_url}/api/Zapier/InsertNote",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=minimal_payload,
+            timeout=30,
+        ) if found_db_id else None
+
         # Also try original endpoint for comparison
         raw_resp2 = req.post(
             f"{nc.base_url}/api/Zapier/InsertNote",
@@ -1469,11 +1491,21 @@ async def test_nowcerts_note(request: Request):
                 "searches": search_result,
             },
             "raw_debug": {
-                "InsertNotesForSameInsured": {
+                "InsertNotesForSameInsured_withInsuredDbId": {
                     "status_code": raw_resp.status_code,
                     "body": raw_resp.text[:500],
                 },
-                "InsertNote": {
+                "InsertNote_withDatabaseId": {
+                    "status_code": raw_resp_alt.status_code,
+                    "body": raw_resp_alt.text[:500],
+                    "payload_sent": alt_payload,
+                },
+                "InsertNote_minimal": {
+                    "status_code": raw_resp_min.status_code if raw_resp_min else "skipped",
+                    "body": raw_resp_min.text[:500] if raw_resp_min else "skipped",
+                    "payload_sent": minimal_payload,
+                },
+                "InsertNote_withInsuredDbId": {
                     "status_code": raw_resp2.status_code,
                     "body": raw_resp2.text[:500],
                 },
