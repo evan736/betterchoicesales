@@ -470,8 +470,8 @@ class NowCertsClient:
     def insert_note(self, note_data: dict) -> Optional[dict]:
         """Insert a note for an insured in NowCerts.
         
-        Uses InsertNotesForSameInsured which matches by name/phone/email.
-        Falls back to InsertNote if that fails.
+        Searches for the insured by email/name first to get databaseId,
+        then inserts the note with the ID for reliable matching.
         """
         try:
             # Normalize field names to what NowCerts expects (camelCase)
@@ -482,22 +482,26 @@ class NowCertsClient:
                 note_data.get("noteText") or 
                 note_data.get("note_text") or ""
             )
-            payload["insuredEmail"] = (
+            email = (
                 note_data.get("insuredEmail") or 
                 note_data.get("insured_email") or ""
             )
-            payload["insuredFirstName"] = (
+            first_name = (
                 note_data.get("insuredFirstName") or 
                 note_data.get("insured_first_name") or ""
             )
-            payload["insuredLastName"] = (
+            last_name = (
                 note_data.get("insuredLastName") or 
                 note_data.get("insured_last_name") or ""
             )
+            
+            payload["insuredEmail"] = email
+            payload["insuredFirstName"] = first_name
+            payload["insuredLastName"] = last_name
             payload["insuredCommercialName"] = (
                 note_data.get("insuredCommercialName") or 
                 note_data.get("insured_commercial_name") or 
-                f"{payload['insuredFirstName']} {payload['insuredLastName']}".strip()
+                f"{first_name} {last_name}".strip()
             )
             payload["type"] = (
                 note_data.get("type") or 
@@ -513,13 +517,41 @@ class NowCertsClient:
                 datetime.now().strftime("%m/%d/%Y %I:%M %p")
             )
             
+            # Search for insured databaseId first — NowCerts needs this for reliable matching
+            try:
+                token = self._authenticate()
+                search_params = {}
+                if email:
+                    search_params["Email"] = email
+                if first_name and last_name:
+                    search_params["Name"] = f"{first_name} {last_name}"
+                
+                if search_params:
+                    search_resp = requests.get(
+                        f"{self.base_url}/api/Customers/GetCustomers",
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        params=search_params,
+                        timeout=30,
+                    )
+                    if search_resp.status_code == 200:
+                        customers = search_resp.json()
+                        if isinstance(customers, list) and len(customers) > 0:
+                            db_id = customers[0].get("databaseId") or customers[0].get("database_id")
+                            if db_id:
+                                payload["insuredDatabaseId"] = db_id
+                                logger.info("Found NowCerts insured databaseId: %s", db_id)
+            except Exception as e:
+                logger.warning("NowCerts customer search failed: %s", e)
+            
             logger.info(
-                "NowCerts InsertNote: insured=%s, email=%s, subject=%.80s",
+                "NowCerts InsertNote: insured=%s, email=%s, dbId=%s, subject=%.80s",
                 payload["insuredCommercialName"],
-                payload["insuredEmail"], payload["subject"]
+                payload["insuredEmail"],
+                payload.get("insuredDatabaseId", "none"),
+                payload["subject"]
             )
             
-            # Try InsertNotesForSameInsured first — matches by name/phone/email
+            # Try InsertNotesForSameInsured first
             try:
                 data = self._post("/api/Zapier/InsertNotesForSameInsured", payload)
                 logger.info("NowCerts note inserted via InsertNotesForSameInsured")
