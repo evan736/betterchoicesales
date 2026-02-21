@@ -933,7 +933,14 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
         </div>
 
         {/* Send Email Section */}
-        {!q.email_sent && q.prospect_email && q.quoted_premium && (
+        {!q.email_sent && q.prospect_email && q.quoted_premium && !q.pdf_uploaded && (
+          <div className="flex items-center gap-2 p-3 mb-5 rounded-lg bg-yellow-500/10 text-yellow-400 text-sm">
+            <AlertCircle size={14} />
+            Upload a quote PDF before sending
+          </div>
+        )}
+
+        {!q.email_sent && q.prospect_email && q.quoted_premium && q.pdf_uploaded && (
           <div className="mb-5 p-4 rounded-lg border border-white/10 bg-white/5">
             <p className="text-sm font-medium page-title mb-3">Send Quote Email</p>
             <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1007,7 +1014,7 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
                 style={{ background: '#0ea5e9' }}
               >
                 {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                Send Quote Email {q.pdf_uploaded ? '+ PDF' : '(no PDF attached)'}
+                Send Quote Email
               </button>
             </div>
             <p className="text-xs page-subtitle mt-2 opacity-60">
