@@ -1428,9 +1428,8 @@ async def test_nowcerts_note(request: Request):
             except Exception as e:
                 search_result[f"query_{search_query}"] = str(e)
 
-        # If we found the database ID, add it to payload
-        if insured_db_id:
-            raw_payload["insuredDatabaseId"] = str(insured_db_id)
+        # If we found the database ID, store it for later
+        found_db_id = str(insured_db_id) if insured_db_id else None
 
         # Also do a raw POST to see exactly what NowCerts returns
         raw_payload = {
@@ -1442,6 +1441,8 @@ async def test_nowcerts_note(request: Request):
             "creatorName": "BCI Non-Pay System",
             "createDate": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
+        if found_db_id:
+            raw_payload["insuredDatabaseId"] = found_db_id
         raw_resp = req.post(
             f"{nc.base_url}/api/Zapier/InsertNotesForSameInsured",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
