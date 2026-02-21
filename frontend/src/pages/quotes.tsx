@@ -365,21 +365,34 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
     setSaving(true);
     setError('');
     try {
-      let lastQuote: any = null;
-      for (const line of enabledLines) {
-        const res = await quotesAPI.create({
-          ...form,
-          policy_type: line.policy_type,
-          quoted_premium: line.quoted_premium ? parseFloat(line.quoted_premium) : null,
-          notes: line.notes,
-        });
-        // Attach PDF to first quote
-        if (pdfFile && !lastQuote) {
-          try { await quotesAPI.uploadPDF(res.data.id, pdfFile); } catch {}
-        }
-        lastQuote = res.data;
+      // Calculate total premium from enabled lines
+      const totalPremium = enabledLines.reduce((sum, l) => sum + (parseFloat(l.quoted_premium) || 0), 0);
+      // Determine policy type
+      const policyType = enabledLines.length > 1 ? 'bundled' : enabledLines[0].policy_type;
+      // Build notes from all lines
+      const notes = enabledLines.map(l => {
+        const t = l.policy_type.charAt(0).toUpperCase() + l.policy_type.slice(1);
+        const p = l.quoted_premium ? `$${parseFloat(l.quoted_premium).toLocaleString('en-US', {minimumFractionDigits: 2})}` : '';
+        return `${t}: ${p}${l.notes ? ' — ' + l.notes : ''}`;
+      }).join(' | ');
+
+      const res = await quotesAPI.create({
+        ...form,
+        policy_type: policyType,
+        quoted_premium: totalPremium || null,
+        notes,
+        policy_lines: enabledLines.map(l => ({
+          policy_type: l.policy_type,
+          premium: parseFloat(l.quoted_premium) || 0,
+          notes: l.notes,
+        })),
+      });
+
+      // Attach PDF
+      if (pdfFile) {
+        try { await quotesAPI.uploadPDF(res.data.id, pdfFile); } catch {}
       }
-      onCreated(lastQuote);
+      onCreated(res.data);
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to create quote');
     } finally {
@@ -671,10 +684,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 style={{ background: '#0ea5e9' }}
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                {policyLines.filter(l => l.enabled).length > 1
-                  ? `Create ${policyLines.filter(l => l.enabled).length} Quotes`
-                  : 'Create Quote'
-                }
+                Create Quote
               </button>
             </div>
           </>
@@ -854,6 +864,23 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
             )}
           </div>
         </div>
+
+        {/* Policy Lines (bundle breakdown) */}
+        {q.policy_lines && q.policy_lines.length > 1 && (
+          <div className="mb-5">
+            <p className="text-xs font-medium page-subtitle mb-2">Coverage Breakdown</p>
+            <div className="space-y-1.5">
+              {q.policy_lines.map((line: any, i: number) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 text-sm">
+                  <span className="capitalize page-title">{(line.policy_type || '').replace(/_/g, ' ')}</span>
+                  <span className="font-semibold" style={{ color: '#0ea5e9' }}>
+                    ${(line.premium || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Follow-up Timeline */}
         {q.email_sent && (

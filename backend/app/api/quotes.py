@@ -9,6 +9,7 @@ Features:
 - Conversion detection (link quote → sale)
 - Remarket pipeline entry at 90 days
 """
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -44,6 +45,7 @@ class QuoteCreate(BaseModel):
     premium_term: Optional[str] = "6 months"
     effective_date: Optional[str] = None
     notes: Optional[str] = None
+    policy_lines: Optional[list] = None  # [{policy_type, premium, notes}]
 
 
 class QuoteSendEmail(BaseModel):
@@ -193,6 +195,8 @@ def create_quote(
         except ValueError:
             pass
 
+    import json as jsonlib
+
     quote = Quote(
         prospect_name=data.prospect_name,
         prospect_email=data.prospect_email,
@@ -206,6 +210,8 @@ def create_quote(
         quoted_premium=data.quoted_premium,
         premium_term=data.premium_term or "6 months",
         effective_date=eff_date,
+        notes=data.notes or "",
+        policy_lines=jsonlib.dumps(data.policy_lines) if data.policy_lines else None,
         producer_id=current_user.id,
         producer_name=current_user.full_name or current_user.username,
         status="quoted",
@@ -446,27 +452,24 @@ def send_quote_email_endpoint(
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
 
-    # Detect bundle siblings
-    siblings = _find_sibling_quotes(db, quote)
-    is_multi = len(siblings) > 1
+    # Check for multiple policy lines (bundle)
+    lines = json.loads(quote.policy_lines) if quote.policy_lines else []
+    is_multi = len(lines) > 1
     quotes_summary = []
-    total_premium = 0.0
     if is_multi:
-        for sq in siblings:
-            p = float(sq.quoted_premium) if sq.quoted_premium else 0
-            total_premium += p
+        carrier_display = (quote.carrier or "").replace("_", " ")
+        for line in lines:
             quotes_summary.append({
-                "carrier": (sq.carrier or "").replace("_", " "),
-                "policy_type": (sq.policy_type or "").replace("_", " "),
-                "premium": f"${p:,.2f}",
+                "carrier": carrier_display,
+                "policy_type": (line.get("policy_type") or "").replace("_", " "),
+                "premium": f"${float(line.get('premium') or line.get('written_premium') or 0):,.2f}",
             })
-        premium_str = f"${total_premium:,.2f}"
 
     result = send_quote_email(
         to_email=quote.prospect_email,
         prospect_name=quote.prospect_name,
         carrier=quote.carrier,
-        policy_type="bundled" if is_multi else quote.policy_type,
+        policy_type=quote.policy_type,
         premium=premium_str,
         premium_term=premium_term,
         effective_date=eff_str,
@@ -576,26 +579,23 @@ def preview_quote_email(
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
 
-    # Find sibling quotes for same prospect (bundle detection)
-    siblings = _find_sibling_quotes(db, quote)
-    is_multi = len(siblings) > 1
+    # Check for multiple policy lines (bundle)
+    lines = json.loads(quote.policy_lines) if quote.policy_lines else []
+    is_multi = len(lines) > 1
     quotes_summary = []
-    total_premium = 0.0
     if is_multi:
-        for sq in siblings:
-            p = float(sq.quoted_premium) if sq.quoted_premium else 0
-            total_premium += p
+        carrier_display = (quote.carrier or "").replace("_", " ")
+        for line in lines:
             quotes_summary.append({
-                "carrier": (sq.carrier or "").replace("_", " "),
-                "policy_type": (sq.policy_type or "").replace("_", " "),
-                "premium": f"${p:,.2f}",
+                "carrier": carrier_display,
+                "policy_type": (line.get("policy_type") or "").replace("_", " "),
+                "premium": f"${float(line.get('premium') or line.get('written_premium') or 0):,.2f}",
             })
-        premium_str = f"${total_premium:,.2f}"
 
     html = build_quote_email_html(
         prospect_name=quote.prospect_name,
         carrier=quote.carrier,
-        policy_type="bundled" if is_multi else quote.policy_type,
+        policy_type=quote.policy_type,
         premium=premium_str,
         premium_term=quote.premium_term or "6 months",
         effective_date=eff_str,
@@ -613,7 +613,7 @@ def preview_quote_email(
         "carrier": quote.carrier,
         "premium": premium_str,
         "is_bundle": is_multi,
-        "line_count": len(siblings),
+        "line_count": len(lines),
     }
 
 @router.get("/{quote_id}")
@@ -867,6 +867,8 @@ def _quote_to_dict(q: Quote) -> dict:
         "quoted_premium": float(q.quoted_premium) if q.quoted_premium else None,
         "effective_date": q.effective_date.isoformat() if q.effective_date else None,
         "premium_term": q.premium_term or "6 months",
+        "notes": q.notes or "",
+        "policy_lines": json.loads(q.policy_lines) if q.policy_lines else [],
         "status": q.status,
         "pdf_uploaded": bool(q.quote_pdf_path),
         "pdf_filename": q.quote_pdf_filename,

@@ -185,6 +185,8 @@ class Quote(Base):
     policy_type = Column(String, nullable=False)  # auto, home, renters, umbrella, life, etc.
     quoted_premium = Column(Numeric(10, 2), nullable=True)
     premium_term = Column(String, nullable=True, default="6 months")  # "6 months" or "12 months"
+    notes = Column(Text, nullable=True)
+    policy_lines = Column(Text, nullable=True)  # JSON array of {policy_type, premium, notes}
     effective_date = Column(DateTime, nullable=True)
     quote_date = Column(DateTime(timezone=True), server_default=func.now())
 

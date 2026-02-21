@@ -309,14 +309,20 @@ def init_database():
         except Exception as e:
             logger.warning(f"Sales column migration warning: {e}")
 
-        # ── Quotes: premium_term column ──
+        # ── Quotes: premium_term, notes, policy_lines columns ──
         try:
             with engine.connect() as conn:
-                conn.execute(text("""
-                    ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months';
-                """))
+                for col_sql in [
+                    "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
+                    "ALTER TABLE quotes ADD COLUMN notes TEXT",
+                    "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
+                ]:
+                    try:
+                        conn.execute(text(col_sql))
+                    except Exception:
+                        pass
                 conn.commit()
-            logger.info("Quotes premium_term column added")
+            logger.info("Quotes columns verified")
         except Exception as e:
             logger.warning(f"Quotes column migration warning: {e}")
 
