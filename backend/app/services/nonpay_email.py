@@ -201,6 +201,27 @@ def send_nonpay_email(
                 due_date=due_date,
             )
 
+            # Fire GHL webhook for AI calling
+            try:
+                from app.services.ghl_webhook import get_ghl_service
+                ghl = get_ghl_service()
+                carrier_fmt = (carrier or "").replace("_", " ").title()
+                from app.services.welcome_email import CARRIER_INFO
+                carrier_info = CARRIER_INFO.get((carrier or "").lower().replace(" ", "_"), {})
+                carrier_phone = carrier_info.get("payment_phone", carrier_info.get("customer_service", "847-908-5665"))
+                ghl.fire_nonpay_sent(
+                    customer_name=client_name,
+                    email=to_email,
+                    phone="",  # Phone looked up by GHL from contact
+                    policy_number=policy_number,
+                    carrier=carrier_fmt,
+                    amount_due=f"${float(amount_due):,.2f}" if amount_due else "N/A",
+                    due_date=due_date or "N/A",
+                    carrier_phone=carrier_phone,
+                )
+            except Exception as ghl_err:
+                logger.debug(f"GHL webhook failed (non-blocking): {ghl_err}")
+
             return {"success": True, "message_id": msg_id}
         else:
             logger.error("Mailgun error %s: %s", resp.status_code, resp.text)
