@@ -1401,6 +1401,9 @@ async def test_nowcerts_note(request: Request):
         }
 
         # First search for the insured to get their database ID
+        import requests as req
+        token = nc._authenticate()
+        
         search_resp = req.get(
             f"{nc.base_url}/api/Customers/GetCustomers",
             headers={"Authorization": f"Bearer {token}"},
@@ -1422,8 +1425,6 @@ async def test_nowcerts_note(request: Request):
             raw_payload["insuredDatabaseId"] = insured_db_id
 
         # Also do a raw POST to see exactly what NowCerts returns
-        import requests as req
-        token = nc._authenticate()
         raw_payload = {
             "subject": subject,
             "insuredEmail": email,
