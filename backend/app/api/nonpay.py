@@ -1400,9 +1400,75 @@ async def test_nowcerts_note(request: Request):
             "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
 
-        # Search for insured using OData (same method insert_note now uses)
+        # Try different "type" values to find which goes to Notes tab vs Activity
+        # Manual notes show "Origin: Manual" - API returns origin:3
+        # Type "Email" might route to Activity log
         import requests as req
         token = nc._authenticate()
+        
+        type_results = {}
+        for note_type in [None, "General", "Manual", "Note", ""]:
+            test_payload = {
+                "subject": f"TYPE TEST ({note_type}) — {subject[:50]}",
+                "insured_database_id": found_db_id or "",
+                "insured_email": email,
+                "insured_first_name": first_name,
+                "insured_last_name": last_name,
+                "insured_commercial_name": f"{first_name} {last_name}",
+                "creator_name": "BCI Non-Pay System",
+            }
+            if note_type is not None:
+                test_payload["type"] = note_type
+            
+            resp = req.post(
+                f"{nc.base_url}/api/Zapier/InsertNote",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=test_payload,
+                timeout=30,
+            )
+            result_data = {}
+            try:
+                result_data = resp.json()
+            except:
+                result_data = {"raw": resp.text[:200]}
+            
+            origin = result_data.get("data", {}).get("origin") if isinstance(result_data.get("data"), dict) else None
+            rtype = result_data.get("data", {}).get("type") if isinstance(result_data.get("data"), dict) else None
+            type_results[f"type_{note_type}"] = {
+                "status": resp.status_code,
+                "origin": origin,
+                "returned_type": rtype,
+            }
+        
+        # Also try with is_sticky_note and origin field explicitly
+        for origin_val in [0, 1, 2]:
+            test_payload = {
+                "subject": f"ORIGIN TEST ({origin_val}) — {subject[:50]}",
+                "insured_database_id": found_db_id or "",
+                "insured_email": email,
+                "insured_first_name": first_name,
+                "insured_last_name": last_name,
+                "insured_commercial_name": f"{first_name} {last_name}",
+                "creator_name": "BCI Non-Pay System",
+                "origin": origin_val,
+            }
+            resp = req.post(
+                f"{nc.base_url}/api/Zapier/InsertNote",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=test_payload,
+                timeout=30,
+            )
+            result_data = {}
+            try:
+                result_data = resp.json()
+            except:
+                result_data = {"raw": resp.text[:200]}
+            
+            returned_origin = result_data.get("data", {}).get("origin") if isinstance(result_data.get("data"), dict) else None
+            type_results[f"origin_{origin_val}"] = {
+                "status": resp.status_code,
+                "origin": returned_origin,
+            }
         
         # Try multiple search strategies
         search_result = {}
@@ -1514,6 +1580,7 @@ async def test_nowcerts_note(request: Request):
                 "insured_db_id": insured_db_id,
                 "searches": search_result,
             },
+            "type_origin_tests": type_results,
             "raw_debug": {
                 "InsertNotesForSameInsured_withInsuredDbId": {
                     "status_code": raw_resp.status_code,
