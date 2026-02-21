@@ -470,95 +470,87 @@ class NowCertsClient:
     def insert_note(self, note_data: dict) -> Optional[dict]:
         """Insert a note for an insured in NowCerts.
         
-        Searches for the insured by email/name first to get databaseId,
-        then inserts the note with the ID for reliable matching.
+        NowCerts Zapier InsertNote uses snake_case field names:
+        insured_database_id, insured_email, insured_first_name, etc.
         """
         try:
-            # Normalize field names to what NowCerts expects (camelCase)
-            payload = {}
-            
-            payload["subject"] = (
-                note_data.get("subject") or 
-                note_data.get("noteText") or 
-                note_data.get("note_text") or ""
-            )
+            # Extract values from either snake_case or camelCase input
             email = (
-                note_data.get("insuredEmail") or 
-                note_data.get("insured_email") or ""
+                note_data.get("insured_email") or 
+                note_data.get("insuredEmail") or ""
             )
             first_name = (
-                note_data.get("insuredFirstName") or 
-                note_data.get("insured_first_name") or ""
+                note_data.get("insured_first_name") or 
+                note_data.get("insuredFirstName") or ""
             )
             last_name = (
-                note_data.get("insuredLastName") or 
-                note_data.get("insured_last_name") or ""
+                note_data.get("insured_last_name") or 
+                note_data.get("insuredLastName") or ""
             )
-            
-            payload["insuredEmail"] = email
-            payload["insuredFirstName"] = first_name
-            payload["insuredLastName"] = last_name
-            payload["insuredCommercialName"] = (
-                note_data.get("insuredCommercialName") or 
+            commercial_name = (
                 note_data.get("insured_commercial_name") or 
+                note_data.get("insuredCommercialName") or 
                 f"{first_name} {last_name}".strip()
             )
-            payload["type"] = (
-                note_data.get("type") or 
-                note_data.get("noteType") or "Email"
-            )
-            payload["creatorName"] = (
-                note_data.get("creatorName") or 
-                note_data.get("creator_name") or "BCI System"
-            )
-            payload["createDate"] = (
-                note_data.get("createDate") or 
-                note_data.get("create_date") or 
-                datetime.now().strftime("%m/%d/%Y %I:%M %p")
-            )
             
-            # Search for insured databaseId — NowCerts needs this for note matching
-            try:
-                search_query = email or f"{first_name} {last_name}".strip()
-                if search_query:
-                    results = self.search_insureds(search_query, limit=5)
-                    if results:
-                        # Match by email first, then by name
-                        matched = None
-                        for r in results:
-                            raw = r.get("_raw", {})
-                            r_email = (raw.get("eMail") or "").lower()
-                            if email and r_email == email.lower():
-                                matched = r
-                                break
-                        if not matched:
-                            matched = results[0]  # Best match from search
-                        
-                        db_id = matched.get("database_id") or matched.get("_raw", {}).get("id")
-                        if db_id:
-                            payload["insuredDatabaseId"] = str(db_id)
-                            logger.info("Found NowCerts insured databaseId: %s", db_id)
-            except Exception as e:
-                logger.warning("NowCerts insured search failed: %s", e)
+            # Search for insured databaseId — required for InsertNote
+            insured_db_id = note_data.get("insured_database_id") or note_data.get("insuredDatabaseId") or ""
+            if not insured_db_id:
+                try:
+                    search_query = email or f"{first_name} {last_name}".strip()
+                    if search_query:
+                        results = self.search_insureds(search_query, limit=5)
+                        if results:
+                            matched = None
+                            for r in results:
+                                r_email = (r.get("email") or "").lower()
+                                if email and r_email == email.lower():
+                                    matched = r
+                                    break
+                            if not matched:
+                                matched = results[0]
+                            insured_db_id = matched.get("database_id") or matched.get("_raw", {}).get("id") or ""
+                            if insured_db_id:
+                                logger.info("Found NowCerts insured databaseId: %s", insured_db_id)
+                except Exception as e:
+                    logger.warning("NowCerts insured search failed: %s", e)
+            
+            # Build payload with snake_case field names (per NowCerts Postman collection)
+            payload = {
+                "subject": (
+                    note_data.get("subject") or 
+                    note_data.get("noteText") or ""
+                ),
+                "insured_database_id": str(insured_db_id),
+                "insured_email": email,
+                "insured_first_name": first_name,
+                "insured_last_name": last_name,
+                "insured_commercial_name": commercial_name,
+                "creator_name": (
+                    note_data.get("creator_name") or 
+                    note_data.get("creatorName") or "BCI System"
+                ),
+                "type": (
+                    note_data.get("type") or 
+                    note_data.get("noteType") or "Email"
+                ),
+            }
             
             logger.info(
                 "NowCerts InsertNote: insured=%s, email=%s, dbId=%s, subject=%.80s",
-                payload["insuredCommercialName"],
-                payload["insuredEmail"],
-                payload.get("insuredDatabaseId", "none"),
-                payload["subject"]
+                commercial_name, email, insured_db_id, payload["subject"]
             )
             
-            # Try InsertNotesForSameInsured first
+            # Try InsertNote (with database ID)
             try:
-                data = self._post("/api/Zapier/InsertNotesForSameInsured", payload)
-                logger.info("NowCerts note inserted via InsertNotesForSameInsured")
+                data = self._post("/api/Zapier/InsertNote", payload)
+                logger.info("NowCerts note inserted via InsertNote")
                 return data
             except requests.exceptions.HTTPError as e:
-                logger.warning("InsertNotesForSameInsured failed (%s), trying InsertNote", e)
+                logger.warning("InsertNote failed (%s), trying InsertNotesForSameInsured", e)
             
-            # Fallback to InsertNote
-            data = self._post("/api/Zapier/InsertNote", payload)
+            # Fallback
+            data = self._post("/api/Zapier/InsertNotesForSameInsured", payload)
             return data
         except Exception as e:
             logger.error("NowCerts insert note failed: %s", e)

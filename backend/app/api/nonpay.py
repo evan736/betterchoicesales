@@ -1446,15 +1446,14 @@ async def test_nowcerts_note(request: Request):
         # Also do a raw POST to see exactly what NowCerts returns
         raw_payload = {
             "subject": subject,
-            "insuredEmail": email,
-            "insuredFirstName": first_name,
-            "insuredLastName": last_name,
+            "insured_database_id": found_db_id or "",
+            "insured_email": email,
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "insured_commercial_name": f"{first_name} {last_name}",
+            "creator_name": "BCI Non-Pay System",
             "type": "Email",
-            "creatorName": "BCI Non-Pay System",
-            "createDate": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
-        if found_db_id:
-            raw_payload["insuredDatabaseId"] = found_db_id
         raw_resp = req.post(
             f"{nc.base_url}/api/Zapier/InsertNotesForSameInsured",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
