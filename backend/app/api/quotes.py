@@ -188,9 +188,14 @@ def create_quote(
         producer_name=f"{current_user.first_name} {current_user.last_name}".strip() or current_user.username,
         status="quoted",
     )
-    db.add(quote)
-    db.commit()
-    db.refresh(quote)
+    try:
+        db.add(quote)
+        db.commit()
+        db.refresh(quote)
+    except Exception as e:
+        db.rollback()
+        logger.error("Quote creation failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)[:200]}")
 
     return _quote_to_dict(quote)
 
