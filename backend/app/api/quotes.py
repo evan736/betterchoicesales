@@ -159,7 +159,7 @@ def _create_nowcerts_prospect(quote: Quote):
 # ── Helper: Find sibling quotes (same prospect bundle) ──
 
 def _find_sibling_quotes(db: Session, quote: Quote):
-    """Find other quotes for the same prospect (same name + email, created within 1 hour)."""
+    """Find other quotes for the same prospect (same name + email, created within 60 seconds)."""
     from sqlalchemy import and_
     filters = [
         Quote.prospect_name == quote.prospect_name,
@@ -169,8 +169,8 @@ def _find_sibling_quotes(db: Session, quote: Quote):
         filters.append(Quote.prospect_email == quote.prospect_email)
     if quote.created_at:
         from datetime import timedelta
-        window_start = quote.created_at - timedelta(hours=1)
-        window_end = quote.created_at + timedelta(hours=1)
+        window_start = quote.created_at - timedelta(seconds=60)
+        window_end = quote.created_at + timedelta(seconds=60)
         filters.append(Quote.created_at.between(window_start, window_end))
 
     siblings = db.query(Quote).filter(and_(*filters)).all()
@@ -699,7 +699,19 @@ def mark_lost(
     return {"id": quote.id, "status": "lost", "reason": reason}
 
 
-@router.post("/check-followups")
+@router.delete("/{quote_id}")
+def delete_quote(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a quote."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    db.delete(quote)
+    db.commit()
+    return {"deleted": True, "id": quote_id}
 def check_followups(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

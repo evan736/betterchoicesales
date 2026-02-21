@@ -702,7 +702,7 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [notes, setNotes] = useState('');
-  const [premiumTerm, setPremiumTerm] = useState('6 months');
+  const [premiumTerm, setPremiumTerm] = useState(quote.premium_term || '6 months');
   const [message, setMessage] = useState('');
   const [msgType, setMsgType] = useState<'success' | 'error'>('success');
   const fileInputRef = useRef<HTMLInputElement>(null);
