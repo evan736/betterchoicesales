@@ -267,6 +267,14 @@ export const quotesAPI = {
   list: (params?: { status?: string; carrier?: string; days?: number; producer_id?: number }) =>
     api.get('/api/quotes/', { params }),
   get: (id: number) => api.get(`/api/quotes/${id}`),
+  extractPDF: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/api/quotes/extract-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+  },
   create: (data: any) => api.post('/api/quotes/', data),
   update: (id: number, data: any) => api.patch(`/api/quotes/${id}`, data),
   uploadPDF: (id: number, file: File) => {

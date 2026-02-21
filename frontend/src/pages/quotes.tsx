@@ -280,6 +280,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   onClose: () => void;
   onCreated: (q: any) => void;
 }) {
+  const [phase, setPhase] = useState<'upload' | 'form'>('upload');
   const [form, setForm] = useState({
     prospect_name: '', prospect_email: '', prospect_phone: '',
     prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
@@ -287,7 +288,51 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
     effective_date: '', notes: '',
   });
   const [saving, setSaving] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please upload a PDF file');
+      return;
+    }
+    setPdfFile(file);
+    setExtracting(true);
+    setError('');
+    try {
+      const res = await quotesAPI.extractPDF(file);
+      const d = res.data;
+      setForm({
+        prospect_name: d.prospect_name || '',
+        prospect_email: d.prospect_email || '',
+        prospect_phone: d.prospect_phone || '',
+        prospect_address: d.prospect_address || '',
+        prospect_city: d.prospect_city || '',
+        prospect_state: d.prospect_state || '',
+        prospect_zip: d.prospect_zip || '',
+        carrier: d.carrier || '',
+        policy_type: d.policy_type || 'other',
+        quoted_premium: d.quoted_premium || '',
+        effective_date: d.effective_date || '',
+        notes: d.notes || '',
+      });
+      setPhase('form');
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'PDF extraction failed');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
 
   const handleSubmit = async () => {
     if (!form.prospect_name || !form.carrier) {
@@ -301,6 +346,12 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         ...form,
         quoted_premium: form.quoted_premium ? parseFloat(form.quoted_premium) : null,
       });
+      // If we have a PDF, upload it to the new quote
+      if (pdfFile) {
+        try {
+          await quotesAPI.uploadPDF(res.data.id, pdfFile);
+        } catch { /* PDF attach is best-effort */ }
+      }
       onCreated(res.data);
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to create quote');
@@ -313,7 +364,9 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="modal-bg rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold page-title">New Quote</h2>
+          <h2 className="text-lg font-bold page-title">
+            {phase === 'upload' ? 'New Quote' : 'Review & Create Quote'}
+          </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/10"><X size={18} /></button>
         </div>
 
@@ -323,149 +376,233 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
           </div>
         )}
 
-        <div className="space-y-4">
-          {/* Prospect Info */}
-          <div>
-            <label className="block text-xs font-medium mb-1 page-subtitle">Prospect Name *</label>
-            <input
-              type="text"
-              value={form.prospect_name}
-              onChange={(e) => setForm({ ...form, prospect_name: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg text-sm input-field"
-              placeholder="John Smith"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Email</label>
+        {/* Phase 1: Upload PDF */}
+        {phase === 'upload' && !extracting && (
+          <div className="space-y-4">
+            <div
+              className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer ${
+                dragOver ? 'border-cyan-400 bg-cyan-400/10' : 'border-gray-600 hover:border-gray-400'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload size={36} className="mx-auto mb-3 text-gray-400" />
+              <p className="text-sm font-medium page-title mb-1">Drop a quote PDF here</p>
+              <p className="text-xs page-subtitle">or click to browse</p>
               <input
-                type="email"
-                value={form.prospect_email}
-                onChange={(e) => setForm({ ...form, prospect_email: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                placeholder="john@example.com"
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Phone</label>
-              <input
-                type="tel"
-                value={form.prospect_phone}
-                onChange={(e) => setForm({ ...form, prospect_phone: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                placeholder="(614) 555-1234"
-              />
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-gray-700" />
+              <span className="text-xs page-subtitle">or</span>
+              <div className="flex-1 h-px bg-gray-700" />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-medium mb-1 page-subtitle">Address</label>
-            <input
-              type="text"
-              value={form.prospect_address}
-              onChange={(e) => setForm({ ...form, prospect_address: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg text-sm input-field"
-              placeholder="123 Main St"
-            />
+            <button
+              onClick={() => setPhase('form')}
+              className="w-full py-2.5 rounded-lg text-sm font-medium filter-chip text-center"
+            >
+              Enter manually
+            </button>
           </div>
+        )}
 
-          <div className="grid grid-cols-3 gap-3">
-            <input
-              type="text"
-              value={form.prospect_city}
-              onChange={(e) => setForm({ ...form, prospect_city: e.target.value })}
-              className="px-3 py-2 rounded-lg text-sm input-field"
-              placeholder="City"
-            />
-            <input
-              type="text"
-              value={form.prospect_state}
-              onChange={(e) => setForm({ ...form, prospect_state: e.target.value })}
-              className="px-3 py-2 rounded-lg text-sm input-field"
-              placeholder="State"
-              maxLength={2}
-            />
-            <input
-              type="text"
-              value={form.prospect_zip}
-              onChange={(e) => setForm({ ...form, prospect_zip: e.target.value })}
-              className="px-3 py-2 rounded-lg text-sm input-field"
-              placeholder="Zip"
-              maxLength={5}
-            />
+        {/* Extracting spinner */}
+        {extracting && (
+          <div className="py-12 text-center">
+            <Loader2 size={32} className="mx-auto mb-3 animate-spin text-cyan-400" />
+            <p className="text-sm font-medium page-title">Extracting quote details...</p>
+            <p className="text-xs page-subtitle mt-1">Reading PDF with AI</p>
           </div>
+        )}
 
-          {/* Quote Details */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Carrier *</label>
-              <select
-                value={form.carrier}
-                onChange={(e) => setForm({ ...form, carrier: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg text-sm input-field"
-              >
-                <option value="">Select carrier</option>
-                {carriers.filter(c => typeof c === 'string' && c).map((c) => (
-                  <option key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Policy Type</label>
-              <select
-                value={form.policy_type}
-                onChange={(e) => setForm({ ...form, policy_type: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg text-sm input-field"
-              >
-                {POLICY_TYPES.map((t) => (
-                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+        {/* Phase 2: Form (pre-filled or manual) */}
+        {phase === 'form' && !extracting && (
+          <>
+            {pdfFile && (
+              <div className="flex items-center gap-2 p-2 mb-4 rounded-lg bg-cyan-500/10 text-cyan-400 text-xs">
+                <FileText size={14} />
+                <span>Extracted from: {pdfFile.name}</span>
+                <button onClick={() => { setPdfFile(null); setPhase('upload'); setForm({
+                  prospect_name: '', prospect_email: '', prospect_phone: '',
+                  prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
+                  carrier: '', policy_type: 'auto', quoted_premium: '',
+                  effective_date: '', notes: '',
+                }); }} className="ml-auto hover:text-white">
+                  <RotateCcw size={12} />
+                </button>
+              </div>
+            )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Quoted Premium</label>
-              <div className="relative">
-                <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium mb-1 page-subtitle">Prospect Name *</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  value={form.quoted_premium}
-                  onChange={(e) => setForm({ ...form, quoted_premium: e.target.value })}
-                  className="w-full pl-8 pr-3 py-2 rounded-lg text-sm input-field"
-                  placeholder="847.00"
+                  type="text"
+                  value={form.prospect_name}
+                  onChange={(e) => setForm({ ...form, prospect_name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  placeholder="John Smith"
                 />
               </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
-              <input
-                type="date"
-                value={form.effective_date}
-                onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg text-sm input-field"
-              />
-            </div>
-          </div>
-        </div>
 
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium filter-chip">
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white"
-            style={{ background: '#0ea5e9' }}
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            Create Quote
-          </button>
-        </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Email</label>
+                  <input
+                    type="email"
+                    value={form.prospect_email}
+                    onChange={(e) => setForm({ ...form, prospect_email: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                    placeholder="john@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Phone</label>
+                  <input
+                    type="tel"
+                    value={form.prospect_phone}
+                    onChange={(e) => setForm({ ...form, prospect_phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                    placeholder="(317) 555-1234"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1 page-subtitle">Address</label>
+                <input
+                  type="text"
+                  value={form.prospect_address}
+                  onChange={(e) => setForm({ ...form, prospect_address: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  placeholder="123 Main St"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <input
+                  type="text"
+                  value={form.prospect_city}
+                  onChange={(e) => setForm({ ...form, prospect_city: e.target.value })}
+                  className="px-3 py-2 rounded-lg text-sm input-field"
+                  placeholder="City"
+                />
+                <input
+                  type="text"
+                  value={form.prospect_state}
+                  onChange={(e) => setForm({ ...form, prospect_state: e.target.value })}
+                  className="px-3 py-2 rounded-lg text-sm input-field"
+                  placeholder="State"
+                  maxLength={2}
+                />
+                <input
+                  type="text"
+                  value={form.prospect_zip}
+                  onChange={(e) => setForm({ ...form, prospect_zip: e.target.value })}
+                  className="px-3 py-2 rounded-lg text-sm input-field"
+                  placeholder="Zip"
+                  maxLength={5}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Carrier *</label>
+                  <select
+                    value={form.carrier}
+                    onChange={(e) => setForm({ ...form, carrier: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  >
+                    <option value="">Select carrier</option>
+                    {/* If extracted carrier isn't in the dropdown list, add it */}
+                    {form.carrier && !carriers.includes(form.carrier) && (
+                      <option value={form.carrier}>
+                        {form.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                      </option>
+                    )}
+                    {carriers.filter(c => typeof c === 'string' && c).map((c) => (
+                      <option key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Policy Type</label>
+                  <select
+                    value={form.policy_type}
+                    onChange={(e) => setForm({ ...form, policy_type: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  >
+                    {POLICY_TYPES.map((t) => (
+                      <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Quoted Premium</label>
+                  <div className="relative">
+                    <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.quoted_premium}
+                      onChange={(e) => setForm({ ...form, quoted_premium: e.target.value })}
+                      className="w-full pl-8 pr-3 py-2 rounded-lg text-sm input-field"
+                      placeholder="847.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
+                  <input
+                    type="date"
+                    value={form.effective_date}
+                    onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  />
+                </div>
+              </div>
+
+              {form.notes && (
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Notes</label>
+                  <textarea
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field resize-none"
+                    rows={2}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium filter-chip">
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ background: '#0ea5e9' }}
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Create Quote
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

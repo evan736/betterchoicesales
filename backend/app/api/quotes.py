@@ -149,6 +149,50 @@ def create_quote(
     return _quote_to_dict(quote)
 
 
+
+# ── Quote PDF Extraction ─────────────────────────────────────────
+@router.post("/extract-pdf")
+async def extract_quote_pdf(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a quote PDF and extract prospect/quote info via Claude."""
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    pdf_bytes = await file.read()
+
+    try:
+        from app.services.pdf_extract import extract_pdf_data
+        raw = await extract_pdf_data(pdf_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Map extracted data to quote form fields
+    policies = raw.get("policies") or []
+    first_policy = policies[0] if policies else {}
+
+    result = {
+        "prospect_name": raw.get("client_name") or "",
+        "prospect_email": raw.get("client_email") or "",
+        "prospect_phone": raw.get("client_phone") or "",
+        "prospect_address": raw.get("client_address") or "",
+        "prospect_city": raw.get("client_city") or "",
+        "prospect_state": raw.get("state") or "",
+        "prospect_zip": raw.get("client_zip") or "",
+        "carrier": (raw.get("carrier") or "").lower().replace(" ", "_"),
+        "policy_type": first_policy.get("policy_type") or "other",
+        "quoted_premium": str(first_policy.get("written_premium") or raw.get("total_premium") or ""),
+        "effective_date": first_policy.get("effective_date") or "",
+        "notes": first_policy.get("notes") or "",
+        "policy_number": first_policy.get("policy_number") or "",
+        "all_policies": policies,
+        "extraction_raw": raw,
+    }
+
+    return result
+
+
 @router.post("/{quote_id}/upload-pdf")
 async def upload_quote_pdf(
     quote_id: int,
@@ -561,3 +605,5 @@ def _quote_to_dict(q: Quote) -> dict:
         "producer_name": q.producer_name,
         "created_at": q.created_at.isoformat() if q.created_at else None,
     }
+
+
