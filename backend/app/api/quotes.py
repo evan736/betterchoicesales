@@ -185,7 +185,7 @@ def create_quote(
         quoted_premium=data.quoted_premium,
         effective_date=eff_date,
         producer_id=current_user.id,
-        producer_name=f"{current_user.first_name} {current_user.last_name}".strip() or current_user.username,
+        producer_name=current_user.full_name or current_user.username,
         status="quoted",
     )
     try:
