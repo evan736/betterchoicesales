@@ -44,7 +44,13 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     // Load independently so one failure doesn't kill the others
     try {
-      const salesRes = await salesAPI.list();
+      // Get MTD date range
+      const now = new Date();
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const date_from = firstOfMonth.toISOString().split('T')[0]; // "2026-02-01"
+      const date_to = now.toISOString().split('T')[0]; // "2026-02-20"
+
+      const salesRes = await salesAPI.list({ date_from, date_to });
       const sales = salesRes.data || [];
       setRecentSales(sales.slice(0, 15));
       const totalPremium = sales.reduce((sum: number, s: any) => sum + parseFloat(s.written_premium || 0), 0);
@@ -215,9 +221,9 @@ export default function Dashboard() {
         </div>
 
         {/* ── Row 3: Stats + Tier Card ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-          <StatCard title="Total Sales" value={stats?.totalSales || 0} icon={<FileText className="text-brand-600" size={20} />} />
-          <StatCard title="Written Premium" value={`$${(stats?.totalPremium || 0).toLocaleString()}`} icon={<DollarSign className="text-green-600" size={20} />} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <StatCard title="Sales MTD" value={stats?.totalSales || 0} icon={<FileText className="text-brand-600" size={20} />} />
+          <StatCard title="Written Premium MTD" value={`$${(stats?.totalPremium || 0).toLocaleString()}`} icon={<DollarSign className="text-green-600" size={20} />} />
           <StatCard title="Active Policies" value={stats?.activePolicies || 0} icon={<TrendingUp className="text-blue-600" size={20} />} />
           {/* Commission Tier inline as 4th stat */}
           <div className="stat-card bg-gradient-to-br from-brand-600 to-brand-700 text-white relative overflow-hidden">
@@ -414,10 +420,10 @@ const SalesTicker: React.FC<{ sales: any[] }> = ({ sales }) => {
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode }> = ({ title, value, icon }) => (
   <div className="stat-card">
     <div className="flex items-start justify-between mb-2">
-      <div className="p-2 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100">{icon}</div>
+      <div className="p-1.5 sm:p-2 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100">{icon}</div>
     </div>
-    <div className="text-2xl font-bold text-slate-900 mb-0.5">{value}</div>
-    <div className="text-xs text-slate-600 font-medium">{title}</div>
+    <div className="text-xl sm:text-2xl font-bold text-slate-900 mb-0.5 truncate">{value}</div>
+    <div className="text-[11px] sm:text-xs text-slate-600 font-medium">{title}</div>
   </div>
 );
 
