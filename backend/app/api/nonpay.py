@@ -1402,7 +1402,7 @@ async def test_nowcerts_note(request: Request):
 
         # Also do a raw POST to see exactly what NowCerts returns
         import requests as req
-        token = nc._get_token()
+        token = nc._authenticate()
         raw_payload = {
             "subject": subject,
             "insuredEmail": email,
