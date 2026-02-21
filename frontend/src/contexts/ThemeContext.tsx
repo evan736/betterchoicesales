@@ -56,10 +56,14 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode; userId?: numbe
 
   // Load saved theme on mount / user change
   useEffect(() => {
-    const saved = localStorage.getItem(getStorageKey(userId)) as ThemeId | null;
-    if (saved && THEMES.some((t) => t.id === saved)) {
-      setThemeState(saved);
-    } else {
+    try {
+      const saved = localStorage.getItem(getStorageKey(userId)) as ThemeId | null;
+      if (saved && THEMES.some((t) => t.id === saved)) {
+        setThemeState(saved);
+      } else {
+        setThemeState('mission-control');
+      }
+    } catch {
       setThemeState('mission-control');
     }
   }, [userId]);
@@ -88,7 +92,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode; userId?: numbe
   const setTheme = useCallback(
     (t: ThemeId) => {
       setThemeState(t);
-      localStorage.setItem(getStorageKey(userId), t);
+      try {
+        localStorage.setItem(getStorageKey(userId), t);
+      } catch {}
     },
     [userId]
   );
