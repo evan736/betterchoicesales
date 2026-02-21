@@ -462,9 +462,58 @@ class NowCertsClient:
             return None
 
     def insert_note(self, note_data: dict) -> Optional[dict]:
-        """Insert a note for an insured in NowCerts."""
+        """Insert a note for an insured in NowCerts.
+        
+        Accepts either snake_case or camelCase keys and normalizes to camelCase
+        for the NowCerts Zapier API.
+        """
         try:
-            data = self._post("/api/Zapier/InsertNote", note_data)
+            # Normalize field names to what NowCerts expects (camelCase)
+            payload = {}
+            
+            # Note text/subject — NowCerts uses "subject" for the note content
+            payload["subject"] = (
+                note_data.get("subject") or 
+                note_data.get("noteText") or 
+                note_data.get("note_text") or ""
+            )
+            
+            # Insured matching fields
+            payload["insuredEmail"] = (
+                note_data.get("insuredEmail") or 
+                note_data.get("insured_email") or ""
+            )
+            payload["insuredFirstName"] = (
+                note_data.get("insuredFirstName") or 
+                note_data.get("insured_first_name") or ""
+            )
+            payload["insuredLastName"] = (
+                note_data.get("insuredLastName") or 
+                note_data.get("insured_last_name") or ""
+            )
+            
+            # Note metadata
+            payload["type"] = (
+                note_data.get("type") or 
+                note_data.get("noteType") or "Email"
+            )
+            payload["creatorName"] = (
+                note_data.get("creatorName") or 
+                note_data.get("creator_name") or "BCI System"
+            )
+            payload["createDate"] = (
+                note_data.get("createDate") or 
+                note_data.get("create_date") or 
+                datetime.now().strftime("%m/%d/%Y %I:%M %p")
+            )
+            
+            logger.info(
+                "NowCerts InsertNote: insured=%s %s, email=%s, subject=%s",
+                payload["insuredFirstName"], payload["insuredLastName"],
+                payload["insuredEmail"], payload["subject"][:80]
+            )
+            
+            data = self._post("/api/Zapier/InsertNote", payload)
             return data
         except Exception as e:
             logger.error("NowCerts insert note failed: %s", e)
