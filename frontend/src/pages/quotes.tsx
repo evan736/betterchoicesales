@@ -228,7 +228,7 @@ export default function Quotes() {
 
       {/* Create Quote Modal */}
       {showCreate && (
-        <CreateQuoteModal
+        <ModalErrorBoundary><CreateQuoteModal
           carriers={carriers}
           onClose={() => setShowCreate(false)}
           onCreated={(q) => {
@@ -238,6 +238,7 @@ export default function Quotes() {
             setShowDetail(true);
           }}
         />
+        </ModalErrorBoundary>
       )}
 
       {/* Quote Detail Modal */}
@@ -255,6 +256,24 @@ export default function Quotes() {
 // ═══════════════════════════════════════════════════════════════
 // CREATE QUOTE MODAL
 // ═══════════════════════════════════════════════════════════════
+
+
+class ModalErrorBoundary extends React.Component<{children: React.ReactNode}, {error: string | null}> {
+  constructor(props: any) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e: any) { return { error: e?.message || String(e) }; }
+  render() {
+    if (this.state.error) return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="bg-red-900/80 rounded-xl p-6 max-w-lg text-white">
+          <h2 className="text-lg font-bold mb-2">Modal Error</h2>
+          <p className="text-sm font-mono break-all">{this.state.error}</p>
+          <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-white/20 rounded">Reload</button>
+        </div>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 function CreateQuoteModal({ carriers, onClose, onCreated }: {
   carriers: string[];
