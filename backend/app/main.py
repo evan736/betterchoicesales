@@ -15,6 +15,7 @@ from app.api import nonpay as nonpay_api
 from app.api import uw_requirements as uw_api
 from app.api import winback as winback_api
 from app.api import renewals as renewals_api
+from app.api import quotes as quotes_api
 
 logger = logging.getLogger(__name__)
 
@@ -516,6 +517,7 @@ app.include_router(nonpay_api.router)
 app.include_router(uw_api.router)
 app.include_router(winback_api.router)
 app.include_router(renewals_api.router)
+app.include_router(quotes_api.router)
 
 # Serve static files (temp PDFs for Thanks.io, etc.)
 from fastapi.staticfiles import StaticFiles

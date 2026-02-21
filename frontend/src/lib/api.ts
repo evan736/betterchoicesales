@@ -261,3 +261,63 @@ export const nonpayAPI = {
   sendTest: (params: { to_email: string; carrier: string }) =>
     api.post('/api/nonpay/send-test', null, { params }),
 };
+
+// Quotes API
+export const quotesAPI = {
+  list: (params?: { status?: string; carrier?: string; days?: number; producer_id?: number }) =>
+    api.get('/api/quotes/', { params }),
+  get: (id: number) => api.get(`/api/quotes/${id}`),
+  create: (data: any) => api.post('/api/quotes/', data),
+  update: (id: number, data: any) => api.patch(`/api/quotes/${id}`, data),
+  uploadPDF: (id: number, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/api/quotes/${id}/upload-pdf`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  sendEmail: (id: number, data?: { additional_notes?: string; premium_term?: string }) =>
+    api.post(`/api/quotes/${id}/send-email`, data || {}),
+  markConverted: (id: number, saleId?: number) =>
+    api.post(`/api/quotes/${id}/mark-converted`, null, { params: saleId ? { sale_id: saleId } : {} }),
+  markLost: (id: number, reason?: string) =>
+    api.post(`/api/quotes/${id}/mark-lost`, null, { params: { reason: reason || 'unknown' } }),
+  checkFollowups: () => api.post('/api/quotes/check-followups'),
+  stats: () => api.get('/api/quotes/stats/summary'),
+};
+
+// UW Requirements API
+export const uwAPI = {
+  list: (params?: { status?: string; requirement_type?: string }) =>
+    api.get('/api/uw-requirements/', { params }),
+  create: (data: any) => api.post('/api/uw-requirements/', data),
+  update: (id: number, data: any) => api.patch(`/api/uw-requirements/${id}`, data),
+  resend: (id: number) => api.post(`/api/uw-requirements/${id}/resend`),
+  types: () => api.get('/api/uw-requirements/types'),
+};
+
+// Win-Back API
+export const winbackAPI = {
+  list: (params?: { status?: string; include_excluded?: boolean }) =>
+    api.get('/api/winback/', { params }),
+  scan: () => api.post('/api/winback/scan'),
+  exclude: (id: number, reason?: string) =>
+    api.post(`/api/winback/${id}/exclude`, { reason }),
+  include: (id: number) => api.post(`/api/winback/${id}/include`),
+  activate: (id: number) => api.post(`/api/winback/${id}/activate`),
+  activateAll: () => api.post('/api/winback/activate-all'),
+  create: (data: any) => api.post('/api/winback/create', data),
+};
+
+// Renewals API
+export const renewalsAPI = {
+  list: (params?: { status?: string; days_out?: number; rate_category?: string }) =>
+    api.get('/api/renewals/', { params }),
+  scan: (daysAhead?: number) =>
+    api.post('/api/renewals/scan', null, { params: { days_ahead: daysAhead || 90 } }),
+  notify: (id: number) => api.post(`/api/renewals/${id}/notify`),
+  updateRate: (id: number, currentPremium: number, renewalPremium: number) =>
+    api.post(`/api/renewals/${id}/update-rate`, null, {
+      params: { current_premium: currentPremium, renewal_premium: renewalPremium },
+    }),
+};
