@@ -1400,29 +1400,37 @@ async def test_nowcerts_note(request: Request):
             "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
 
-        # First search for the insured to get their database ID
+        # Search for insured using OData (same method insert_note now uses)
         import requests as req
         token = nc._authenticate()
         
-        search_resp = req.get(
-            f"{nc.base_url}/api/Customers/GetCustomers",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"Email": email, "Name": f"{first_name} {last_name}"},
-            timeout=30,
-        )
-        search_result = None
+        # Try multiple search strategies
+        search_result = {}
         insured_db_id = None
-        try:
-            search_result = search_resp.json()
-            # NowCerts returns a list of matching customers
-            if isinstance(search_result, list) and len(search_result) > 0:
-                insured_db_id = search_result[0].get("databaseId") or search_result[0].get("database_id")
-        except:
-            search_result = search_resp.text[:500]
+        
+        for search_query in [email, f"{first_name} {last_name}", last_name]:
+            if not search_query:
+                continue
+            try:
+                results = nc.search_insureds(search_query, limit=5)
+                search_result[f"query_{search_query}"] = [
+                    {"id": r.get("database_id"), "name": r.get("commercial_name"), "email": r.get("email")}
+                    for r in results
+                ]
+                if results and not insured_db_id:
+                    for r in results:
+                        r_email = (r.get("email") or "").lower()
+                        if email and r_email == email.lower():
+                            insured_db_id = r.get("database_id")
+                            break
+                    if not insured_db_id:
+                        insured_db_id = results[0].get("database_id")
+            except Exception as e:
+                search_result[f"query_{search_query}"] = str(e)
 
         # If we found the database ID, add it to payload
         if insured_db_id:
-            raw_payload["insuredDatabaseId"] = insured_db_id
+            raw_payload["insuredDatabaseId"] = str(insured_db_id)
 
         # Also do a raw POST to see exactly what NowCerts returns
         raw_payload = {
@@ -1456,9 +1464,8 @@ async def test_nowcerts_note(request: Request):
             "normalized_payload": raw_payload,
             "nowcerts_response": result,
             "search_result": {
-                "status_code": search_resp.status_code,
                 "insured_db_id": insured_db_id,
-                "data": search_result if isinstance(search_result, (list, dict)) else str(search_result)[:300],
+                "searches": search_result,
             },
             "raw_debug": {
                 "InsertNotesForSameInsured": {
