@@ -517,31 +517,29 @@ class NowCertsClient:
                 datetime.now().strftime("%m/%d/%Y %I:%M %p")
             )
             
-            # Search for insured databaseId first — NowCerts needs this for reliable matching
+            # Search for insured databaseId — NowCerts needs this for note matching
             try:
-                token = self._authenticate()
-                search_params = {}
-                if email:
-                    search_params["Email"] = email
-                if first_name and last_name:
-                    search_params["Name"] = f"{first_name} {last_name}"
-                
-                if search_params:
-                    search_resp = requests.get(
-                        f"{self.base_url}/api/Customers/GetCustomers",
-                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                        params=search_params,
-                        timeout=30,
-                    )
-                    if search_resp.status_code == 200:
-                        customers = search_resp.json()
-                        if isinstance(customers, list) and len(customers) > 0:
-                            db_id = customers[0].get("databaseId") or customers[0].get("database_id")
-                            if db_id:
-                                payload["insuredDatabaseId"] = db_id
-                                logger.info("Found NowCerts insured databaseId: %s", db_id)
+                search_query = email or f"{first_name} {last_name}".strip()
+                if search_query:
+                    results = self.search_insureds(search_query, limit=5)
+                    if results:
+                        # Match by email first, then by name
+                        matched = None
+                        for r in results:
+                            raw = r.get("_raw", {})
+                            r_email = (raw.get("eMail") or "").lower()
+                            if email and r_email == email.lower():
+                                matched = r
+                                break
+                        if not matched:
+                            matched = results[0]  # Best match from search
+                        
+                        db_id = matched.get("database_id") or matched.get("_raw", {}).get("id")
+                        if db_id:
+                            payload["insuredDatabaseId"] = str(db_id)
+                            logger.info("Found NowCerts insured databaseId: %s", db_id)
             except Exception as e:
-                logger.warning("NowCerts customer search failed: %s", e)
+                logger.warning("NowCerts insured search failed: %s", e)
             
             logger.info(
                 "NowCerts InsertNote: insured=%s, email=%s, dbId=%s, subject=%.80s",
