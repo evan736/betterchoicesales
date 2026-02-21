@@ -1406,6 +1406,15 @@ async def test_nowcerts_note(request: Request):
         import requests as req
         token = nc._authenticate()
         
+        # Quick search for database ID first
+        found_db_id = None
+        try:
+            search_results = nc.search_insureds(email or last_name, limit=3)
+            if search_results:
+                found_db_id = str(search_results[0].get("database_id") or "")
+        except:
+            pass
+        
         type_results = {}
         for note_type in [None, "General", "Manual", "Note", ""]:
             test_payload = {
