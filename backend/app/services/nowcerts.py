@@ -534,6 +534,7 @@ class NowCertsClient:
                     note_data.get("type") or 
                     note_data.get("noteType") or "Email"
                 ),
+                "origin": 0,  # 0 = shows in Notes tab, 3 = Activity log only
             }
             
             logger.info(
