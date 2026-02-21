@@ -1376,7 +1376,7 @@ async def send_test_internal(request: Request):
 
 @router.post("/test-nowcerts-note")
 async def test_nowcerts_note(request: Request):
-    """Test NowCerts note insertion directly."""
+    """Test NowCerts note insertion directly — debug version."""
     try:
         from app.services.nowcerts import get_nowcerts_client
         nc = get_nowcerts_client()
@@ -1387,10 +1387,11 @@ async def test_nowcerts_note(request: Request):
         first_name = body.get("first_name", "Rosa")
         last_name = body.get("last_name", "Ayala")
         email = body.get("email", "rosa.ayala1331@gmail.com")
+        subject = body.get("subject", f"Non-Pay Notice Sent — Test | BCI CRM Automation")
 
         from datetime import datetime
         note_data = {
-            "subject": "TEST — Non-Pay Notice Sent — HM 6605796 | Policy: HM 6605796, Carrier: Grange, Amount: $1,494.00, Due: 02/28/2026",
+            "subject": subject,
             "insured_email": email,
             "insured_first_name": first_name,
             "insured_last_name": last_name,
@@ -1399,8 +1400,37 @@ async def test_nowcerts_note(request: Request):
             "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
 
+        # Also do a raw POST to see exactly what NowCerts returns
+        import requests as req
+        token = nc._get_token()
+        raw_payload = {
+            "subject": subject,
+            "insuredEmail": email,
+            "insuredFirstName": first_name,
+            "insuredLastName": last_name,
+            "type": "Email",
+            "creatorName": "BCI Non-Pay System",
+            "createDate": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+        }
+        raw_resp = req.post(
+            f"{nc.base_url}/api/Zapier/InsertNote",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=raw_payload,
+            timeout=30,
+        )
+
         result = nc.insert_note(note_data)
-        return {"success": True, "note_data_sent": note_data, "nowcerts_response": result}
+        return {
+            "success": True,
+            "note_data_sent": note_data,
+            "normalized_payload": raw_payload,
+            "nowcerts_response": result,
+            "raw_debug": {
+                "status_code": raw_resp.status_code,
+                "headers": dict(raw_resp.headers),
+                "body": raw_resp.text[:1000],
+            },
+        }
     except Exception as e:
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()}

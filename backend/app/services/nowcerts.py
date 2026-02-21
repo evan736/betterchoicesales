@@ -160,7 +160,13 @@ class NowCertsClient:
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json()
+        # NowCerts sometimes returns empty body or plain text on success
+        if not resp.text or not resp.text.strip():
+            return {"status": "ok", "http_status": resp.status_code}
+        try:
+            return resp.json()
+        except Exception:
+            return {"status": "ok", "http_status": resp.status_code, "raw": resp.text[:500]}
 
     # ── Search / Read (using OData InsuredDetailList) ────────────────
 
