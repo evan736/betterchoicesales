@@ -62,7 +62,7 @@ export default function Quotes() {
     if (user) {
       loadQuotes();
       adminAPI.dropdownOptions().then((r: any) => {
-        setCarriers(r.data.carriers || []);
+        setCarriers((r.data.carriers || []).filter((c: any) => typeof c === 'string' && c));
       }).catch(() => {});
     }
   }, [user, loadQuotes]);
@@ -406,7 +406,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 className="w-full px-3 py-2 rounded-lg text-sm input-field"
               >
                 <option value="">Select carrier</option>
-                {carriers.map((c) => (
+                {carriers.filter(c => typeof c === 'string' && c).map((c) => (
                   <option key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}</option>
                 ))}
               </select>
