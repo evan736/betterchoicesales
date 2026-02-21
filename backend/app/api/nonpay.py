@@ -1413,6 +1413,14 @@ async def test_nowcerts_note(request: Request):
             "createDate": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
         }
         raw_resp = req.post(
+            f"{nc.base_url}/api/Zapier/InsertNotesForSameInsured",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=raw_payload,
+            timeout=30,
+        )
+
+        # Also try original endpoint for comparison
+        raw_resp2 = req.post(
             f"{nc.base_url}/api/Zapier/InsertNote",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json=raw_payload,
@@ -1426,9 +1434,14 @@ async def test_nowcerts_note(request: Request):
             "normalized_payload": raw_payload,
             "nowcerts_response": result,
             "raw_debug": {
-                "status_code": raw_resp.status_code,
-                "headers": dict(raw_resp.headers),
-                "body": raw_resp.text[:1000],
+                "InsertNotesForSameInsured": {
+                    "status_code": raw_resp.status_code,
+                    "body": raw_resp.text[:500],
+                },
+                "InsertNote": {
+                    "status_code": raw_resp2.status_code,
+                    "body": raw_resp2.text[:500],
+                },
             },
         }
     except Exception as e:

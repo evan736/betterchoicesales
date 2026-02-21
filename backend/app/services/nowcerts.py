@@ -470,21 +470,18 @@ class NowCertsClient:
     def insert_note(self, note_data: dict) -> Optional[dict]:
         """Insert a note for an insured in NowCerts.
         
-        Accepts either snake_case or camelCase keys and normalizes to camelCase
-        for the NowCerts Zapier API.
+        Uses InsertNotesForSameInsured which matches by name/phone/email.
+        Falls back to InsertNote if that fails.
         """
         try:
             # Normalize field names to what NowCerts expects (camelCase)
             payload = {}
             
-            # Note text/subject — NowCerts uses "subject" for the note content
             payload["subject"] = (
                 note_data.get("subject") or 
                 note_data.get("noteText") or 
                 note_data.get("note_text") or ""
             )
-            
-            # Insured matching fields
             payload["insuredEmail"] = (
                 note_data.get("insuredEmail") or 
                 note_data.get("insured_email") or ""
@@ -497,8 +494,11 @@ class NowCertsClient:
                 note_data.get("insuredLastName") or 
                 note_data.get("insured_last_name") or ""
             )
-            
-            # Note metadata
+            payload["insuredCommercialName"] = (
+                note_data.get("insuredCommercialName") or 
+                note_data.get("insured_commercial_name") or 
+                f"{payload['insuredFirstName']} {payload['insuredLastName']}".strip()
+            )
             payload["type"] = (
                 note_data.get("type") or 
                 note_data.get("noteType") or "Email"
@@ -514,11 +514,20 @@ class NowCertsClient:
             )
             
             logger.info(
-                "NowCerts InsertNote: insured=%s %s, email=%s, subject=%s",
-                payload["insuredFirstName"], payload["insuredLastName"],
-                payload["insuredEmail"], payload["subject"][:80]
+                "NowCerts InsertNote: insured=%s, email=%s, subject=%.80s",
+                payload["insuredCommercialName"],
+                payload["insuredEmail"], payload["subject"]
             )
             
+            # Try InsertNotesForSameInsured first — matches by name/phone/email
+            try:
+                data = self._post("/api/Zapier/InsertNotesForSameInsured", payload)
+                logger.info("NowCerts note inserted via InsertNotesForSameInsured")
+                return data
+            except requests.exceptions.HTTPError as e:
+                logger.warning("InsertNotesForSameInsured failed (%s), trying InsertNote", e)
+            
+            # Fallback to InsertNote
             data = self._post("/api/Zapier/InsertNote", payload)
             return data
         except Exception as e:
