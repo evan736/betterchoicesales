@@ -162,29 +162,30 @@ export default function CustomersPage() {
       <Navbar />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="font-display text-4xl font-bold text-slate-900 mb-1">Customers</h1>
-            <p className="text-slate-600">Agency customer directory</p>
+            <h1 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 mb-1">Customers</h1>
+            <p className="text-slate-600 text-sm">Agency customer directory</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             {ncStatus && (
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${ncStatus.connected ? 'bg-green-100 text-green-800' : ncStatus.configured ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'}`}>
+              <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${ncStatus.connected ? 'bg-green-100 text-green-800' : ncStatus.configured ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'}`}>
                 {ncStatus.connected ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-                NowCerts {ncStatus.connected ? 'Connected' : ncStatus.configured ? 'Auth Error' : 'Not Configured'}
+                <span className="hidden sm:inline">NowCerts</span> {ncStatus.connected ? 'Connected' : ncStatus.configured ? 'Auth Error' : 'Not Configured'}
               </div>
             )}
             {isAdmin && (
               <>
-                <button onClick={openNonPay} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200">
+                <button onClick={openNonPay} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200">
                   <Ban size={14} /> Non-Pay
                 </button>
-                <button onClick={loadDuplicates} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200">
-                  <AlertTriangle size={14} /> Duplicates
+                <button onClick={loadDuplicates} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200">
+                  <AlertTriangle size={14} /> <span className="hidden sm:inline">Duplicates</span><span className="sm:hidden">Dups</span>
                 </button>
-                <button onClick={handleSyncAll} disabled={syncing} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
+                <button onClick={handleSyncAll} disabled={syncing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
                   {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                  {syncing ? 'Syncing...' : 'Sync All from NowCerts'}
+                  <span className="hidden sm:inline">{syncing ? 'Syncing...' : 'Sync All from NowCerts'}</span>
+                  <span className="sm:hidden">{syncing ? 'Syncing...' : 'Sync All'}</span>
                 </button>
               </>
             )}
@@ -192,25 +193,25 @@ export default function CustomersPage() {
         </div>
 
         {/* Agency Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          <StatCard icon={<Users size={20} />} label="Total Customers" value={statsLoading ? '...' : fmt(stats?.total_customers)} color="blue" />
-          <StatCard icon={<CheckCircle2 size={20} />} label="Active Customers" value={statsLoading ? '...' : fmt(stats?.active_customers)} color="green" />
-          <StatCard icon={<FileText size={20} />} label="Active Policies" value={statsLoading ? '...' : fmt(stats?.active_policies)} color="indigo" />
-          <StatCard icon={<DollarSign size={20} />} label="Annual Premium" value={statsLoading ? '...' : fmtMoney(stats?.total_active_premium_annualized)} color="emerald" />
-          <StatCard icon={<Calendar size={20} />} label="Last Sync" value={statsLoading ? '...' : (stats?.last_sync ? new Date(stats.last_sync).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never')} color="slate" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
+          <StatCard icon={<Users size={18} />} label="Total Customers" value={statsLoading ? '...' : fmt(stats?.total_customers)} color="blue" />
+          <StatCard icon={<CheckCircle2 size={18} />} label="Active Customers" value={statsLoading ? '...' : fmt(stats?.active_customers)} color="green" />
+          <StatCard icon={<FileText size={18} />} label="Active Policies" value={statsLoading ? '...' : fmt(stats?.active_policies)} color="indigo" />
+          <StatCard icon={<DollarSign size={18} />} label="Annual Premium" value={statsLoading ? '...' : fmtMoney(stats?.total_active_premium_annualized)} color="emerald" />
+          <StatCard icon={<Calendar size={18} />} label="Last Sync" value={statsLoading ? '...' : (stats?.last_sync ? new Date(stats.last_sync).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never')} color="slate" />
         </div>
 
         {/* Search Bar */}
-        <form onSubmit={handleSearch} className="card p-4 mb-6">
-          <div className="flex gap-3">
+        <form onSubmit={handleSearch} className="card p-3 sm:p-4 mb-6">
+          <div className="flex gap-2 sm:gap-3">
             <div className="relative flex-1">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by name, email, phone, or address..."
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+                placeholder="Search by name, email, phone number, or address"
+                className="w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
             </div>
-            <button type="submit" disabled={!searchQuery.trim()} className="btn-primary px-6 py-3 flex items-center gap-2 disabled:opacity-40">
-              <Search size={16} /> Search
+            <button type="submit" disabled={!searchQuery.trim()} className="btn-primary px-4 sm:px-6 py-2.5 sm:py-3 flex items-center gap-2 disabled:opacity-40">
+              <Search size={16} /> <span className="hidden sm:inline">Search</span>
             </button>
           </div>
         </form>
@@ -229,14 +230,14 @@ export default function CustomersPage() {
                 const isExpanded = expandedId === key;
                 return (
                   <div key={key} className="card overflow-hidden">
-                    <button onClick={() => handleExpand(c)} className="w-full text-left p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                      <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${c.has_active_policy ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <button onClick={() => handleExpand(c)} className="w-full text-left p-3 sm:p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                        <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${c.has_active_policy ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                           {(c.full_name || '?')[0]?.toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-slate-900 truncate">{c.full_name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-900 truncate text-sm sm:text-base">{c.full_name}</p>
                             {c.has_active_policy ? (
                               <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold">Active</span>
                             ) : (
@@ -244,16 +245,15 @@ export default function CustomersPage() {
                             )}
                             {c.is_prospect && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">Prospect</span>}
                           </div>
-                          <div className="flex items-center gap-4 text-xs text-slate-500 mt-0.5">
-                            {c.email && <span className="flex items-center gap-1"><Mail size={11} />{c.email}</span>}
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4 text-xs text-slate-500 mt-0.5">
+                            {c.email && <span className="flex items-center gap-1 truncate"><Mail size={11} /><span className="truncate">{c.email}</span></span>}
                             {c.phone && <span className="flex items-center gap-1"><Phone size={11} />{c.phone}</span>}
-                            {c.city && c.state && <span className="flex items-center gap-1"><MapPin size={11} />{c.city}, {c.state}</span>}
+                            {c.city && c.state && <span className="flex items-center gap-1 hidden sm:flex"><MapPin size={11} />{c.city}, {c.state}</span>}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {c.policy_count > 0 && <span className="text-xs text-slate-400">{c.policy_count} {c.policy_count === 1 ? 'policy' : 'policies'}</span>}
-                        {c.agent_name && <span className="text-xs text-slate-400">{c.agent_name}</span>}
+                      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-2">
+                        {c.policy_count > 0 && <span className="text-xs text-slate-400 hidden sm:inline">{c.policy_count} {c.policy_count === 1 ? 'policy' : 'policies'}</span>}
                         {isExpanded ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
                       </div>
                     </button>
@@ -368,7 +368,7 @@ export default function CustomersPage() {
 
 const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; color: string }> = ({ icon, label, value, color }) => {
   const cls: Record<string, string> = { blue: 'text-blue-600 bg-blue-50', green: 'text-green-600 bg-green-50', indigo: 'text-indigo-600 bg-indigo-50', emerald: 'text-emerald-600 bg-emerald-50', slate: 'text-slate-600 bg-slate-100' };
-  return (<div className="card p-4"><div className="flex items-center gap-3 mb-2"><div className={`p-2 rounded-lg ${cls[color] || cls.slate}`}>{icon}</div></div><p className="text-2xl font-bold text-slate-900">{value}</p><p className="text-xs text-slate-500 mt-0.5">{label}</p></div>);
+  return (<div className="card p-3 sm:p-4"><div className="flex items-center gap-2 mb-2"><div className={`p-1.5 sm:p-2 rounded-lg ${cls[color] || cls.slate}`}>{icon}</div></div><p className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{value}</p><p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">{label}</p></div>);
 };
 
 const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
