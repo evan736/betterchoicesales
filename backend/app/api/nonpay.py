@@ -1407,6 +1407,8 @@ async def test_nowcerts_note(request: Request):
         # Try multiple search strategies
         search_result = {}
         insured_db_id = None
+        insured_numeric_id = None
+        customer_numeric_id = None
         
         for search_query in [email, f"{first_name} {last_name}", last_name]:
             if not search_query:
@@ -1414,7 +1416,13 @@ async def test_nowcerts_note(request: Request):
             try:
                 results = nc.search_insureds(search_query, limit=5)
                 search_result[f"query_{search_query}"] = [
-                    {"id": r.get("database_id"), "name": r.get("commercial_name"), "email": r.get("email")}
+                    {
+                        "id": r.get("database_id"),
+                        "insured_id": r.get("insured_id"),
+                        "customer_id": r.get("customer_id"),
+                        "name": r.get("commercial_name"),
+                        "email": r.get("email"),
+                    }
                     for r in results
                 ]
                 if results and not insured_db_id:
@@ -1422,9 +1430,13 @@ async def test_nowcerts_note(request: Request):
                         r_email = (r.get("email") or "").lower()
                         if email and r_email == email.lower():
                             insured_db_id = r.get("database_id")
+                            insured_numeric_id = r.get("insured_id")
+                            customer_numeric_id = r.get("customer_id")
                             break
                     if not insured_db_id:
                         insured_db_id = results[0].get("database_id")
+                        insured_numeric_id = results[0].get("insured_id")
+                        customer_numeric_id = results[0].get("customer_id")
             except Exception as e:
                 search_result[f"query_{search_query}"] = str(e)
 
@@ -1472,6 +1484,19 @@ async def test_nowcerts_note(request: Request):
             timeout=30,
         ) if found_db_id else None
 
+        # Try with insuredId (numeric) via InsertNote
+        numeric_payload = dict(raw_payload)
+        if insured_numeric_id:
+            numeric_payload["insuredId"] = str(insured_numeric_id)
+        # Also try commercial name in "Last, First" format (how NowCerts stores it)
+        numeric_payload["insuredCommercialName"] = f"{last_name}, {first_name}"
+        raw_resp_numeric = req.post(
+            f"{nc.base_url}/api/Zapier/InsertNote",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=numeric_payload,
+            timeout=30,
+        )
+
         # Also try original endpoint for comparison
         raw_resp2 = req.post(
             f"{nc.base_url}/api/Zapier/InsertNote",
@@ -1504,6 +1529,11 @@ async def test_nowcerts_note(request: Request):
                     "status_code": raw_resp_min.status_code if raw_resp_min else "skipped",
                     "body": raw_resp_min.text[:500] if raw_resp_min else "skipped",
                     "payload_sent": minimal_payload,
+                },
+                "InsertNote_withInsuredId_and_CommName": {
+                    "status_code": raw_resp_numeric.status_code,
+                    "body": raw_resp_numeric.text[:500],
+                    "payload_sent": {k: v for k, v in numeric_payload.items() if k != "subject"},
                 },
                 "InsertNote_withInsuredDbId": {
                     "status_code": raw_resp2.status_code,
