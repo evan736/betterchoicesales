@@ -156,6 +156,27 @@ def _create_nowcerts_prospect(quote: Quote):
         return None
 
 
+# ── Helper: Find sibling quotes (same prospect bundle) ──
+
+def _find_sibling_quotes(db: Session, quote: Quote):
+    """Find other quotes for the same prospect (same name + email, created within 1 hour)."""
+    from sqlalchemy import and_
+    filters = [
+        Quote.prospect_name == quote.prospect_name,
+        Quote.id != quote.id,
+    ]
+    if quote.prospect_email:
+        filters.append(Quote.prospect_email == quote.prospect_email)
+    if quote.created_at:
+        from datetime import timedelta
+        window_start = quote.created_at - timedelta(hours=1)
+        window_end = quote.created_at + timedelta(hours=1)
+        filters.append(Quote.created_at.between(window_start, window_end))
+
+    siblings = db.query(Quote).filter(and_(*filters)).all()
+    return [quote] + siblings  # include self
+
+
 # ── Endpoints ──
 
 @router.post("/")
@@ -183,6 +204,7 @@ def create_quote(
         carrier=data.carrier,
         policy_type=data.policy_type,
         quoted_premium=data.quoted_premium,
+        premium_term=data.premium_term or "6 months",
         effective_date=eff_date,
         producer_id=current_user.id,
         producer_name=current_user.full_name or current_user.username,
@@ -218,6 +240,8 @@ Return ONLY a valid JSON object with these fields:
   "carrier": "Insurance carrier/company name (e.g. 'Encompass Insurance Company', 'Travelers', 'Grange')",
   "quote_number": "Quote or proposal number if visible",
   "effective_date": "YYYY-MM-DD format",
+  "expiration_date": "YYYY-MM-DD format (end of policy period, if visible)",
+  "policy_term_months": 6 or 12,
   "total_premium": 8160.94,
   "policies": [
     {
@@ -232,7 +256,8 @@ Return ONLY a valid JSON object with these fields:
 CRITICAL RULES:
 - If the document contains MULTIPLE policy types (e.g. home + auto bundle), list EACH as a separate entry in policies[]
 - total_premium should be the TOTAL for ALL policies combined, not just one
-- Extract the ANNUAL premium, not monthly
+- Determine policy_term_months from the policy period dates. If the period is ~6 months, set 6. If ~12 months, set 12. If unclear, default to 6.
+- Extract the ANNUAL or TERM premium as shown on the document, not monthly
 - For auto policies, list all vehicles in the notes field and set item_count to the number of vehicles
 - Always extract the mailing address into client_address, client_city, client_state, client_zip separately
 - Return ONLY the JSON, no markdown, no explanation"""
@@ -344,6 +369,7 @@ async def extract_quote_pdf(
         "policy_type": policy_type,
         "quoted_premium": str(premium) if premium else "",
         "effective_date": raw.get("effective_date") or "",
+        "premium_term": f"{raw.get('policy_term_months', 6)} months" if raw.get("policy_term_months") else "6 months",
         "notes": combined_notes,
         "policy_number": raw.get("quote_number") or "",
         "all_policies": policies,
@@ -412,7 +438,7 @@ def send_quote_email_endpoint(
     from app.services.quote_email import send_quote_email
 
     premium_str = f"${float(quote.quoted_premium):,.2f}"
-    premium_term = (data.premium_term if data and data.premium_term else "6 months")
+    premium_term = (data.premium_term if data and data.premium_term else quote.premium_term or "6 months")
     eff_str = ""
     if quote.effective_date:
         eff_str = quote.effective_date.strftime("%B %d, %Y")
@@ -420,11 +446,27 @@ def send_quote_email_endpoint(
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
 
+    # Detect bundle siblings
+    siblings = _find_sibling_quotes(db, quote)
+    is_multi = len(siblings) > 1
+    quotes_summary = []
+    total_premium = 0.0
+    if is_multi:
+        for sq in siblings:
+            p = float(sq.quoted_premium) if sq.quoted_premium else 0
+            total_premium += p
+            quotes_summary.append({
+                "carrier": (sq.carrier or "").replace("_", " "),
+                "policy_type": (sq.policy_type or "").replace("_", " "),
+                "premium": f"${p:,.2f}",
+            })
+        premium_str = f"${total_premium:,.2f}"
+
     result = send_quote_email(
         to_email=quote.prospect_email,
         prospect_name=quote.prospect_name,
         carrier=quote.carrier,
-        policy_type=quote.policy_type,
+        policy_type="bundled" if is_multi else quote.policy_type,
         premium=premium_str,
         premium_term=premium_term,
         effective_date=eff_str,
@@ -434,6 +476,8 @@ def send_quote_email_endpoint(
         additional_notes=(data.additional_notes if data else "") or "",
         pdf_path=quote.quote_pdf_path,
         pdf_filename=quote.quote_pdf_filename,
+        is_multi_quote=is_multi,
+        quotes_summary=quotes_summary if is_multi else None,
     )
 
     if result.get("success"):
@@ -532,16 +576,34 @@ def preview_quote_email(
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
 
+    # Find sibling quotes for same prospect (bundle detection)
+    siblings = _find_sibling_quotes(db, quote)
+    is_multi = len(siblings) > 1
+    quotes_summary = []
+    total_premium = 0.0
+    if is_multi:
+        for sq in siblings:
+            p = float(sq.quoted_premium) if sq.quoted_premium else 0
+            total_premium += p
+            quotes_summary.append({
+                "carrier": (sq.carrier or "").replace("_", " "),
+                "policy_type": (sq.policy_type or "").replace("_", " "),
+                "premium": f"${p:,.2f}",
+            })
+        premium_str = f"${total_premium:,.2f}"
+
     html = build_quote_email_html(
         prospect_name=quote.prospect_name,
         carrier=quote.carrier,
-        policy_type=quote.policy_type,
+        policy_type="bundled" if is_multi else quote.policy_type,
         premium=premium_str,
-        premium_term="6 months",
+        premium_term=quote.premium_term or "6 months",
         effective_date=eff_str,
         agent_name=producer_name,
         agent_email=producer_email,
         agent_phone="(847) 908-5665",
+        is_multi_quote=is_multi,
+        quotes_summary=quotes_summary if is_multi else None,
     )
 
     return {
@@ -550,6 +612,8 @@ def preview_quote_email(
         "prospect_name": quote.prospect_name,
         "carrier": quote.carrier,
         "premium": premium_str,
+        "is_bundle": is_multi,
+        "line_count": len(siblings),
     }
 
 @router.get("/{quote_id}")
@@ -790,6 +854,7 @@ def _quote_to_dict(q: Quote) -> dict:
         "policy_type": q.policy_type,
         "quoted_premium": float(q.quoted_premium) if q.quoted_premium else None,
         "effective_date": q.effective_date.isoformat() if q.effective_date else None,
+        "premium_term": q.premium_term or "6 months",
         "status": q.status,
         "pdf_uploaded": bool(q.quote_pdf_path),
         "pdf_filename": q.quote_pdf_filename,

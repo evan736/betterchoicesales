@@ -284,7 +284,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   const [form, setForm] = useState({
     prospect_name: '', prospect_email: '', prospect_phone: '',
     prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
-    carrier: '', effective_date: '',
+    carrier: '', effective_date: '', premium_term: '6 months',
   });
   // Each policy line from extraction (or one default for manual entry)
   const [policyLines, setPolicyLines] = useState<Array<{
@@ -318,6 +318,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         prospect_zip: d.prospect_zip || '',
         carrier: d.carrier || '',
         effective_date: d.effective_date || '',
+        premium_term: d.premium_term || '6 months',
       });
       // Build policy lines from extraction
       const allPolicies = d.all_policies || [];
@@ -460,7 +461,7 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 <button onClick={() => { setPdfFile(null); setPhase('upload'); setForm({
                   prospect_name: '', prospect_email: '', prospect_phone: '',
                   prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
-                  carrier: '', effective_date: '',
+                  carrier: '', effective_date: '', premium_term: '6 months',
                 }); setPolicyLines([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]); }} className="ml-auto hover:text-white">
                   <RotateCcw size={12} />
                 </button>
@@ -558,14 +559,27 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
-                <input
-                  type="date"
-                  value={form.effective_date}
-                  onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
+                  <input
+                    type="date"
+                    value={form.effective_date}
+                    onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 page-subtitle">Policy Term</label>
+                  <select
+                    value={form.premium_term}
+                    onChange={(e) => setForm({ ...form, premium_term: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                  >
+                    <option value="6 months">6 Months</option>
+                    <option value="12 months">12 Months</option>
+                  </select>
+                </div>
               </div>
 
               {/* Policy Lines */}

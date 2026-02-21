@@ -309,6 +309,17 @@ def init_database():
         except Exception as e:
             logger.warning(f"Sales column migration warning: {e}")
 
+        # ── Quotes: premium_term column ──
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months';
+                """))
+                conn.commit()
+            logger.info("Quotes premium_term column added")
+        except Exception as e:
+            logger.warning(f"Quotes column migration warning: {e}")
+
     db = SessionLocal()
     try:
         # Create admin user if not exists
