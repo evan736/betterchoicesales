@@ -284,9 +284,12 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   const [form, setForm] = useState({
     prospect_name: '', prospect_email: '', prospect_phone: '',
     prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
-    carrier: '', policy_type: 'auto', quoted_premium: '',
-    effective_date: '', notes: '',
+    carrier: '', effective_date: '',
   });
+  // Each policy line from extraction (or one default for manual entry)
+  const [policyLines, setPolicyLines] = useState<Array<{
+    policy_type: string; quoted_premium: string; notes: string; enabled: boolean;
+  }>>([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState('');
@@ -314,11 +317,25 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         prospect_state: d.prospect_state || '',
         prospect_zip: d.prospect_zip || '',
         carrier: d.carrier || '',
-        policy_type: d.policy_type || 'other',
-        quoted_premium: d.quoted_premium || '',
         effective_date: d.effective_date || '',
-        notes: d.notes || '',
       });
+      // Build policy lines from extraction
+      const allPolicies = d.all_policies || [];
+      if (allPolicies.length > 0) {
+        setPolicyLines(allPolicies.map((p: any) => ({
+          policy_type: p.policy_type || 'other',
+          quoted_premium: String(p.written_premium || ''),
+          notes: p.notes || '',
+          enabled: true,
+        })));
+      } else {
+        setPolicyLines([{
+          policy_type: d.policy_type || 'other',
+          quoted_premium: d.quoted_premium || '',
+          notes: d.notes || '',
+          enabled: true,
+        }]);
+      }
       setPhase('form');
     } catch (e: any) {
       setError(e.response?.data?.detail || 'PDF extraction failed');
@@ -335,24 +352,33 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   };
 
   const handleSubmit = async () => {
+    const enabledLines = policyLines.filter(l => l.enabled);
     if (!form.prospect_name || !form.carrier) {
       setError('Name and carrier are required');
+      return;
+    }
+    if (enabledLines.length === 0) {
+      setError('Select at least one policy line');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      const res = await quotesAPI.create({
-        ...form,
-        quoted_premium: form.quoted_premium ? parseFloat(form.quoted_premium) : null,
-      });
-      // If we have a PDF, upload it to the new quote
-      if (pdfFile) {
-        try {
-          await quotesAPI.uploadPDF(res.data.id, pdfFile);
-        } catch { /* PDF attach is best-effort */ }
+      let lastQuote: any = null;
+      for (const line of enabledLines) {
+        const res = await quotesAPI.create({
+          ...form,
+          policy_type: line.policy_type,
+          quoted_premium: line.quoted_premium ? parseFloat(line.quoted_premium) : null,
+          notes: line.notes,
+        });
+        // Attach PDF to first quote
+        if (pdfFile && !lastQuote) {
+          try { await quotesAPI.uploadPDF(res.data.id, pdfFile); } catch {}
+        }
+        lastQuote = res.data;
       }
-      onCreated(res.data);
+      onCreated(lastQuote);
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to create quote');
     } finally {
@@ -434,9 +460,8 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 <button onClick={() => { setPdfFile(null); setPhase('upload'); setForm({
                   prospect_name: '', prospect_email: '', prospect_phone: '',
                   prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
-                  carrier: '', policy_type: 'auto', quoted_premium: '',
-                  effective_date: '', notes: '',
-                }); }} className="ml-auto hover:text-white">
+                  carrier: '', effective_date: '',
+                }); setPolicyLines([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]); }} className="ml-auto hover:text-white">
                   <RotateCcw size={12} />
                 </button>
               </div>
@@ -514,77 +539,111 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium mb-1 page-subtitle">Carrier *</label>
-                  <select
-                    value={form.carrier}
-                    onChange={(e) => setForm({ ...form, carrier: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                  >
-                    <option value="">Select carrier</option>
-                    {/* If extracted carrier isn't in the dropdown list, add it */}
-                    {form.carrier && !carriers.includes(form.carrier) && (
-                      <option value={form.carrier}>
-                        {form.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-                      </option>
-                    )}
-                    {carriers.filter(c => typeof c === 'string' && c).map((c) => (
-                      <option key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 page-subtitle">Policy Type</label>
-                  <select
-                    value={form.policy_type}
-                    onChange={(e) => setForm({ ...form, policy_type: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                  >
-                    {POLICY_TYPES.map((t) => (
-                      <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-medium mb-1 page-subtitle">Carrier *</label>
+                <select
+                  value={form.carrier}
+                  onChange={(e) => setForm({ ...form, carrier: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                >
+                  <option value="">Select carrier</option>
+                  {form.carrier && !carriers.includes(form.carrier) && (
+                    <option value={form.carrier}>
+                      {form.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                    </option>
+                  )}
+                  {carriers.filter(c => typeof c === 'string' && c).map((c) => (
+                    <option key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium mb-1 page-subtitle">Quoted Premium</label>
-                  <div className="relative">
-                    <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.quoted_premium}
-                      onChange={(e) => setForm({ ...form, quoted_premium: e.target.value })}
-                      className="w-full pl-8 pr-3 py-2 rounded-lg text-sm input-field"
-                      placeholder="847.00"
-                    />
+              <div>
+                <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
+                <input
+                  type="date"
+                  value={form.effective_date}
+                  onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm input-field"
+                />
+              </div>
+
+              {/* Policy Lines */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium page-subtitle">
+                    Policy Lines {policyLines.length > 1 && `(${policyLines.filter(l => l.enabled).length} selected)`}
+                  </label>
+                  {policyLines.length === 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setPolicyLines([...policyLines, { policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }])}
+                      className="text-xs text-cyan-400 hover:text-cyan-300"
+                    >+ Add line</button>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {policyLines.map((line, i) => (
+                    <div key={i} className={`rounded-lg border p-3 transition-colors ${
+                      line.enabled ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-gray-700 bg-gray-800/30 opacity-50'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {policyLines.length > 1 && (
+                          <input
+                            type="checkbox"
+                            checked={line.enabled}
+                            onChange={(e) => {
+                              const updated = [...policyLines];
+                              updated[i] = { ...updated[i], enabled: e.target.checked };
+                              setPolicyLines(updated);
+                            }}
+                            className="rounded"
+                          />
+                        )}
+                        <select
+                          value={line.policy_type}
+                          onChange={(e) => {
+                            const updated = [...policyLines];
+                            updated[i] = { ...updated[i], policy_type: e.target.value };
+                            setPolicyLines(updated);
+                          }}
+                          className="flex-1 px-2 py-1.5 rounded text-sm input-field"
+                        >
+                          {POLICY_TYPES.map((t) => (
+                            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                          ))}
+                        </select>
+                        <div className="relative flex-1">
+                          <DollarSign size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={line.quoted_premium}
+                            onChange={(e) => {
+                              const updated = [...policyLines];
+                              updated[i] = { ...updated[i], quoted_premium: e.target.value };
+                              setPolicyLines(updated);
+                            }}
+                            className="w-full pl-6 pr-2 py-1.5 rounded text-sm input-field"
+                            placeholder="Premium"
+                          />
+                        </div>
+                      </div>
+                      {line.notes && (
+                        <p className="text-xs page-subtitle pl-6 truncate">{line.notes}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {policyLines.length > 1 && (
+                  <div className="flex justify-between mt-2 text-xs page-subtitle">
+                    <span>Total: {policyLines.filter(l => l.enabled).length} lines</span>
+                    <span className="font-medium" style={{ color: '#0ea5e9' }}>
+                      ${policyLines.filter(l => l.enabled).reduce((sum, l) => sum + (parseFloat(l.quoted_premium) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 page-subtitle">Effective Date</label>
-                  <input
-                    type="date"
-                    value={form.effective_date}
-                    onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm input-field"
-                  />
-                </div>
+                )}
               </div>
-
-              {form.notes && (
-                <div>
-                  <label className="block text-xs font-medium mb-1 page-subtitle">Notes</label>
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg text-sm input-field resize-none"
-                    rows={2}
-                  />
-                </div>
-              )}
             </div>
 
             <div className="flex justify-end gap-3 mt-6">
@@ -598,7 +657,10 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 style={{ background: '#0ea5e9' }}
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                Create Quote
+                {policyLines.filter(l => l.enabled).length > 1
+                  ? `Create ${policyLines.filter(l => l.enabled).length} Quotes`
+                  : 'Create Quote'
+                }
               </button>
             </div>
           </>
