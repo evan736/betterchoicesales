@@ -1695,3 +1695,31 @@ async def backfill_nowcerts_notes():
         }
     finally:
         db.close()
+
+
+@router.get("/sent-list")
+def list_sent_nonpay_emails():
+    """List all sent non-pay emails (no auth required, read-only)."""
+    from app.core.database import SessionLocal
+    from app.models.nonpay import NonPayEmail
+
+    db = SessionLocal()
+    try:
+        results = db.query(NonPayEmail).filter(
+            NonPayEmail.email_status == "sent",
+        ).order_by(NonPayEmail.sent_at.desc()).all()
+
+        return [
+            {
+                "customer_name": r.customer_name,
+                "customer_email": r.customer_email,
+                "policy_number": r.policy_number,
+                "carrier": r.carrier,
+                "amount_due": f"${r.amount_due:,.2f}" if r.amount_due else "N/A",
+                "due_date": r.due_date,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            }
+            for r in results
+        ]
+    finally:
+        db.close()
