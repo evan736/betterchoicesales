@@ -319,6 +319,14 @@ async def extract_quote_pdf(
     if not premium and policies:
         premium = sum(p.get("written_premium") or 0 for p in policies)
 
+    # Normalize carrier and apply aliases (e.g. Encompass → National General)
+    raw_carrier = (raw.get("carrier") or "").lower().replace(" ", "_")
+    try:
+        from app.services.welcome_email import _get_carrier_key
+        carrier_key = _get_carrier_key(raw_carrier)
+    except Exception:
+        carrier_key = raw_carrier
+
     result = {
         "prospect_name": raw.get("client_name") or "",
         "prospect_email": raw.get("client_email") or "",
@@ -327,7 +335,7 @@ async def extract_quote_pdf(
         "prospect_city": raw.get("client_city") or "",
         "prospect_state": raw.get("client_state") or raw.get("state") or "",
         "prospect_zip": raw.get("client_zip") or "",
-        "carrier": (raw.get("carrier") or "").lower().replace(" ", "_"),
+        "carrier": carrier_key,
         "policy_type": policy_type,
         "quoted_premium": str(premium) if premium else "",
         "effective_date": raw.get("effective_date") or "",
@@ -495,6 +503,49 @@ def list_quotes(
         "quotes": [_quote_to_dict(q) for q in quotes],
     }
 
+
+
+
+@router.get("/{quote_id}/email-preview")
+def preview_quote_email(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the quote email HTML for preview without sending."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    from app.services.quote_email import build_quote_email_html
+
+    premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "$0.00"
+    eff_str = ""
+    if quote.effective_date:
+        eff_str = quote.effective_date.strftime("%B %d, %Y")
+
+    producer_name = quote.producer_name or current_user.username
+    producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
+
+    html = build_quote_email_html(
+        prospect_name=quote.prospect_name,
+        carrier=quote.carrier,
+        policy_type=quote.policy_type,
+        premium=premium_str,
+        premium_term="6 months",
+        effective_date=eff_str,
+        agent_name=producer_name,
+        agent_email=producer_email,
+        agent_phone="(847) 908-5665",
+    )
+
+    return {
+        "html": html,
+        "to": quote.prospect_email,
+        "prospect_name": quote.prospect_name,
+        "carrier": quote.carrier,
+        "premium": premium_str,
+    }
 
 @router.get("/{quote_id}")
 def get_quote(
@@ -754,44 +805,3 @@ def _quote_to_dict(q: Quote) -> dict:
 
 
 
-
-@router.get("/{quote_id}/email-preview")
-def preview_quote_email(
-    quote_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return the quote email HTML for preview without sending."""
-    quote = db.query(Quote).filter(Quote.id == quote_id).first()
-    if not quote:
-        raise HTTPException(status_code=404, detail="Quote not found")
-
-    from app.services.quote_email import build_quote_email_html
-
-    premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "$0.00"
-    eff_str = ""
-    if quote.effective_date:
-        eff_str = quote.effective_date.strftime("%B %d, %Y")
-
-    producer_name = quote.producer_name or current_user.username
-    producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
-
-    html = build_quote_email_html(
-        prospect_name=quote.prospect_name,
-        carrier=quote.carrier,
-        policy_type=quote.policy_type,
-        premium=premium_str,
-        premium_term="6 months",
-        effective_date=eff_str,
-        agent_name=producer_name,
-        agent_email=producer_email,
-        agent_phone="(847) 908-5665",
-    )
-
-    return {
-        "html": html,
-        "to": quote.prospect_email,
-        "prospect_name": quote.prospect_name,
-        "carrier": quote.carrier,
-        "premium": premium_str,
-    }

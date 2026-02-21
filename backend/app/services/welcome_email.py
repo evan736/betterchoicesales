@@ -337,6 +337,9 @@ CARRIER_ALIASES = {
     "integon_national": "national_general",
     "integon_national_insurance": "national_general",
     "integon_national_insurance_company": "national_general",
+    "encompass": "national_general",
+    "encompass_insurance": "national_general",
+    "encompass_insurance_company": "national_general",
     "integrity_insurance": "integrity",
     "branch_insurance": "branch",
 }
