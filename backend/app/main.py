@@ -12,6 +12,9 @@ from app.api import admin as admin_api
 from app.api import timeclock as timeclock_api
 from app.api import customers as customers_api
 from app.api import nonpay as nonpay_api
+from app.api import uw_requirements as uw_api
+from app.api import winback as winback_api
+from app.api import renewals as renewals_api
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,10 @@ def init_database():
     from app.models.commission import CommissionTier
     from app.models.timeclock import TimeClockEntry  # ensure table is created
     from app.models.nonpay import NonPayNotice, NonPayEmail  # ensure tables created
+    from app.models.campaign import (  # ensure campaign tables created
+        RenewalNotice, UWRequirement, WinBackCampaign,
+        Quote, OnboardingCampaign, GHLWebhookLog
+    )
     from decimal import Decimal
 
     logger.info("Creating database tables...")
@@ -506,6 +513,9 @@ app.include_router(admin_api.router)
 app.include_router(timeclock_api.router)
 app.include_router(customers_api.router)
 app.include_router(nonpay_api.router)
+app.include_router(uw_api.router)
+app.include_router(winback_api.router)
+app.include_router(renewals_api.router)
 
 # Serve static files (temp PDFs for Thanks.io, etc.)
 from fastapi.staticfiles import StaticFiles

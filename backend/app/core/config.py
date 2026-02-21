@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     NOWCERTS_USERNAME: Optional[str] = None
     NOWCERTS_PASSWORD: Optional[str] = None
     NOWCERTS_API_URL: str = "https://api.nowcerts.com"
+
+    # GoHighLevel webhook URLs
+    GHL_NONPAY_WEBHOOK_URL: Optional[str] = None
+    GHL_RENEWAL_WEBHOOK_URL: Optional[str] = None
+    GHL_ONBOARDING_WEBHOOK_URL: Optional[str] = None
+    GHL_QUOTE_WEBHOOK_URL: Optional[str] = None
+    GHL_WINBACK_WEBHOOK_URL: Optional[str] = None
+    GHL_CROSSSELL_WEBHOOK_URL: Optional[str] = None
+    GHL_UW_WEBHOOK_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"
