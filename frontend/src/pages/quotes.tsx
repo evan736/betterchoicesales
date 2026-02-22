@@ -137,7 +137,9 @@ export default function Quotes() {
             />
           </div>
           <div className="flex gap-1.5 flex-wrap">
-            {['all', 'quoted', 'sent', 'following_up', 'converted', 'lost', 'remarket'].map((f) => (
+            {['all', 'quoted', 'sent', 'following_up', 'converted', 'lost', 'remarket'].map((f) => {
+              const count = stats?.by_status?.[f] ?? '';
+              return (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -147,8 +149,10 @@ export default function Quotes() {
                 style={filter === f ? { background: '#0ea5e9' } : {}}
               >
                 {f === 'all' ? 'All' : STATUS_COLORS[f]?.label || f}
+                {count > 0 && <span className="ml-1 opacity-70">({count})</span>}
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 

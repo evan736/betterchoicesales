@@ -828,7 +828,15 @@ def quote_stats(
         query = query.filter(Quote.producer_id == current_user.id)
 
     all_quotes = query.all()
-    mtd_quotes = [q for q in all_quotes if q.created_at and q.created_at >= month_start]
+    
+    # Strip timezone for comparison
+    month_start_naive = month_start
+    mtd_quotes = []
+    for q in all_quotes:
+        if q.created_at:
+            ca = q.created_at.replace(tzinfo=None) if q.created_at.tzinfo else q.created_at
+            if ca >= month_start_naive:
+                mtd_quotes.append(q)
 
     total = len(all_quotes)
     sent = len([q for q in all_quotes if q.email_sent])
@@ -836,6 +844,9 @@ def quote_stats(
     lost = len([q for q in all_quotes if q.status == "lost"])
     active = len([q for q in all_quotes if q.status in ("quoted", "sent", "following_up")])
     remarket = len([q for q in all_quotes if q.status == "remarket"])
+    quoted_count = len([q for q in all_quotes if q.status == "quoted"])
+    sent_count = len([q for q in all_quotes if q.status == "sent"])
+    following_up_count = len([q for q in all_quotes if q.status == "following_up"])
 
     return {
         "total_quotes": total,
@@ -846,6 +857,15 @@ def quote_stats(
         "active_pipeline": active,
         "remarket": remarket,
         "conversion_rate": round(converted / sent * 100, 1) if sent > 0 else 0,
+        "by_status": {
+            "all": total,
+            "quoted": quoted_count,
+            "sent": sent_count,
+            "following_up": following_up_count,
+            "converted": converted,
+            "lost": lost,
+            "remarket": remarket,
+        },
     }
 
 
