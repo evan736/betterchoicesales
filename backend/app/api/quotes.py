@@ -851,7 +851,8 @@ def quote_stats(
 def _quote_to_dict(q: Quote) -> dict:
     days_since_sent = None
     if q.email_sent_at:
-        days_since_sent = (datetime.utcnow() - q.email_sent_at).days
+        sent = q.email_sent_at.replace(tzinfo=None) if q.email_sent_at.tzinfo else q.email_sent_at
+        days_since_sent = (datetime.utcnow() - sent).days
 
     return {
         "id": q.id,
