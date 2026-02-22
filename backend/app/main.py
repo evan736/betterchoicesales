@@ -446,8 +446,38 @@ def init_database():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run database init on startup."""
+    """Run database init on startup + start background scheduler."""
     init_database()
+
+    # Start background follow-up checker (runs every 6 hours)
+    import asyncio
+    import threading
+
+    def _run_followups():
+        """Run follow-up checks periodically."""
+        import time
+        time.sleep(30)  # Wait for app to fully start
+        while True:
+            try:
+                from app.core.database import SessionLocal
+                from app.api.quotes import _check_followups_logic
+                db = SessionLocal()
+                try:
+                    result = _check_followups_logic(db)
+                    if any(v > 0 for v in result.values()):
+                        logger.info(f"Follow-up check results: {result}")
+                except Exception as e:
+                    logger.error(f"Follow-up check error: {e}")
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Follow-up scheduler error: {e}")
+            time.sleep(6 * 3600)  # Every 6 hours
+
+    followup_thread = threading.Thread(target=_run_followups, daemon=True)
+    followup_thread.start()
+    logger.info("Background follow-up scheduler started (every 6 hours)")
+
     yield
 
 

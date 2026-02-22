@@ -712,21 +712,11 @@ def delete_quote(
     db.delete(quote)
     db.commit()
     return {"deleted": True, "id": quote_id}
-def check_followups(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Check for quotes needing follow-up (3/7/14 day) and fire actions.
-
-    Run this daily via cron or manual trigger.
-    """
-    if current_user.role.lower() not in ("admin",):
-        raise HTTPException(status_code=403, detail="Admin only")
-
+def _check_followups_logic(db: Session) -> dict:
+    """Core follow-up check logic — used by endpoint and background scheduler."""
     now = datetime.utcnow()
     results = {"day3": 0, "day7": 0, "day14": 0, "day90": 0}
 
-    # Get all sent quotes that haven't been converted or lost
     active_quotes = db.query(Quote).filter(
         Quote.status.in_(["sent", "following_up"]),
         Quote.email_sent == True,
@@ -737,69 +727,52 @@ def check_followups(
         sent_at = quote.email_sent_at.replace(tzinfo=None) if quote.email_sent_at.tzinfo else quote.email_sent_at
         days_since = (now - sent_at).days
 
-        # 3-day follow-up
         if days_since >= 3 and not quote.followup_3day_sent:
             quote.followup_3day_sent = True
             quote.status = "following_up"
             results["day3"] += 1
-
-            # Fire GHL webhook for follow-up sequence
             try:
                 from app.services.ghl_webhook import get_ghl_service
                 ghl = get_ghl_service()
                 ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name,
-                    email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "",
-                    carrier=quote.carrier,
-                    policy_type=quote.policy_type,
-                    days_since=3,
+                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
+                    phone=quote.prospect_phone or "", carrier=quote.carrier,
+                    policy_type=quote.policy_type, days_since=3,
                     producer_name=quote.producer_name or "",
                 )
             except Exception:
                 pass
 
-        # 7-day follow-up
         elif days_since >= 7 and not quote.followup_7day_sent:
             quote.followup_7day_sent = True
             results["day7"] += 1
-
             try:
                 from app.services.ghl_webhook import get_ghl_service
                 ghl = get_ghl_service()
                 ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name,
-                    email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "",
-                    carrier=quote.carrier,
-                    policy_type=quote.policy_type,
-                    days_since=7,
+                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
+                    phone=quote.prospect_phone or "", carrier=quote.carrier,
+                    policy_type=quote.policy_type, days_since=7,
                     producer_name=quote.producer_name or "",
                 )
             except Exception:
                 pass
 
-        # 14-day follow-up
         elif days_since >= 14 and not quote.followup_14day_sent:
             quote.followup_14day_sent = True
             results["day14"] += 1
-
             try:
                 from app.services.ghl_webhook import get_ghl_service
                 ghl = get_ghl_service()
                 ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name,
-                    email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "",
-                    carrier=quote.carrier,
-                    policy_type=quote.policy_type,
-                    days_since=14,
+                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
+                    phone=quote.prospect_phone or "", carrier=quote.carrier,
+                    policy_type=quote.policy_type, days_since=14,
                     producer_name=quote.producer_name or "",
                 )
             except Exception:
                 pass
 
-        # 90-day → enter remarket
         elif days_since >= 90 and not quote.entered_remarket:
             quote.entered_remarket = True
             quote.remarket_start_date = now
@@ -807,11 +780,20 @@ def check_followups(
             results["day90"] += 1
 
     db.commit()
+    return results
 
-    return {
-        "checked": len(active_quotes),
-        "followups_triggered": results,
-    }
+
+@router.post("/check-followups")
+def check_followups(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check for quotes needing follow-up (3/7/14 day) and fire actions."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    results = _check_followups_logic(db)
+    return {"followups_triggered": results}
 
 
 @router.get("/stats/summary")

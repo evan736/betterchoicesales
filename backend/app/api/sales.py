@@ -275,6 +275,21 @@ def create_sale(
     
     # Send Hooray notification to all producers
     _trigger_hooray_email(sale, current_user, db)
+
+    # Auto-convert matching quotes (same customer name)
+    try:
+        from app.models.campaign import Quote
+        matching_quotes = db.query(Quote).filter(
+            Quote.status.in_(["sent", "following_up", "quoted"]),
+        ).all()
+        for q in matching_quotes:
+            if sale.customer_name.lower().strip() == q.prospect_name.lower().strip():
+                q.status = "converted"
+                q.converted_sale_id = sale.id
+                logger.info(f"Auto-converted quote {q.id} ({q.prospect_name}) -> sale {sale.id}")
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Quote auto-conversion check failed: {e}")
     
     return sale
 
