@@ -610,6 +610,7 @@ def bind_confirmation_page(quote_id: int):
         accent = cinfo.get("accent_color", BCI_CYAN)
         carrier_name = cinfo.get("display_name", (quote.carrier or "").title())
         first_name = quote.prospect_name.split()[0] if quote.prospect_name else "there"
+        prospect_phone = quote.prospect_phone or ""
         premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else ""
         term = quote.premium_term or "6 months"
 
@@ -671,8 +672,15 @@ def bind_confirmation_page(quote_id: int):
 
       <div style="text-align:center;margin:24px 0;">
         <p style="color:#334155;font-size:14px;line-height:1.6;margin-bottom:20px;">
-          Tap the button below to confirm and your advisor will reach out shortly to finalize everything.
+          Enter your best contact number and tap confirm — your advisor will reach out shortly to finalize everything.
         </p>
+        <div style="margin:0 auto 20px auto;max-width:280px;">
+          <label style="display:block;text-align:left;font-size:12px;color:#64748B;font-weight:600;margin-bottom:6px;">Best Number to Reach You</label>
+          <input id="phoneInput" type="tel" placeholder="(555) 555-1234" 
+            style="width:100%;padding:12px 16px;border:2px solid #E2E8F0;border-radius:8px;font-size:16px;color:#1e293b;outline:none;transition:border 0.2s;"
+            onfocus="this.style.borderColor='{accent}'" onblur="this.style.borderColor='#E2E8F0'"
+            oninput="formatPhone(this)" value="{prospect_phone}" />
+        </div>
         <a href="javascript:void(0)" onclick="confirmBind()" class="btn" id="bindBtn">
           ✓ Confirm — I Want This Coverage!
         </a>
@@ -725,13 +733,34 @@ def bind_confirmation_page(quote_id: int):
 </div>
 
 <script>
+function formatPhone(el) {{
+  let v = el.value.replace(/\D/g, '');
+  if (v.length > 10) v = v.slice(0, 10);
+  if (v.length >= 7) el.value = '(' + v.slice(0,3) + ') ' + v.slice(3,6) + '-' + v.slice(6);
+  else if (v.length >= 4) el.value = '(' + v.slice(0,3) + ') ' + v.slice(3);
+  else if (v.length > 0) el.value = '(' + v;
+  else el.value = '';
+}}
+
 async function confirmBind() {{
   const btn = document.getElementById('bindBtn');
+  const phone = document.getElementById('phoneInput').value.trim();
+  
+  if (!phone || phone.replace(/\D/g, '').length < 10) {{
+    document.getElementById('phoneInput').style.borderColor = '#EF4444';
+    document.getElementById('phoneInput').focus();
+    return;
+  }}
+  
   btn.textContent = 'Confirming...';
   btn.style.opacity = '0.6';
   btn.style.pointerEvents = 'none';
   try {{
-    const resp = await fetch('/api/bind/{quote_id}/confirm', {{ method: 'POST' }});
+    const resp = await fetch('/api/bind/{quote_id}/confirm', {{ 
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ phone: phone }})
+    }});
     const data = await resp.json();
     
     // Update response time message
@@ -759,7 +788,7 @@ async function confirmBind() {{
 
 
 @app.post("/api/bind/{quote_id}/confirm")
-def confirm_bind(quote_id: int):
+def confirm_bind(quote_id: int, body: dict = None):
     """Process bind confirmation — update quote status and alert the producer."""
     from app.core.database import SessionLocal
     from app.models.campaign import Quote as QuoteModel
@@ -767,14 +796,21 @@ def confirm_bind(quote_id: int):
     from datetime import datetime
     import pytz
 
+    # Parse phone from request body
+    contact_phone = ""
+    if body and isinstance(body, dict):
+        contact_phone = body.get("phone", "")
+
     db = SessionLocal()
     try:
         quote = db.query(QuoteModel).filter(QuoteModel.id == quote_id).first()
         if not quote:
             return {"ok": False}
 
-        # Mark quote as bind-requested
+        # Mark quote as bind-requested and update phone
         quote.status = "bind_requested"
+        if contact_phone:
+            quote.prospect_phone = contact_phone
         db.commit()
 
         # ── Calculate smart response time based on business hours ──
@@ -871,7 +907,7 @@ def confirm_bind(quote_id: int):
       <table style="width:100%;">
         <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Customer</td><td style="color:#1e293b;font-weight:700;text-align:right;padding:4px 0;">{quote.prospect_name}</td></tr>
         <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Email</td><td style="color:#1e293b;text-align:right;padding:4px 0;">{quote.prospect_email or 'N/A'}</td></tr>
-        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Phone</td><td style="color:#1e293b;text-align:right;padding:4px 0;">{quote.prospect_phone or 'N/A'}</td></tr>
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Phone</td><td style="color:#1e293b;font-weight:700;font-size:15px;text-align:right;padding:4px 0;">📱 {quote.prospect_phone or 'N/A'}</td></tr>
         <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Carrier</td><td style="color:#1e293b;font-weight:600;text-align:right;padding:4px 0;">{carrier_name}</td></tr>
         <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Premium</td><td style="color:{accent};font-weight:800;font-size:18px;text-align:right;padding:4px 0;">{premium_str}/{term}</td></tr>
       </table>
