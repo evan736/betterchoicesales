@@ -203,6 +203,14 @@ def track_click(cs_id: int, db: Session = Depends(get_db)):
 @router.post("/webhook")
 async def back9_webhook(request: Request, db: Session = Depends(get_db)):
     """Receive Back9 eApp status updates via webhook."""
+    # Verify webhook auth
+    from app.core.config import settings
+    auth_header = request.headers.get("X-BACKNINE-AUTHENTICATION", "")
+    expected = settings.BACK9_WEBHOOK_SECRET
+    if expected and auth_header != expected:
+        logger.warning(f"Back9 webhook auth failed: got {auth_header[:8]}...")
+        raise HTTPException(401, "Invalid webhook authentication")
+
     try:
         payload = await request.json()
     except Exception:
