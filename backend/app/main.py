@@ -720,12 +720,6 @@ def bind_confirmation_page(quote_id: int):
             <strong>⏰ After Hours Notice:</strong> <span id="afterHoursText"></span>
           </p>
         </div>
-
-        <div style="margin-top:20px;">
-          <a href="tel:8479085665" class="btn-outline">
-            Can't wait? Call (847) 908-5665
-          </a>
-        </div>
       </div>
     </div>
 
