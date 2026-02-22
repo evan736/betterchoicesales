@@ -310,21 +310,18 @@ def init_database():
             logger.warning(f"Sales column migration warning: {e}")
 
         # ── Quotes: premium_term, notes, policy_lines columns ──
-        try:
-            with engine.connect() as conn:
-                for col_sql in [
-                    "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
-                    "ALTER TABLE quotes ADD COLUMN notes TEXT",
-                    "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
-                ]:
-                    try:
-                        conn.execute(text(col_sql))
-                    except Exception:
-                        pass
-                conn.commit()
-            logger.info("Quotes columns verified")
-        except Exception as e:
-            logger.warning(f"Quotes column migration warning: {e}")
+        for col_sql in [
+            "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
+            "ALTER TABLE quotes ADD COLUMN notes TEXT",
+            "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
+        ]:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(col_sql))
+                    conn.commit()
+            except Exception:
+                pass
+        logger.info("Quotes columns verified")
 
     db = SessionLocal()
     try:
@@ -520,18 +517,18 @@ def force_migrate():
     from app.core.database import engine
     from sqlalchemy import text as sa_text
     results = []
-    with engine.connect() as conn:
-        for col_sql in [
-            "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
-            "ALTER TABLE quotes ADD COLUMN notes TEXT",
-            "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
-        ]:
-            try:
+    for col_sql in [
+        "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
+        "ALTER TABLE quotes ADD COLUMN notes TEXT",
+        "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
+    ]:
+        try:
+            with engine.connect() as conn:
                 conn.execute(sa_text(col_sql))
-                results.append(f"OK: {col_sql}")
-            except Exception as e:
-                results.append(f"SKIP: {str(e)[:80]}")
-        conn.commit()
+                conn.commit()
+            results.append(f"OK: {col_sql}")
+        except Exception as e:
+            results.append(f"SKIP: {str(e)[:80]}")
     return {"results": results}
 
 
