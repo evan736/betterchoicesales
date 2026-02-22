@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
@@ -78,6 +78,22 @@ export default function Quotes() {
       q.policy_type?.toLowerCase().includes(s)
     );
   });
+
+  // Group quotes by prospect email to show grouping indicators
+  const prospectGroups = useMemo(() => {
+    const groups: Record<string, number[]> = {};
+    quotes.forEach((q) => {
+      const key = (q.prospect_email || '').toLowerCase().trim() || `name:${(q.prospect_name || '').toLowerCase().trim()}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(q.id);
+    });
+    return groups;
+  }, [quotes]);
+
+  const getProspectGroupCount = (q: any) => {
+    const key = (q.prospect_email || '').toLowerCase().trim() || `name:${(q.prospect_name || '').toLowerCase().trim()}`;
+    return prospectGroups[key]?.length || 1;
+  };
 
   if (loading || !user) return null;
 
@@ -188,6 +204,14 @@ export default function Quotes() {
                         {q.pdf_uploaded && (
                           <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300">PDF</span>
                         )}
+                        {getProspectGroupCount(q) > 1 && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-violet-500/20 text-violet-300" title="Multiple quotes for this prospect — follow-ups grouped">
+                            {getProspectGroupCount(q)} quotes
+                          </span>
+                        )}
+                        {q.followup_disabled && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400">No F/U</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs page-subtitle flex-wrap">
                         <span className="capitalize">{q.carrier?.replace(/_/g, ' ')}</span>
@@ -252,6 +276,7 @@ export default function Quotes() {
           quote={selectedQuote}
           onClose={() => { setShowDetail(false); setSelectedQuote(null); }}
           onRefresh={loadQuotes}
+          allQuotes={quotes}
         />
       )}
     </div>
@@ -707,10 +732,11 @@ function Calendar({ size }: { size: number }) {
   return <Clock size={size} />;
 }
 
-function QuoteDetailModal({ quote, onClose, onRefresh }: {
+function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
   quote: any;
   onClose: () => void;
   onRefresh: () => void;
+  allQuotes: any[];
 }) {
   const [q, setQ] = useState(quote);
   const [uploading, setUploading] = useState(false);
@@ -869,6 +895,37 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
             )}
           </div>
         </div>
+
+        {/* Related Quotes (same prospect) */}
+        {(() => {
+          const key = (q.prospect_email || '').toLowerCase().trim() || `name:${(q.prospect_name || '').toLowerCase().trim()}`;
+          const related = allQuotes.filter((rq: any) => {
+            const rKey = (rq.prospect_email || '').toLowerCase().trim() || `name:${(rq.prospect_name || '').toLowerCase().trim()}`;
+            return rKey === key && rq.id !== q.id;
+          });
+          if (related.length === 0) return null;
+          return (
+            <div className="mb-5">
+              <p className="text-xs font-medium page-subtitle mb-2">
+                Linked Quotes ({related.length + 1} quotes for this prospect — follow-ups grouped)
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-sm">
+                  <span className="page-title font-medium">{q.carrier?.replace(/_/g, ' ')} — {q.policy_type}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">Current</span>
+                </div>
+                {related.map((rq: any) => (
+                  <div key={rq.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 text-sm cursor-pointer hover:bg-white/10"
+                    onClick={() => { setQ(rq); }}>
+                    <span className="page-subtitle">{rq.carrier?.replace(/_/g, ' ')} — {rq.policy_type}</span>
+                    <span className="text-xs page-subtitle">${rq.quoted_premium?.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Only the most recent quote triggers follow-up emails.</p>
+            </div>
+          );
+        })()}
 
         {/* Policy Lines (bundle breakdown) */}
         {q.policy_lines && q.policy_lines.length > 1 && (
