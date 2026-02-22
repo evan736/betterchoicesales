@@ -203,8 +203,23 @@ export default function Quotes() {
               const statusPriority: Record<string, number> = { bind_requested: 5, converted: 4, following_up: 3, sent: 2, quoted: 1, lost: 0, remarket: 0 };
               const bestQuote = group.reduce((best: any, q: any) => (statusPriority[q.status] || 0) > (statusPriority[best.status] || 0) ? q : best, primary);
               const sc = STATUS_COLORS[bestQuote.status] || STATUS_COLORS.quoted;
-              const totalPremium = group.reduce((sum: number, q: any) => sum + (q.quoted_premium || 0), 0);
               const anyDisabled = group.some((q: any) => q.followup_disabled);
+
+              // Calculate lowest annualized premium
+              const annualize = (q: any) => {
+                const p = q.quoted_premium || 0;
+                if (!p) return Infinity;
+                const term = (q.premium_term || '6 months').toLowerCase();
+                if (term.includes('12') || term.includes('year')) return p;
+                if (term.includes('6')) return p * 2;
+                if (term.includes('month') && !term.includes('6') && !term.includes('12')) return p * 12;
+                return p * 2; // default to 6-month
+              };
+              const lowestQuote = group.reduce((best: any, q: any) => annualize(q) < annualize(best) ? q : best, group[0]);
+              const lowestAnnual = annualize(lowestQuote);
+              const lowestPremium = lowestQuote.quoted_premium || 0;
+              const lowestTerm = lowestQuote.premium_term || '6 months';
+              const lowestCarrier = (lowestQuote.carrier || '').replace(/_/g, ' ');
 
               return (
                 <div key={primary.prospect_email || primary.id} className="card-bg rounded-lg border border-transparent hover:border-cyan-500/30 transition-colors">
@@ -235,12 +250,15 @@ export default function Quotes() {
                       </div>
                       <div className="flex items-center gap-4 flex-shrink-0">
                         <div className="text-right">
-                          {hasMultiple ? (
-                            <p className="text-xs page-subtitle mb-0.5">{group.length} quotes</p>
-                          ) : null}
+                          {hasMultiple && (
+                            <p className="text-xs page-subtitle mb-0.5 capitalize">Best: {lowestCarrier}</p>
+                          )}
                           <p className="text-lg font-bold" style={{ color: '#0ea5e9' }}>
-                            {totalPremium > 0 ? `$${totalPremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
+                            {lowestPremium > 0 ? `$${lowestPremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
                           </p>
+                          {lowestPremium > 0 && (
+                            <p className="text-xs page-subtitle">/{lowestTerm}{lowestAnnual !== Infinity && lowestAnnual !== lowestPremium ? ` ($${lowestAnnual.toLocaleString(undefined, { minimumFractionDigits: 0 })}/yr)` : ''}</p>
+                          )}
                         </div>
                         <div className="text-right text-xs page-subtitle">
                           {primary.email_sent ? (
