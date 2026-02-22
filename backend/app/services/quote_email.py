@@ -36,7 +36,7 @@ POLICY_TYPE_LABELS = {
 CARRIER_SELLING_POINTS = {
     "national_general": (
         "National General has been protecting families for over 80 years. "
-        "Rated A- (Excellent) by AM Best, they're known for flexible payment options, "
+        "Rated A+ (Superior) by AM Best, they're known for flexible payment options, "
         "fast claims handling, and affordable bundled coverage — a top choice for home and auto."
     ),
     "progressive": (
