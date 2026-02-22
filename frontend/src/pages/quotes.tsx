@@ -33,9 +33,12 @@ export default function Quotes() {
   const [showCreate, setShowCreate] = useState(false);
   const [filter, setFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const searchTimerRef = useRef<any>(null);
   const [carriers, setCarriers] = useState<string[]>([]);
   const [selectedQuote, setSelectedQuote] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [expandedProspect, setExpandedProspect] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
@@ -46,6 +49,7 @@ export default function Quotes() {
       setLoadingQuotes(true);
       const params: any = {};
       if (filter !== 'all') params.status = filter;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
       const [qRes, sRes] = await Promise.all([
         quotesAPI.list(params),
         quotesAPI.stats(),
@@ -57,7 +61,7 @@ export default function Quotes() {
     } finally {
       setLoadingQuotes(false);
     }
-  }, [filter]);
+  }, [filter, searchQuery]);
 
   useEffect(() => {
     if (user) {
@@ -68,16 +72,8 @@ export default function Quotes() {
     }
   }, [user, loadQuotes]);
 
-  const filtered = quotes.filter((q) => {
-    if (!searchQuery) return true;
-    const s = searchQuery.toLowerCase();
-    return (
-      q.prospect_name?.toLowerCase().includes(s) ||
-      q.carrier?.toLowerCase().includes(s) ||
-      q.prospect_email?.toLowerCase().includes(s) ||
-      q.policy_type?.toLowerCase().includes(s)
-    );
-  });
+  // Search is now server-side — quotes are already filtered
+  const filtered = quotes;
 
   // Group quotes by prospect email to show grouping indicators
   const prospectGroups = useMemo(() => {
@@ -158,9 +154,14 @@ export default function Quotes() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search quotes..."
+              placeholder="Search by name, email, carrier, producer..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                searchTimerRef.current = setTimeout(() => setSearchQuery(e.target.value), 400);
+              }}
+              value={searchInput}
               className="w-full pl-9 pr-3 py-2 rounded-lg text-sm input-field"
             />
           </div>
@@ -195,17 +196,15 @@ export default function Quotes() {
             <p className="text-gray-400">No quotes yet. Create your first quote to get started.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {groupedProspects.map((group) => {
-              const primary = group[0]; // most recent quote
+              const primary = group[0];
               const hasMultiple = group.length > 1;
-              // Best status: bind_requested > following_up > sent > quoted
               const statusPriority: Record<string, number> = { bind_requested: 5, converted: 4, following_up: 3, sent: 2, quoted: 1, lost: 0, remarket: 0 };
               const bestQuote = group.reduce((best: any, q: any) => (statusPriority[q.status] || 0) > (statusPriority[best.status] || 0) ? q : best, primary);
               const sc = STATUS_COLORS[bestQuote.status] || STATUS_COLORS.quoted;
               const anyDisabled = group.some((q: any) => q.followup_disabled);
 
-              // Calculate lowest annualized premium
               const annualize = (q: any) => {
                 const p = q.quoted_premium || 0;
                 if (!p) return Infinity;
@@ -213,91 +212,91 @@ export default function Quotes() {
                 if (term.includes('12') || term.includes('year')) return p;
                 if (term.includes('6')) return p * 2;
                 if (term.includes('month') && !term.includes('6') && !term.includes('12')) return p * 12;
-                return p * 2; // default to 6-month
+                return p * 2;
               };
               const lowestQuote = group.reduce((best: any, q: any) => annualize(q) < annualize(best) ? q : best, group[0]);
-              const lowestAnnual = annualize(lowestQuote);
               const lowestPremium = lowestQuote.quoted_premium || 0;
               const lowestTerm = lowestQuote.premium_term || '6 months';
               const lowestCarrier = (lowestQuote.carrier || '').replace(/_/g, ' ');
+              const groupKey = primary.prospect_email || `id-${primary.id}`;
 
               return (
-                <div key={primary.prospect_email || primary.id} className="card-bg rounded-lg border border-transparent hover:border-cyan-500/30 transition-colors">
-                  {/* Prospect Header */}
-                  <div className="p-4 cursor-pointer" onClick={() => { setSelectedQuote(primary); setShowDetail(true); }}>
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-sm page-title truncate">{primary.prospect_name}</h3>
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.bg} ${sc.text}`}>
-                            {sc.label}
-                          </span>
-                          {hasMultiple && (
-                            <span className="px-1.5 py-0.5 rounded text-xs bg-violet-500/20 text-violet-300">
-                              {group.length} quotes
-                            </span>
-                          )}
-                          {anyDisabled && (
-                            <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400">No F/U</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs page-subtitle flex-wrap">
-                          {primary.prospect_email && <span className="truncate max-w-[220px]">{primary.prospect_email}</span>}
-                          {primary.prospect_phone && <><span>•</span><span>{primary.prospect_phone}</span></>}
-                          <span>•</span>
-                          <span>{primary.producer_name}</span>
-                        </div>
+                <div key={groupKey} className="card-bg rounded-lg border border-transparent hover:border-cyan-500/30 transition-colors">
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {/* Expand toggle for multi-quote */}
+                    {hasMultiple ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedProspect(expandedProspect === groupKey ? null : groupKey); }}
+                        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        <ChevronDown size={14} className={`transition-transform ${expandedProspect === groupKey ? 'rotate-180' : ''}`} style={{ color: '#94a3b8' }} />
+                      </button>
+                    ) : (
+                      <div className="w-6" />
+                    )}
+
+                    {/* Prospect info */}
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setSelectedQuote(primary); setShowDetail(true); }}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-sm page-title truncate">{primary.prospect_name}</h3>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.bg} ${sc.text}`}>{sc.label}</span>
+                        {hasMultiple && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-violet-500/20 text-violet-300">{group.length} quotes</span>
+                        )}
+                        {anyDisabled && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400">No F/U</span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-4 flex-shrink-0">
-                        <div className="text-right">
-                          {hasMultiple && (
-                            <p className="text-xs page-subtitle mb-0.5 capitalize">Best: {lowestCarrier}</p>
-                          )}
-                          <p className="text-lg font-bold" style={{ color: '#0ea5e9' }}>
-                            {lowestPremium > 0 ? `$${lowestPremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
-                          </p>
-                          {lowestPremium > 0 && (
-                            <p className="text-xs page-subtitle">/{lowestTerm}{lowestAnnual !== Infinity && lowestAnnual !== lowestPremium ? ` ($${lowestAnnual.toLocaleString(undefined, { minimumFractionDigits: 0 })}/yr)` : ''}</p>
-                          )}
-                        </div>
-                        <div className="text-right text-xs page-subtitle">
-                          {primary.email_sent ? (
-                            <span className="text-blue-400">
-                              Sent {primary.days_since_sent != null ? `${primary.days_since_sent}d ago` : ''}
-                            </span>
-                          ) : (
-                            <span>Not sent</span>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-xs page-subtitle flex-wrap">
+                        {primary.prospect_email && <span className="truncate max-w-[180px]">{primary.prospect_email}</span>}
+                        <span>•</span>
+                        <span className="font-medium text-cyan-400/70">{primary.producer_name || 'Unassigned'}</span>
                       </div>
+                    </div>
+
+                    {/* Premium & carrier */}
+                    <div className="flex-shrink-0 text-right cursor-pointer" onClick={() => { setSelectedQuote(lowestQuote); setShowDetail(true); }}>
+                      {hasMultiple && <p className="text-xs page-subtitle capitalize">Best: {lowestCarrier}</p>}
+                      {!hasMultiple && <p className="text-xs page-subtitle capitalize">{lowestCarrier} • {primary.policy_type}</p>}
+                      <p className="text-base font-bold" style={{ color: '#0ea5e9' }}>
+                        {lowestPremium > 0 ? `$${lowestPremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
+                      </p>
+                      <p className="text-xs page-subtitle">/{lowestTerm}</p>
+                    </div>
+
+                    {/* Sent date */}
+                    <div className="flex-shrink-0 text-right text-xs page-subtitle w-16">
+                      {primary.email_sent ? (
+                        <span className="text-blue-400">Sent {primary.days_since_sent != null ? `${primary.days_since_sent}d` : ''}</span>
+                      ) : (
+                        <span>Draft</span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Individual Quote Lines (shown for multi-quote prospects) */}
-                  {hasMultiple && (
-                    <div className="border-t border-white/5 px-4 pb-3 pt-2">
-                      <div className="space-y-1">
-                        {group.map((q: any) => {
-                          const qsc = STATUS_COLORS[q.status] || STATUS_COLORS.quoted;
-                          return (
-                            <div
-                              key={q.id}
-                              className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors text-sm"
-                              onClick={() => { setSelectedQuote(q); setShowDetail(true); }}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="capitalize page-title">{q.carrier?.replace(/_/g, ' ')}</span>
-                                <span className="text-xs page-subtitle">• {q.policy_type}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs ${qsc.bg} ${qsc.text}`}>{qsc.label}</span>
-                                {q.pdf_uploaded && <span className="px-1 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300">PDF</span>}
-                              </div>
-                              <span className="font-semibold" style={{ color: '#0ea5e9' }}>
-                                {q.quoted_premium ? `$${q.quoted_premium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
-                              </span>
+                  {/* Collapsible quote lines */}
+                  {hasMultiple && expandedProspect === groupKey && (
+                    <div className="border-t border-white/5 px-4 pb-2 pt-1">
+                      {group.map((q: any) => {
+                        const qsc = STATUS_COLORS[q.status] || STATUS_COLORS.quoted;
+                        return (
+                          <div
+                            key={q.id}
+                            className="flex items-center justify-between pl-8 pr-2 py-1.5 rounded hover:bg-white/5 cursor-pointer transition-colors text-xs"
+                            onClick={() => { setSelectedQuote(q); setShowDetail(true); }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="capitalize page-title">{q.carrier?.replace(/_/g, ' ')}</span>
+                              <span className="page-subtitle">• {q.policy_type}</span>
+                              <span className={`px-1.5 py-0.5 rounded ${qsc.bg} ${qsc.text}`}>{qsc.label}</span>
+                              {q.pdf_uploaded && <span className="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300">PDF</span>}
                             </div>
-                          );
-                        })}
-                      </div>
+                            <span className="font-semibold" style={{ color: '#0ea5e9' }}>
+                              {q.quoted_premium ? `$${q.quoted_premium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

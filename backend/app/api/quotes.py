@@ -533,17 +533,34 @@ def list_quotes(
     producer_id: Optional[int] = None,
     carrier: Optional[str] = None,
     days: Optional[int] = None,
+    search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List quotes with filters."""
+    """List quotes with filters.
+    
+    Visibility:
+    - Admin/Manager: see all quotes
+    - Producers: see their own quotes, but can search all
+    """
     query = db.query(Quote)
 
-    # Producers see their own quotes, admins see all
-    if current_user.role.lower() not in ("admin", "manager"):
-        query = query.filter(Quote.producer_id == current_user.id)
-    elif producer_id:
-        query = query.filter(Quote.producer_id == producer_id)
+    # When searching, everyone can search all quotes
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            (Quote.prospect_name.ilike(s)) |
+            (Quote.prospect_email.ilike(s)) |
+            (Quote.prospect_phone.ilike(s)) |
+            (Quote.carrier.ilike(s)) |
+            (Quote.producer_name.ilike(s))
+        )
+    else:
+        # Default view: admins see all, producers see own
+        if current_user.role.lower() not in ("admin", "manager"):
+            query = query.filter(Quote.producer_id == current_user.id)
+        elif producer_id:
+            query = query.filter(Quote.producer_id == producer_id)
 
     if status:
         query = query.filter(Quote.status == status)
