@@ -137,7 +137,7 @@ export default function Quotes() {
             />
           </div>
           <div className="flex gap-1.5 flex-wrap">
-            {['all', 'quoted', 'sent', 'following_up', 'converted', 'lost', 'remarket'].map((f) => {
+            {['all', 'sent', 'following_up', 'converted', 'lost', 'remarket'].map((f) => {
               const count = stats?.by_status?.[f] ?? '';
               return (
               <button
