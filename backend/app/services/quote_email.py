@@ -192,6 +192,7 @@ def build_quote_email_html(
         carrier_section = f"""
         <div style="background:#F8FAFC;border-radius:10px;padding:20px;margin:20px 0;border:1px solid #E2E8F0;text-align:center;">
             <img src="{carrier_logo_url}" alt="{carrier_name}" style="max-height:48px;max-width:200px;margin:0 auto 12px auto;display:block;" />
+            <p style="margin:0 0 8px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">AI Overview of {carrier_name}</p>
             <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;font-style:italic;">
                 "{selling_point}"
             </p>
