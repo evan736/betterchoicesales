@@ -978,9 +978,8 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
                   onChange={(e) => setPremiumTerm(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg text-sm input-field"
                 >
-                  <option value="6 months">6 months</option>
-                  <option value="year">Year</option>
-                  <option value="month">Month</option>
+                  <option value="6 months">6 Months</option>
+                  <option value="12 months">12 Months</option>
                 </select>
               </div>
             </div>
