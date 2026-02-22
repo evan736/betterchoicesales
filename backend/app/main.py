@@ -518,6 +518,7 @@ def health_check():
 def force_migrate():
     """Force run database migrations for missing columns."""
     from app.core.database import engine
+    from sqlalchemy import text as sa_text
     results = []
     with engine.connect() as conn:
         for col_sql in [
@@ -526,7 +527,7 @@ def force_migrate():
             "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
         ]:
             try:
-                conn.execute(text(col_sql))
+                conn.execute(sa_text(col_sql))
                 results.append(f"OK: {col_sql}")
             except Exception as e:
                 results.append(f"SKIP: {str(e)[:80]}")
