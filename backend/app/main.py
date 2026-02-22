@@ -496,7 +496,7 @@ app = FastAPI(
 
 
 # Global exception handler - always return JSON (never plain text)
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 @app.exception_handler(Exception)
@@ -585,6 +585,243 @@ app.include_router(winback_api.router)
 app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
+
+
+# ── Public bind confirmation endpoint (no auth — customer-facing) ──
+@app.get("/api/bind/{quote_id}")
+def bind_confirmation_page(quote_id: int):
+    """Return a branded 'Ready to Bind' confirmation page for the customer."""
+    from app.core.database import SessionLocal
+    from app.models.campaign import Quote as QuoteModel
+
+    db = SessionLocal()
+    try:
+        quote = db.query(QuoteModel).filter(QuoteModel.id == quote_id).first()
+        if not quote:
+            return HTMLResponse("<h1>Quote not found</h1>", status_code=404)
+
+        from app.services.welcome_email import CARRIER_INFO, BCI_NAVY, BCI_CYAN
+        carrier_key = (quote.carrier or "").lower().replace(" ", "_")
+        cinfo = CARRIER_INFO.get(carrier_key, {})
+        accent = cinfo.get("accent_color", BCI_CYAN)
+        carrier_name = cinfo.get("display_name", (quote.carrier or "").title())
+        first_name = quote.prospect_name.split()[0] if quote.prospect_name else "there"
+        premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else ""
+        term = quote.premium_term or "6 months"
+
+        # Policy lines
+        lines_html = ""
+        if quote.policy_lines:
+            import json as jsonlib
+            lines = jsonlib.loads(quote.policy_lines) if isinstance(quote.policy_lines, str) else quote.policy_lines
+            if len(lines) > 1:
+                rows = ""
+                for line in lines:
+                    pt = (line.get("policy_type") or "").replace("_", " ").title()
+                    pr = f"${float(line.get('premium') or 0):,.2f}"
+                    rows += f'<div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #E2E8F0;"><span style="color:#334155;font-weight:600;">{pt}</span><span style="color:{accent};font-weight:700;font-size:18px;">{pr}</span></div>'
+                lines_html = f'<div style="margin:20px 0;padding:0 4px;">{rows}</div>'
+
+        html = f"""<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ready to Bind — Better Choice Insurance</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#f1f5f9; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }}
+  .card {{ background:white; border-radius:16px; max-width:520px; width:100%; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,0.12); }}
+  .header {{ background:linear-gradient(135deg,#1a2b5f 0%,#162249 60%,#0c4a6e 100%); padding:32px; text-align:center; }}
+  .body {{ padding:32px; }}
+  .checkmark {{ width:72px; height:72px; background:linear-gradient(135deg,{accent},#10b981); border-radius:50%; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; }}
+  .checkmark svg {{ width:36px; height:36px; color:white; }}
+  .premium-box {{ background:linear-gradient(135deg,{accent}10,{accent}05); border:2px solid {accent}40; border-radius:12px; padding:24px; text-align:center; margin:24px 0; }}
+  .btn {{ display:inline-block; background:{accent}; color:white; padding:14px 40px; border-radius:8px; text-decoration:none; font-weight:700; font-size:15px; margin:8px 4px; }}
+  .btn-outline {{ display:inline-block; background:transparent; color:{accent}; border:2px solid {accent}; padding:12px 32px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; margin:8px 4px; }}
+  #confirmSection {{ display:block; }}
+  #successSection {{ display:none; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1 style="color:white;font-size:18px;font-weight:700;margin-bottom:4px;">Better Choice Insurance Group</h1>
+    <p style="color:{accent};font-size:13px;font-weight:600;">{carrier_name}</p>
+  </div>
+  <div class="body">
+
+    <!-- Confirm Section -->
+    <div id="confirmSection">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-size:48px;margin-bottom:8px;">🎉</div>
+        <h2 style="color:#1e293b;font-size:22px;font-weight:800;margin-bottom:8px;">Great Choice, {first_name}!</h2>
+        <p style="color:#64748B;font-size:15px;line-height:1.5;">You're one step away from getting covered with {carrier_name}.</p>
+      </div>
+
+      <div class="premium-box">
+        <p style="color:#64748B;font-size:11px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">Your Quote</p>
+        <p style="color:#1e293b;font-size:38px;font-weight:800;letter-spacing:-1px;margin:4px 0;">{premium_str}</p>
+        <p style="color:#64748B;font-size:14px;">per {term}</p>
+      </div>
+
+      {lines_html}
+
+      <div style="text-align:center;margin:24px 0;">
+        <p style="color:#334155;font-size:14px;line-height:1.6;margin-bottom:20px;">
+          Tap the button below to confirm and your advisor will reach out shortly to finalize everything.
+        </p>
+        <a href="javascript:void(0)" onclick="confirmBind()" class="btn" id="bindBtn">
+          ✓ Confirm — I Want This Coverage!
+        </a>
+        <br>
+        <a href="tel:8479085665" class="btn-outline" style="margin-top:12px;">
+          📞 Call Us Instead: (847) 908-5665
+        </a>
+      </div>
+
+      <div style="text-align:center;margin-top:16px;">
+        <p style="color:#94a3b8;font-size:11px;">By confirming, your insurance advisor will contact you to complete the application and process payment.</p>
+      </div>
+    </div>
+
+    <!-- Success Section (shown after confirm) -->
+    <div id="successSection">
+      <div style="text-align:center;">
+        <div class="checkmark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <h2 style="color:#1e293b;font-size:24px;font-weight:800;margin-bottom:8px;">You're All Set!</h2>
+        <p style="color:#64748B;font-size:15px;line-height:1.6;margin-bottom:24px;">
+          We've notified your advisor and they'll be in touch shortly to finalize your {carrier_name} coverage.
+        </p>
+
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:20px;margin:20px 0;text-align:left;">
+          <p style="color:#166534;font-size:13px;font-weight:600;margin-bottom:8px;">📋 What happens next:</p>
+          <p style="color:#166534;font-size:13px;line-height:1.8;">
+            1. Your advisor will call or email you within the hour<br>
+            2. We'll walk you through any final questions<br>
+            3. Once confirmed, your coverage starts on your effective date
+          </p>
+        </div>
+
+        <div style="margin-top:20px;">
+          <a href="tel:8479085665" class="btn-outline">
+            Can't wait? Call (847) 908-5665
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+async function confirmBind() {{
+  const btn = document.getElementById('bindBtn');
+  btn.textContent = 'Confirming...';
+  btn.style.opacity = '0.6';
+  btn.style.pointerEvents = 'none';
+  try {{
+    await fetch('/api/bind/{quote_id}/confirm', {{ method: 'POST' }});
+  }} catch(e) {{}}
+  document.getElementById('confirmSection').style.display = 'none';
+  document.getElementById('successSection').style.display = 'block';
+}}
+</script>
+</body></html>"""
+        return HTMLResponse(html)
+    finally:
+        db.close()
+
+
+@app.post("/api/bind/{quote_id}/confirm")
+def confirm_bind(quote_id: int):
+    """Process bind confirmation — update quote status and alert the producer."""
+    from app.core.database import SessionLocal
+    from app.models.campaign import Quote as QuoteModel
+    from app.models.user import User as UserModel
+
+    db = SessionLocal()
+    try:
+        quote = db.query(QuoteModel).filter(QuoteModel.id == quote_id).first()
+        if not quote:
+            return {"ok": False}
+
+        # Mark quote as bind-requested
+        quote.status = "bind_requested"
+        db.commit()
+
+        # Send alert email to the producer
+        from app.services.welcome_email import CARRIER_INFO, BCI_CYAN
+        carrier_key = (quote.carrier or "").lower().replace(" ", "_")
+        cinfo = CARRIER_INFO.get(carrier_key, {})
+        carrier_name = cinfo.get("display_name", (quote.carrier or "").title())
+        accent = cinfo.get("accent_color", BCI_CYAN)
+        premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "N/A"
+        term = quote.premium_term or "6 months"
+
+        # Find producer email
+        producer = db.query(UserModel).filter(UserModel.id == quote.producer_id).first()
+        producer_email = producer.email if producer and producer.email else "evan@betterchoiceins.com"
+        producer_name = quote.producer_name or "Team"
+
+        alert_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
+<div style="max-width:560px;margin:0 auto;padding:20px;">
+  <div style="background:linear-gradient(135deg,#059669,#10b981);padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
+    <p style="font-size:36px;margin:0;">🔔</p>
+    <h1 style="color:white;font-size:20px;margin:8px 0 0 0;">Bind Request Received!</h1>
+  </div>
+  <div style="background:white;padding:28px 32px;border-radius:0 0 12px 12px;border:1px solid #E2E8F0;border-top:none;">
+    <p style="color:#1e293b;font-size:16px;margin:0 0 16px 0;">Hey {producer_name.split()[0]},</p>
+    <p style="color:#334155;font-size:14px;line-height:1.6;margin:0 0 20px 0;">
+      <strong>{quote.prospect_name}</strong> just confirmed they want to bind their {carrier_name} coverage! 🎉
+    </p>
+    <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:10px;padding:20px;margin:16px 0;">
+      <table style="width:100%;">
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Customer</td><td style="color:#1e293b;font-weight:700;text-align:right;padding:4px 0;">{quote.prospect_name}</td></tr>
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Email</td><td style="color:#1e293b;text-align:right;padding:4px 0;">{quote.prospect_email or 'N/A'}</td></tr>
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Phone</td><td style="color:#1e293b;text-align:right;padding:4px 0;">{quote.prospect_phone or 'N/A'}</td></tr>
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Carrier</td><td style="color:#1e293b;font-weight:600;text-align:right;padding:4px 0;">{carrier_name}</td></tr>
+        <tr><td style="color:#64748B;font-size:12px;padding:4px 0;">Premium</td><td style="color:{accent};font-weight:800;font-size:18px;text-align:right;padding:4px 0;">{premium_str}/{term}</td></tr>
+      </table>
+    </div>
+    <p style="color:#334155;font-size:14px;line-height:1.6;margin:16px 0;">
+      Reach out ASAP to finalize the application and collect payment. This customer is ready to go!
+    </p>
+    <div style="text-align:center;margin:20px 0;">
+      <a href="mailto:{quote.prospect_email}" style="display:inline-block;background:{accent};color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
+        Email {quote.prospect_name.split()[0]}
+      </a>
+      <a href="tel:{quote.prospect_phone or ''}" style="display:inline-block;background:transparent;color:{accent};border:2px solid {accent};padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-left:8px;">
+        Call Now
+      </a>
+    </div>
+  </div>
+</div>
+</body></html>"""
+
+        # Send via Mailgun
+        try:
+            import requests as req
+            if settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN:
+                req.post(
+                    f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+                    auth=("api", settings.MAILGUN_API_KEY),
+                    data={
+                        "from": f"Better Choice Alerts <alerts@{settings.MAILGUN_DOMAIN}>",
+                        "to": [producer_email, "evan@betterchoiceins.com"],
+                        "subject": f"🔔 BIND REQUEST — {quote.prospect_name} wants {carrier_name} ({premium_str}/{term})",
+                        "html": alert_html,
+                    },
+                )
+                logger.info(f"Bind alert sent for quote {quote_id} to {producer_email}")
+        except Exception as e:
+            logger.error(f"Bind alert email failed: {e}")
+
+        return {"ok": True, "quote_id": quote_id}
+    finally:
+        db.close()
 
 # Serve static files (temp PDFs for Thanks.io, etc.)
 from fastapi.staticfiles import StaticFiles

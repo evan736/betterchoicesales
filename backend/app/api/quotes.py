@@ -481,6 +481,7 @@ def send_quote_email_endpoint(
         pdf_filename=quote.quote_pdf_filename,
         is_multi_quote=is_multi,
         quotes_summary=quotes_summary if is_multi else None,
+        quote_id=quote.id,
     )
 
     if result.get("success"):
@@ -604,6 +605,7 @@ def preview_quote_email(
         agent_phone="(847) 908-5665",
         is_multi_quote=is_multi,
         quotes_summary=quotes_summary if is_multi else None,
+        quote_id=quote.id,
     )
 
     return {

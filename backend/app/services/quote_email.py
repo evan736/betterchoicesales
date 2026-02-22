@@ -140,6 +140,7 @@ def build_quote_email_html(
     additional_notes: str = "",
     is_multi_quote: bool = False,
     quotes_summary: list = None,
+    quote_id: int = None,
 ) -> str:
     """Build carrier-branded quote email HTML."""
     from app.services.welcome_email import CARRIER_INFO, BCI_NAVY, BCI_CYAN
@@ -217,12 +218,9 @@ def build_quote_email_html(
             <p style="margin:0;color:#92400E;font-size:13px;"><strong>A note for you:</strong> {additional_notes}</p>
         </div>"""
 
-    # Build the reply-to mailto link for the CTA
-    reply_email = agent_email or "service@betterchoiceins.com"
-    import urllib.parse
-    bind_subject = urllib.parse.quote(f"I am ready to bind - {carrier_name} {policy_label}")
-    bind_body = urllib.parse.quote(f"Hi {agent_name or 'team'},\n\nI would like to move forward with my {carrier_name} {policy_label.lower()} quote for {premium}/{premium_term}.\n\nPlease let me know the next steps.\n\nThank you,\n{prospect_name}")
-    bind_mailto = f"mailto:{reply_email}?subject={bind_subject}&body={bind_body}"
+    # Build the bind confirmation page URL
+    api_url = getattr(settings, 'API_URL', None) or "https://better-choice-api.onrender.com"
+    bind_url = f"{api_url}/api/bind/{quote_id}" if quote_id else f"mailto:{agent_email or 'service@betterchoiceins.com'}"
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -279,7 +277,7 @@ def build_quote_email_html(
 
     <!-- CTA Buttons -->
     <div style="text-align:center;margin:24px 0;">
-      <a href="{bind_mailto}" style="display:inline-block;background:{accent};color:white;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.3px;">
+      <a href="{bind_url}" style="display:inline-block;background:{accent};color:white;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.3px;">
         I am Ready to Bind!
       </a>
     </div>
@@ -346,6 +344,7 @@ def send_quote_email(
     pdf_filename: str = None,
     is_multi_quote: bool = False,
     quotes_summary: list = None,
+    quote_id: int = None,
 ) -> dict:
     """Send quote email with PDF attachment via Mailgun."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
@@ -371,6 +370,7 @@ def send_quote_email(
         additional_notes=additional_notes,
         is_multi_quote=is_multi_quote,
         quotes_summary=quotes_summary,
+        quote_id=quote_id,
     )
 
     reply_to = agent_email if agent_email else "service@betterchoiceins.com"

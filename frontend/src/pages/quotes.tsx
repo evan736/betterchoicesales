@@ -12,6 +12,7 @@ import {
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   quoted: { bg: 'bg-gray-500/20', text: 'text-gray-300', label: 'Quoted' },
   sent: { bg: 'bg-blue-500/20', text: 'text-blue-300', label: 'Sent' },
+  bind_requested: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', label: 'Bind Requested' },
   following_up: { bg: 'bg-yellow-500/20', text: 'text-yellow-300', label: 'Following Up' },
   converted: { bg: 'bg-green-500/20', text: 'text-green-300', label: 'Converted' },
   lost: { bg: 'bg-red-500/20', text: 'text-red-300', label: 'Lost' },
