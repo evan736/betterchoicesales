@@ -330,3 +330,12 @@ export const renewalsAPI = {
       params: { current_premium: currentPremium, renewal_premium: renewalPremium },
     }),
 };
+
+// Life Cross-Sell API (Back9)
+export const lifeCrossSellAPI = {
+  eligible: () => api.get('/api/life-crosssell/eligible'),
+  campaigns: (params?: { status?: string }) => api.get('/api/life-crosssell/campaigns', { params }),
+  stats: () => api.get('/api/life-crosssell/stats'),
+  send: (saleIds: number[], fetchTeaser: boolean = false) =>
+    api.post('/api/life-crosssell/send', { sale_ids: saleIds, fetch_teaser: fetchTeaser }),
+};
