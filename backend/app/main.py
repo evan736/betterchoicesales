@@ -683,7 +683,7 @@ def bind_confirmation_page(quote_id: int):
       </div>
 
       <div style="text-align:center;margin-top:16px;">
-        <p style="color:#94a3b8;font-size:11px;">By confirming, your insurance advisor will contact you to complete the application and process payment.</p>
+        <p style="color:#94a3b8;font-size:11px;">By confirming, your insurance advisor will contact you to complete the application and process payment. Our office hours are Monday–Friday, 9 AM – 6 PM Central.</p>
       </div>
     </div>
 
@@ -700,10 +700,16 @@ def bind_confirmation_page(quote_id: int):
 
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:20px;margin:20px 0;text-align:left;">
           <p style="color:#166534;font-size:13px;font-weight:600;margin-bottom:8px;">📋 What happens next:</p>
-          <p style="color:#166534;font-size:13px;line-height:1.8;">
-            1. Your advisor will call or email you within the hour<br>
+          <p id="responseTimeMsg" style="color:#166534;font-size:13px;line-height:1.8;">
+            1. Your advisor has been notified and will reach out shortly<br>
             2. We'll walk you through any final questions<br>
             3. Once confirmed, your coverage starts on your effective date
+          </p>
+        </div>
+
+        <div id="afterHoursNotice" style="display:none;background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:16px;margin:16px 0;text-align:left;">
+          <p style="color:#92400E;font-size:13px;line-height:1.6;">
+            <strong>⏰ After Hours Notice:</strong> <span id="afterHoursText"></span>
           </p>
         </div>
 
@@ -725,7 +731,22 @@ async function confirmBind() {{
   btn.style.opacity = '0.6';
   btn.style.pointerEvents = 'none';
   try {{
-    await fetch('/api/bind/{quote_id}/confirm', {{ method: 'POST' }});
+    const resp = await fetch('/api/bind/{quote_id}/confirm', {{ method: 'POST' }});
+    const data = await resp.json();
+    
+    // Update response time message
+    if (data.response_msg) {{
+      document.getElementById('responseTimeMsg').innerHTML = 
+        '1. ' + data.response_msg + '<br>' +
+        '2. We\\'ll walk you through any final questions<br>' +
+        '3. Once confirmed, your coverage starts on your effective date';
+    }}
+    
+    // Show after hours notice if applicable
+    if (data.after_hours_notice) {{
+      document.getElementById('afterHoursNotice').style.display = 'block';
+      document.getElementById('afterHoursText').textContent = data.after_hours_notice;
+    }}
   }} catch(e) {{}}
   document.getElementById('confirmSection').style.display = 'none';
   document.getElementById('successSection').style.display = 'block';
@@ -743,6 +764,8 @@ def confirm_bind(quote_id: int):
     from app.core.database import SessionLocal
     from app.models.campaign import Quote as QuoteModel
     from app.models.user import User as UserModel
+    from datetime import datetime
+    import pytz
 
     db = SessionLocal()
     try:
@@ -753,6 +776,69 @@ def confirm_bind(quote_id: int):
         # Mark quote as bind-requested
         quote.status = "bind_requested"
         db.commit()
+
+        # ── Calculate smart response time based on business hours ──
+        # Business hours: M-F 9 AM - 6 PM Central
+        try:
+            ct = pytz.timezone("America/Chicago")
+            now_ct = datetime.now(ct)
+        except Exception:
+            from datetime import timezone, timedelta as td
+            now_ct = datetime.now(timezone(td(hours=-6)))
+        
+        weekday = now_ct.weekday()  # 0=Mon, 6=Sun
+        hour = now_ct.hour
+        minute = now_ct.minute
+
+        response_msg = ""
+        after_hours_notice = ""
+
+        if weekday < 5 and 9 <= hour < 17:
+            # During business hours (before 5 PM to leave buffer)
+            response_msg = "Your advisor has been notified and will reach out within the next few hours"
+        elif weekday < 5 and 17 <= hour < 18:
+            # Late in the day (5-6 PM)
+            response_msg = "Your advisor has been notified and will reach out by end of day today or first thing tomorrow morning"
+            after_hours_notice = (
+                "You submitted your request near the end of our business day. "
+                "Your advisor may follow up this evening or first thing tomorrow morning by 10 AM."
+            )
+        elif weekday == 4 and hour >= 18:
+            # Friday evening
+            response_msg = "Your advisor has been notified and will reach out first thing Monday morning"
+            after_hours_notice = (
+                "Our office is closed for the weekend (Sat-Sun). "
+                "Your advisor will contact you Monday morning by 10 AM. "
+                "Your request is saved and you're first in line!"
+            )
+        elif weekday == 5:
+            # Saturday
+            response_msg = "Your advisor has been notified and will reach out first thing Monday morning"
+            after_hours_notice = (
+                "Our office is closed on weekends. Your advisor will contact you "
+                "Monday morning by 10 AM. Your request is saved and you're first in line!"
+            )
+        elif weekday == 6:
+            # Sunday
+            response_msg = "Your advisor has been notified and will reach out tomorrow morning"
+            after_hours_notice = (
+                "Our office reopens Monday at 9 AM. Your advisor will contact you "
+                "by 10 AM. Your request is saved and you're first in line!"
+            )
+        elif weekday < 5 and hour < 9:
+            # Before 9 AM weekday
+            response_msg = "Your advisor has been notified and will reach out when our office opens at 9 AM"
+            after_hours_notice = (
+                "Our office opens at 9 AM Central Time. "
+                "Your advisor will reach out shortly after."
+            )
+        else:
+            # After 6 PM weekday (Mon-Thu)
+            response_msg = "Your advisor has been notified and will reach out first thing tomorrow morning"
+            after_hours_notice = (
+                "Our office hours are Monday–Friday, 9 AM – 6 PM Central. "
+                "Your advisor will contact you tomorrow morning by 10 AM."
+            )
 
         # Send alert email to the producer
         from app.services.welcome_email import CARRIER_INFO, BCI_CYAN
@@ -791,7 +877,11 @@ def confirm_bind(quote_id: int):
       </table>
     </div>
     <p style="color:#334155;font-size:14px;line-height:1.6;margin:16px 0;">
-      Reach out ASAP to finalize the application and collect payment. This customer is ready to go!
+      <strong style="color:#DC2626;">⚡ Respond as quickly as possible!</strong> This customer clicked "I Want This Coverage" 
+      and is ready to bind right now. The faster you reach out, the higher the close rate.
+    </p>
+    <p style="color:#64748B;font-size:12px;margin:8px 0 0 0;font-style:italic;">
+      Customer was told: "{response_msg}"
     </p>
     <div style="text-align:center;margin:20px 0;">
       <a href="mailto:{quote.prospect_email}" style="display:inline-block;background:{accent};color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
@@ -823,7 +913,12 @@ def confirm_bind(quote_id: int):
         except Exception as e:
             logger.error(f"Bind alert email failed: {e}")
 
-        return {"ok": True, "quote_id": quote_id}
+        return {
+            "ok": True,
+            "quote_id": quote_id,
+            "response_msg": response_msg,
+            "after_hours_notice": after_hours_notice,
+        }
     finally:
         db.close()
 
