@@ -514,6 +514,26 @@ def health_check():
     return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.0"}
 
 
+@app.post("/admin/force-migrate")
+def force_migrate():
+    """Force run database migrations for missing columns."""
+    from app.core.database import engine
+    results = []
+    with engine.connect() as conn:
+        for col_sql in [
+            "ALTER TABLE quotes ADD COLUMN premium_term VARCHAR DEFAULT '6 months'",
+            "ALTER TABLE quotes ADD COLUMN notes TEXT",
+            "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
+        ]:
+            try:
+                conn.execute(text(col_sql))
+                results.append(f"OK: {col_sql}")
+            except Exception as e:
+                results.append(f"SKIP: {str(e)[:80]}")
+        conn.commit()
+    return {"results": results}
+
+
 @app.get("/")
 def root():
     return {"message": "Better Choice Insurance API", "version": "1.0.0", "docs": "/docs"}
