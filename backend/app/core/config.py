@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     MAILGUN_DOMAIN: Optional[str] = None
     MAILGUN_FROM_EMAIL: str = "welcome@betterchoiceins.com"
     MAILGUN_FROM_NAME: str = "Better Choice Insurance"
+
+    # Back9 Life Insurance Integration
+    BACK9_API_KEY: Optional[str] = None
+    BACK9_NPN: Optional[str] = None  # Agent National Producer Number
+    BACK9_BASE_URL: str = "https://app.back9ins.com"
+    BACK9_WEBHOOK_SECRET: Optional[str] = None
     
     # Google Review
     GOOGLE_REVIEW_URL: Optional[str] = None

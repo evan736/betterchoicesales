@@ -323,6 +323,32 @@ def init_database():
                     conn.commit()
             except Exception:
                 pass
+
+        # ── Life Cross-Sell table ──
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("""CREATE TABLE IF NOT EXISTS life_cross_sells (
+                    id SERIAL PRIMARY KEY, sale_id INTEGER REFERENCES sales(id),
+                    client_name VARCHAR NOT NULL, client_email VARCHAR NOT NULL,
+                    client_phone VARCHAR, state VARCHAR(2),
+                    pc_carrier VARCHAR, pc_policy_type VARCHAR, pc_premium NUMERIC(10,2),
+                    producer_id INTEGER REFERENCES users(id), producer_name VARCHAR,
+                    back9_apply_link VARCHAR, back9_eapp_id INTEGER, back9_eapp_uuid VARCHAR,
+                    back9_quote_premium NUMERIC(10,2), back9_carrier VARCHAR, back9_product VARCHAR,
+                    back9_face_amount NUMERIC(12,2),
+                    status VARCHAR DEFAULT 'pending',
+                    email_sent_at TIMESTAMP WITH TIME ZONE, email_opened_at TIMESTAMP WITH TIME ZONE,
+                    link_clicked_at TIMESTAMP WITH TIME ZONE, app_started_at TIMESTAMP WITH TIME ZONE,
+                    app_submitted_at TIMESTAMP WITH TIME ZONE, approved_at TIMESTAMP WITH TIME ZONE,
+                    inforce_at TIMESTAMP WITH TIME ZONE,
+                    campaign_batch VARCHAR, notes TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )"""))
+                conn.commit()
+                logger.info("life_cross_sells table ready")
+        except Exception as e:
+            logger.info(f"life_cross_sells table: {e}")
         logger.info("Quotes columns verified")
 
     db = SessionLocal()
@@ -555,6 +581,38 @@ def force_migrate():
         "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
         "ALTER TABLE quotes ADD COLUMN followup_disabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE quotes ADD COLUMN unsubscribe_token VARCHAR",
+        """CREATE TABLE IF NOT EXISTS life_cross_sells (
+            id SERIAL PRIMARY KEY,
+            sale_id INTEGER REFERENCES sales(id),
+            client_name VARCHAR NOT NULL,
+            client_email VARCHAR NOT NULL,
+            client_phone VARCHAR,
+            state VARCHAR(2),
+            pc_carrier VARCHAR,
+            pc_policy_type VARCHAR,
+            pc_premium NUMERIC(10,2),
+            producer_id INTEGER REFERENCES users(id),
+            producer_name VARCHAR,
+            back9_apply_link VARCHAR,
+            back9_eapp_id INTEGER,
+            back9_eapp_uuid VARCHAR,
+            back9_quote_premium NUMERIC(10,2),
+            back9_carrier VARCHAR,
+            back9_product VARCHAR,
+            back9_face_amount NUMERIC(12,2),
+            status VARCHAR DEFAULT 'pending',
+            email_sent_at TIMESTAMP WITH TIME ZONE,
+            email_opened_at TIMESTAMP WITH TIME ZONE,
+            link_clicked_at TIMESTAMP WITH TIME ZONE,
+            app_started_at TIMESTAMP WITH TIME ZONE,
+            app_submitted_at TIMESTAMP WITH TIME ZONE,
+            approved_at TIMESTAMP WITH TIME ZONE,
+            inforce_at TIMESTAMP WITH TIME ZONE,
+            campaign_batch VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE
+        )""",
     ]:
         try:
             with engine.connect() as conn:
@@ -589,6 +647,9 @@ app.include_router(winback_api.router)
 app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
+
+from app.api import life_crosssell as life_crosssell_api
+app.include_router(life_crosssell_api.router, prefix="/api")
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

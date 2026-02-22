@@ -294,3 +294,56 @@ class GHLWebhookLog(Base):
     error = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# LIFE INSURANCE CROSS-SELL (Back9 Integration)
+# ═══════════════════════════════════════════════════════════════════
+
+class LifeCrossSell(Base):
+    """Tracks life insurance cross-sell campaigns sent to P&C customers via Back9."""
+    __tablename__ = "life_cross_sells"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
+
+    # Customer info (snapshot from sale)
+    client_name = Column(String, nullable=False)
+    client_email = Column(String, nullable=False)
+    client_phone = Column(String, nullable=True)
+    state = Column(String(2), nullable=True)
+
+    # P&C context
+    pc_carrier = Column(String, nullable=True)
+    pc_policy_type = Column(String, nullable=True)
+    pc_premium = Column(Numeric(10, 2), nullable=True)
+
+    # Producer who owns the relationship
+    producer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    producer_name = Column(String, nullable=True)
+
+    # Back9 integration
+    back9_apply_link = Column(String, nullable=True)
+    back9_eapp_id = Column(Integer, nullable=True)
+    back9_eapp_uuid = Column(String, nullable=True)
+    back9_quote_premium = Column(Numeric(10, 2), nullable=True)
+    back9_carrier = Column(String, nullable=True)
+    back9_product = Column(String, nullable=True)
+    back9_face_amount = Column(Numeric(12, 2), nullable=True)
+
+    # Campaign tracking
+    status = Column(String, default="pending")
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    email_opened_at = Column(DateTime(timezone=True), nullable=True)
+    link_clicked_at = Column(DateTime(timezone=True), nullable=True)
+    app_started_at = Column(DateTime(timezone=True), nullable=True)
+    app_submitted_at = Column(DateTime(timezone=True), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    inforce_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Metadata
+    campaign_batch = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
