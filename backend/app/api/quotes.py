@@ -734,7 +734,8 @@ def check_followups(
     ).all()
 
     for quote in active_quotes:
-        days_since = (now - quote.email_sent_at).days
+        sent_at = quote.email_sent_at.replace(tzinfo=None) if quote.email_sent_at.tzinfo else quote.email_sent_at
+        days_since = (now - sent_at).days
 
         # 3-day follow-up
         if days_since >= 3 and not quote.followup_3day_sent:
