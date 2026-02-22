@@ -202,6 +202,8 @@ class Quote(Base):
     followup_3day_sent = Column(Boolean, default=False)
     followup_7day_sent = Column(Boolean, default=False)
     followup_14day_sent = Column(Boolean, default=False)
+    followup_disabled = Column(Boolean, default=False)  # Producer can disable follow-ups
+    unsubscribe_token = Column(String, nullable=True)  # Customer opt-out token
 
     # Conversion
     status = Column(String, default="quoted")

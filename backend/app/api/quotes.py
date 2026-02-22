@@ -12,6 +12,7 @@ Features:
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
@@ -61,6 +62,7 @@ class QuoteUpdate(BaseModel):
     lost_reason: Optional[str] = None
     prospect_email: Optional[str] = None
     prospect_phone: Optional[str] = None
+    followup_disabled: Optional[bool] = None
 
 
 # ── Helper: Create NowCerts prospect (or merge into existing) ──
@@ -215,6 +217,7 @@ def create_quote(
         producer_id=current_user.id,
         producer_name=current_user.full_name or current_user.username,
         status="quoted",
+        unsubscribe_token=str(uuid.uuid4()),
     )
     try:
         db.add(quote)
@@ -482,6 +485,7 @@ def send_quote_email_endpoint(
         is_multi_quote=is_multi,
         quotes_summary=quotes_summary if is_multi else None,
         quote_id=quote.id,
+        unsubscribe_token=getattr(quote, 'unsubscribe_token', None),
     )
 
     if result.get("success"):
@@ -658,6 +662,8 @@ def update_quote(
         quote.prospect_email = data.prospect_email
     if data.prospect_phone:
         quote.prospect_phone = data.prospect_phone
+    if data.followup_disabled is not None:
+        quote.followup_disabled = data.followup_disabled
 
     db.commit()
     return _quote_to_dict(quote)
@@ -715,74 +721,88 @@ def delete_quote(
     db.commit()
     return {"deleted": True, "id": quote_id}
 def _check_followups_logic(db: Session) -> dict:
-    """Core follow-up check logic — used by endpoint and background scheduler."""
+    """Core follow-up check logic — groups by prospect, respects opt-outs."""
     now = datetime.utcnow()
-    results = {"day3": 0, "day7": 0, "day14": 0, "day90": 0}
+    results = {"day3": 0, "day7": 0, "day14": 0, "day90": 0, "skipped_grouped": 0, "skipped_disabled": 0}
 
     active_quotes = db.query(Quote).filter(
-        Quote.status.in_(["sent", "following_up"]),
+        Quote.status.in_(["sent", "following_up", "bind_requested"]),
         Quote.email_sent == True,
         Quote.email_sent_at.isnot(None),
     ).all()
 
-    for quote in active_quotes:
-        sent_at = quote.email_sent_at.replace(tzinfo=None) if quote.email_sent_at.tzinfo else quote.email_sent_at
+    # Group by prospect email — only follow up on the MOST RECENT quote per prospect
+    from collections import defaultdict
+    prospect_groups: dict = defaultdict(list)
+    for q in active_quotes:
+        key = (q.prospect_email or "").lower().strip() or f"name:{(q.prospect_name or '').lower().strip()}"
+        prospect_groups[key].append(q)
+
+    for key, quotes in prospect_groups.items():
+        # Sort by email_sent_at desc — most recent first
+        quotes.sort(key=lambda q: q.email_sent_at or q.created_at, reverse=True)
+        latest = quotes[0]
+
+        # Skip if follow-ups disabled on ANY quote for this prospect
+        if any(getattr(q, 'followup_disabled', False) for q in quotes):
+            results["skipped_disabled"] += 1
+            continue
+
+        # Skip if prospect already confirmed bind
+        if any(q.status == "bind_requested" for q in quotes):
+            continue
+
+        sent_at = latest.email_sent_at.replace(tzinfo=None) if latest.email_sent_at.tzinfo else latest.email_sent_at
         days_since = (now - sent_at).days
 
-        if days_since >= 3 and not quote.followup_3day_sent:
-            quote.followup_3day_sent = True
-            quote.status = "following_up"
+        # Mark older quotes as superseded (no separate follow-ups)
+        for old_q in quotes[1:]:
+            if old_q.status in ("sent", "following_up"):
+                old_q.followup_3day_sent = True
+                old_q.followup_7day_sent = True
+                old_q.followup_14day_sent = True
+                results["skipped_grouped"] += 1
+
+        # Process follow-ups on the latest quote only
+        if days_since >= 3 and not latest.followup_3day_sent:
+            latest.followup_3day_sent = True
+            latest.status = "following_up"
             results["day3"] += 1
-            try:
-                from app.services.ghl_webhook import get_ghl_service
-                ghl = get_ghl_service()
-                ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "", carrier=quote.carrier,
-                    policy_type=quote.policy_type, days_since=3,
-                    producer_name=quote.producer_name or "",
-                )
-            except Exception:
-                pass
+            _fire_followup_webhook(latest, 3)
 
-        elif days_since >= 7 and not quote.followup_7day_sent:
-            quote.followup_7day_sent = True
+        elif days_since >= 7 and not latest.followup_7day_sent:
+            latest.followup_7day_sent = True
             results["day7"] += 1
-            try:
-                from app.services.ghl_webhook import get_ghl_service
-                ghl = get_ghl_service()
-                ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "", carrier=quote.carrier,
-                    policy_type=quote.policy_type, days_since=7,
-                    producer_name=quote.producer_name or "",
-                )
-            except Exception:
-                pass
+            _fire_followup_webhook(latest, 7)
 
-        elif days_since >= 14 and not quote.followup_14day_sent:
-            quote.followup_14day_sent = True
+        elif days_since >= 14 and not latest.followup_14day_sent:
+            latest.followup_14day_sent = True
             results["day14"] += 1
-            try:
-                from app.services.ghl_webhook import get_ghl_service
-                ghl = get_ghl_service()
-                ghl.fire_quote_followup(
-                    prospect_name=quote.prospect_name, email=quote.prospect_email or "",
-                    phone=quote.prospect_phone or "", carrier=quote.carrier,
-                    policy_type=quote.policy_type, days_since=14,
-                    producer_name=quote.producer_name or "",
-                )
-            except Exception:
-                pass
+            _fire_followup_webhook(latest, 14)
 
-        elif days_since >= 90 and not quote.entered_remarket:
-            quote.entered_remarket = True
-            quote.remarket_start_date = now
-            quote.status = "remarket"
+        elif days_since >= 90 and not latest.entered_remarket:
+            latest.entered_remarket = True
+            latest.remarket_start_date = now
+            latest.status = "remarket"
             results["day90"] += 1
 
     db.commit()
     return results
+
+
+def _fire_followup_webhook(quote, days_since):
+    """Fire GHL webhook for follow-up."""
+    try:
+        from app.services.ghl_webhook import get_ghl_service
+        ghl = get_ghl_service()
+        ghl.fire_quote_followup(
+            prospect_name=quote.prospect_name, email=quote.prospect_email or "",
+            phone=quote.prospect_phone or "", carrier=quote.carrier,
+            policy_type=quote.policy_type, days_since=days_since,
+            producer_name=quote.producer_name or "",
+        )
+    except Exception:
+        pass
 
 
 @router.post("/check-followups")
@@ -884,6 +904,7 @@ def _quote_to_dict(q: Quote) -> dict:
         "followup_3day_sent": q.followup_3day_sent,
         "followup_7day_sent": q.followup_7day_sent,
         "followup_14day_sent": q.followup_14day_sent,
+        "followup_disabled": getattr(q, 'followup_disabled', False) or False,
         "entered_remarket": q.entered_remarket,
         "converted_sale_id": q.converted_sale_id,
         "lost_reason": q.lost_reason,

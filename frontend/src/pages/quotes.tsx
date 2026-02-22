@@ -890,7 +890,26 @@ function QuoteDetailModal({ quote, onClose, onRefresh }: {
         {/* Follow-up Timeline */}
         {q.email_sent && (
           <div className="mb-5">
-            <p className="text-xs font-medium page-subtitle mb-2">Pipeline Progress</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium page-subtitle">Pipeline Progress</p>
+              {!q.followup_disabled ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      await quotesAPI.update(q.id, { followup_disabled: true });
+                      onRefresh();
+                    } catch {}
+                  }}
+                  className="text-xs px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                >
+                  Disable Follow-ups
+                </button>
+              ) : (
+                <span className="text-xs px-2 py-1 rounded bg-gray-500/10 text-gray-400">
+                  Follow-ups Disabled
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1">
               {[
                 { label: 'Sent', done: q.email_sent },

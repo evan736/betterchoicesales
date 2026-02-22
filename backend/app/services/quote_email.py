@@ -141,6 +141,7 @@ def build_quote_email_html(
     is_multi_quote: bool = False,
     quotes_summary: list = None,
     quote_id: int = None,
+    unsubscribe_token: str = None,
 ) -> str:
     """Build carrier-branded quote email HTML."""
     from app.services.welcome_email import CARRIER_INFO, BCI_NAVY, BCI_CYAN
@@ -221,6 +222,12 @@ def build_quote_email_html(
     # Build the bind confirmation page URL
     api_url = getattr(settings, 'API_URL', None) or "https://better-choice-api.onrender.com"
     bind_url = f"{api_url}/api/bind/{quote_id}" if quote_id else f"mailto:{agent_email or 'service@betterchoiceins.com'}"
+
+    # Unsubscribe link
+    unsub_html = ""
+    if unsubscribe_token:
+        unsub_url = f"{api_url}/api/unsubscribe/{unsubscribe_token}"
+        unsub_html = f'<p style="color:#94a3b8;font-size:11px;margin:4px 0 0 0;"><a href="{unsub_url}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe from follow-up emails</a></p>'
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -322,6 +329,7 @@ def build_quote_email_html(
       <p style="color:#94a3b8;font-size:11px;margin:4px 0 0 0;">
         This quote is valid for 24 hours. Rates and availability subject to change.
       </p>
+      {unsub_html}
     </div>
   </div>
 </div>
@@ -345,6 +353,7 @@ def send_quote_email(
     is_multi_quote: bool = False,
     quotes_summary: list = None,
     quote_id: int = None,
+    unsubscribe_token: str = None,
 ) -> dict:
     """Send quote email with PDF attachment via Mailgun."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
@@ -371,6 +380,7 @@ def send_quote_email(
         is_multi_quote=is_multi_quote,
         quotes_summary=quotes_summary,
         quote_id=quote_id,
+        unsubscribe_token=unsubscribe_token,
     )
 
     reply_to = agent_email if agent_email else "service@betterchoiceins.com"
