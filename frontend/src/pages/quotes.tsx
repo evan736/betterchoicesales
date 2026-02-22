@@ -90,10 +90,21 @@ export default function Quotes() {
     return groups;
   }, [quotes]);
 
-  const getProspectGroupCount = (q: any) => {
-    const key = (q.prospect_email || '').toLowerCase().trim() || `name:${(q.prospect_name || '').toLowerCase().trim()}`;
-    return prospectGroups[key]?.length || 1;
-  };
+  // Group filtered quotes by prospect
+  const groupedProspects = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    const order: string[] = [];
+    filtered.forEach((q) => {
+      const key = (q.prospect_email || '').toLowerCase().trim() || `name:${(q.prospect_name || '').toLowerCase().trim()}`;
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(q);
+    });
+    // Sort each group by created_at desc
+    Object.values(groups).forEach(g => g.sort((a: any, b: any) => 
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    ));
+    return order.map(key => groups[key]);
+  }, [filtered]);
 
   if (loading || !user) return null;
 
@@ -178,76 +189,99 @@ export default function Quotes() {
           <div className="flex items-center justify-center py-20">
             <Loader2 size={24} className="animate-spin text-cyan-400" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : groupedProspects.length === 0 ? (
           <div className="text-center py-20">
             <FileText size={48} className="mx-auto mb-4 text-gray-500" />
             <p className="text-gray-400">No quotes yet. Create your first quote to get started.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {filtered.map((q) => {
-              const sc = STATUS_COLORS[q.status] || STATUS_COLORS.quoted;
-              return (
-                <div
-                  key={q.id}
-                  className="card-bg rounded-lg p-4 cursor-pointer hover:border-cyan-500/30 transition-colors border border-transparent"
-                  onClick={() => { setSelectedQuote(q); setShowDetail(true); }}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    {/* Left: Name & info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-sm page-title truncate">{q.prospect_name}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.bg} ${sc.text}`}>
-                          {sc.label}
-                        </span>
-                        {q.pdf_uploaded && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300">PDF</span>
-                        )}
-                        {getProspectGroupCount(q) > 1 && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-violet-500/20 text-violet-300" title="Multiple quotes for this prospect — follow-ups grouped">
-                            {getProspectGroupCount(q)} quotes
-                          </span>
-                        )}
-                        {q.followup_disabled && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400">No F/U</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs page-subtitle flex-wrap">
-                        <span className="capitalize">{q.carrier?.replace(/_/g, ' ')}</span>
-                        <span>•</span>
-                        <span className="capitalize">{q.policy_type}</span>
-                        {q.prospect_email && (
-                          <>
-                            <span>•</span>
-                            <span className="truncate max-w-[200px]">{q.prospect_email}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+          <div className="space-y-3">
+            {groupedProspects.map((group) => {
+              const primary = group[0]; // most recent quote
+              const hasMultiple = group.length > 1;
+              // Best status: bind_requested > following_up > sent > quoted
+              const statusPriority: Record<string, number> = { bind_requested: 5, converted: 4, following_up: 3, sent: 2, quoted: 1, lost: 0, remarket: 0 };
+              const bestQuote = group.reduce((best: any, q: any) => (statusPriority[q.status] || 0) > (statusPriority[best.status] || 0) ? q : best, primary);
+              const sc = STATUS_COLORS[bestQuote.status] || STATUS_COLORS.quoted;
+              const totalPremium = group.reduce((sum: number, q: any) => sum + (q.quoted_premium || 0), 0);
+              const anyDisabled = group.some((q: any) => q.followup_disabled);
 
-                    {/* Right: Premium & date */}
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      {q.quoted_premium && (
+              return (
+                <div key={primary.prospect_email || primary.id} className="card-bg rounded-lg border border-transparent hover:border-cyan-500/30 transition-colors">
+                  {/* Prospect Header */}
+                  <div className="p-4 cursor-pointer" onClick={() => { setSelectedQuote(primary); setShowDetail(true); }}>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-sm page-title truncate">{primary.prospect_name}</h3>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.bg} ${sc.text}`}>
+                            {sc.label}
+                          </span>
+                          {hasMultiple && (
+                            <span className="px-1.5 py-0.5 rounded text-xs bg-violet-500/20 text-violet-300">
+                              {group.length} quotes
+                            </span>
+                          )}
+                          {anyDisabled && (
+                            <span className="px-1.5 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400">No F/U</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs page-subtitle flex-wrap">
+                          {primary.prospect_email && <span className="truncate max-w-[220px]">{primary.prospect_email}</span>}
+                          {primary.prospect_phone && <><span>•</span><span>{primary.prospect_phone}</span></>}
+                          <span>•</span>
+                          <span>{primary.producer_name}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 flex-shrink-0">
                         <div className="text-right">
+                          {hasMultiple ? (
+                            <p className="text-xs page-subtitle mb-0.5">{group.length} quotes</p>
+                          ) : null}
                           <p className="text-lg font-bold" style={{ color: '#0ea5e9' }}>
-                            ${q.quoted_premium.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            {totalPremium > 0 ? `$${totalPremium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
                           </p>
                         </div>
-                      )}
-                      <div className="text-right text-xs page-subtitle">
-                        {q.email_sent ? (
-                          <span className="text-blue-400">
-                            Sent {q.days_since_sent != null ? `${q.days_since_sent}d ago` : ''}
-                          </span>
-                        ) : (
-                          <span>Not sent</span>
-                        )}
-                        <br />
-                        <span>{q.producer_name}</span>
+                        <div className="text-right text-xs page-subtitle">
+                          {primary.email_sent ? (
+                            <span className="text-blue-400">
+                              Sent {primary.days_since_sent != null ? `${primary.days_since_sent}d ago` : ''}
+                            </span>
+                          ) : (
+                            <span>Not sent</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
+
+                  {/* Individual Quote Lines (shown for multi-quote prospects) */}
+                  {hasMultiple && (
+                    <div className="border-t border-white/5 px-4 pb-3 pt-2">
+                      <div className="space-y-1">
+                        {group.map((q: any) => {
+                          const qsc = STATUS_COLORS[q.status] || STATUS_COLORS.quoted;
+                          return (
+                            <div
+                              key={q.id}
+                              className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors text-sm"
+                              onClick={() => { setSelectedQuote(q); setShowDetail(true); }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="capitalize page-title">{q.carrier?.replace(/_/g, ' ')}</span>
+                                <span className="text-xs page-subtitle">• {q.policy_type}</span>
+                                <span className={`px-1.5 py-0.5 rounded text-xs ${qsc.bg} ${qsc.text}`}>{qsc.label}</span>
+                                {q.pdf_uploaded && <span className="px-1 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300">PDF</span>}
+                              </div>
+                              <span className="font-semibold" style={{ color: '#0ea5e9' }}>
+                                {q.quoted_premium ? `$${q.quoted_premium.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ''}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
