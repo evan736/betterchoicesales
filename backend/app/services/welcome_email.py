@@ -515,7 +515,7 @@ def build_welcome_email_html(
     app_url = getattr(settings, "APP_URL", "https://better-choice-web.onrender.com")
     survey_url = app_url + "/survey/" + str(sale_id)
     first_name = client_name.split()[0] if client_name else "Valued Customer"
-    producer_first = producer_name.split()[0] if producer_name else "Your Agent"
+    producer_first = producer_name.split()[0] if producer_name else "Your Advisor"
 
     if is_generic:
         subject = "Welcome to " + AGENCY_NAME + "! Your new policy is ready"
@@ -639,9 +639,9 @@ def build_welcome_email_html(
         h.append(_btn("tel:8479085665", BCI_NAVY, "&#128222;", "Call Us: " + AGENCY_PHONE))
         h.append("</div>")
 
-    # ── Your Agent section ───────────────────────────────────────
+    # ── Your Insurance Advisor section ─────────────────────────────
     h.append('<div style="margin:24px 0; padding:16px 20px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">')
-    h.append('<h3 style="margin:0 0 10px; font-size:14px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR AGENT</h3>')
+    h.append('<h3 style="margin:0 0 10px; font-size:14px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR INSURANCE ADVISOR</h3>')
     h.append('<p style="margin:0 0 4px; font-weight:700; font-size:16px; color:#1e293b;">' + producer_name + "</p>")
     h.append('<p style="margin:0 0 2px; font-size:14px; color:#64748b;">' + AGENCY_NAME + "</p>")
     h.append('<p style="margin:0; font-size:14px;">')

@@ -202,7 +202,7 @@ def build_quote_email_html(
     if agent_name:
         agent_html = f"""
         <div style="background:#F8FAFC;border-radius:8px;padding:16px;margin:20px 0;border:1px solid #E2E8F0;">
-            <p style="margin:0 0 4px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Your Agent</p>
+            <p style="margin:0 0 4px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Your Insurance Advisor</p>
             <p style="margin:0;font-size:15px;font-weight:bold;color:#1e293b;">{agent_name}</p>
             {f'<p style="margin:2px 0 0 0;font-size:13px;color:#64748B;">{agent_email}</p>' if agent_email else ''}
             {f'<p style="margin:2px 0 0 0;font-size:13px;color:#64748B;">{agent_phone}</p>' if agent_phone else ''}
@@ -213,7 +213,7 @@ def build_quote_email_html(
     if additional_notes:
         notes_html = f"""
         <div style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:12px 16px;margin:16px 0;border-radius:0 8px 8px 0;">
-            <p style="margin:0;color:#92400E;font-size:13px;"><strong>Note from your agent:</strong> {additional_notes}</p>
+            <p style="margin:0;color:#92400E;font-size:13px;"><strong>A note for you:</strong> {additional_notes}</p>
         </div>"""
 
     # Build the reply-to mailto link for the CTA
