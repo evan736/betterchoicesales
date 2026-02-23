@@ -2166,6 +2166,10 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             logger.error("Escalation check failed: %s", e)
             results["escalation_check"] = {"error": str(e)}
 
+    # Log full dry-run results for review
+    import json
+    logger.info("=== NATGEN HANDLER RESULTS ===\n%s", json.dumps(results, indent=2, default=str))
+
     return results
 
 
