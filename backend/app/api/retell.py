@@ -607,30 +607,34 @@ async def post_call_webhook(request: Request):
             try:
                 client = get_nowcerts_client()
                 if client.is_configured:
-                    # Build a useful note body
-                    note_parts = []
-                    note_parts.append(f"Duration: {duration_str}")
-                    note_parts.append(f"Caller: {customer_name} ({from_number})")
-                    if call_summary:
-                        note_parts.append(f"Summary: {call_summary}")
-                    if carrier:
-                        note_parts.append(f"Carrier: {carrier}")
-                    if department:
-                        note_parts.append(f"Department: {department}")
-                    if resolution:
-                        note_parts.append(f"Resolution: {resolution}")
-                    if transcript:
-                        note_parts.append(f"\n--- Transcript ---\n{transcript[:1500]}")
-
-                    note_body = "\n".join(note_parts)
-                    note_subject = f"Flora AI Call — {duration_str}"
+                    # Build note content — put everything in subject since 
+                    # that's the field NowCerts displays in the Notes tab
+                    subject_parts = [f"Flora AI Call — {duration_str}"]
                     if call_type:
-                        note_subject += f" — {call_type.replace('_', ' ').title()}"
+                        subject_parts[0] += f" — {call_type.replace('_', ' ').title()}"
+                    if call_summary:
+                        subject_parts.append(f"Summary: {call_summary}")
+                    if carrier:
+                        subject_parts.append(f"Carrier: {carrier}")
+                    if department:
+                        subject_parts.append(f"Department: {department}")
+                    if resolution:
+                        subject_parts.append(f"Resolution: {resolution}")
+                    if sentiment:
+                        subject_parts.append(f"Sentiment: {sentiment}")
+                    if follow_up == "true":
+                        subject_parts.append("⚠️ Follow-up needed")
+                    subject_parts.append(f"Caller: {customer_name} ({from_number})")
+                    if transcript:
+                        subject_parts.append(f"\n--- Transcript ---\n{transcript[:1500]}")
+
+                    note_subject = "\n".join(subject_parts)
 
                     client.insert_note({
                         "insured_database_id": str(insured_id),
                         "subject": note_subject,
-                        "text": note_body,
+                        "text": note_subject,
+                        "description": note_subject,
                         "insured_commercial_name": customer_name,
                         "creator_name": "Flora AI Receptionist",
                         "type": "Phone Call",
