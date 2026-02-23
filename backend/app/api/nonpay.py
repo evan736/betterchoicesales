@@ -2432,3 +2432,16 @@ async def test_natgen_parser(
     summary["sections"]["undeliverable_mail"] = {"count": len(undeliverable), "rows": undeliverable}
 
     return summary
+
+
+@router.get("/check-mode")
+def check_mode():
+    """Check current inbound email mode settings. No auth required."""
+    natgen_dry = os.environ.get("NATGEN_DRY_RUN", "true")
+    inbound_mode = os.environ.get("INBOUND_NONPAY_MODE", "dry_run")
+    return {
+        "NATGEN_DRY_RUN": natgen_dry,
+        "INBOUND_NONPAY_MODE": inbound_mode,
+        "emails_would_send": natgen_dry.lower() != "true" and inbound_mode == "live",
+        "status": "SAFE — all sends blocked" if (natgen_dry.lower() == "true" or inbound_mode != "live") else "⚠️ LIVE — emails will send",
+    }
