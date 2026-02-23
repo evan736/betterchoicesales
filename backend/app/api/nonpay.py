@@ -2049,8 +2049,8 @@ def _lookup_customer_for_natgen(db: Session, policy_number: str, insured_name: s
     }
 
     # Get producer info
-    if sale.selling_agent_id:
-        producer = db.query(User).filter(User.id == sale.selling_agent_id).first()
+    if sale.producer_id:
+        producer = db.query(User).filter(User.id == sale.producer_id).first()
         if producer:
             result["producer_name"] = producer.full_name or producer.username
             result["producer_email"] = producer.email
