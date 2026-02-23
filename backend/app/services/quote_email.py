@@ -229,6 +229,16 @@ def build_quote_email_html(
         unsub_url = f"{api_url}/api/unsubscribe/{unsubscribe_token}"
         unsub_html = f'<p style="color:#94a3b8;font-size:11px;margin:4px 0 0 0;"><a href="{unsub_url}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe from follow-up emails</a></p>'
 
+    # Calculate monthly premium for 12-month terms
+    monthly_html = ""
+    if "12" in premium_term and premium:
+        try:
+            raw = premium.replace("$", "").replace(",", "")
+            monthly = float(raw) / 12
+            monthly_html = f'<p style="margin:8px 0 0 0;color:#1e293b;font-size:20px;font-weight:700;">${monthly:,.2f}<span style="font-size:14px;font-weight:400;color:#64748B;">/month</span></p>'
+        except (ValueError, ZeroDivisionError):
+            pass
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
@@ -265,6 +275,7 @@ def build_quote_email_html(
       <p style="margin:4px 0 0 0;color:#64748B;font-size:14px;">
         per {premium_term}
       </p>
+      {monthly_html}
       {eff_html}
     </div>
 
