@@ -25,6 +25,7 @@ export default function CustomersPage() {
   const [expandedId, setExpandedId] = useState<number | string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [copiedPolicy, setCopiedPolicy] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
@@ -289,7 +290,42 @@ export default function CustomersPage() {
                                   <tbody>
                                     {detail.policies.map((p: any, i: number) => (
                                       <tr key={p.id || i} className="border-b border-slate-100">
-                                        <td className="py-2.5 font-semibold text-slate-900">{p.policy_number || '—'}</td>
+                                        <td className="py-2.5 font-semibold text-slate-900">
+                                          <button
+                                            onClick={() => {
+                                              const pn = p.policy_number || '';
+                                              navigator.clipboard.writeText(pn);
+                                              setCopiedPolicy(pn);
+                                              setTimeout(() => setCopiedPolicy(null), 2000);
+                                              const carrierPortals: Record<string, string> = {
+                                                'grange': 'https://www.grangeagent.com',
+                                                'safeco': 'https://now.safeco.com',
+                                                'national general': 'https://www.nationalgeneral.com/agentportal',
+                                                'openly': 'https://portal.openly.com',
+                                                'progressive': 'https://www.foragentsonly.com',
+                                                'travelers': 'https://www.mserviceportal.com',
+                                                'branch': 'https://app.ourbranch.com',
+                                                'hippo': 'https://agent.hippo.com',
+                                                'bristol west': 'https://www.bristolwest.com',
+                                                'clearcover': 'https://agent.clearcover.com',
+                                                'geico': 'https://www.geico.com/agent',
+                                                'american modern': 'https://www.amig.com/agent',
+                                                'steadily': 'https://app.steadily.com',
+                                                'universal property': 'https://www.universalproperty.com/agent',
+                                                'integrity': 'https://www.integrityinsurance.com/agent',
+                                              };
+                                              const carrierKey = (p.carrier || '').toLowerCase();
+                                              const portal = Object.entries(carrierPortals).find(([k]) => carrierKey.includes(k));
+                                              if (portal) {
+                                                window.open(portal[1], '_blank');
+                                              }
+                                            }}
+                                            className="text-brand-600 hover:text-brand-700 hover:underline cursor-pointer"
+                                            title={`Copy policy # and open ${p.carrier || 'carrier'} portal`}
+                                          >
+                                            {copiedPolicy === p.policy_number ? '✓ Copied!' : (p.policy_number || '—')}
+                                          </button>
+                                        </td>
                                         <td className="py-2.5">{p.carrier || '—'}</td>
                                         <td className="py-2.5 capitalize">{p.line_of_business || p.policy_type || '—'}</td>
                                         <td className="py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || 'Unknown'}</span></td>
