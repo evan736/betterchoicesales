@@ -1843,9 +1843,15 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
 
     parsed = parse_natgen_policy_activity(html_body)
     carrier = "national_general"
+
+    # Dry-run mode: parse everything, create tasks, but send NO emails
+    natgen_dry_run = os.environ.get("NATGEN_DRY_RUN", "true").lower() == "true"
+    if natgen_dry_run:
+        logger.info("NATGEN_DRY_RUN=true — will parse and create tasks but NOT send any emails")
     
     results = {
         "status": "processed",
+        "dry_run": natgen_dry_run,
         "carrier": "national_general",
         "sections": {},
     }
@@ -1872,20 +1878,23 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
                 # Determine requirement type
                 req_type = "nopop" if todo_type == "nopop" else "proof_of_continuous_insurance"
                 
-                email_result = send_uw_requirement_email(
-                    to_email=customer_info["email"],
-                    client_name=insured,
-                    policy_number=policy,
-                    carrier=carrier,
-                    requirement_type=req_type,
-                    due_date=todo.get("next_action_date"),
-                    producer_name=customer_info.get("producer_name"),
-                    producer_email=customer_info.get("producer_email"),
-                )
+                if natgen_dry_run:
+                    email_result = {"success": False, "error": "DRY RUN — email not sent"}
+                else:
+                    email_result = send_uw_requirement_email(
+                        to_email=customer_info["email"],
+                        client_name=insured,
+                        policy_number=policy,
+                        carrier=carrier,
+                        requirement_type=req_type,
+                        due_date=todo.get("next_action_date"),
+                        producer_name=customer_info.get("producer_name"),
+                        producer_email=customer_info.get("producer_email"),
+                    )
                 todos_processed.append({
                     "policy": policy, "insured": insured,
-                    "action": "uw_email_sent" if email_result.get("success") else "uw_email_failed",
-                    "email": customer_info["email"],
+                    "action": ("dry_run_uw_email" if natgen_dry_run else "uw_email_sent") if email_result.get("success") or natgen_dry_run else "uw_email_failed",
+                    "would_email": customer_info["email"],
                     "requirement": req_type,
                     "error": email_result.get("error"),
                 })
@@ -1947,7 +1956,9 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             # AND send non-renewal email to insured if we have their email
             to_emails = ["service@betterchoiceins.com"]
             
-            if customer_info and customer_info.get("email"):
+            if natgen_dry_run:
+                email_result = {"success": False, "error": "DRY RUN — email not sent"}
+            elif customer_info and customer_info.get("email"):
                 # Send customer-facing non-renewal email
                 email_result = send_non_renewal_email(
                     to_email=customer_info["email"],
@@ -1964,8 +1975,9 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             else:
                 email_result = {"success": False, "error": "No customer email"}
 
-            # Send internal alert to service@
-            _send_internal_nonrenewal_alert(
+            # Send internal alert to service@ (also gated by dry run)
+            if not natgen_dry_run:
+                _send_internal_nonrenewal_alert(
                 insured_name=insured,
                 policy_number=policy,
                 carrier=carrier,
@@ -1990,22 +2002,25 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         else:
             # More than 60 days — still send non-renewal email to insured
             if customer_info and customer_info.get("email"):
-                email_result = send_non_renewal_email(
-                    to_email=customer_info["email"],
-                    client_name=insured,
-                    policy_number=policy,
-                    carrier=carrier,
-                    effective_date=effective,
-                    premium=premium,
-                    product=product,
-                    description=description,
-                    producer_name=nr_producer or (customer_info or {}).get("producer_name"),
-                    producer_email=(customer_info or {}).get("producer_email"),
-                )
+                if natgen_dry_run:
+                    email_result = {"success": False, "error": "DRY RUN — email not sent"}
+                else:
+                    email_result = send_non_renewal_email(
+                        to_email=customer_info["email"],
+                        client_name=insured,
+                        policy_number=policy,
+                        carrier=carrier,
+                        effective_date=effective,
+                        premium=premium,
+                        product=product,
+                        description=description,
+                        producer_name=nr_producer or (customer_info or {}).get("producer_name"),
+                        producer_email=(customer_info or {}).get("producer_email"),
+                    )
                 nonrenewals_processed.append({
                     "policy": policy, "insured": insured,
-                    "action": "non_renewal_email_sent" if email_result.get("success") else "non_renewal_email_failed",
-                    "email": customer_info["email"],
+                    "action": "dry_run_non_renewal" if natgen_dry_run else ("non_renewal_email_sent" if email_result.get("success") else "non_renewal_email_failed"),
+                    "would_email": customer_info["email"],
                     "effective_date": effective,
                     "producer": nr_producer,
                     "task_id": task_id,
@@ -2098,17 +2113,20 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         customer_info = _lookup_customer_for_natgen(db, policy, insured)
         producer_email = (customer_info or {}).get("producer_email", "evan@betterchoiceins.com")
         
-        alert_result = send_undeliverable_mail_alert(
-            producer_email=producer_email,
-            client_name=insured,
-            policy_number=policy,
-            carrier=carrier,
-            mail_description=mail_desc,
-            phone=phone,
-        )
+        if natgen_dry_run:
+            alert_result = {"success": False, "error": "DRY RUN — alert not sent"}
+        else:
+            alert_result = send_undeliverable_mail_alert(
+                producer_email=producer_email,
+                client_name=insured,
+                policy_number=policy,
+                carrier=carrier,
+                mail_description=mail_desc,
+                phone=phone,
+            )
         undeliverable_processed.append({
             "policy": policy, "insured": insured,
-            "action": "alert_sent" if alert_result.get("success") else "alert_failed",
+            "action": "dry_run_alert" if natgen_dry_run else ("alert_sent" if alert_result.get("success") else "alert_failed"),
             "producer": producer_email,
             "error": alert_result.get("error"),
         })
@@ -2128,16 +2146,19 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
     )
 
     # ── 5. Run escalation check on ALL existing non-renewal tasks ──
-    try:
-        from app.services.nonrenewal_escalation import run_escalation_check
-        escalation_result = run_escalation_check(db)
-        results["escalation_check"] = {
-            "checked": escalation_result["checked"],
-            "escalated": escalation_result["escalated"],
-        }
-    except Exception as e:
-        logger.error("Escalation check failed: %s", e)
-        results["escalation_check"] = {"error": str(e)}
+    if natgen_dry_run:
+        results["escalation_check"] = {"skipped": "DRY RUN — escalation emails not sent"}
+    else:
+        try:
+            from app.services.nonrenewal_escalation import run_escalation_check
+            escalation_result = run_escalation_check(db)
+            results["escalation_check"] = {
+                "checked": escalation_result["checked"],
+                "escalated": escalation_result["escalated"],
+            }
+        except Exception as e:
+            logger.error("Escalation check failed: %s", e)
+            results["escalation_check"] = {"error": str(e)}
 
     return results
 
