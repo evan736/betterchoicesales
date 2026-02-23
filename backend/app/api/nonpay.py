@@ -2449,3 +2449,26 @@ def check_mode():
         "emails_would_send": natgen_dry.lower() != "true" and inbound_mode == "live",
         "status": "SAFE — all sends blocked" if (natgen_dry.lower() == "true" or inbound_mode != "live") else "⚠️ LIVE — emails will send",
     }
+
+
+@router.get("/db-check")
+def db_check(db: Session = Depends(get_db)):
+    """Quick database diagnostic - no auth required."""
+    from app.models.sale import Sale
+    from app.models.user import User
+    try:
+        sale_count = db.query(Sale).count()
+        user_count = db.query(User).count()
+        latest_sale = db.query(Sale).order_by(Sale.id.desc()).first()
+        return {
+            "database": "connected",
+            "total_sales": sale_count,
+            "total_users": user_count,
+            "latest_sale": {
+                "id": latest_sale.id,
+                "client_name": latest_sale.client_name,
+                "created_at": str(latest_sale.created_at) if latest_sale.created_at else None,
+            } if latest_sale else None,
+        }
+    except Exception as e:
+        return {"database": "error", "error": str(e)}
