@@ -364,18 +364,17 @@ def build_quote_email_html(
         unsub_html = f'<p style="color:#94a3b8;font-size:11px;margin:4px 0 0 0;"><a href="{unsub_url}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe from follow-up emails</a></p>'
 
     # Calculate monthly premium for any multi-month term
-    monthly_html = ""
+    monthly_display = premium  # fallback to full premium if can't calculate
     if premium:
         try:
             raw = premium.replace("$", "").replace(",", "")
             total = float(raw)
-            # Extract number of months from premium_term
             import re
             months_match = re.search(r'(\d+)', premium_term or "")
             months = int(months_match.group(1)) if months_match else 0
             if months > 1:
                 monthly = total / months
-                monthly_html = f'<p style="margin:8px 0 0 0;color:#1e293b;font-size:20px;font-weight:700;">${monthly:,.2f}<span style="font-size:14px;font-weight:400;color:#64748B;">/month</span></p>'
+                monthly_display = f"${monthly:,.2f}"
         except (ValueError, ZeroDivisionError):
             pass
 
@@ -410,12 +409,14 @@ def build_quote_email_html(
         {"Total Bundle" if is_multi_quote else carrier_name} Quote
       </p>
       <p style="margin:0;color:#1e293b;font-size:42px;font-weight:800;letter-spacing:-1px;">
-        {premium}
+        {monthly_display}
       </p>
       <p style="margin:4px 0 0 0;color:#64748B;font-size:14px;">
-        per {premium_term}
+        per month
       </p>
-      {monthly_html}
+      <p style="margin:8px 0 0 0;color:#94a3b8;font-size:13px;">
+        {premium} / {premium_term}
+      </p>
       {eff_html}
     </div>
 
@@ -516,7 +517,19 @@ def send_quote_email(
     carrier_name = cinfo.get("display_name", (carrier or "Insurance").title())
     policy_label = POLICY_TYPE_LABELS.get(policy_type, "Insurance")
 
-    subject = f"Your {carrier_name} {policy_label} Quote \u2014 {premium}/{premium_term}"
+    # Calculate monthly for subject line too
+    subject_premium = premium
+    try:
+        raw = premium.replace("$", "").replace(",", "")
+        total = float(raw)
+        import re
+        months_match = re.search(r'(\d+)', premium_term or "")
+        months = int(months_match.group(1)) if months_match else 0
+        if months > 1:
+            subject_premium = f"${total / months:,.2f}"
+    except (ValueError, ZeroDivisionError):
+        pass
+    subject = f"Your {carrier_name} {policy_label} Quote \u2014 {subject_premium}/month"
     html = build_quote_email_html(
         prospect_name=prospect_name,
         carrier=carrier,
