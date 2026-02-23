@@ -290,6 +290,23 @@ async def inbound_call_webhook(request: Request):
             except Exception as e:
                 logger.error("NowCerts lookup failed: %s", e)
 
+        # Build the greeting message based on whether we found the customer
+        if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
+            name = dynamic_variables["customer_name"].split()[0]  # First name only
+            if dynamic_variables["policy_summary"]:
+                dynamic_variables["greeting_message"] = (
+                    f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
+                    f"How can I help you today?"
+                )
+            else:
+                dynamic_variables["greeting_message"] = (
+                    f"Hi {name}! How can I help you today?"
+                )
+        else:
+            dynamic_variables["greeting_message"] = (
+                "My name is Flora. How can I help you today?"
+            )
+
         # Return dynamic variables to Retell
         return {
             "call_inbound": {
