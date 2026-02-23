@@ -41,7 +41,7 @@ CARRIER_SELLING_POINTS = {
     ),
     "progressive": (
         "Progressive is the #3 largest auto insurer in the U.S. and a proven industry leader. "
-        "Known for their innovative Name Your Price\u00ae tool, multi-policy discounts, "
+        "Known for their multi-policy discounts, competitive rates, "
         "and 24/7 claims service, Progressive consistently delivers exceptional value."
     ),
     "travelers": (
