@@ -180,20 +180,82 @@ async def inbound_call_webhook(request: Request):
             try:
                 client = get_nowcerts_client()
                 if client.is_configured:
-                    results = client.search_insureds(phone_digits, limit=5)
+                    # Method 1: Direct phone lookup via GetCustomers API
+                    # This endpoint handles phone format matching natively
+                    customer = None
+                    policies = []
 
-                    if results:
-                        # Take the first (best) match
-                        customer = results[0]
-                        first_name = customer.get("first_name", "")
-                        last_name = customer.get("last_name", "")
-                        commercial_name = customer.get("commercial_name", "")
+                    try:
+                        token = client._authenticate()
+                        headers = {
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                        }
+
+                        # Try multiple phone formats
+                        phone_formats = [
+                            phone_digits,  # 8154501688
+                            f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}",  # (815) 450-1688
+                            f"{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}",  # 815-450-1688
+                            f"+1{phone_digits}",  # +18154501688
+                        ]
+
+                        for phone_fmt in phone_formats:
+                            resp = requests.get(
+                                f"{client.base_url}/api/Customers/GetCustomers",
+                                headers=headers,
+                                params={"Phone": phone_fmt},
+                                timeout=15,
+                            )
+                            if resp.status_code == 200:
+                                results = resp.json() if resp.text.strip() else []
+                                if isinstance(results, list) and results:
+                                    customer = results[0]
+                                    logger.info(
+                                        "NowCerts GetCustomers match (format=%s): %s",
+                                        phone_fmt, str(customer)[:200]
+                                    )
+                                    break
+                            else:
+                                logger.debug(
+                                    "GetCustomers phone=%s returned %s",
+                                    phone_fmt, resp.status_code
+                                )
+                    except Exception as e:
+                        logger.warning("GetCustomers lookup failed: %s", e)
+
+                    # Method 2: Fallback to OData search if GetCustomers didn't work
+                    if not customer:
+                        try:
+                            results = client.search_insureds(phone_digits, limit=5)
+                            if results:
+                                customer = results[0]
+                                logger.info("NowCerts OData fallback match: %s", str(customer)[:200])
+                        except Exception as e:
+                            logger.warning("OData search fallback failed: %s", e)
+
+                    # Extract customer info
+                    if customer:
+                        # Handle both GetCustomers format and OData format
+                        first_name = (
+                            customer.get("FirstName") or customer.get("first_name") or ""
+                        )
+                        last_name = (
+                            customer.get("LastName") or customer.get("last_name") or ""
+                        )
+                        commercial_name = (
+                            customer.get("CommercialName") or customer.get("commercial_name") or ""
+                        )
                         customer_name = (
                             f"{first_name} {last_name}".strip()
                             if first_name
                             else commercial_name or ""
                         )
-                        insured_id = customer.get("database_id") or customer.get("insured_id") or ""
+                        insured_id = (
+                            customer.get("InsuredId") or customer.get("insured_id") or
+                            customer.get("CustomerId") or customer.get("customer_id") or
+                            customer.get("DatabaseId") or customer.get("database_id") or ""
+                        )
 
                         dynamic_variables["customer_name"] = customer_name
                         dynamic_variables["nowcerts_insured_id"] = str(insured_id)
@@ -202,6 +264,7 @@ async def inbound_call_webhook(request: Request):
                         # Get policies for this customer
                         if insured_id:
                             try:
+                                # Try InsuredPolicies endpoint
                                 policies = client.get_insured_policies(str(insured_id))
                                 if policies:
                                     dynamic_variables["policy_summary"] = build_policy_summary(policies)
