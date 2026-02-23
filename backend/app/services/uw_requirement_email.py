@@ -300,7 +300,7 @@ def build_non_renewal_email_html(
     h.append(f'<p style="font-size:16px; color:#1e293b; margin:0 0 16px; line-height:1.6;">Hi {first_name},</p>')
     h.append(f'<p style="font-size:15px; color:#334155; margin:0 0 20px; line-height:1.7;">')
     h.append(f'We\'re writing to let you know that <strong>{display_carrier}</strong> has decided not to renew your policy. ')
-    h.append(f'<strong>This does not mean you\'ll be without coverage</strong> — our team is already working on finding you the best replacement options.</p>')
+    h.append(f'<strong>You will need to secure new coverage before your policy expires</strong> to avoid a gap in insurance. Please contact us as soon as possible so we can help you find the right replacement.</p>')
 
     # Policy details
     h.append('<div style="margin:24px 0; padding:20px; background:#f5f3ff; border-radius:12px; border:1px solid #ddd6fe; border-left:4px solid #7c3aed;">')
@@ -309,18 +309,16 @@ def build_non_renewal_email_html(
     h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Current Carrier</td><td style="padding:6px 0; font-weight:600;">{display_carrier}</td></tr>')
     if effective_date:
         h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Coverage Ends</td><td style="padding:6px 0; font-weight:700; color:#dc2626;">{effective_date}</td></tr>')
-    if premium:
-        h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Current Premium</td><td style="padding:6px 0; font-weight:600;">${premium:,.2f}</td></tr>')
     if product:
         h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Policy Type</td><td style="padding:6px 0;">{product}</td></tr>')
     h.append('</table></div>')
 
     # What happens next
-    h.append('<h2 style="margin:24px 0 12px; font-size:17px; color:#1e293b;">What Happens Next</h2>')
+    h.append('<h2 style="margin:24px 0 12px; font-size:17px; color:#1e293b;">What You Need to Do</h2>')
     steps = [
-        "Our team will shop your coverage across multiple carriers to find you the best rate",
-        "We'll reach out with your new options <strong>before your current coverage ends</strong>",
-        "We'll handle all the paperwork to switch you seamlessly — no gap in coverage",
+        "Call us at <strong>(847) 908-5665</strong> or email <strong>service@betterchoiceins.com</strong> to start shopping for replacement coverage",
+        "We'll compare rates across multiple carriers to find you the best option",
+        "New coverage must be in place <strong>before your current policy expires</strong> to avoid a lapse, which can result in higher rates and legal issues",
     ]
     for i, step in enumerate(steps, 1):
         h.append(f'<div style="display:flex; margin:0 0 12px;">')
@@ -329,11 +327,14 @@ def build_non_renewal_email_html(
         h.append('</div>')
 
     # Reassurance
-    h.append('<div style="margin:20px 0; padding:16px; background:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0;">')
-    h.append('<p style="margin:0; font-size:14px; color:#166534; line-height:1.6;">')
-    h.append(f'<strong>You don\'t need to do anything right now.</strong> We\'ll be in touch shortly with replacement options. ')
-    h.append(f'If you have questions in the meantime, call us at <strong>{AGENCY_PHONE}</strong>.')
+    h.append('<div style="margin:20px 0; padding:16px; background:#fef2f2; border-radius:10px; border:1px solid #fecaca;">')
+    h.append('<p style="margin:0; font-size:14px; color:#991b1b; line-height:1.6;">')
+    h.append(f'<strong>⚠️ Don\'t wait.</strong> If you do not have replacement coverage by <strong>{effective_date or "your expiration date"}</strong>, ')
+    h.append(f'you may face a gap in coverage, which can lead to higher premiums, fines, and loss of driving privileges.')
     h.append('</p></div>')
+
+    # Call button
+    h.append(f'<a href="tel:8479085665" style="display:block; padding:14px 24px; background:#7c3aed; color:#ffffff; text-decoration:none; border-radius:10px; font-weight:700; font-size:15px; text-align:center; margin:0 0 16px;">📞 Call Us Now: (847) 908-5665</a>')
 
     # Agency footer
     h.append(f'<div style="margin:24px 0 0; padding:16px 20px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">')
