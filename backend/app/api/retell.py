@@ -236,15 +236,18 @@ async def inbound_call_webhook(request: Request):
 
                     # Extract customer info
                     if customer:
-                        # Handle both GetCustomers format and OData format
+                        # NowCerts GetCustomers returns camelCase: firstName, lastName, commercialName, databaseId
                         first_name = (
-                            customer.get("FirstName") or customer.get("first_name") or ""
+                            customer.get("firstName") or customer.get("FirstName") or
+                            customer.get("first_name") or ""
                         )
                         last_name = (
-                            customer.get("LastName") or customer.get("last_name") or ""
+                            customer.get("lastName") or customer.get("LastName") or
+                            customer.get("last_name") or ""
                         )
                         commercial_name = (
-                            customer.get("CommercialName") or customer.get("commercial_name") or ""
+                            customer.get("commercialName") or customer.get("CommercialName") or
+                            customer.get("commercial_name") or ""
                         )
                         customer_name = (
                             f"{first_name} {last_name}".strip()
@@ -252,9 +255,12 @@ async def inbound_call_webhook(request: Request):
                             else commercial_name or ""
                         )
                         insured_id = (
-                            customer.get("InsuredId") or customer.get("insured_id") or
-                            customer.get("CustomerId") or customer.get("customer_id") or
-                            customer.get("DatabaseId") or customer.get("database_id") or ""
+                            customer.get("databaseId") or customer.get("DatabaseId") or
+                            customer.get("database_id") or
+                            customer.get("insuredId") or customer.get("InsuredId") or
+                            customer.get("insured_id") or
+                            customer.get("customerId") or customer.get("CustomerId") or
+                            customer.get("customer_id") or ""
                         )
 
                         dynamic_variables["customer_name"] = customer_name
