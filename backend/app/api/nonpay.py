@@ -1827,14 +1827,19 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
     
     - Outstanding To Dos:
         - GoPaperless → skip
-        - Proof of Continuous Insurance / NoPOP → send UW requirement email
+        - Proof of Continuous Insurance / NoPOP / ChangePriorBI / Proof of Prior BI → send UW requirement email
+    - Pending Non-Renewals:
+        - Send non-renewal notice to insured + CC producer for remarketing
     - Pending Cancellations:
         - Non Payment / NSF → existing non-pay flow
         - Underwriting / Voluntary → skip
     - Undeliverable Mail → notify producer
     """
     from app.services.natgen_parser import parse_natgen_policy_activity
-    from app.services.uw_requirement_email import send_uw_requirement_email, send_undeliverable_mail_alert
+    from app.services.uw_requirement_email import (
+        send_uw_requirement_email, send_undeliverable_mail_alert,
+        send_non_renewal_email,
+    )
 
     parsed = parse_natgen_policy_activity(html_body)
     carrier = "national_general"
@@ -1859,7 +1864,7 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             })
             continue
         
-        if todo_type in ("proof_of_continuous_insurance", "nopop"):
+        if todo_type in ("proof_of_continuous_insurance", "nopop", "change_prior_bi", "proof_of_prior_bi"):
             # Look up customer in DB to get email + producer
             customer_info = _lookup_customer_for_natgen(db, policy, insured)
             
@@ -1902,7 +1907,55 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         "details": todos_processed,
     }
 
-    # ── 2. Pending Cancellations → existing non-pay flow ──
+    # ── 2. Pending Non-Renewals → notify insured + producer for remarketing ──
+    nonrenewals_processed = []
+    for nr in parsed.get("pending_non_renewals", []):
+        policy = nr.get("policy", "")
+        insured = nr.get("insured_name", "")
+        effective = nr.get("effective_date", "")
+        premium = nr.get("premium")
+        product = nr.get("product", "")
+        description = nr.get("description", "")
+        nr_producer = nr.get("producer_name", "")
+
+        # Look up customer
+        customer_info = _lookup_customer_for_natgen(db, policy, insured)
+
+        if customer_info and customer_info.get("email"):
+            email_result = send_non_renewal_email(
+                to_email=customer_info["email"],
+                client_name=insured,
+                policy_number=policy,
+                carrier=carrier,
+                effective_date=effective,
+                premium=premium,
+                product=product,
+                description=description,
+                producer_name=nr_producer or (customer_info or {}).get("producer_name"),
+                producer_email=(customer_info or {}).get("producer_email"),
+            )
+            nonrenewals_processed.append({
+                "policy": policy, "insured": insured,
+                "action": "non_renewal_email_sent" if email_result.get("success") else "non_renewal_email_failed",
+                "email": customer_info["email"],
+                "effective_date": effective,
+                "producer": nr_producer,
+                "error": email_result.get("error"),
+            })
+        else:
+            nonrenewals_processed.append({
+                "policy": policy, "insured": insured,
+                "action": "no_email_found",
+                "effective_date": effective,
+                "producer": nr_producer,
+            })
+
+    results["sections"]["pending_non_renewals"] = {
+        "total": len(parsed.get("pending_non_renewals", [])),
+        "details": nonrenewals_processed,
+    }
+
+    # ── 3. Pending Cancellations → existing non-pay flow ──
     cancellations_processed = []
     mode = INBOUND_NONPAY_MODE
     dry_run = (mode != "live")
@@ -1963,7 +2016,7 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         "details": cancellations_processed,
     }
 
-    # ── 3. Undeliverable Mail → notify producer ──
+    # ── 4. Undeliverable Mail → notify producer ──
     undeliverable_processed = []
     for undel in parsed["undeliverable_mail"]:
         policy = undel.get("policy", "")
@@ -1996,8 +2049,9 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
     }
 
     logger.info(
-        "NatGen Activity processed: %d todos, %d cancellations (%d nonpay), %d undeliverable",
+        "NatGen Activity processed: %d todos, %d non-renewals, %d cancellations (%d nonpay), %d undeliverable",
         len(parsed["outstanding_todos"]),
+        len(parsed.get("pending_non_renewals", [])),
         len(parsed["pending_cancellations"]),
         len(nonpay_policies) if nonpay_policies else 0,
         len(parsed["undeliverable_mail"]),

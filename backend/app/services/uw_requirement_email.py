@@ -43,6 +43,30 @@ UW_REQUIREMENT_TYPES = {
         ],
         "urgency": "Without this documentation, your premium may be adjusted or your policy could face cancellation.",
     },
+    "change_prior_bi": {
+        "short": "Prior Bodily Injury Limits Documentation",
+        "subject": "Action Required: Prior Insurance Limits Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier has requested documentation of your <strong>prior bodily injury liability limits</strong>. "
+                       "This is needed to verify the liability coverage you carried on your previous policy.",
+        "how_to": [
+            "Contact your previous insurance company and request a <strong>declarations page</strong> showing your prior bodily injury liability limits",
+            "The dec page should clearly show your BI (Bodily Injury) limit amounts (e.g., 100/300 or 250/500)",
+            "Forward the document to us at <strong>service@betterchoiceins.com</strong> or reply to this email with the attachment",
+        ],
+        "urgency": "Without this documentation, your liability limits and premium may be adjusted or your policy could face cancellation.",
+    },
+    "proof_of_prior_bi": {
+        "short": "Proof of Prior Bodily Injury Limits",
+        "subject": "Action Required: Prior BI Limits Documentation Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier needs <strong>proof of your prior bodily injury (BI) liability limits</strong>. "
+                       "This verifies the coverage level you had before your current policy.",
+        "how_to": [
+            "Contact your previous insurance company and request a <strong>declarations page</strong> showing your bodily injury liability limits",
+            "The dec page should show your BI limits (e.g., 25/50, 100/300, 250/500)",
+            "Forward the document to us at <strong>service@betterchoiceins.com</strong> or reply to this email",
+        ],
+        "urgency": "If this documentation is not provided promptly, your coverage limits or premium may be adjusted.",
+    },
 }
 
 
@@ -263,6 +287,153 @@ def send_undeliverable_mail_alert(
         if resp.status_code == 200:
             logger.info("Undeliverable mail alert sent for %s/%s", client_name, policy_number)
             return {"success": True}
+        return {"success": False, "error": f"Mailgun {resp.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def build_non_renewal_email_html(
+    client_name: str,
+    policy_number: str,
+    carrier: str,
+    effective_date: str = "",
+    premium: Optional[float] = None,
+    product: str = "",
+    description: str = "",
+    producer_name: Optional[str] = None,
+) -> tuple[str, str]:
+    """Build non-renewal notification email for the insured. Returns (subject, html_body)."""
+
+    carrier_key = _get_carrier_key(carrier)
+    info = CARRIER_INFO.get(carrier_key, {}) if carrier_key else {}
+    display_carrier = info.get("display_name", carrier or "Your Insurance Carrier")
+    accent = info.get("accent_color", BCI_NAVY)
+
+    first_name = (client_name or "Valued Customer").split()[0]
+    subject = f"Important: Your {display_carrier} Policy Will Not Be Renewed — We're Here to Help"
+
+    h = []
+    h.append('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>')
+    h.append('<body style="margin:0; padding:0; background:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">')
+    h.append('<div style="max-width:600px; margin:0 auto; padding:20px;">')
+
+    # Header
+    h.append('<div style="background:linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); border-radius:16px 16px 0 0; padding:28px 32px; text-align:center;">')
+    h.append('<p style="margin:0 0 4px; font-size:13px; color:rgba(255,255,255,0.85); letter-spacing:1px; font-weight:600;">📋 POLICY UPDATE</p>')
+    h.append('<h1 style="margin:0; font-size:22px; color:#ffffff; font-weight:700;">Your Policy Is Not Being Renewed</h1>')
+    h.append('</div>')
+
+    h.append('<div style="background:#ffffff; padding:32px; border-radius:0 0 16px 16px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">')
+
+    # Greeting
+    h.append(f'<p style="font-size:16px; color:#1e293b; margin:0 0 16px; line-height:1.6;">Hi {first_name},</p>')
+    h.append(f'<p style="font-size:15px; color:#334155; margin:0 0 20px; line-height:1.7;">')
+    h.append(f'We\'re writing to let you know that <strong>{display_carrier}</strong> has decided not to renew your policy. ')
+    h.append(f'<strong>This does not mean you\'ll be without coverage</strong> — our team is already working on finding you the best replacement options.</p>')
+
+    # Policy details
+    h.append('<div style="margin:24px 0; padding:20px; background:#f5f3ff; border-radius:12px; border:1px solid #ddd6fe; border-left:4px solid #7c3aed;">')
+    h.append('<table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">')
+    h.append(f'<tr><td style="padding:6px 0; color:#64748b; width:160px;">Policy Number</td><td style="padding:6px 0; font-weight:700; color:#1e293b;">{policy_number}</td></tr>')
+    h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Current Carrier</td><td style="padding:6px 0; font-weight:600;">{display_carrier}</td></tr>')
+    if effective_date:
+        h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Coverage Ends</td><td style="padding:6px 0; font-weight:700; color:#dc2626;">{effective_date}</td></tr>')
+    if premium:
+        h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Current Premium</td><td style="padding:6px 0; font-weight:600;">${premium:,.2f}</td></tr>')
+    if product:
+        h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Policy Type</td><td style="padding:6px 0;">{product}</td></tr>')
+    h.append('</table></div>')
+
+    # What happens next
+    h.append('<h2 style="margin:24px 0 12px; font-size:17px; color:#1e293b;">What Happens Next</h2>')
+    steps = [
+        "Our team will shop your coverage across multiple carriers to find you the best rate",
+        "We'll reach out with your new options <strong>before your current coverage ends</strong>",
+        "We'll handle all the paperwork to switch you seamlessly — no gap in coverage",
+    ]
+    for i, step in enumerate(steps, 1):
+        h.append(f'<div style="display:flex; margin:0 0 12px;">')
+        h.append(f'<div style="min-width:28px; height:28px; border-radius:50%; background:#7c3aed; color:white; font-weight:700; font-size:13px; display:inline-block; text-align:center; line-height:28px; margin-right:12px;">{i}</div>')
+        h.append(f'<p style="margin:0; font-size:14px; color:#334155; line-height:1.6; padding-top:3px;">{step}</p>')
+        h.append('</div>')
+
+    # Reassurance
+    h.append('<div style="margin:20px 0; padding:16px; background:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0;">')
+    h.append('<p style="margin:0; font-size:14px; color:#166534; line-height:1.6;">')
+    h.append(f'<strong>You don\'t need to do anything right now.</strong> We\'ll be in touch shortly with replacement options. ')
+    h.append(f'If you have questions in the meantime, call us at <strong>{AGENCY_PHONE}</strong>.')
+    h.append('</p></div>')
+
+    # Agency footer
+    h.append(f'<div style="margin:24px 0 0; padding:16px 20px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">')
+    h.append(f'<p style="margin:0 0 4px; font-size:12px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR AGENCY</p>')
+    h.append(f'<p style="margin:0 0 2px; font-weight:700; font-size:15px; color:#1e293b;">{AGENCY_NAME}</p>')
+    h.append(f'<p style="margin:0; font-size:14px;"><a href="tel:8479085665" style="color:{BCI_CYAN}; text-decoration:none; font-weight:600;">{AGENCY_PHONE}</a></p>')
+    if producer_name:
+        h.append(f'<p style="margin:4px 0 0; font-size:13px; color:#64748b;">Your agent: <strong>{producer_name}</strong></p>')
+    h.append('</div>')
+
+    h.append('<hr style="border:none; border-top:1px solid #e2e8f0; margin:24px 0;">')
+    h.append(f'<p style="font-size:11px; color:#94a3b8; text-align:center; margin:0;">This is an automated notice from {AGENCY_NAME}.</p>')
+    h.append('</div></div></body></html>')
+
+    return subject, "\n".join(h)
+
+
+def send_non_renewal_email(
+    to_email: str,
+    client_name: str,
+    policy_number: str,
+    carrier: str,
+    effective_date: str = "",
+    premium: Optional[float] = None,
+    product: str = "",
+    description: str = "",
+    producer_name: Optional[str] = None,
+    producer_email: Optional[str] = None,
+) -> dict:
+    """Send non-renewal notification email via Mailgun."""
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        return {"success": False, "error": "Mailgun not configured"}
+
+    if not to_email:
+        return {"success": False, "error": "No email address"}
+
+    subject, html_body = build_non_renewal_email_html(
+        client_name=client_name,
+        policy_number=policy_number,
+        carrier=carrier,
+        effective_date=effective_date,
+        premium=premium,
+        product=product,
+        description=description,
+        producer_name=producer_name,
+    )
+
+    cc_list = ["evan@betterchoiceins.com"]
+    if producer_email and producer_email != "evan@betterchoiceins.com":
+        cc_list.append(producer_email)
+
+    mail_data = {
+        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+        "h:Reply-To": "service@betterchoiceins.com",
+        "cc": cc_list,
+    }
+
+    try:
+        resp = requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data=mail_data,
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            msg_id = resp.json().get("id", "")
+            logger.info("Non-renewal email sent to %s for %s", to_email, policy_number)
+            return {"success": True, "message_id": msg_id}
         return {"success": False, "error": f"Mailgun {resp.status_code}"}
     except Exception as e:
         return {"success": False, "error": str(e)}

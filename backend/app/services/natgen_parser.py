@@ -34,6 +34,7 @@ def parse_natgen_policy_activity(html_body: str) -> dict:
     
     result = {
         "outstanding_todos": [],
+        "pending_non_renewals": [],
         "pending_cancellations": [],
         "undeliverable_mail": [],
     }
@@ -77,6 +78,15 @@ def parse_natgen_policy_activity(html_body: str) -> dict:
                 entry = _parse_todo_row(headers, cells)
                 if entry and entry.get("policy"):
                     result["outstanding_todos"].append(entry)
+
+        elif current_section == "pending_non_renewals" or _is_non_renewal_table(headers):
+            for row in rows[1:]:
+                cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
+                if len(cells) < 4:
+                    continue
+                entry = _parse_non_renewal_row(headers, cells)
+                if entry and entry.get("policy"):
+                    result["pending_non_renewals"].append(entry)
                     
         elif current_section == "pending_cancellations" or _is_cancellation_table(headers):
             for row in rows[1:]:
@@ -113,6 +123,8 @@ def _detect_section(table, soup) -> Optional[str]:
             text = prev.get_text(strip=True).lower()
             if "outstanding to do" in text:
                 return "outstanding_todos"
+            if "pending non-renewal" in text or "pending non renewal" in text:
+                return "pending_non_renewals"
             if "pending cancellation" in text:
                 return "pending_cancellations"
             if "undeliverable mail" in text:
@@ -122,6 +134,8 @@ def _detect_section(table, soup) -> Optional[str]:
             if text:
                 if "outstanding to do" in text:
                     return "outstanding_todos"
+                if "pending non-renewal" in text or "pending non renewal" in text:
+                    return "pending_non_renewals"
                 if "pending cancellation" in text:
                     return "pending_cancellations"
                 if "undeliverable mail" in text:
@@ -135,6 +149,8 @@ def _detect_section(table, soup) -> Optional[str]:
                 text = prev.get_text(strip=True).lower()
                 if "outstanding to do" in text:
                     return "outstanding_todos"
+                if "pending non-renewal" in text or "pending non renewal" in text:
+                    return "pending_non_renewals"
                 if "pending cancellation" in text:
                     return "pending_cancellations"
                 if "undeliverable mail" in text:
@@ -145,6 +161,11 @@ def _detect_section(table, soup) -> Optional[str]:
 def _is_todo_table(headers: list) -> bool:
     h = " ".join(headers)
     return "to do description" in h or "action to be taken" in h
+
+
+def _is_non_renewal_table(headers: list) -> bool:
+    h = " ".join(headers)
+    return ("effective" in h and "premium" in h and "producer" in h) or "non-renewal" in h
 
 
 def _is_cancellation_table(headers: list) -> bool:
@@ -180,10 +201,14 @@ def _parse_todo_row(headers: list, cells: list) -> dict:
     action_lower = action.lower()
     if "gopaperless" in desc_lower or "gopaperless" in action_lower:
         todo_type = "go_paperless"
-    elif "proof of continuous" in desc_lower or "proof of continuous" in action_lower:
+    elif "proof of continuous" in desc_lower:
         todo_type = "proof_of_continuous_insurance"
     elif "nopop" in desc_lower or "nopop" in action_lower or "no pop" in desc_lower:
         todo_type = "nopop"
+    elif "changepriorbi" in action_lower or "change prior bi" in action_lower or "changepriorbi" in desc_lower:
+        todo_type = "change_prior_bi"
+    elif "proof of prior bi" in desc_lower or "proof of prior bl" in desc_lower:
+        todo_type = "proof_of_prior_bi"
     else:
         todo_type = "other"
     
@@ -257,4 +282,39 @@ def _parse_undeliverable_row(headers: list, cells: list) -> dict:
         "phone2": phone2.strip() if phone2 else "",
         "phone3": phone3.strip() if phone3 else "",
         "mail_description": mail_desc,
+    }
+
+
+def _parse_non_renewal_row(headers: list, cells: list) -> dict:
+    policy = _get_cell(headers, cells, "policy")
+    insured = _get_cell(headers, cells, "named insured", "insured")
+    phone = _get_cell(headers, cells, "phone")
+    product = _get_cell(headers, cells, "product")
+    div = _get_cell(headers, cells, "div")
+    processed = _get_cell(headers, cells, "processed")
+    effective = _get_cell(headers, cells, "effective")
+    description = _get_cell(headers, cells, "description")
+    premium_str = _get_cell(headers, cells, "premium")
+    producer = _get_cell(headers, cells, "producer")
+    
+    # Clean premium
+    premium = None
+    if premium_str:
+        try:
+            premium = float(premium_str.replace("$", "").replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+    
+    return {
+        "policy": policy.strip(),
+        "insured_name": insured.strip(),
+        "phone": phone.strip() if phone else "",
+        "product": product,
+        "div": div,
+        "processed_date": processed,
+        "effective_date": effective,
+        "description": description,
+        "premium": premium,
+        "premium_str": premium_str,
+        "producer_name": producer.strip() if producer else "",
     }
