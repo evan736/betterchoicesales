@@ -1918,37 +1918,107 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         description = nr.get("description", "")
         nr_producer = nr.get("producer_name", "")
 
+        # Check if within 60 days
+        is_urgent = _is_within_days_nonpay(effective, 60)
+
         # Look up customer
         customer_info = _lookup_customer_for_natgen(db, policy, insured)
 
-        if customer_info and customer_info.get("email"):
-            email_result = send_non_renewal_email(
-                to_email=customer_info["email"],
-                client_name=insured,
+        # Always create a task for the retention team
+        try:
+            from app.api.tasks import create_non_renewal_task
+            task = create_non_renewal_task(
+                db=db,
+                customer_name=insured,
+                policy_number=policy,
+                carrier=carrier,
+                effective_date=effective,
+                premium=premium,
+                producer_name=nr_producer,
+                assigned_to_id=(customer_info or {}).get("sale_id") and None,  # unassigned, retention team picks up
+            )
+            task_id = task.id
+        except Exception as e:
+            logger.error("Failed to create non-renewal task for %s: %s", policy, e)
+            task_id = None
+
+        if is_urgent:
+            # Within 60 days → send to service@betterchoiceins.com (retention team)
+            # AND send non-renewal email to insured if we have their email
+            to_emails = ["service@betterchoiceins.com"]
+            
+            if customer_info and customer_info.get("email"):
+                # Send customer-facing non-renewal email
+                email_result = send_non_renewal_email(
+                    to_email=customer_info["email"],
+                    client_name=insured,
+                    policy_number=policy,
+                    carrier=carrier,
+                    effective_date=effective,
+                    premium=premium,
+                    product=product,
+                    description=description,
+                    producer_name=nr_producer or (customer_info or {}).get("producer_name"),
+                    producer_email=(customer_info or {}).get("producer_email"),
+                )
+            else:
+                email_result = {"success": False, "error": "No customer email"}
+
+            # Send internal alert to service@
+            _send_internal_nonrenewal_alert(
+                insured_name=insured,
                 policy_number=policy,
                 carrier=carrier,
                 effective_date=effective,
                 premium=premium,
                 product=product,
-                description=description,
-                producer_name=nr_producer or (customer_info or {}).get("producer_name"),
-                producer_email=(customer_info or {}).get("producer_email"),
+                producer_name=nr_producer,
+                phone=nr.get("phone", ""),
+                customer_email=(customer_info or {}).get("email", ""),
             )
+
             nonrenewals_processed.append({
                 "policy": policy, "insured": insured,
-                "action": "non_renewal_email_sent" if email_result.get("success") else "non_renewal_email_failed",
-                "email": customer_info["email"],
+                "action": "urgent_non_renewal" if email_result.get("success") else "urgent_no_customer_email",
+                "email": (customer_info or {}).get("email", ""),
                 "effective_date": effective,
                 "producer": nr_producer,
+                "task_id": task_id,
+                "days_until": _days_until(effective),
                 "error": email_result.get("error"),
             })
         else:
-            nonrenewals_processed.append({
-                "policy": policy, "insured": insured,
-                "action": "no_email_found",
-                "effective_date": effective,
-                "producer": nr_producer,
-            })
+            # More than 60 days — still send non-renewal email to insured
+            if customer_info and customer_info.get("email"):
+                email_result = send_non_renewal_email(
+                    to_email=customer_info["email"],
+                    client_name=insured,
+                    policy_number=policy,
+                    carrier=carrier,
+                    effective_date=effective,
+                    premium=premium,
+                    product=product,
+                    description=description,
+                    producer_name=nr_producer or (customer_info or {}).get("producer_name"),
+                    producer_email=(customer_info or {}).get("producer_email"),
+                )
+                nonrenewals_processed.append({
+                    "policy": policy, "insured": insured,
+                    "action": "non_renewal_email_sent" if email_result.get("success") else "non_renewal_email_failed",
+                    "email": customer_info["email"],
+                    "effective_date": effective,
+                    "producer": nr_producer,
+                    "task_id": task_id,
+                    "error": email_result.get("error"),
+                })
+            else:
+                nonrenewals_processed.append({
+                    "policy": policy, "insured": insured,
+                    "action": "no_email_found",
+                    "effective_date": effective,
+                    "producer": nr_producer,
+                    "task_id": task_id,
+                })
 
     results["sections"]["pending_non_renewals"] = {
         "total": len(parsed.get("pending_non_renewals", [])),
@@ -2110,3 +2180,95 @@ def _lookup_customer_for_natgen(db: Session, policy_number: str, insured_name: s
             result["producer_email"] = producer.email
 
     return result
+
+
+def _is_within_days_nonpay(date_str: str, days: int) -> bool:
+    """Check if a date string is within N days from now."""
+    try:
+        from dateutil import parser as dateparser
+        dt = dateparser.parse(date_str)
+        delta = (dt - datetime.now()).days
+        return delta <= days
+    except Exception:
+        # If we can't parse the date, treat as urgent
+        return True
+
+
+def _days_until(date_str: str) -> Optional[int]:
+    """Return number of days until a date."""
+    try:
+        from dateutil import parser as dateparser
+        dt = dateparser.parse(date_str)
+        return (dt - datetime.now()).days
+    except Exception:
+        return None
+
+
+def _send_internal_nonrenewal_alert(
+    insured_name: str,
+    policy_number: str,
+    carrier: str,
+    effective_date: str,
+    premium: Optional[float] = None,
+    product: str = "",
+    producer_name: str = "",
+    phone: str = "",
+    customer_email: str = "",
+):
+    """Send internal alert to service@betterchoiceins.com for urgent non-renewals."""
+    import requests as req_lib
+
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        logger.warning("Mailgun not configured — skipping internal non-renewal alert")
+        return
+
+    days = _days_until(effective_date)
+    days_str = f"{days} days" if days is not None else "UNKNOWN"
+    premium_str = f"${premium:,.2f}" if premium else "N/A"
+
+    subject = f"🚨 URGENT Non-Renewal: {insured_name} — {days_str} until coverage ends"
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:20px;">
+<div style="background:linear-gradient(135deg,#dc2626,#991b1b);border-radius:16px 16px 0 0;padding:24px 32px;text-align:center;">
+<h1 style="margin:0;font-size:20px;color:#fff;">🚨 Non-Renewal — Immediate Action Required</h1>
+<p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,0.9);">Coverage ends in <strong>{days_str}</strong></p>
+</div>
+<div style="background:#fff;padding:28px 32px;border-radius:0 0 16px 16px;">
+<table style="width:100%;font-size:14px;color:#334155;" cellpadding="0" cellspacing="0">
+<tr><td style="padding:8px 0;color:#64748b;width:140px;">Customer</td><td style="font-weight:700;font-size:15px;">{insured_name}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Policy</td><td style="font-weight:600;">{policy_number}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Carrier</td><td>National General</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Coverage Ends</td><td style="font-weight:700;color:#dc2626;">{effective_date}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Premium</td><td>{premium_str}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Product</td><td>{product}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Producer</td><td>{producer_name}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Phone</td><td>{phone or 'N/A'}</td></tr>
+<tr><td style="padding:8px 0;color:#64748b;">Email</td><td>{customer_email or 'Not on file'}</td></tr>
+</table>
+<div style="margin:20px 0;padding:16px;background:#fef2f2;border-radius:10px;border:1px solid #fecaca;">
+<p style="margin:0;font-size:14px;color:#991b1b;line-height:1.6;">
+<strong>Action needed:</strong> Shop replacement coverage and contact the customer before {effective_date}.
+A task has been created on the dashboard.</p>
+</div>
+</div></div></body></html>"""
+
+    try:
+        resp = req_lib.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+                "to": ["service@betterchoiceins.com"],
+                "subject": subject,
+                "html": html,
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            logger.info("Internal non-renewal alert sent for %s/%s", insured_name, policy_number)
+        else:
+            logger.error("Internal alert failed: %s %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.error("Internal non-renewal alert error: %s", e)

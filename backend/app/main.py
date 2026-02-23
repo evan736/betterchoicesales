@@ -29,6 +29,7 @@ def init_database():
     from app.models.commission import CommissionTier
     from app.models.timeclock import TimeClockEntry  # ensure table is created
     from app.models.nonpay import NonPayNotice, NonPayEmail  # ensure tables created
+    from app.models.task import Task  # ensure task table created
     from app.models.campaign import (  # ensure campaign tables created
         RenewalNotice, UWRequirement, WinBackCampaign,
         Quote, OnboardingCampaign, GHLWebhookLog
@@ -650,6 +651,9 @@ app.include_router(non_renewal_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
+
+from app.api import tasks as tasks_api
+app.include_router(tasks_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

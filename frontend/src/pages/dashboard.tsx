@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import TrendingGoals from '../components/TrendingGoals';
-import { salesAPI, commissionsAPI, timeclockAPI } from '../lib/api';
+import { salesAPI, commissionsAPI, timeclockAPI, tasksAPI } from '../lib/api';
 import {
   DollarSign,
   TrendingUp,
@@ -21,6 +21,9 @@ import {
   Upload,
   ExternalLink,
   ChevronDown,
+  AlertCircle,
+  ClipboardList,
+  UserCheck,
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -246,6 +249,9 @@ export default function Dashboard() {
           <TrendingGoals compact />
         </div>
 
+        {/* ── Tasks Panel ── */}
+        <TasksPanel />
+
         {/* ── Row 4: Recent Sales Ticker ── */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -470,6 +476,168 @@ const LinkDropdown: React.FC<{ label: string; links: { name: string; url: string
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+
+// ── Tasks Panel ─────────────────────────────────────────────────────
+
+const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  urgent: { bg: 'bg-red-100', text: 'text-red-700', label: 'URGENT' },
+  high:   { bg: 'bg-orange-100', text: 'text-orange-700', label: 'HIGH' },
+  medium: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'MEDIUM' },
+  low:    { bg: 'bg-slate-100', text: 'text-slate-600', label: 'LOW' },
+};
+
+const TasksPanel: React.FC = () => {
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [counts, setCounts] = useState<any>({ open: 0, urgent: 0, my_tasks: 0 });
+  const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement'>('all');
+  const [loading, setLoading] = useState(true);
+
+  const loadTasks = async () => {
+    try {
+      const params: any = { limit: 20 };
+      if (filter !== 'all') params.task_type = filter;
+      const [tasksRes, countsRes] = await Promise.all([
+        tasksAPI.list(params),
+        tasksAPI.counts(),
+      ]);
+      setTasks(tasksRes.data || []);
+      setCounts(countsRes.data || { open: 0, urgent: 0, my_tasks: 0 });
+    } catch (e) { console.error('Tasks load failed:', e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadTasks(); }, [filter]);
+
+  const handleComplete = async (id: number) => {
+    try {
+      await tasksAPI.update(id, { status: 'completed' });
+      loadTasks();
+    } catch (e) { console.error('Task update failed:', e); }
+  };
+
+  const daysUntil = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    const d = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+    return d;
+  };
+
+  if (loading) return null;
+  if (counts.open === 0) return null; // Hide panel when no tasks
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center space-x-2">
+          <ClipboardList size={16} className="text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+            Tasks
+          </h3>
+          {counts.open > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
+              {counts.open}
+            </span>
+          )}
+          {counts.urgent > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-600 text-white">
+              {counts.urgent} urgent
+            </span>
+          )}
+        </div>
+        <div className="flex space-x-1">
+          {(['all', 'non_renewal', 'uw_requirement'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                filter === f
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'non_renewal' ? 'Non-Renewals' : 'UW Reqs'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {tasks.map((task) => {
+          const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
+          const days = daysUntil(task.due_date);
+          const isOverdue = days !== null && days < 0;
+          const isUrgent = days !== null && days <= 7;
+
+          return (
+            <div
+              key={task.id}
+              className={`rounded-xl border px-4 py-3 transition-all ${
+                isOverdue ? 'border-red-300 bg-red-50/50' :
+                isUrgent ? 'border-orange-200 bg-orange-50/30' :
+                'border-slate-200 bg-white'
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pri.bg} ${pri.text}`}>
+                      {pri.label}
+                    </span>
+                    {task.task_type === 'non_renewal' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">
+                        NON-RENEWAL
+                      </span>
+                    )}
+                    {task.task_type === 'uw_requirement' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
+                        UW REQ
+                      </span>
+                    )}
+                    {days !== null && (
+                      <span className={`text-[11px] font-semibold ${
+                        isOverdue ? 'text-red-600' :
+                        isUrgent ? 'text-orange-600' :
+                        'text-slate-500'
+                      }`}>
+                        {isOverdue ? `${Math.abs(days)}d overdue` :
+                         days === 0 ? 'Due today' :
+                         `${days}d left`}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800 truncate">{task.title}</p>
+                  <div className="flex items-center space-x-3 mt-1 text-xs text-slate-500">
+                    <span>{task.policy_number}</span>
+                    {task.carrier && <span>• {task.carrier}</span>}
+                    {task.assigned_to_name && (
+                      <span className="flex items-center space-x-1">
+                        <UserCheck size={10} />
+                        <span>{task.assigned_to_name}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleComplete(task.id)}
+                  className="ml-3 p-1.5 rounded-lg hover:bg-green-100 text-slate-400 hover:text-green-600 transition-colors"
+                  title="Mark complete"
+                >
+                  <CheckCircle size={18} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {tasks.length === 0 && (
+          <div className="text-center py-6 text-sm text-slate-400">
+            No open tasks
+          </div>
+        )}
+      </div>
     </div>
   );
 };

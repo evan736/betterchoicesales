@@ -339,3 +339,12 @@ export const lifeCrossSellAPI = {
   send: (saleIds: number[], fetchTeaser: boolean = false) =>
     api.post('/api/life-crosssell/send', { sale_ids: saleIds, fetch_teaser: fetchTeaser }),
 };
+
+// Tasks API
+export const tasksAPI = {
+  list: (params?: { status?: string; assigned_to?: number; task_type?: string; limit?: number }) =>
+    api.get('/api/tasks', { params }),
+  counts: () => api.get('/api/tasks/counts'),
+  update: (id: number, payload: { status?: string; assigned_to_id?: number; notes?: string; priority?: string }) =>
+    api.patch(`/api/tasks/${id}`, payload),
+};
