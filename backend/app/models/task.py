@@ -45,6 +45,30 @@ class Task(Base):
     source = Column(String, nullable=True)  # "natgen_activity", "manual", etc.
     notes = Column(Text, nullable=True)
 
+    # Non-renewal escalation tracking
+    last_notification_tier = Column(String, nullable=True)  # "60d", "45d", "30d", "14d", "7d", "3d"
+    notifications_disabled = Column(Boolean, default=False)
+    customer_notified = Column(Boolean, default=False)  # Has the insured been emailed yet?
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class NonRenewalNotification(Base):
+    """Log of every non-renewal escalation notification sent."""
+    __tablename__ = "non_renewal_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False, index=True)
+    policy_number = Column(String, nullable=False)
+    tier = Column(String, nullable=False)  # "60d", "45d", "30d", "14d", "7d", "3d"
+    days_remaining = Column(Integer, nullable=True)
+
+    # What was sent
+    producer_emailed = Column(Boolean, default=False)
+    service_emailed = Column(Boolean, default=False)
+    customer_emailed = Column(Boolean, default=False)
+    evan_emailed = Column(Boolean, default=False)
+
+    sent_at = Column(DateTime(timezone=True), default=datetime.utcnow)

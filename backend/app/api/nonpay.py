@@ -2126,6 +2126,19 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         len(nonpay_policies) if nonpay_policies else 0,
         len(parsed["undeliverable_mail"]),
     )
+
+    # ── 5. Run escalation check on ALL existing non-renewal tasks ──
+    try:
+        from app.services.nonrenewal_escalation import run_escalation_check
+        escalation_result = run_escalation_check(db)
+        results["escalation_check"] = {
+            "checked": escalation_result["checked"],
+            "escalated": escalation_result["escalated"],
+        }
+    except Exception as e:
+        logger.error("Escalation check failed: %s", e)
+        results["escalation_check"] = {"error": str(e)}
+
     return results
 
 

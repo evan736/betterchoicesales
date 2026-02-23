@@ -87,6 +87,9 @@ def update_task(
         task.status = payload["status"]
         if payload["status"] == "completed":
             task.completed_at = datetime.utcnow()
+            task.notifications_disabled = True  # Stop all future escalation emails
+        elif payload["status"] == "cancelled":
+            task.notifications_disabled = True
 
     if "assigned_to_id" in payload:
         task.assigned_to_id = payload["assigned_to_id"]
@@ -141,8 +144,19 @@ def create_non_renewal_task(
     producer_name: str = "",
     assigned_to_id: Optional[int] = None,
 ) -> Task:
-    """Create a task for non-renewal remarketing."""
+    """Create a task for non-renewal remarketing. Deduplicates by policy number."""
     from dateutil import parser as dateparser
+
+    # Check for existing open task for this policy
+    existing = db.query(Task).filter(
+        Task.policy_number == policy_number,
+        Task.task_type == "non_renewal",
+        Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS]),
+    ).first()
+
+    if existing:
+        logger.info("Non-renewal task already exists for %s (task #%d)", policy_number, existing.id)
+        return existing  # Return existing — escalation engine handles notifications
 
     due = None
     try:
@@ -187,3 +201,41 @@ def _is_within_days(date_str: str, days: int) -> bool:
         return (dt - datetime.now()).days <= days
     except Exception:
         return False
+
+
+@router.post("/check-escalations")
+def check_escalations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run the non-renewal escalation check manually or via cron."""
+    from app.services.nonrenewal_escalation import run_escalation_check
+    result = run_escalation_check(db)
+    return result
+
+
+@router.get("/{task_id}/notifications")
+def get_task_notifications(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get notification history for a task."""
+    from app.models.task import NonRenewalNotification
+    notis = db.query(NonRenewalNotification).filter(
+        NonRenewalNotification.task_id == task_id,
+    ).order_by(NonRenewalNotification.sent_at.desc()).all()
+
+    return [
+        {
+            "id": n.id,
+            "tier": n.tier,
+            "days_remaining": n.days_remaining,
+            "producer_emailed": n.producer_emailed,
+            "service_emailed": n.service_emailed,
+            "customer_emailed": n.customer_emailed,
+            "evan_emailed": n.evan_emailed,
+            "sent_at": n.sent_at.isoformat() if n.sent_at else None,
+        }
+        for n in notis
+    ]
