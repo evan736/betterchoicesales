@@ -74,10 +74,19 @@ def build_policy_summary(policies: list[dict]) -> str:
     for pol in policies:
         status = (pol.get("status") or pol.get("policyStatus") or "").lower().strip()
         
+        # Explicitly exclude known inactive statuses
+        inactive_statuses = {"cancelled", "canceled", "expired", "non-renewed", "non renewed",
+                           "nonrenewed", "void", "flat cancelled", "flat canceled", "renewed"}
+        if status in inactive_statuses:
+            logger.debug("Skipping inactive policy: status=%s carrier=%s", status,
+                        pol.get("carrierName") or pol.get("carrier_name") or "?")
+            continue
+        
         # Only include policies that are currently active
-        # "Renewed" means this policy TERM was renewed into a new one — it's not current
-        active_statuses = {"active", "renewing", "in force", "pending", "bound"}
+        active_statuses = {"active", "renewing", "in force", "pending", "bound", "issued", ""}
         if status and status not in active_statuses:
+            logger.debug("Skipping unknown status policy: status=%s carrier=%s", status,
+                        pol.get("carrierName") or pol.get("carrier_name") or "?")
             continue
 
         carrier = (
@@ -159,9 +168,69 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
 # We return:    {call_inbound: {dynamic_variables: {...}}}
 
 import asyncio
+import time as _time
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(max_workers=4)
+
+# In-memory cache: phone_digits -> {customer, policies, cached_at}
+# Survives across requests within the same Render worker process
+_phone_cache: dict = {}
+_CACHE_TTL = 3600  # 1 hour
+
+
+def _local_db_phone_lookup(phone_digits: str) -> dict:
+    """Look up customer in local PostgreSQL cache — should take <100ms."""
+    try:
+        from app.core.database import SessionLocal
+        from app.models.customer import Customer, CustomerPolicy
+        from sqlalchemy import or_
+        
+        db = SessionLocal()
+        try:
+            # Search by phone or mobile_phone (strip non-digits for comparison)
+            customer = db.query(Customer).filter(
+                or_(
+                    Customer.phone.like(f"%{phone_digits[-10:]}%"),
+                    Customer.mobile_phone.like(f"%{phone_digits[-10:]}%"),
+                )
+            ).first()
+            
+            if not customer:
+                return {}
+            
+            # Get active policies
+            active_statuses = ["Active", "Renewing", "In Force", "Pending", "Bound",
+                             "active", "renewing", "in force", "pending", "bound"]
+            policies = db.query(CustomerPolicy).filter(
+                CustomerPolicy.customer_id == customer.id,
+                CustomerPolicy.status.in_(active_statuses)
+            ).all()
+            
+            policy_dicts = [
+                {
+                    "carrierName": p.carrier or "",
+                    "lineOfBusiness": p.line_of_business or "",
+                    "status": p.status or "",
+                }
+                for p in policies
+            ]
+            
+            return {
+                "customer": {
+                    "firstName": customer.first_name or "",
+                    "lastName": customer.last_name or "",
+                    "commercialName": customer.full_name or "",
+                    "databaseId": customer.nowcerts_insured_id or "",
+                },
+                "policies": policy_dicts,
+                "source": "local_db",
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Local DB lookup failed: %s", e)
+        return {}
 
 
 def _nowcerts_phone_lookup(phone_digits: str) -> dict:
@@ -276,15 +345,49 @@ async def inbound_call_webhook(request: Request):
             "customer_found": "false",
         }
 
-        # Look up caller in NowCerts — Retell gives us 10s, retries 3x
+        # Look up caller — try local DB first (fast), then NowCerts API (slow)
         phone_digits = normalize_phone(from_number)
+        result = None
         if phone_digits and len(phone_digits) >= 10:
-            try:
-                loop = asyncio.get_event_loop()
-                result = await asyncio.wait_for(
-                    loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
-                    timeout=9.5
-                )
+            # Layer 1: In-memory cache (~0ms)
+            cached = _phone_cache.get(phone_digits)
+            if cached and (_time.time() - cached.get("cached_at", 0)) < _CACHE_TTL:
+                result = cached
+                logger.info("Cache hit for %s: %s", phone_digits, 
+                           result.get("customer", {}).get("firstName", "?"))
+            
+            # Layer 2: Local PostgreSQL database (~50ms)
+            if not result:
+                try:
+                    start_t = _time.time()
+                    result = _local_db_phone_lookup(phone_digits)
+                    elapsed = _time.time() - start_t
+                    if result:
+                        logger.info("Local DB match in %.0fms: %s", elapsed*1000, 
+                                   result.get("customer", {}).get("firstName", "?"))
+                    else:
+                        logger.info("No local DB match (%.0fms)", elapsed*1000)
+                except Exception as e:
+                    logger.warning("Local DB lookup error: %s", e)
+            
+            # Layer 3: NowCerts API (~2-10s) — only if nothing found yet
+            # Use 7s timeout to leave margin for Retell's 10s deadline
+            if not result:
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
+                        timeout=7.0
+                    )
+                    # Cache successful NowCerts lookups
+                    if result and result.get("customer"):
+                        result["cached_at"] = _time.time()
+                        _phone_cache[phone_digits] = result
+                        logger.info("Cached NowCerts result for %s", phone_digits)
+                except asyncio.TimeoutError:
+                    logger.warning("NowCerts lookup timed out (7s) for phone: %s", phone_digits)
+                except Exception as e:
+                    logger.error("NowCerts lookup failed: %s", e)
 
                 if result and result.get("customer"):
                     customer = result["customer"]
@@ -570,11 +673,26 @@ async def post_call_webhook(request: Request):
 async def retell_health():
     """Health check for Retell webhook endpoints."""
     client = get_nowcerts_client()
+    
+    # Check local DB
+    db_count = 0
+    try:
+        from app.core.database import SessionLocal
+        from app.models.customer import Customer
+        db = SessionLocal()
+        try:
+            db_count = db.query(Customer).count()
+        finally:
+            db.close()
+    except Exception as e:
+        db_count = f"error: {e}"
+    
     return {
         "status": "ok",
         "nowcerts_configured": client.is_configured,
         "nowcerts_token_cached": bool(client._token),
         "mailgun_configured": bool(settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN),
+        "local_db_customers": db_count,
         "endpoints": {
             "inbound_webhook": "/api/retell/inbound-webhook",
             "callback_request": "/api/retell/callback-request",
@@ -584,17 +702,52 @@ async def retell_health():
 
 
 @router.post("/warmup")
-async def warmup_nowcerts():
-    """Pre-authenticate with NowCerts to cache the token. 
-    Call this after deploy to avoid cold-start auth delays."""
+async def warmup_nowcerts(request: Request = None):
+    """Pre-authenticate with NowCerts and optionally cache a phone lookup.
+    
+    POST with {"phone": "8472048231"} to pre-cache a specific number.
+    POST with no body to just warm up the auth token.
+    """
+    result = {"status": "ok"}
+    
     try:
         client = get_nowcerts_client()
         if client.is_configured:
             token = client._authenticate()
-            return {"status": "ok", "token_cached": bool(token), "token_prefix": token[:20] + "..." if token else "none"}
-        return {"status": "not_configured"}
+            result["token_cached"] = bool(token)
+        else:
+            result["token_cached"] = False
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        result["auth_error"] = str(e)
+    
+    # Pre-cache a phone number if provided
+    if request:
+        try:
+            body = await request.json()
+            phone = body.get("phone", "")
+            if phone:
+                phone_digits = normalize_phone(phone)
+                if phone_digits:
+                    loop = asyncio.get_event_loop()
+                    lookup_result = await asyncio.wait_for(
+                        loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
+                        timeout=15.0
+                    )
+                    if lookup_result and lookup_result.get("customer"):
+                        lookup_result["cached_at"] = _time.time()
+                        _phone_cache[phone_digits] = lookup_result
+                        customer = lookup_result["customer"]
+                        result["cached_phone"] = phone_digits
+                        result["cached_name"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                        result["cached_policies"] = len(lookup_result.get("policies", []))
+                    else:
+                        result["cached_phone"] = phone_digits
+                        result["cached_name"] = "not found"
+        except Exception:
+            pass  # No body or invalid JSON — just warm up auth
+    
+    result["cache_size"] = len(_phone_cache)
+    return result
 
 
 @router.get("/debug-lookup/{phone}")
