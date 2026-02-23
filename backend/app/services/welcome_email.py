@@ -703,6 +703,7 @@ def send_welcome_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "h:Reply-To": producer_email if producer_email else "service@betterchoiceins.com",
     }
 
     # BCC the selling agent + agency owner on all welcome emails
