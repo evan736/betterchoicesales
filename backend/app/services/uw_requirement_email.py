@@ -318,7 +318,7 @@ def build_non_renewal_email_html(
     steps = [
         "Call us at <strong>(847) 908-5665</strong> or email <strong>service@betterchoiceins.com</strong> to start shopping for replacement coverage",
         "We'll compare rates across multiple carriers to find you the best option",
-        "New coverage must be in place <strong>before your current policy expires</strong> to avoid a lapse, which can result in higher rates and legal issues",
+        "New coverage must be in place <strong>before your current policy expires</strong> to avoid a lapse, which can result in higher rates and leave you unprotected",
     ]
     for i, step in enumerate(steps, 1):
         h.append(f'<div style="display:flex; margin:0 0 12px;">')
@@ -330,7 +330,7 @@ def build_non_renewal_email_html(
     h.append('<div style="margin:20px 0; padding:16px; background:#fef2f2; border-radius:10px; border:1px solid #fecaca;">')
     h.append('<p style="margin:0; font-size:14px; color:#991b1b; line-height:1.6;">')
     h.append(f'<strong>⚠️ Don\'t wait.</strong> If you do not have replacement coverage by <strong>{effective_date or "your expiration date"}</strong>, ')
-    h.append(f'you may face a gap in coverage, which can lead to higher premiums, fines, and loss of driving privileges.')
+    h.append(f'you will have a gap in coverage. A lapse can result in higher premiums when you do get insured, and leaves you financially exposed in the event of a claim.')
     h.append('</p></div>')
 
     # Call button
