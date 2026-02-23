@@ -17,6 +17,7 @@ from app.api import winback as winback_api
 from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
+from app.api import retell as retell_api
 
 logger = logging.getLogger(__name__)
 
@@ -648,6 +649,7 @@ app.include_router(winback_api.router)
 app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
+app.include_router(retell_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
