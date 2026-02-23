@@ -319,7 +319,6 @@ export default function CustomersPage() {
                                                 'universal property': 'https://www.universalproperty.com/agent',
                                                 'integrity': 'https://www.integrityinsurance.com/agent',
                                               };
-                                              const carrierKey = (p.carrier || '').toLowerCase();
                                               const portal = Object.entries(carrierPortals).find(([k]) => carrierKey.includes(k));
                                               if (portal) {
                                                 window.open(portal[1], '_blank');
