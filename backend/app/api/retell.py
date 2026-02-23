@@ -360,13 +360,14 @@ async def inbound_call_webhook(request: Request):
             if not result:
                 try:
                     start_t = _time.time()
-                    result = _local_db_phone_lookup(phone_digits)
+                    db_result = _local_db_phone_lookup(phone_digits)
                     elapsed = _time.time() - start_t
-                    if result:
+                    if db_result and db_result.get("customer", {}).get("firstName"):
+                        result = db_result
                         logger.info("Local DB match in %.0fms: %s", elapsed*1000, 
                                    result.get("customer", {}).get("firstName", "?"))
                     else:
-                        logger.info("No local DB match (%.0fms)", elapsed*1000)
+                        logger.info("No usable local DB match (%.0fms)", elapsed*1000)
                 except Exception as e:
                     logger.warning("Local DB lookup error: %s", e)
             
