@@ -493,7 +493,7 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string 
 const TasksPanel: React.FC = () => {
   const [tasks, setTasks] = useState<any[]>([]);
   const [counts, setCounts] = useState<any>({ open: 0, urgent: 0, my_tasks: 0 });
-  const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement'>('all');
+  const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement' | 'undeliverable'>('all');
   const [loading, setLoading] = useState(true);
 
   const loadTasks = async () => {
@@ -548,7 +548,7 @@ const TasksPanel: React.FC = () => {
           )}
         </div>
         <div className="flex space-x-1">
-          {(['all', 'non_renewal', 'uw_requirement'] as const).map((f) => (
+          {(['all', 'non_renewal', 'uw_requirement', 'undeliverable'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -558,7 +558,7 @@ const TasksPanel: React.FC = () => {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              {f === 'all' ? 'All' : f === 'non_renewal' ? 'Non-Renewals' : 'UW Reqs'}
+              {f === 'all' ? 'All' : f === 'non_renewal' ? 'Non-Renewals' : f === 'uw_requirement' ? 'UW Reqs' : 'Undeliverable'}
             </button>
           ))}
         </div>
@@ -594,6 +594,11 @@ const TasksPanel: React.FC = () => {
                     {task.task_type === 'uw_requirement' && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
                         UW REQ
+                      </span>
+                    )}
+                    {task.task_type === 'undeliverable' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-700">
+                        UNDELIVERABLE
                       </span>
                     )}
                     {days !== null && (

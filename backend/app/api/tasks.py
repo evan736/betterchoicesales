@@ -24,8 +24,12 @@ def list_tasks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List tasks, optionally filtered."""
+    """List tasks, optionally filtered. Admins see all, producers see only their tasks."""
     q = db.query(Task)
+
+    # Visibility: non-admin users only see tasks assigned to them
+    if current_user.role != "admin":
+        q = q.filter(Task.assigned_to_id == current_user.id)
 
     if status:
         q = q.filter(Task.status == status)
@@ -54,12 +58,17 @@ def task_counts(
     db: Session = Depends(get_db),
 ):
     """Get task counts by status for badge display."""
+    base_filter = [Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS])]
+    # Non-admin users only count their own tasks
+    if current_user.role != "admin":
+        base_filter.append(Task.assigned_to_id == current_user.id)
+
     open_count = db.query(func.count(Task.id)).filter(
-        Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS])
+        *base_filter
     ).scalar() or 0
 
     urgent_count = db.query(func.count(Task.id)).filter(
-        Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS]),
+        *base_filter,
         Task.priority == TaskPriority.URGENT,
     ).scalar() or 0
 
@@ -239,3 +248,68 @@ def get_task_notifications(
         }
         for n in notis
     ]
+
+
+def create_uw_requirement_task(
+    db: Session,
+    customer_name: str,
+    policy_number: str,
+    carrier: str,
+    requirement_type: str,
+    due_date: str = None,
+    producer_name: str = None,
+    assigned_to_id: int = None,
+) -> Task:
+    """Create or return existing UW requirement task for a policy."""
+    from dateutil import parser as dateparser
+
+    # Dedup by policy_number + task_type
+    existing = db.query(Task).filter(
+        Task.policy_number == policy_number,
+        Task.task_type == "uw_requirement",
+        Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS]),
+    ).first()
+
+    if existing:
+        logger.info("UW requirement task already exists for %s (task #%d)", policy_number, existing.id)
+        return existing
+
+    due = None
+    try:
+        due = dateparser.parse(due_date)
+    except Exception:
+        pass
+
+    req_labels = {
+        "proof_of_continuous_insurance": "Proof of Continuous Insurance",
+        "nopop": "No Proof of Prior Insurance",
+        "change_prior_bi": "Change Prior BI Limits",
+        "proof_of_prior_bi": "Proof of Prior BI",
+    }
+    req_label = req_labels.get(requirement_type, requirement_type)
+
+    task = Task(
+        title=f"UW Requirement: {req_label} — {customer_name}",
+        description=(
+            f"Policy {policy_number} with {carrier} requires: {req_label}\n"
+            f"Customer: {customer_name}\n"
+            f"Due date: {due_date or 'Not specified'}\n"
+            f"Producer: {producer_name or 'Unassigned'}\n\n"
+            f"Action: Contact customer to obtain the required documentation."
+        ),
+        task_type="uw_requirement",
+        priority=TaskPriority.HIGH,
+        status=TaskStatus.OPEN,
+        assigned_to_id=assigned_to_id,
+        created_by="system",
+        customer_name=customer_name,
+        policy_number=policy_number,
+        carrier=carrier,
+        due_date=due,
+        source="natgen_activity",
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    logger.info("Created UW requirement task #%d for %s/%s", task.id, customer_name, policy_number)
+    return task

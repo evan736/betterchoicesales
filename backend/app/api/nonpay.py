@@ -1880,6 +1880,28 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             # Look up customer in DB to get email + producer
             customer_info = _lookup_customer_for_natgen(db, policy, insured)
             
+            # Create UW requirement task (always, even in dry run)
+            try:
+                from app.api.tasks import create_uw_requirement_task
+                producer_id = None
+                if customer_info and customer_info.get("sale_id"):
+                    from app.models.sale import Sale as SaleModel
+                    sale_rec = db.query(SaleModel).filter(SaleModel.id == customer_info["sale_id"]).first()
+                    if sale_rec:
+                        producer_id = sale_rec.producer_id
+                uw_task = create_uw_requirement_task(
+                    db=db,
+                    customer_name=insured,
+                    policy_number=policy,
+                    carrier=carrier,
+                    requirement_type=todo_type,
+                    due_date=todo.get("next_action_date"),
+                    producer_name=customer_info.get("producer_name") if customer_info else None,
+                    assigned_to_id=producer_id,
+                )
+            except Exception as e:
+                logger.error("Failed to create UW task for %s: %s", policy, e)
+
             if customer_info and customer_info.get("email"):
                 # Determine requirement type
                 req_type = "nopop" if todo_type == "nopop" else "proof_of_continuous_insurance"
@@ -1942,6 +1964,13 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
         # Always create a task for the retention team
         try:
             from app.api.tasks import create_non_renewal_task
+            # Look up producer_id from the sale
+            producer_id = None
+            if customer_info and customer_info.get("sale_id"):
+                from app.models.sale import Sale as SaleModel
+                sale_record = db.query(SaleModel).filter(SaleModel.id == customer_info["sale_id"]).first()
+                if sale_record:
+                    producer_id = sale_record.producer_id
             task = create_non_renewal_task(
                 db=db,
                 customer_name=insured,
@@ -1950,7 +1979,7 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
                 effective_date=effective,
                 premium=premium,
                 producer_name=nr_producer,
-                assigned_to_id=(customer_info or {}).get("sale_id") and None,  # unassigned, retention team picks up
+                assigned_to_id=producer_id,
             )
             task_id = task.id
         except Exception as e:
