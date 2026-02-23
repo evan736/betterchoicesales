@@ -2285,3 +2285,123 @@ A task has been created on the dashboard.</p>
             logger.error("Internal alert failed: %s %s", resp.status_code, resp.text[:200])
     except Exception as e:
         logger.error("Internal non-renewal alert error: %s", e)
+
+
+@router.post("/test-natgen-parser")
+async def test_natgen_parser(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Test endpoint: paste NatGen Policy Activity email HTML and see what the
+    parser would do — WITHOUT sending any emails.
+
+    POST /api/nonpay/test-natgen-parser
+    Body: { "html": "<html>..." }
+
+    Returns parsed sections + what actions WOULD be taken.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"error": "Send JSON with 'html' key containing the email HTML"}
+
+    html_body = body.get("html", "")
+    if not html_body:
+        return {"error": "Missing 'html' field"}
+
+    from app.services.natgen_parser import parse_natgen_policy_activity
+
+    parsed = parse_natgen_policy_activity(html_body)
+
+    # Build a dry-run summary of what WOULD happen
+    summary = {"mode": "DRY RUN — no emails sent", "sections": {}}
+
+    # Outstanding To Dos
+    todos = []
+    for todo in parsed["outstanding_todos"]:
+        todo_type = todo.get("todo_type", "other")
+        action = "skip (GoPaperless)" if todo_type == "go_paperless" else (
+            "→ UW requirement email to insured" if todo_type in ("proof_of_continuous_insurance", "nopop", "change_prior_bi", "proof_of_prior_bi")
+            else f"skip (unknown: {todo.get('todo_description', '')})"
+        )
+        # Try to find customer email
+        customer_info = _lookup_customer_for_natgen(db, todo.get("policy", ""), todo.get("insured_name", ""))
+        todos.append({
+            "policy": todo.get("policy"),
+            "insured": todo.get("insured_name"),
+            "type": todo_type,
+            "description": todo.get("todo_description"),
+            "action": action,
+            "customer_email_found": (customer_info or {}).get("email", "NOT FOUND"),
+            "due_date": todo.get("next_action_date"),
+        })
+    summary["sections"]["outstanding_todos"] = {"count": len(todos), "rows": todos}
+
+    # Pending Non-Renewals
+    nonrenewals = []
+    for nr in parsed.get("pending_non_renewals", []):
+        effective = nr.get("effective_date", "")
+        days = _days_until(effective)
+        customer_info = _lookup_customer_for_natgen(db, nr.get("policy", ""), nr.get("insured_name", ""))
+        is_urgent = _is_within_days_nonpay(effective, 60)
+
+        nonrenewals.append({
+            "policy": nr.get("policy"),
+            "insured": nr.get("insured_name"),
+            "effective_date": effective,
+            "days_remaining": days,
+            "premium": nr.get("premium"),
+            "producer": nr.get("producer_name"),
+            "within_60_days": is_urgent,
+            "action": (
+                "→ URGENT: internal alert to service@ + insured email + dashboard task"
+                if is_urgent else
+                "→ insured email + dashboard task"
+            ),
+            "customer_email_found": (customer_info or {}).get("email", "NOT FOUND"),
+        })
+    summary["sections"]["pending_non_renewals"] = {"count": len(nonrenewals), "rows": nonrenewals}
+
+    # Pending Cancellations
+    cancellations = []
+    for canc in parsed["pending_cancellations"]:
+        cancel_type = canc.get("cancel_type", "other")
+        if cancel_type in ("non_pay", "nsf"):
+            action = "→ non-pay email to insured"
+        elif cancel_type == "underwriting":
+            action = "skip (underwriting cancellation)"
+        elif cancel_type == "voluntary":
+            action = "skip (policyholder request)"
+        else:
+            action = f"skip ({cancel_type})"
+
+        customer_info = _lookup_customer_for_natgen(db, canc.get("policy", ""), canc.get("insured_name", ""))
+        cancellations.append({
+            "policy": canc.get("policy"),
+            "insured": canc.get("insured_name"),
+            "reason": canc.get("reason"),
+            "cancel_type": cancel_type,
+            "cancel_date": canc.get("cancel_date"),
+            "amount_due": canc.get("amount_due_str"),
+            "action": action,
+            "customer_email_found": (customer_info or {}).get("email", "NOT FOUND"),
+        })
+    summary["sections"]["pending_cancellations"] = {"count": len(cancellations), "rows": cancellations}
+
+    # Undeliverable Mail
+    undeliverable = []
+    for undel in parsed["undeliverable_mail"]:
+        customer_info = _lookup_customer_for_natgen(db, undel.get("policy", ""), undel.get("insured_name", ""))
+        undeliverable.append({
+            "policy": undel.get("policy"),
+            "insured": undel.get("insured_name"),
+            "phone": undel.get("phone"),
+            "mail_description": undel.get("mail_description"),
+            "action": "→ alert email to service@",
+            "customer_email_found": (customer_info or {}).get("email", "NOT FOUND"),
+        })
+    summary["sections"]["undeliverable_mail"] = {"count": len(undeliverable), "rows": undeliverable}
+
+    return summary
