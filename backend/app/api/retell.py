@@ -147,8 +147,78 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
 # Retell POSTs here when a call comes in. We look up the caller in
 # NowCerts and return dynamic variables so Flora can greet by name.
 #
+# CRITICAL: Retell has a 10-second timeout. If we don't respond in 10s,
+# the call starts without dynamic variables. We must be FAST.
+#
 # Retell sends: {from_number, to_number, agent_id}
 # We return:    {call_inbound: {dynamic_variables: {...}}}
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+_executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _nowcerts_phone_lookup(phone_digits: str) -> dict:
+    """Synchronous NowCerts lookup — runs in thread pool.
+    
+    Returns dict with customer info or empty dict on failure.
+    Designed to complete in under 7 seconds.
+    """
+    try:
+        client = get_nowcerts_client()
+        if not client.is_configured:
+            return {}
+
+        # Get auth token (cached after first call — should be instant on subsequent calls)
+        token = client._authenticate()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        # Single lookup with raw digits — NowCerts matches flexibly
+        resp = requests.get(
+            f"{client.base_url}/api/Customers/GetCustomers",
+            headers=headers,
+            params={"Phone": phone_digits},
+            timeout=6,
+        )
+
+        if resp.status_code != 200 or not resp.text.strip():
+            return {}
+
+        results = resp.json()
+        if not isinstance(results, list) or not results:
+            return {}
+
+        # Pick the best match: prefer the one whose phone/cellPhone matches most closely
+        best = results[0]
+        for r in results:
+            r_phone = re.sub(r"\D", "", r.get("phone") or "")
+            r_cell = re.sub(r"\D", "", r.get("cellPhone") or "")
+            if r_phone.endswith(phone_digits) or r_cell.endswith(phone_digits):
+                if r_phone.endswith(phone_digits):
+                    # Exact phone match is strongest
+                    best = r
+                    break
+                best = r
+
+        # Get policies (quick attempt, skip if slow)
+        insured_id = best.get("databaseId") or ""
+        policies = []
+        if insured_id:
+            try:
+                policies = client.get_insured_policies(str(insured_id))
+            except Exception:
+                pass  # Skip policies if slow — name is more important
+
+        return {"customer": best, "policies": policies}
+
+    except Exception as e:
+        logger.error("NowCerts phone lookup failed: %s", e)
+        return {}
+
 
 @router.post("/inbound-webhook")
 async def inbound_call_webhook(request: Request):
@@ -174,119 +244,47 @@ async def inbound_call_webhook(request: Request):
             "customer_found": "false",
         }
 
-        # Look up caller in NowCerts
+        # Look up caller in NowCerts with a hard 8-second timeout
         phone_digits = normalize_phone(from_number)
         if phone_digits and len(phone_digits) >= 10:
             try:
-                client = get_nowcerts_client()
-                if client.is_configured:
-                    # Method 1: Direct phone lookup via GetCustomers API
-                    # This endpoint handles phone format matching natively
-                    customer = None
-                    policies = []
+                loop = asyncio.get_event_loop()
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
+                    timeout=8.0
+                )
 
-                    try:
-                        token = client._authenticate()
-                        headers = {
-                            "Authorization": f"Bearer {token}",
-                            "Content-Type": "application/json",
-                        }
+                if result and result.get("customer"):
+                    customer = result["customer"]
+                    policies = result.get("policies", [])
 
-                        # Try multiple phone formats
-                        phone_formats = [
-                            phone_digits,  # 8154501688
-                            f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}",  # (815) 450-1688
-                            f"{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}",  # 815-450-1688
-                            f"+1{phone_digits}",  # +18154501688
-                        ]
+                    first_name = customer.get("firstName") or customer.get("first_name") or ""
+                    last_name = customer.get("lastName") or customer.get("last_name") or ""
+                    commercial_name = customer.get("commercialName") or customer.get("commercial_name") or ""
+                    customer_name = (
+                        f"{first_name} {last_name}".strip()
+                        if first_name else commercial_name or ""
+                    )
+                    insured_id = customer.get("databaseId") or customer.get("database_id") or ""
 
-                        for phone_fmt in phone_formats:
-                            resp = requests.get(
-                                f"{client.base_url}/api/Customers/GetCustomers",
-                                headers=headers,
-                                params={"Phone": phone_fmt},
-                                timeout=15,
-                            )
-                            if resp.status_code == 200:
-                                results = resp.json() if resp.text.strip() else []
-                                if isinstance(results, list) and results:
-                                    customer = results[0]
-                                    logger.info(
-                                        "NowCerts GetCustomers match (format=%s): %s",
-                                        phone_fmt, str(customer)[:200]
-                                    )
-                                    break
-                            else:
-                                logger.debug(
-                                    "GetCustomers phone=%s returned %s",
-                                    phone_fmt, resp.status_code
-                                )
-                    except Exception as e:
-                        logger.warning("GetCustomers lookup failed: %s", e)
+                    dynamic_variables["customer_name"] = customer_name
+                    dynamic_variables["nowcerts_insured_id"] = str(insured_id)
+                    dynamic_variables["customer_found"] = "true"
 
-                    # Method 2: Fallback to OData search if GetCustomers didn't work
-                    if not customer:
-                        try:
-                            results = client.search_insureds(phone_digits, limit=5)
-                            if results:
-                                customer = results[0]
-                                logger.info("NowCerts OData fallback match: %s", str(customer)[:200])
-                        except Exception as e:
-                            logger.warning("OData search fallback failed: %s", e)
+                    if policies:
+                        dynamic_variables["policy_summary"] = build_policy_summary(policies)
+                        dynamic_variables["carrier_list"] = build_carrier_list(policies)
 
-                    # Extract customer info
-                    if customer:
-                        # NowCerts GetCustomers returns camelCase: firstName, lastName, commercialName, databaseId
-                        first_name = (
-                            customer.get("firstName") or customer.get("FirstName") or
-                            customer.get("first_name") or ""
-                        )
-                        last_name = (
-                            customer.get("lastName") or customer.get("LastName") or
-                            customer.get("last_name") or ""
-                        )
-                        commercial_name = (
-                            customer.get("commercialName") or customer.get("CommercialName") or
-                            customer.get("commercial_name") or ""
-                        )
-                        customer_name = (
-                            f"{first_name} {last_name}".strip()
-                            if first_name
-                            else commercial_name or ""
-                        )
-                        insured_id = (
-                            customer.get("databaseId") or customer.get("DatabaseId") or
-                            customer.get("database_id") or
-                            customer.get("insuredId") or customer.get("InsuredId") or
-                            customer.get("insured_id") or
-                            customer.get("customerId") or customer.get("CustomerId") or
-                            customer.get("customer_id") or ""
-                        )
-
-                        dynamic_variables["customer_name"] = customer_name
-                        dynamic_variables["nowcerts_insured_id"] = str(insured_id)
-                        dynamic_variables["customer_found"] = "true"
-
-                        # Get policies for this customer
-                        if insured_id:
-                            try:
-                                # Try InsuredPolicies endpoint
-                                policies = client.get_insured_policies(str(insured_id))
-                                if policies:
-                                    dynamic_variables["policy_summary"] = build_policy_summary(policies)
-                                    dynamic_variables["carrier_list"] = build_carrier_list(policies)
-                            except Exception as e:
-                                logger.warning("Policy lookup failed for %s: %s", insured_id, e)
-
-                        logger.info(
-                            "NowCerts match: name=%s, id=%s, policies=%s",
-                            customer_name, insured_id,
-                            dynamic_variables["policy_summary"][:100]
-                        )
-                    else:
-                        logger.info("No NowCerts match for phone: %s", phone_digits)
+                    logger.info(
+                        "NowCerts match: name=%s, id=%s, carriers=%s",
+                        customer_name, insured_id,
+                        dynamic_variables["carrier_list"][:80]
+                    )
                 else:
-                    logger.warning("NowCerts client not configured")
+                    logger.info("No NowCerts match for phone: %s", phone_digits)
+
+            except asyncio.TimeoutError:
+                logger.warning("NowCerts lookup timed out (8s) for phone: %s", phone_digits)
             except Exception as e:
                 logger.error("NowCerts lookup failed: %s", e)
 
@@ -533,6 +531,7 @@ async def retell_health():
     return {
         "status": "ok",
         "nowcerts_configured": client.is_configured,
+        "nowcerts_token_cached": bool(client._token),
         "mailgun_configured": bool(settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN),
         "endpoints": {
             "inbound_webhook": "/api/retell/inbound-webhook",
@@ -540,6 +539,20 @@ async def retell_health():
             "post_call": "/api/retell/post-call",
         }
     }
+
+
+@router.post("/warmup")
+async def warmup_nowcerts():
+    """Pre-authenticate with NowCerts to cache the token. 
+    Call this after deploy to avoid cold-start auth delays."""
+    try:
+        client = get_nowcerts_client()
+        if client.is_configured:
+            token = client._authenticate()
+            return {"status": "ok", "token_cached": bool(token), "token_prefix": token[:20] + "..." if token else "none"}
+        return {"status": "not_configured"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @router.get("/debug-lookup/{phone}")
