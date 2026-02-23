@@ -31,42 +31,14 @@ UW_REQUIREMENT_TYPES = {
         "urgency": "If this documentation is not provided by the deadline, your policy premium may increase "
                    "or your policy could be subject to cancellation.",
     },
-    "nopop": {
-        "short": "Proof of Prior Insurance",
-        "subject": "Action Required: Proof of Prior Insurance Needed for Your {carrier} Policy",
-        "what_needed": "Your carrier has requested <strong>proof of prior insurance (Proof of Prior)</strong>. "
-                       "This confirms you had active insurance coverage before your current policy started.",
-        "how_to": [
-            "Contact your previous insurance company and request a <strong>declarations page</strong> or a letter confirming your prior coverage",
-            "If you did not have prior insurance, please let us know so we can update your carrier",
-            "Forward the document to us at <strong>service@betterchoiceins.com</strong> or reply to this email",
-        ],
-        "urgency": "Without this documentation, your premium may be adjusted or your policy could face cancellation.",
-    },
-    "change_prior_bi": {
-        "short": "Prior Bodily Injury Limits Documentation",
-        "subject": "Action Required: Prior Insurance Limits Needed for Your {carrier} Policy",
-        "what_needed": "Your carrier has requested documentation of your <strong>prior bodily injury liability limits</strong>. "
-                       "This is needed to verify the liability coverage you carried on your previous policy.",
-        "how_to": [
-            "Contact your previous insurance company and request a <strong>declarations page</strong> showing your prior bodily injury liability limits",
-            "The dec page should clearly show your BI (Bodily Injury) limit amounts (e.g., 100/300 or 250/500)",
-            "Forward the document to us at <strong>service@betterchoiceins.com</strong> or reply to this email with the attachment",
-        ],
-        "urgency": "Without this documentation, your liability limits and premium may be adjusted or your policy could face cancellation.",
-    },
-    "proof_of_prior_bi": {
-        "short": "Proof of Prior Bodily Injury Limits",
-        "subject": "Action Required: Prior BI Limits Documentation Needed for Your {carrier} Policy",
-        "what_needed": "Your carrier needs <strong>proof of your prior bodily injury (BI) liability limits</strong>. "
-                       "This verifies the coverage level you had before your current policy.",
-        "how_to": [
-            "Contact your previous insurance company and request a <strong>declarations page</strong> showing your bodily injury liability limits",
-            "The dec page should show your BI limits (e.g., 25/50, 100/300, 250/500)",
-            "Forward the document to us at <strong>service@betterchoiceins.com</strong> or reply to this email",
-        ],
-        "urgency": "If this documentation is not provided promptly, your coverage limits or premium may be adjusted.",
-    },
+}
+
+# All UW requirement types map to the same template
+UW_TYPE_ALIASES = {
+    "proof_of_continuous_insurance": "proof_of_continuous_insurance",
+    "nopop": "proof_of_continuous_insurance",
+    "change_prior_bi": "proof_of_continuous_insurance",
+    "proof_of_prior_bi": "proof_of_continuous_insurance",
 }
 
 
@@ -85,7 +57,8 @@ def build_uw_requirement_email_html(
     display_carrier = info.get("display_name", carrier or "Your Insurance Carrier")
     accent = info.get("accent_color", BCI_NAVY)
 
-    req = UW_REQUIREMENT_TYPES.get(requirement_type, UW_REQUIREMENT_TYPES["proof_of_continuous_insurance"])
+    resolved_type = UW_TYPE_ALIASES.get(requirement_type, "proof_of_continuous_insurance")
+    req = UW_REQUIREMENT_TYPES[resolved_type]
     first_name = (client_name or "Valued Customer").split()[0]
     subject = req["subject"].format(carrier=display_carrier)
 
@@ -160,8 +133,6 @@ def build_uw_requirement_email_html(
     h.append(f'<p style="margin:0 0 4px; font-size:12px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR AGENCY</p>')
     h.append(f'<p style="margin:0 0 2px; font-weight:700; font-size:15px; color:#1e293b;">{AGENCY_NAME}</p>')
     h.append(f'<p style="margin:0; font-size:14px;"><a href="tel:8479085665" style="color:{BCI_CYAN}; text-decoration:none; font-weight:600;">{AGENCY_PHONE}</a></p>')
-    if producer_name:
-        h.append(f'<p style="margin:4px 0 0; font-size:13px; color:#64748b;">Your agent: <strong>{producer_name}</strong></p>')
     h.append('</div>')
 
     h.append('<hr style="border:none; border-top:1px solid #e2e8f0; margin:24px 0;">')
@@ -369,8 +340,6 @@ def build_non_renewal_email_html(
     h.append(f'<p style="margin:0 0 4px; font-size:12px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR AGENCY</p>')
     h.append(f'<p style="margin:0 0 2px; font-weight:700; font-size:15px; color:#1e293b;">{AGENCY_NAME}</p>')
     h.append(f'<p style="margin:0; font-size:14px;"><a href="tel:8479085665" style="color:{BCI_CYAN}; text-decoration:none; font-weight:600;">{AGENCY_PHONE}</a></p>')
-    if producer_name:
-        h.append(f'<p style="margin:4px 0 0; font-size:13px; color:#64748b;">Your agent: <strong>{producer_name}</strong></p>')
     h.append('</div>')
 
     h.append('<hr style="border:none; border-top:1px solid #e2e8f0; margin:24px 0;">')
