@@ -126,6 +126,100 @@ CARRIER_SELLING_POINTS = {
     ),
 }
 
+# ── Carrier trust & ratings data ──────────────────────────────────
+CARRIER_TRUST = {
+    "national_general": {
+        "am_best": "A+", "am_best_label": "Superior",
+        "claims_stat": "95% claims satisfaction",
+        "customers": "Over 3 million policyholders nationwide",
+        "highlight": "80+ years protecting families across America",
+    },
+    "progressive": {
+        "am_best": "A+", "am_best_label": "Superior",
+        "claims_stat": "#1 in claims satisfaction for bundled policies",
+        "customers": "Over 28 million policies in force",
+        "highlight": "3rd largest auto insurer in the U.S.",
+    },
+    "travelers": {
+        "am_best": "A++", "am_best_label": "Superior",
+        "claims_stat": "Award-winning claims service",
+        "customers": "160+ years serving customers",
+        "highlight": "One of America's most trusted insurance brands",
+    },
+    "safeco": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Backed by Liberty Mutual's claims network",
+        "customers": "Trusted by independent agents nationwide",
+        "highlight": "Part of the Liberty Mutual family since 2008",
+    },
+    "grange": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Local claims adjusters in every market",
+        "customers": "Serving the Midwest since 1935",
+        "highlight": "90+ years of community-focused insurance",
+    },
+    "hippo": {
+        "am_best": "A-", "am_best_label": "Excellent",
+        "claims_stat": "Fast digital claims in as little as 48 hours",
+        "customers": "Proactive smart home protection included",
+        "highlight": "Named one of Forbes' best startup employers",
+    },
+    "openly": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Top-rated for customer satisfaction",
+        "customers": "Specialists in premium homeowners coverage",
+        "highlight": "Guaranteed replacement cost on every policy",
+    },
+    "bristol_west": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Streamlined claims backed by Farmers Insurance",
+        "customers": "Part of the Farmers Insurance Group",
+        "highlight": "Flexible coverage for every type of driver",
+    },
+    "branch": {
+        "am_best": "A-", "am_best_label": "Excellent",
+        "claims_stat": "Fast, fair claims process",
+        "customers": "One of the fastest-growing insurers in America",
+        "highlight": "Community-based pricing saves neighbors money together",
+    },
+    "clearcover": {
+        "am_best": "A-", "am_best_label": "Excellent",
+        "claims_stat": "Claims processed up to 3x faster than average",
+        "customers": "Rated 4.7/5 stars by customers",
+        "highlight": "Prices often 20%+ below traditional carriers",
+    },
+    "geico": {
+        "am_best": "A++", "am_best_label": "Superior",
+        "claims_stat": "24/7 claims service with fast resolution",
+        "customers": "Over 17 million policyholders",
+        "highlight": "One of the most recognized names in insurance",
+    },
+    "american_modern": {
+        "am_best": "A+", "am_best_label": "Superior",
+        "claims_stat": "Specialized claims expertise for unique properties",
+        "customers": "Backed by Munich Re, one of the world's largest reinsurers",
+        "highlight": "50+ years as the nation's leading specialty insurer",
+    },
+    "steadily": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Dedicated landlord claims support",
+        "customers": "#1 landlord insurance provider in the U.S.",
+        "highlight": "Purpose-built for rental property owners",
+    },
+    "integrity": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Local claims handling by people who know your area",
+        "customers": "Midwest families trust Integrity since 1933",
+        "highlight": "90+ years of personalized coverage",
+    },
+    "universal_property": {
+        "am_best": "A", "am_best_label": "Excellent",
+        "claims_stat": "Rapid hurricane claims processing",
+        "customers": "Florida's #1 homeowners insurer",
+        "highlight": "Specialists in high-risk coastal coverage",
+    },
+}
+
 
 def build_quote_email_html(
     prospect_name: str,
@@ -190,14 +284,54 @@ def build_quote_email_html(
 
     # Carrier logo + selling point section
     carrier_section = ""
+    trust_data = CARRIER_TRUST.get(carrier_key, {})
     if selling_point:
+        # Build trust badges row
+        trust_badges = ""
+        if trust_data:
+            am_best = trust_data.get("am_best", "")
+            am_label = trust_data.get("am_best_label", "")
+            claims = trust_data.get("claims_stat", "")
+            customers = trust_data.get("customers", "")
+            highlight = trust_data.get("highlight", "")
+            trust_badges = f"""
+            <div style="margin:16px 0 0 0;padding:16px 0 0 0;border-top:1px solid #E2E8F0;">
+                <p style="margin:0 0 12px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Why Customers Trust {carrier_name}</p>
+                <table style="width:100%;border-collapse:collapse;" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="padding:8px 6px;text-align:center;width:33%;vertical-align:top;">
+                            <div style="background:#ECFDF5;border-radius:8px;padding:10px 8px;">
+                                <p style="margin:0;font-size:22px;font-weight:800;color:#059669;">{am_best}</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#059669;font-weight:600;">AM BEST RATED</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#6B7280;">{am_label}</p>
+                            </div>
+                        </td>
+                        <td style="padding:8px 6px;text-align:center;width:33%;vertical-align:top;">
+                            <div style="background:#EFF6FF;border-radius:8px;padding:10px 8px;">
+                                <p style="margin:0;font-size:14px;font-weight:700;color:#2563EB;">&#9733;</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#2563EB;font-weight:600;">CLAIMS</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#6B7280;">{claims}</p>
+                            </div>
+                        </td>
+                        <td style="padding:8px 6px;text-align:center;width:33%;vertical-align:top;">
+                            <div style="background:#F5F3FF;border-radius:8px;padding:10px 8px;">
+                                <p style="margin:0;font-size:14px;font-weight:700;color:#7C3AED;">&#10003;</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#7C3AED;font-weight:600;">PROVEN</p>
+                                <p style="margin:2px 0 0 0;font-size:10px;color:#6B7280;">{highlight}</p>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>"""
+
         carrier_section = f"""
         <div style="background:#F8FAFC;border-radius:10px;padding:20px;margin:20px 0;border:1px solid #E2E8F0;text-align:center;">
             <img src="{carrier_logo_url}" alt="{carrier_name}" style="max-height:48px;max-width:200px;margin:0 auto 12px auto;display:block;" />
-            <p style="margin:0 0 8px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">AI Overview of {carrier_name}</p>
+            <p style="margin:0 0 8px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">About {carrier_name}</p>
             <p style="margin:0;color:#475569;font-size:13px;line-height:1.6;font-style:italic;">
                 "{selling_point}"
             </p>
+            {trust_badges}
         </div>"""
 
     # Agent section
@@ -229,13 +363,19 @@ def build_quote_email_html(
         unsub_url = f"{api_url}/api/unsubscribe/{unsubscribe_token}"
         unsub_html = f'<p style="color:#94a3b8;font-size:11px;margin:4px 0 0 0;"><a href="{unsub_url}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe from follow-up emails</a></p>'
 
-    # Calculate monthly premium for 12-month terms
+    # Calculate monthly premium for any multi-month term
     monthly_html = ""
-    if "12" in premium_term and premium:
+    if premium:
         try:
             raw = premium.replace("$", "").replace(",", "")
-            monthly = float(raw) / 12
-            monthly_html = f'<p style="margin:8px 0 0 0;color:#1e293b;font-size:20px;font-weight:700;">${monthly:,.2f}<span style="font-size:14px;font-weight:400;color:#64748B;">/month</span></p>'
+            total = float(raw)
+            # Extract number of months from premium_term
+            import re
+            months_match = re.search(r'(\d+)', premium_term or "")
+            months = int(months_match.group(1)) if months_match else 0
+            if months > 1:
+                monthly = total / months
+                monthly_html = f'<p style="margin:8px 0 0 0;color:#1e293b;font-size:20px;font-weight:700;">${monthly:,.2f}<span style="font-size:14px;font-weight:400;color:#64748B;">/month</span></p>'
         except (ValueError, ZeroDivisionError):
             pass
 
