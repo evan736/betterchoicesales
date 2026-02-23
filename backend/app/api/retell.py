@@ -602,8 +602,8 @@ async def post_call_webhook(request: Request):
         resolution = call_analysis.get("resolution", "")
         follow_up = call_analysis.get("follow_up_needed", "")
 
-        # Log note to NowCerts on call_ended (fires first, faster)
-        if insured_id and event == "call_ended":
+        # Log note to NowCerts on call_analyzed (has summary + analysis data)
+        if insured_id and event == "call_analyzed":
             try:
                 client = get_nowcerts_client()
                 if client.is_configured:
