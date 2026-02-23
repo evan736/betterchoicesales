@@ -38,6 +38,7 @@ export default function CustomersPage() {
   const [nonpayHistory, setNonpayHistory] = useState<any[]>([]);
   const [nonpayHistLoading, setNonpayHistLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [nonpayCarrierOverride, setNonpayCarrierOverride] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -124,7 +125,7 @@ export default function CustomersPage() {
     }
     setNonpayUploading(true); setNonpayResult(null);
     try {
-      const r = await nonpayAPI.upload(file, nonpayDryRun);
+      const r = await nonpayAPI.upload(file, nonpayDryRun, nonpayCarrierOverride);
       setNonpayResult(r.data);
       loadNonpayHistory();
     } catch (e: any) {
@@ -359,6 +360,8 @@ export default function CustomersPage() {
             fileInputRef={fileInputRef}
             dryRun={nonpayDryRun}
             setDryRun={setNonpayDryRun}
+            carrierOverride={nonpayCarrierOverride}
+            setCarrierOverride={setNonpayCarrierOverride}
           />
         )}
       </main>
@@ -427,7 +430,9 @@ const NonPayModal: React.FC<{
   fileInputRef: React.RefObject<HTMLInputElement>;
   dryRun: boolean;
   setDryRun: (v: boolean) => void;
-}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef, dryRun, setDryRun }) => {
+  carrierOverride: string;
+  setCarrierOverride: (v: string) => void;
+}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef, dryRun, setDryRun, carrierOverride, setCarrierOverride }) => {
   const [tab, setTab] = useState<'upload' | 'preview'>('upload');
   const [carriers, setCarriers] = useState<any[]>([]);
   const [selectedCarrier, setSelectedCarrier] = useState('');
@@ -458,6 +463,7 @@ const NonPayModal: React.FC<{
   };
 
   useEffect(() => { if (tab === 'preview' && carriers.length === 0) loadCarriers(); }, [tab]);
+  useEffect(() => { if (tab === 'upload' && carriers.length === 0) loadCarriers(); }, [tab]);
   useEffect(() => { if (tab === 'preview' && selectedCarrier) loadPreview(selectedCarrier); }, [selectedCarrier, tab]);
 
   return (
@@ -501,6 +507,24 @@ const NonPayModal: React.FC<{
                 >
                   <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${dryRun ? 'translate-x-1' : 'translate-x-6'}`} />
                 </button>
+              </div>
+
+              {/* Carrier Override Selector */}
+              <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl mb-4">
+                <div className="flex-1">
+                  <p className="font-semibold text-sm text-slate-700">Carrier</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Select if the file doesn't include carrier info</p>
+                </div>
+                <select
+                  value={carrierOverride}
+                  onChange={(e) => setCarrierOverride(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-700 font-medium min-w-[200px]"
+                >
+                  <option value="">Auto-detect from file</option>
+                  {carriers.map((c: any) => (
+                    <option key={c.key} value={c.key}>{c.display_name}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Drop zone */}

@@ -126,6 +126,7 @@ async def upload_nonpay_b64(
     """Fallback upload via base64 JSON body instead of multipart form."""
     filename = payload.get("filename", "upload.csv")
     data_b64 = payload.get("data", "")
+    carrier_override = payload.get("carrier_override", "")  # User-selected carrier fallback
     if not data_b64:
         raise HTTPException(status_code=400, detail="No file data provided")
 
@@ -184,7 +185,14 @@ async def upload_nonpay_b64(
                 if pattern in fn_lower:
                     for p in policies:
                         p["carrier"] = carrier_key
+                    has_any_carrier = True
                     break
+
+        # Apply user-selected carrier override if still no carrier detected
+        if not has_any_carrier and carrier_override:
+            for p in policies:
+                if not p.get("carrier"):
+                    p["carrier"] = carrier_override
 
         results = []
         matched = 0

@@ -231,7 +231,7 @@ export const customersAPI = {
 };
 
 export const nonpayAPI = {
-  upload: async (file: File, dryRun?: boolean) => {
+  upload: async (file: File, dryRun?: boolean, carrierOverride?: string) => {
     // Convert file to base64
     const reader = new FileReader();
     const b64 = await new Promise<string>((resolve, reject) => {
@@ -247,7 +247,7 @@ export const nonpayAPI = {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ filename: file.name, data: b64 }),
+      body: JSON.stringify({ filename: file.name, data: b64, carrier_override: carrierOverride || '' }),
     });
     const data = await resp.json();
     if (!resp.ok) throw { response: { status: resp.status, data } };
