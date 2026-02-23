@@ -293,7 +293,12 @@ export default function CustomersPage() {
                                         <td className="py-2.5 font-semibold text-slate-900">
                                           <button
                                             onClick={() => {
-                                              const pn = p.policy_number || '';
+                                              let pn = p.policy_number || '';
+                                              // Grange auto policies: strip the PA prefix (e.g. PA35448260 → 35448260)
+                                              const carrierKey = (p.carrier || '').toLowerCase();
+                                              if (carrierKey.includes('grange') && pn.toUpperCase().startsWith('PA')) {
+                                                pn = pn.substring(2);
+                                              }
                                               navigator.clipboard.writeText(pn);
                                               setCopiedPolicy(pn);
                                               setTimeout(() => setCopiedPolicy(null), 2000);
