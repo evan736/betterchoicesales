@@ -517,3 +517,50 @@ async def retell_health():
             "post_call": "/api/retell/post-call",
         }
     }
+
+
+@router.get("/debug-lookup/{phone}")
+async def debug_lookup(phone: str):
+    """Debug endpoint to see raw NowCerts response for a phone number."""
+    client = get_nowcerts_client()
+    if not client.is_configured:
+        return {"error": "NowCerts not configured"}
+
+    phone_digits = normalize_phone(phone)
+    results = {}
+
+    try:
+        token = client._authenticate()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        phone_formats = [
+            phone_digits,
+            f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}",
+            f"{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}",
+            f"+1{phone_digits}",
+        ]
+
+        for phone_fmt in phone_formats:
+            resp = requests.get(
+                f"{client.base_url}/api/Customers/GetCustomers",
+                headers=headers,
+                params={"Phone": phone_fmt},
+                timeout=15,
+            )
+            if resp.status_code == 200 and resp.text.strip():
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    results[phone_fmt] = data
+                    break
+                else:
+                    results[phone_fmt] = f"empty ({type(data).__name__})"
+            else:
+                results[phone_fmt] = f"status {resp.status_code}"
+
+    except Exception as e:
+        results["error"] = str(e)
+
+    return {"phone": phone_digits, "results": results}
