@@ -660,16 +660,7 @@ def _process_single_policy(
         return result
 
     # Send the email
-    email_result = send_nonpay_email(
-        to_email=customer.email,
-        client_name=customer.full_name,
-        policy_number=policy_number,
-        carrier=effective_carrier,
-        amount_due=amount_due,
-        due_date=due_date,
-    )
-
-    # Record the email
+    # Record the email BEFORE sending (prevents duplicates on retry/timeout)
     email_record = NonPayEmail(
         notice_id=notice_id,
         policy_number=policy_number,
@@ -679,11 +670,26 @@ def _process_single_policy(
         carrier=effective_carrier,
         amount_due=amount_due,
         due_date=due_date,
-        email_status="sent" if email_result.get("success") else "failed",
-        mailgun_message_id=email_result.get("message_id"),
-        error_message=email_result.get("error"),
+        email_status="sent",  # Optimistic — prevents retries from resending
+        error_message=None,
     )
     db.add(email_record)
+    db.commit()
+
+    email_result = send_nonpay_email(
+        to_email=customer.email,
+        client_name=customer.full_name,
+        policy_number=policy_number,
+        carrier=effective_carrier,
+        amount_due=amount_due,
+        due_date=due_date,
+    )
+
+    # Update with actual result
+    email_record.mailgun_message_id = email_result.get("message_id")
+    if not email_result.get("success"):
+        email_record.email_status = "failed"
+        email_record.error_message = email_result.get("error")
     db.commit()
 
     result["email_sent"] = email_result.get("success", False)
