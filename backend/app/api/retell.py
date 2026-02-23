@@ -225,13 +225,17 @@ async def inbound_call_webhook(request: Request):
     """Look up inbound caller in NowCerts and return dynamic variables to Retell."""
     try:
         body = await request.json()
-        from_number = body.get("from_number", "")
-        to_number = body.get("to_number", "")
-        agent_id = body.get("agent_id", "")
+        
+        # Retell sends: {event: "call_inbound", call_inbound: {from_number, to_number, agent_id}}
+        # The fields are nested inside call_inbound, NOT at the top level
+        call_data = body.get("call_inbound", {})
+        from_number = call_data.get("from_number", "") or body.get("from_number", "")
+        to_number = call_data.get("to_number", "") or body.get("to_number", "")
+        agent_id = call_data.get("agent_id", "") or body.get("agent_id", "")
 
         logger.info(
-            "Retell inbound webhook: from=%s to=%s agent=%s",
-            from_number, to_number, agent_id
+            "Retell inbound webhook: from=%s to=%s agent=%s raw_keys=%s",
+            from_number, to_number, agent_id, list(body.keys())
         )
 
         # Default response — no customer found
@@ -292,23 +296,33 @@ async def inbound_call_webhook(request: Request):
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
             name = dynamic_variables["customer_name"].split()[0]  # First name only
             if dynamic_variables["policy_summary"]:
-                dynamic_variables["greeting_message"] = (
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
                     f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
                     f"How can I help you today?"
                 )
             else:
-                dynamic_variables["greeting_message"] = (
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
                     f"Hi {name}! How can I help you today?"
                 )
         else:
-            dynamic_variables["greeting_message"] = (
+            begin_msg = (
+                "Thank you for calling Better Choice Insurance Group! "
                 "My name is Flora. How can I help you today?"
             )
 
-        # Return dynamic variables to Retell
+        dynamic_variables["greeting_message"] = begin_msg
+
+        # Return dynamic variables AND override begin_message for guaranteed greeting
         return {
             "call_inbound": {
                 "dynamic_variables": dynamic_variables,
+                "agent_override": {
+                    "retell_llm": {
+                        "begin_message": begin_msg,
+                    }
+                },
                 "metadata": {
                     "source": "bci_crm",
                     "lookup_phone": phone_digits,
@@ -572,29 +586,30 @@ async def debug_lookup(phone: str):
             "Content-Type": "application/json",
         }
 
-        phone_formats = [
-            phone_digits,
-            f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}",
-            f"{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}",
-            f"+1{phone_digits}",
-        ]
-
-        for phone_fmt in phone_formats:
-            resp = requests.get(
-                f"{client.base_url}/api/Customers/GetCustomers",
-                headers=headers,
-                params={"Phone": phone_fmt},
-                timeout=15,
-            )
-            if resp.status_code == 200 and resp.text.strip():
-                data = resp.json()
-                if isinstance(data, list) and data:
-                    results[phone_fmt] = data
-                    break
-                else:
-                    results[phone_fmt] = f"empty ({type(data).__name__})"
+        resp = requests.get(
+            f"{client.base_url}/api/Customers/GetCustomers",
+            headers=headers,
+            params={"Phone": phone_digits},
+            timeout=15,
+        )
+        if resp.status_code == 200 and resp.text.strip():
+            data = resp.json()
+            if isinstance(data, list) and data:
+                results["customers"] = data
+                # Also get policies for the first match
+                db_id = data[0].get("databaseId", "")
+                if db_id:
+                    try:
+                        policies = client.get_insured_policies(str(db_id))
+                        results["raw_policies"] = policies[:5]  # First 5
+                        results["policy_summary"] = build_policy_summary(policies)
+                        results["carrier_list"] = build_carrier_list(policies)
+                    except Exception as e:
+                        results["policy_error"] = str(e)
             else:
-                results[phone_fmt] = f"status {resp.status_code}"
+                results["customers"] = "empty"
+        else:
+            results["status"] = resp.status_code
 
     except Exception as e:
         results["error"] = str(e)
