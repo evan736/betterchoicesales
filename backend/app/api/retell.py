@@ -389,34 +389,36 @@ async def inbound_call_webhook(request: Request):
                 except Exception as e:
                     logger.error("NowCerts lookup failed: %s", e)
 
-                if result and result.get("customer"):
-                    customer = result["customer"]
-                    policies = result.get("policies", [])
+            # Extract customer data from result (regardless of which layer found it)
+            if result and result.get("customer"):
+                customer = result["customer"]
+                policies = result.get("policies", [])
 
-                    first_name = customer.get("firstName") or customer.get("first_name") or ""
-                    last_name = customer.get("lastName") or customer.get("last_name") or ""
-                    commercial_name = customer.get("commercialName") or customer.get("commercial_name") or ""
-                    customer_name = (
-                        f"{first_name} {last_name}".strip()
-                        if first_name else commercial_name or ""
-                    )
-                    insured_id = customer.get("databaseId") or customer.get("database_id") or ""
+                first_name = customer.get("firstName") or customer.get("first_name") or ""
+                last_name = customer.get("lastName") or customer.get("last_name") or ""
+                commercial_name = customer.get("commercialName") or customer.get("commercial_name") or ""
+                customer_name = (
+                    f"{first_name} {last_name}".strip()
+                    if first_name else commercial_name or ""
+                )
+                insured_id = customer.get("databaseId") or customer.get("database_id") or ""
 
-                    dynamic_variables["customer_name"] = customer_name
-                    dynamic_variables["nowcerts_insured_id"] = str(insured_id)
-                    dynamic_variables["customer_found"] = "true"
+                dynamic_variables["customer_name"] = customer_name
+                dynamic_variables["nowcerts_insured_id"] = str(insured_id)
+                dynamic_variables["customer_found"] = "true"
 
-                    if policies:
-                        dynamic_variables["policy_summary"] = build_policy_summary(policies)
-                        dynamic_variables["carrier_list"] = build_carrier_list(policies)
+                if policies:
+                    dynamic_variables["policy_summary"] = build_policy_summary(policies)
+                    dynamic_variables["carrier_list"] = build_carrier_list(policies)
 
-                    logger.info(
-                        "NowCerts match: name=%s, id=%s, carriers=%s",
-                        customer_name, insured_id,
-                        dynamic_variables["carrier_list"][:80]
-                    )
-                else:
-                    logger.info("No NowCerts match for phone: %s", phone_digits)
+                logger.info(
+                    "Customer match: name=%s, id=%s, carriers=%s, source=%s",
+                    customer_name, insured_id,
+                    dynamic_variables["carrier_list"][:80],
+                    result.get("source", "nowcerts")
+                )
+            else:
+                logger.info("No match found for phone: %s", phone_digits)
 
         # Build the greeting message based on whether we found the customer
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
