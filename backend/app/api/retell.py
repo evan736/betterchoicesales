@@ -168,8 +168,11 @@ def _nowcerts_phone_lookup(phone_digits: str) -> dict:
     """Synchronous NowCerts lookup — runs in thread pool.
     
     Returns dict with customer info or empty dict on failure.
-    Designed to complete in under 7 seconds.
+    Total budget: ~9 seconds (Retell gives us 10s, need margin).
     """
+    import time
+    start = time.time()
+    
     try:
         client = get_nowcerts_client()
         if not client.is_configured:
@@ -177,18 +180,29 @@ def _nowcerts_phone_lookup(phone_digits: str) -> dict:
 
         # Get auth token (cached after first call — should be instant on subsequent calls)
         token = client._authenticate()
+        elapsed = time.time() - start
+        logger.info("NowCerts auth took %.1fs (token cached: %s)", elapsed, bool(client._token))
+        
+        if elapsed > 8:
+            logger.warning("Auth alone took %.1fs, aborting lookup", elapsed)
+            return {}
+        
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
 
-        # Single lookup with raw digits — NowCerts matches flexibly
+        # Customer lookup — give it up to 8 seconds
+        remaining = 9.0 - elapsed
         resp = requests.get(
             f"{client.base_url}/api/Customers/GetCustomers",
             headers=headers,
             params={"Phone": phone_digits},
-            timeout=6,
+            timeout=min(remaining, 8),
         )
+        
+        elapsed = time.time() - start
+        logger.info("GetCustomers took %.1fs total", elapsed)
 
         if resp.status_code != 200 or not resp.text.strip():
             return {}
@@ -204,24 +218,33 @@ def _nowcerts_phone_lookup(phone_digits: str) -> dict:
             r_cell = re.sub(r"\D", "", r.get("cellPhone") or "")
             if r_phone.endswith(phone_digits) or r_cell.endswith(phone_digits):
                 if r_phone.endswith(phone_digits):
-                    # Exact phone match is strongest
                     best = r
                     break
                 best = r
 
-        # Get policies (quick attempt, skip if slow)
-        insured_id = best.get("databaseId") or ""
+        # Get policies only if we have time left (need at least 1s margin)
+        elapsed = time.time() - start
+        remaining = 9.0 - elapsed
         policies = []
-        if insured_id:
+        insured_id = best.get("databaseId") or ""
+        if insured_id and remaining > 1.5:
             try:
+                logger.info("Fetching policies with %.1fs remaining", remaining)
                 policies = client.get_insured_policies(str(insured_id))
-            except Exception:
-                pass  # Skip policies if slow — name is more important
+            except Exception as e:
+                logger.warning("Policy lookup failed (%.1fs in): %s", time.time() - start, e)
+        else:
+            logger.info("Skipping policy lookup — only %.1fs remaining", remaining)
 
+        logger.info("NowCerts lookup complete in %.1fs: customer=%s, policies=%d",
+                     time.time() - start, best.get("firstName", "?"), len(policies))
         return {"customer": best, "policies": policies}
 
+    except requests.exceptions.Timeout:
+        logger.warning("NowCerts lookup timed out after %.1fs", time.time() - start)
+        return {}
     except Exception as e:
-        logger.error("NowCerts phone lookup failed: %s", e)
+        logger.error("NowCerts phone lookup failed after %.1fs: %s", time.time() - start, e)
         return {}
 
 
@@ -253,14 +276,14 @@ async def inbound_call_webhook(request: Request):
             "customer_found": "false",
         }
 
-        # Look up caller in NowCerts with a hard 8-second timeout
+        # Look up caller in NowCerts — Retell gives us 10s, retries 3x
         phone_digits = normalize_phone(from_number)
         if phone_digits and len(phone_digits) >= 10:
             try:
                 loop = asyncio.get_event_loop()
                 result = await asyncio.wait_for(
                     loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
-                    timeout=8.0
+                    timeout=9.5
                 )
 
                 if result and result.get("customer"):
