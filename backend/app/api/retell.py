@@ -72,8 +72,12 @@ def build_policy_summary(policies: list[dict]) -> str:
     parts = []
     seen = set()
     for pol in policies:
-        status = (pol.get("status") or pol.get("policyStatus") or "").lower()
-        if status in ("cancelled", "canceled", "non-renewed", "expired"):
+        status = (pol.get("status") or pol.get("policyStatus") or "").lower().strip()
+        
+        # Only include policies that are currently active
+        # "Renewed" means this policy TERM was renewed into a new one — it's not current
+        active_statuses = {"active", "renewing", "in force", "pending", "bound"}
+        if status and status not in active_statuses:
             continue
 
         carrier = (
@@ -105,10 +109,11 @@ def build_policy_summary(policies: list[dict]) -> str:
 
 def build_carrier_list(policies: list[dict]) -> str:
     """Build a comma-separated list of active carriers."""
+    active_statuses = {"active", "renewing", "in force", "pending", "bound"}
     carriers = set()
     for pol in policies:
-        status = (pol.get("status") or pol.get("policyStatus") or "").lower()
-        if status in ("cancelled", "canceled", "non-renewed", "expired"):
+        status = (pol.get("status") or pol.get("policyStatus") or "").lower().strip()
+        if status and status not in active_statuses:
             continue
         carrier = (
             pol.get("carrier_name") or pol.get("carrierName") or
