@@ -294,10 +294,10 @@ export default function CustomersPage() {
                                           <button
                                             onClick={() => {
                                               let pn = p.policy_number || '';
-                                              // Grange auto policies: strip the PA prefix (e.g. PA35448260 → 35448260)
+                                              // Grange auto policies: strip the PA3 prefix (e.g. PA35448260 → 5448260)
                                               const carrierKey = (p.carrier || '').toLowerCase();
-                                              if (carrierKey.includes('grange') && pn.toUpperCase().startsWith('PA')) {
-                                                pn = pn.substring(2);
+                                              if (carrierKey.includes('grange') && pn.toUpperCase().startsWith('PA3')) {
+                                                pn = pn.substring(3);
                                               }
                                               navigator.clipboard.writeText(pn);
                                               setCopiedPolicy(pn);
