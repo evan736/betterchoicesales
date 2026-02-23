@@ -418,11 +418,6 @@ async def inbound_call_webhook(request: Request):
                 else:
                     logger.info("No NowCerts match for phone: %s", phone_digits)
 
-            except asyncio.TimeoutError:
-                logger.warning("NowCerts lookup timed out (8s) for phone: %s", phone_digits)
-            except Exception as e:
-                logger.error("NowCerts lookup failed: %s", e)
-
         # Build the greeting message based on whether we found the customer
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
             name = dynamic_variables["customer_name"].split()[0]  # First name only
