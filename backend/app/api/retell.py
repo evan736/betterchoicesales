@@ -184,20 +184,35 @@ def _local_db_phone_lookup(phone_digits: str) -> dict:
     try:
         from app.core.database import SessionLocal
         from app.models.customer import Customer, CustomerPolicy
-        from sqlalchemy import or_
+        from sqlalchemy import or_, case
         
         db = SessionLocal()
         try:
-            # Search by phone or mobile_phone (strip non-digits for comparison)
-            customer = db.query(Customer).filter(
+            # Search by phone or mobile_phone
+            # Order: exact phone match first, then mobile_phone match
+            # Also prefer records with more data (has email, has address = more likely real)
+            customers = db.query(Customer).filter(
                 or_(
                     Customer.phone.like(f"%{phone_digits[-10:]}%"),
                     Customer.mobile_phone.like(f"%{phone_digits[-10:]}%"),
                 )
-            ).first()
+            ).order_by(
+                # Prefer phone match over mobile_phone match
+                case(
+                    (Customer.phone.like(f"%{phone_digits[-10:]}%"), 0),
+                    else_=1
+                ),
+                # Prefer records with email (more likely to be real)
+                case(
+                    (Customer.email.isnot(None), 0),
+                    else_=1
+                ),
+            ).limit(5).all()
             
-            if not customer:
+            if not customers:
                 return {}
+            
+            customer = customers[0]
             
             # Get active policies
             active_statuses = ["Active", "Renewing", "In Force", "Pending", "Bound",
