@@ -1132,6 +1132,22 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
     plain_lower = (plain_body or "").lower()
     all_text = f"{subject_lower} {html_lower} {plain_lower}"
 
+    # ── National General Policy Activity → smart router ──
+    is_natgen_activity = (
+        ("policy activity" in subject_lower and ("ngic" in all_text or "national general" in all_text))
+        or ("reports@ngic.com" in (sender or "").lower())
+        or ("policy activity" in subject_lower and "outstanding to do" in html_lower)
+    )
+    if is_natgen_activity:
+        logger.info("NatGen Policy Activity detected — routing through smart parser")
+        try:
+            return await _handle_natgen_policy_activity(html_body, sender, db)
+        except Exception as e:
+            logger.error("NatGen smart router failed: %s", e)
+            import traceback
+            traceback.print_exc()
+            # Fall through to generic handler
+
     # Check for skip keywords in subject
     if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
         # But only skip if the body doesn't ALSO contain non-pay content
@@ -1802,3 +1818,241 @@ def list_sent_nonpay_letters():
         ]
     finally:
         db.close()
+
+
+# ── National General Policy Activity Smart Router ─────────────────────
+
+async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Session) -> dict:
+    """Parse NatGen Policy Activity email and route each section appropriately.
+    
+    - Outstanding To Dos:
+        - GoPaperless → skip
+        - Proof of Continuous Insurance / NoPOP → send UW requirement email
+    - Pending Cancellations:
+        - Non Payment / NSF → existing non-pay flow
+        - Underwriting / Voluntary → skip
+    - Undeliverable Mail → notify producer
+    """
+    from app.services.natgen_parser import parse_natgen_policy_activity
+    from app.services.uw_requirement_email import send_uw_requirement_email, send_undeliverable_mail_alert
+
+    parsed = parse_natgen_policy_activity(html_body)
+    carrier = "national_general"
+    
+    results = {
+        "status": "processed",
+        "carrier": "national_general",
+        "sections": {},
+    }
+
+    # ── 1. Outstanding To Dos ──
+    todos_processed = []
+    for todo in parsed["outstanding_todos"]:
+        todo_type = todo.get("todo_type", "other")
+        policy = todo.get("policy", "")
+        insured = todo.get("insured_name", "")
+        
+        if todo_type == "go_paperless":
+            todos_processed.append({
+                "policy": policy, "insured": insured,
+                "action": "skipped", "reason": "GoPaperless — not actionable"
+            })
+            continue
+        
+        if todo_type in ("proof_of_continuous_insurance", "nopop"):
+            # Look up customer in DB to get email + producer
+            customer_info = _lookup_customer_for_natgen(db, policy, insured)
+            
+            if customer_info and customer_info.get("email"):
+                # Determine requirement type
+                req_type = "nopop" if todo_type == "nopop" else "proof_of_continuous_insurance"
+                
+                email_result = send_uw_requirement_email(
+                    to_email=customer_info["email"],
+                    client_name=insured,
+                    policy_number=policy,
+                    carrier=carrier,
+                    requirement_type=req_type,
+                    due_date=todo.get("next_action_date"),
+                    producer_name=customer_info.get("producer_name"),
+                    producer_email=customer_info.get("producer_email"),
+                )
+                todos_processed.append({
+                    "policy": policy, "insured": insured,
+                    "action": "uw_email_sent" if email_result.get("success") else "uw_email_failed",
+                    "email": customer_info["email"],
+                    "requirement": req_type,
+                    "error": email_result.get("error"),
+                })
+            else:
+                todos_processed.append({
+                    "policy": policy, "insured": insured,
+                    "action": "no_email_found", "requirement": todo_type,
+                })
+            continue
+        
+        # Other todo types — log but skip
+        todos_processed.append({
+            "policy": policy, "insured": insured,
+            "action": "skipped", "reason": f"Unknown todo type: {todo.get('todo_description', '')}"
+        })
+    
+    results["sections"]["outstanding_todos"] = {
+        "total": len(parsed["outstanding_todos"]),
+        "details": todos_processed,
+    }
+
+    # ── 2. Pending Cancellations → existing non-pay flow ──
+    cancellations_processed = []
+    mode = INBOUND_NONPAY_MODE
+    dry_run = (mode != "live")
+    
+    # Create a notice record for the non-pay portion
+    nonpay_policies = [c for c in parsed["pending_cancellations"] if c["cancel_type"] in ("non_pay", "nsf")]
+    if nonpay_policies:
+        notice = NonPayNotice(
+            filename=f"natgen-activity-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+            upload_type="inbound-email",
+            uploaded_by=f"inbound:{sender[:60]}",
+            policies_found=len(nonpay_policies),
+            status="processing",
+        )
+        db.add(notice)
+        db.commit()
+        db.refresh(notice)
+    
+    for canc in parsed["pending_cancellations"]:
+        policy = canc.get("policy", "")
+        insured = canc.get("insured_name", "")
+        cancel_type = canc.get("cancel_type", "other")
+        
+        if cancel_type in ("underwriting", "voluntary", "other"):
+            cancellations_processed.append({
+                "policy": policy, "insured": insured,
+                "action": "skipped", "reason": canc.get("reason", cancel_type),
+            })
+            continue
+        
+        # Non-pay / NSF → process through existing flow
+        if nonpay_policies:
+            result = _process_single_policy(
+                db=db,
+                notice_id=notice.id,
+                policy_number=policy,
+                carrier=carrier,
+                insured_name=insured,
+                amount_due=canc.get("amount_due"),
+                due_date=canc.get("cancel_date"),
+                dry_run=dry_run,
+            )
+            result["cancel_type"] = cancel_type
+            result["reason"] = canc.get("reason", "")
+            cancellations_processed.append(result)
+    
+    # Update notice
+    if nonpay_policies:
+        sent = sum(1 for r in cancellations_processed if r.get("email_sent"))
+        notice.emails_sent = sent
+        notice.status = "complete"
+        db.commit()
+    
+    results["sections"]["pending_cancellations"] = {
+        "total": len(parsed["pending_cancellations"]),
+        "nonpay": len(nonpay_policies),
+        "skipped": len(parsed["pending_cancellations"]) - len(nonpay_policies),
+        "details": cancellations_processed,
+    }
+
+    # ── 3. Undeliverable Mail → notify producer ──
+    undeliverable_processed = []
+    for undel in parsed["undeliverable_mail"]:
+        policy = undel.get("policy", "")
+        insured = undel.get("insured_name", "")
+        phone = undel.get("phone", "")
+        mail_desc = undel.get("mail_description", "")
+        
+        # Look up customer to find their producer
+        customer_info = _lookup_customer_for_natgen(db, policy, insured)
+        producer_email = (customer_info or {}).get("producer_email", "evan@betterchoiceins.com")
+        
+        alert_result = send_undeliverable_mail_alert(
+            producer_email=producer_email,
+            client_name=insured,
+            policy_number=policy,
+            carrier=carrier,
+            mail_description=mail_desc,
+            phone=phone,
+        )
+        undeliverable_processed.append({
+            "policy": policy, "insured": insured,
+            "action": "alert_sent" if alert_result.get("success") else "alert_failed",
+            "producer": producer_email,
+            "error": alert_result.get("error"),
+        })
+    
+    results["sections"]["undeliverable_mail"] = {
+        "total": len(parsed["undeliverable_mail"]),
+        "details": undeliverable_processed,
+    }
+
+    logger.info(
+        "NatGen Activity processed: %d todos, %d cancellations (%d nonpay), %d undeliverable",
+        len(parsed["outstanding_todos"]),
+        len(parsed["pending_cancellations"]),
+        len(nonpay_policies) if nonpay_policies else 0,
+        len(parsed["undeliverable_mail"]),
+    )
+    return results
+
+
+def _lookup_customer_for_natgen(db: Session, policy_number: str, insured_name: str) -> Optional[dict]:
+    """Look up a customer by policy number or name to get email + producer info."""
+    from app.models.sale import Sale
+    from app.models.user import User
+
+    if not policy_number:
+        return None
+
+    # Clean policy number (NatGen format: "2033776342" or with spaces)
+    clean_policy = policy_number.replace(" ", "").strip()
+
+    # Try exact match first
+    sale = db.query(Sale).filter(
+        Sale.policy_number.ilike(f"%{clean_policy}%")
+    ).first()
+
+    # Try without trailing " 00" or " 01" suffix
+    if not sale and len(clean_policy) > 2:
+        base = clean_policy[:-2] if clean_policy[-2:] in ("00", "01") else clean_policy
+        sale = db.query(Sale).filter(
+            Sale.policy_number.ilike(f"%{base}%")
+        ).first()
+
+    # Try name match as fallback
+    if not sale and insured_name:
+        parts = insured_name.strip().split()
+        if len(parts) >= 2:
+            first = parts[0]
+            last = parts[-1]
+            sale = db.query(Sale).filter(
+                Sale.client_name.ilike(f"%{first}%"),
+                Sale.client_name.ilike(f"%{last}%"),
+            ).first()
+
+    if not sale:
+        return None
+
+    result = {
+        "email": sale.client_email,
+        "phone": getattr(sale, "client_phone", None),
+        "sale_id": sale.id,
+    }
+
+    # Get producer info
+    if sale.selling_agent_id:
+        producer = db.query(User).filter(User.id == sale.selling_agent_id).first()
+        if producer:
+            result["producer_name"] = producer.full_name or producer.username
+            result["producer_email"] = producer.email
+
+    return result
