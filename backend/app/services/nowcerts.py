@@ -544,11 +544,15 @@ class NowCertsClient:
                     logger.warning("NowCerts insured search failed: %s", e)
             
             # Build payload with snake_case field names (per NowCerts Postman collection)
+            note_text = note_data.get("text") or ""
+            subject = note_data.get("subject") or note_data.get("noteText") or ""
+            
+            # NowCerts InsertNote uses 'subject' for the note title/header
+            # and 'text' or 'description' for the body content
             payload = {
-                "subject": (
-                    note_data.get("subject") or 
-                    note_data.get("noteText") or ""
-                ),
+                "subject": subject,
+                "text": note_text,
+                "description": note_text,
                 "insured_database_id": str(insured_db_id),
                 "insured_email": email,
                 "insured_first_name": first_name,

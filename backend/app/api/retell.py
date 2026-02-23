@@ -592,21 +592,45 @@ async def post_call_webhook(request: Request):
         if event not in ("call_ended", "call_analyzed"):
             return {"status": "ok", "message": f"Ignored event: {event}"}
 
-        # Log note to NowCerts if we have an insured ID
+        # Extract call analysis data (available on call_analyzed, may be on call_ended too)
+        call_analysis = call.get("call_analysis", {})
+        call_summary = call_analysis.get("call_summary", "")
+        call_type = call_analysis.get("call_type", "")
+        carrier = call_analysis.get("carrier", "")
+        department = call_analysis.get("department", "")
+        sentiment = call_analysis.get("caller_sentiment", call_analysis.get("user_sentiment", ""))
+        resolution = call_analysis.get("resolution", "")
+        follow_up = call_analysis.get("follow_up_needed", "")
+
+        # Log note to NowCerts on call_ended (fires first, faster)
         if insured_id and event == "call_ended":
             try:
                 client = get_nowcerts_client()
                 if client.is_configured:
-                    # Truncate transcript for note
-                    note_transcript = transcript[:2000] if transcript else "No transcript available"
-                    note_subject = (
-                        f"AI Receptionist Call — {duration_str} — "
-                        f"{disconnection_reason or 'completed'}"
-                    )
+                    # Build a useful note body
+                    note_parts = []
+                    note_parts.append(f"Duration: {duration_str}")
+                    note_parts.append(f"Caller: {customer_name} ({from_number})")
+                    if call_summary:
+                        note_parts.append(f"Summary: {call_summary}")
+                    if carrier:
+                        note_parts.append(f"Carrier: {carrier}")
+                    if department:
+                        note_parts.append(f"Department: {department}")
+                    if resolution:
+                        note_parts.append(f"Resolution: {resolution}")
+                    if transcript:
+                        note_parts.append(f"\n--- Transcript ---\n{transcript[:1500]}")
+
+                    note_body = "\n".join(note_parts)
+                    note_subject = f"Flora AI Call — {duration_str}"
+                    if call_type:
+                        note_subject += f" — {call_type.replace('_', ' ').title()}"
 
                     client.insert_note({
                         "insured_database_id": str(insured_id),
                         "subject": note_subject,
+                        "text": note_body,
                         "insured_commercial_name": customer_name,
                         "creator_name": "Flora AI Receptionist",
                         "type": "Phone Call",
@@ -615,48 +639,65 @@ async def post_call_webhook(request: Request):
             except Exception as e:
                 logger.error("NowCerts note insert failed: %s", e)
 
-        # Send summary email for call_analyzed (has richer data)
+        # Send summary email on call_analyzed (has full analysis)
         if event == "call_analyzed":
-            call_analysis = call.get("call_analysis", {})
-            summary = call_analysis.get("call_summary", "")
-            sentiment = call_analysis.get("user_sentiment", "")
-            successful = call_analysis.get("call_successful", None)
+            # Build sentiment badge
+            sentiment_badge = {
+                "positive": "😊 Positive",
+                "neutral": "😐 Neutral",
+                "frustrated": "😤 Frustrated",
+                "upset": "😠 Upset",
+            }.get((sentiment or "").lower(), sentiment or "Unknown")
 
-            if summary or transcript:
-                html = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <div style="background: #2c3e50; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
-                        <h2 style="margin: 0;">📊 Call Summary</h2>
-                        <p style="margin: 4px 0 0; opacity: 0.9;">Flora AI Receptionist</p>
-                    </div>
-                    <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <tr><td style="padding: 6px 0; font-weight: bold; width: 120px;">Caller:</td>
-                                <td>{customer_name} ({from_number})</td></tr>
-                            <tr><td style="padding: 6px 0; font-weight: bold;">Duration:</td>
-                                <td>{duration_str}</td></tr>
-                            <tr><td style="padding: 6px 0; font-weight: bold;">Outcome:</td>
-                                <td>{disconnection_reason}</td></tr>
-                            {"<tr><td style='padding: 6px 0; font-weight: bold;'>Sentiment:</td><td>" + sentiment + "</td></tr>" if sentiment else ""}
-                            {"<tr><td style='padding: 6px 0; font-weight: bold;'>Successful:</td><td>" + ("✅ Yes" if successful else "❌ No") + "</td></tr>" if successful is not None else ""}
-                        </table>
-                        {"<div style='background: #f8f9fa; padding: 16px; border-radius: 6px; margin-top: 16px;'><p style='margin: 0; font-weight: bold;'>Summary:</p><p style='margin: 8px 0 0;'>" + summary + "</p></div>" if summary else ""}
-                        <details style="margin-top: 16px;">
-                            <summary style="cursor: pointer; font-weight: bold; color: #1a5276;">View Full Transcript</summary>
-                            <pre style="white-space: pre-wrap; font-size: 13px; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 8px; max-height: 400px; overflow-y: auto;">{transcript[:5000] if transcript else "No transcript"}</pre>
-                        </details>
-                        <p style="color: #888; font-size: 12px; margin-top: 16px;">
-                            Call ID: {call_id}
-                        </p>
-                    </div>
+            # Build resolution badge
+            resolution_badge = {
+                "transferred": "📞 Transferred to Carrier",
+                "message_taken": "💬 Message Taken",
+                "callback_scheduled": "📅 Callback Scheduled",
+                "info_provided": "ℹ️ Info Provided",
+                "caller_hangup": "📵 Caller Hung Up",
+                "unresolved": "⚠️ Unresolved",
+            }.get((resolution or "").lower(), resolution or "Unknown")
+
+            follow_up_badge = "🔴 Yes" if follow_up == "true" else "🟢 No"
+
+            html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #2c3e50; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+                    <h2 style="margin: 0;">📊 Call Summary</h2>
+                    <p style="margin: 4px 0 0; opacity: 0.9;">Flora AI Receptionist</p>
                 </div>
-                """
+                <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr><td style="padding: 6px 0; font-weight: bold; width: 130px;">Caller:</td>
+                            <td>{customer_name} ({from_number})</td></tr>
+                        <tr><td style="padding: 6px 0; font-weight: bold;">Duration:</td>
+                            <td>{duration_str}</td></tr>
+                        <tr><td style="padding: 6px 0; font-weight: bold;">Call Type:</td>
+                            <td>{call_type.replace('_', ' ').title() if call_type else 'N/A'}</td></tr>
+                        {"<tr><td style='padding: 6px 0; font-weight: bold;'>Carrier:</td><td>" + carrier + "</td></tr>" if carrier else ""}
+                        {"<tr><td style='padding: 6px 0; font-weight: bold;'>Department:</td><td>" + department.title() + "</td></tr>" if department else ""}
+                        <tr><td style="padding: 6px 0; font-weight: bold;">Resolution:</td>
+                            <td>{resolution_badge}</td></tr>
+                        <tr><td style="padding: 6px 0; font-weight: bold;">Sentiment:</td>
+                            <td>{sentiment_badge}</td></tr>
+                        <tr><td style="padding: 6px 0; font-weight: bold;">Follow-up:</td>
+                            <td>{follow_up_badge}</td></tr>
+                    </table>
+                    {"<div style='background: #f0f7ff; padding: 16px; border-radius: 6px; margin-top: 16px; border-left: 4px solid #1a5276;'><p style='margin: 0; font-weight: bold;'>Summary</p><p style='margin: 8px 0 0;'>" + call_summary + "</p></div>" if call_summary else ""}
+                    <details style="margin-top: 16px;">
+                        <summary style="cursor: pointer; font-weight: bold; color: #1a5276;">View Full Transcript</summary>
+                        <pre style="white-space: pre-wrap; font-size: 13px; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 8px; max-height: 400px; overflow-y: auto;">{transcript[:5000] if transcript else "No transcript"}</pre>
+                    </details>
+                    <p style="color: #888; font-size: 12px; margin-top: 16px;">
+                        Call ID: {call_id} · Disconnect: {disconnection_reason}
+                    </p>
+                </div>
+            </div>
+            """
 
-                send_mailgun_email(
-                    "service@betterchoiceins.com",
-                    f"📊 Call Summary — {customer_name} ({duration_str})",
-                    html,
-                )
+            subject = f"📊 Flora Call — {customer_name} — {resolution_badge}"
+            send_mailgun_email("service@betterchoiceins.com", subject, html)
 
         return {"status": "ok"}
 
