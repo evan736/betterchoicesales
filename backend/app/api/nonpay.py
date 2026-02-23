@@ -2485,14 +2485,19 @@ def db_check(db: Session = Depends(get_db)):
     """Quick database diagnostic - no auth required."""
     from app.models.sale import Sale
     from app.models.user import User
+    from app.models.task import Task
     try:
         sale_count = db.query(Sale).count()
         user_count = db.query(User).count()
+        task_count = db.query(Task).count()
+        open_tasks = db.query(Task).filter(Task.status.in_(["open", "in_progress"])).count()
         latest_sale = db.query(Sale).order_by(Sale.id.desc()).first()
         return {
             "database": "connected",
             "total_sales": sale_count,
             "total_users": user_count,
+            "total_tasks": task_count,
+            "open_tasks": open_tasks,
             "latest_sale": {
                 "id": latest_sale.id,
                 "client_name": latest_sale.client_name,
