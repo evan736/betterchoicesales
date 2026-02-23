@@ -93,9 +93,17 @@ Extract ALL policy numbers and associated details. Return ONLY a valid JSON arra
     "insured_name": "Policyholder name if visible",
     "amount_due": 123.45,
     "due_date": "MM/DD/YYYY or as shown, or null",
+    "cancel_reason": "The exact cancellation reason text as shown in the document",
     "notice_type": "non-pay|cancellation|reinstatement|past-due|other"
   }
 ]
+
+CRITICAL — notice_type classification rules:
+- "non-pay" = ONLY for non-payment of premium or NSF (bounced payment). Keywords: "non payment", "non-pay", "NSF", "insufficient funds", "past due"
+- "cancellation" = policyholder requested cancellation, underwriting cancellation, carrier non-renewal, or any cancellation NOT related to non-payment. Keywords: "underwriting reasons", "policyholder request", "insured request", "non-renewal", "company cancel"
+- "reinstatement" = policy being reinstated
+- "past-due" = past due notice that is not yet a pending cancellation
+- "other" = anything else
 
 IMPORTANT:
 - Extract EVERY policy listed in the document, even if there are hundreds
@@ -193,7 +201,19 @@ async def upload_nonpay_b64(
             notice_type = pol.get("notice_type", "non-pay")
             cancel_reason = pol.get("cancel_reason", "")
 
-            if notice_type not in ("non-pay",):
+            # Also check reason text for non-payment keywords
+            reason_lower = cancel_reason.lower() if cancel_reason else ""
+            is_nonpay = any(kw in reason_lower for kw in [
+                "non payment", "non-payment", "nonpayment", "non pay", "non-pay",
+                "nsf", "insufficient fund", "past due", "past-due",
+            ])
+            is_skip = any(kw in reason_lower for kw in [
+                "underwriting", "policyholder request", "insured request",
+                "company cancel", "non-renewal", "nonrenewal",
+            ])
+
+            # Skip if explicitly not non-pay, or if reason text indicates skip
+            if is_skip or (notice_type not in ("non-pay", "past-due") and not is_nonpay):
                 # Skip non-actionable reasons
                 results.append({
                     "policy_number": pnum,
@@ -329,7 +349,17 @@ async def upload_nonpay_file(
             notice_type = pol.get("notice_type", "non-pay")
             cancel_reason = pol.get("cancel_reason", "")
 
-            if notice_type not in ("non-pay",):
+            reason_lower = cancel_reason.lower() if cancel_reason else ""
+            is_nonpay = any(kw in reason_lower for kw in [
+                "non payment", "non-payment", "nonpayment", "non pay", "non-pay",
+                "nsf", "insufficient fund", "past due", "past-due",
+            ])
+            is_skip = any(kw in reason_lower for kw in [
+                "underwriting", "policyholder request", "insured request",
+                "company cancel", "non-renewal", "nonrenewal",
+            ])
+
+            if is_skip or (notice_type not in ("non-pay", "past-due") and not is_nonpay):
                 results.append({
                     "policy_number": pnum,
                     "insured_name": pol.get("insured_name", ""),
@@ -1169,7 +1199,17 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
         notice_type = pol.get("notice_type", "non-pay")
         cancel_reason = pol.get("cancel_reason", "")
 
-        if notice_type not in ("non-pay",):
+        reason_lower = cancel_reason.lower() if cancel_reason else ""
+        is_nonpay = any(kw in reason_lower for kw in [
+            "non payment", "non-payment", "nonpayment", "non pay", "non-pay",
+            "nsf", "insufficient fund", "past due", "past-due",
+        ])
+        is_skip = any(kw in reason_lower for kw in [
+            "underwriting", "policyholder request", "insured request",
+            "company cancel", "non-renewal", "nonrenewal",
+        ])
+
+        if is_skip or (notice_type not in ("non-pay", "past-due") and not is_nonpay):
             results.append({
                 "policy_number": pnum,
                 "insured_name": pol.get("insured_name", ""),
