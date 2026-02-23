@@ -169,9 +169,9 @@ def send_uw_requirement_email(
         producer_name=producer_name,
     )
 
-    cc_list = ["evan@betterchoiceins.com"]
+    bcc_list = ["evan@betterchoiceins.com"]
     if producer_email and producer_email != "evan@betterchoiceins.com":
-        cc_list.append(producer_email)
+        bcc_list.append(producer_email)
 
     mail_data = {
         "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
@@ -179,7 +179,7 @@ def send_uw_requirement_email(
         "subject": subject,
         "html": html_body,
         "h:Reply-To": "service@betterchoiceins.com",
-        "cc": cc_list,
+        "bcc": bcc_list,
     }
 
     try:
@@ -243,7 +243,8 @@ def send_undeliverable_mail_alert(
 
     mail_data = {
         "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
-        "to": [producer_email, "evan@betterchoiceins.com"],
+        "to": [producer_email],
+                "bcc": ["evan@betterchoiceins.com"],
         "subject": subject,
         "html": "\n".join(h),
     }
@@ -380,9 +381,9 @@ def send_non_renewal_email(
         producer_name=producer_name,
     )
 
-    cc_list = ["evan@betterchoiceins.com"]
+    bcc_list = ["evan@betterchoiceins.com"]
     if producer_email and producer_email != "evan@betterchoiceins.com":
-        cc_list.append(producer_email)
+        bcc_list.append(producer_email)
 
     mail_data = {
         "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
@@ -390,7 +391,7 @@ def send_non_renewal_email(
         "subject": subject,
         "html": html_body,
         "h:Reply-To": "service@betterchoiceins.com",
-        "cc": cc_list,
+        "bcc": bcc_list,
     }
 
     try:
