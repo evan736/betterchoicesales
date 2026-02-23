@@ -814,3 +814,45 @@ async def debug_lookup(phone: str):
         results["error"] = str(e)
 
     return {"phone": phone_digits, "results": results}
+
+
+@router.get("/debug-db/{phone}")
+async def debug_db_lookup(phone: str):
+    """Debug endpoint to see local DB matches for a phone number."""
+    phone_digits = normalize_phone(phone)
+    try:
+        from app.core.database import SessionLocal
+        from app.models.customer import Customer
+        from sqlalchemy import or_
+        
+        db = SessionLocal()
+        try:
+            customers = db.query(Customer).filter(
+                or_(
+                    Customer.phone.like(f"%{phone_digits[-10:]}%"),
+                    Customer.mobile_phone.like(f"%{phone_digits[-10:]}%"),
+                )
+            ).limit(10).all()
+            
+            return {
+                "phone": phone_digits,
+                "count": len(customers),
+                "matches": [
+                    {
+                        "id": c.id,
+                        "name": c.full_name,
+                        "first_name": c.first_name,
+                        "last_name": c.last_name,
+                        "phone": c.phone,
+                        "mobile_phone": c.mobile_phone,
+                        "email": c.email,
+                        "nowcerts_id": c.nowcerts_insured_id,
+                        "is_active": c.is_active,
+                    }
+                    for c in customers
+                ]
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        return {"error": str(e)}
