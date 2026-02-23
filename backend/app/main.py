@@ -219,6 +219,30 @@ def init_database():
     Base.metadata.create_all(bind=engine)
     logger.info("Tables created successfully")
 
+    # ── Tasks table: add missing columns ──
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='tasks') THEN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='last_notification_tier') THEN
+                            ALTER TABLE tasks ADD COLUMN last_notification_tier VARCHAR;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='notifications_disabled') THEN
+                            ALTER TABLE tasks ADD COLUMN notifications_disabled BOOLEAN DEFAULT FALSE;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='customer_notified') THEN
+                            ALTER TABLE tasks ADD COLUMN customer_notified BOOLEAN DEFAULT FALSE;
+                        END IF;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("Tasks columns migration complete")
+        except Exception as e:
+            logger.warning(f"Tasks column migration warning: {e}")
+
     # Ensure timeclock_entries table exists with ALL columns
     with engine.connect() as conn:
         try:
