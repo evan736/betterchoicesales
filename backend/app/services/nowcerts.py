@@ -388,6 +388,42 @@ class NowCertsClient:
             logger.error("NowCerts get policies failed: %s", e)
             return []
 
+    def search_by_policy_number(self, policy_number: str) -> list[dict]:
+        """Search NowCerts for an insured by policy number.
+        
+        Queries PolicyDetailList by number, then returns the linked insured(s).
+        """
+        try:
+            clean = policy_number.strip().replace("'", "''")
+            filter_expr = f"contains(tolower(number), '{clean.lower()}')"
+            data = self._odata_get("PolicyDetailList", skip=0, top=10,
+                                   filter_expr=filter_expr)
+            policies = data.get("value", [])
+            if not policies:
+                return []
+
+            # Get unique insured IDs from the policy results
+            seen_ids = set()
+            insureds = []
+            for pol in policies:
+                iid = pol.get("insuredDatabaseId") or pol.get("insured_database_id")
+                if iid and str(iid) not in seen_ids:
+                    seen_ids.add(str(iid))
+                    # Fetch the insured detail
+                    try:
+                        filter_ins = f"databaseId eq {iid}"
+                        ins_data = self._odata_get("InsuredDetailList", skip=0, top=1,
+                                                    filter_expr=filter_ins)
+                        for ins in ins_data.get("value", []):
+                            insureds.append(self._normalize_odata_insured(ins))
+                    except Exception as e:
+                        logger.warning("Failed to fetch insured %s: %s", iid, e)
+
+            return insureds
+        except Exception as e:
+            logger.error("NowCerts policy number search failed: %s", e)
+            return []
+
     def get_all_insureds_paginated(self, page_size: int = 200) -> list[dict]:
         """Get ALL insureds from NowCerts using OData pagination. Returns normalized list."""
         all_results = []

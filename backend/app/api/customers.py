@@ -90,6 +90,14 @@ def search_customers(
 
         try:
             nc_results = client.search_insureds(q.strip() if q.strip() else "", limit=page_size)
+
+            # If name/email/phone search returned nothing, try policy number search
+            if not nc_results and q.strip():
+                try:
+                    nc_results = client.search_by_policy_number(q.strip())
+                except Exception as pe:
+                    logger.warning("NowCerts policy number search failed: %s", pe)
+
             nc_customers = []
             for raw in nc_results:
                 normalized = normalize_insured(raw)
