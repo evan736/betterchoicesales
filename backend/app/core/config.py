@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     GHL_WINBACK_WEBHOOK_URL: Optional[str] = None
     GHL_CROSSSELL_WEBHOOK_URL: Optional[str] = None
     GHL_UW_WEBHOOK_URL: Optional[str] = None
+
+    # Missive integration
+    MISSIVE_API_TOKEN: Optional[str] = None
+    MISSIVE_WEBHOOK_SECRET: Optional[str] = None
     
     class Config:
         env_file = ".env"

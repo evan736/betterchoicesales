@@ -14,6 +14,7 @@ from app.api import customers as customers_api
 from app.api import nonpay as nonpay_api
 from app.api import uw_requirements as uw_api
 from app.api import winback as winback_api
+from app.api import missive as missive_api
 from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
@@ -711,6 +712,7 @@ app.include_router(life_crosssell_api.router, prefix="/api")
 
 from app.api import tasks as tasks_api
 app.include_router(tasks_api.router)
+app.include_router(missive_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
