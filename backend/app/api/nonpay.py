@@ -1154,22 +1154,9 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             traceback.print_exc()
             # Fall through to generic handler
 
-    # ── Grange Non-Renewal Alerts → non-renewal handler ──
-    is_grange_nonrenewal = (
-        ("grangewire" in all_text or "grange" in (sender or "").lower())
-        and ("non-renewal" in all_text or "nonrenewal" in all_text or "non renewal" in all_text)
-    )
-    if is_grange_nonrenewal:
-        logger.info("GrangeWire Non-Renewal Alert detected — routing to non-renewal handler")
-        try:
-            return await _handle_grange_nonrenewal(html_body, sender, db)
-        except Exception as e:
-            logger.error("Grange non-renewal handler failed: %s", e)
-            import traceback
-            traceback.print_exc()
-            # Fall through to generic handler
-
     # ── Carrier Inspection Follow-Ups → inspection handler ──
+    # Must run BEFORE Grange non-renewal check because inspection emails
+    # can contain "non renewal" in warning text
     from app.services.inspection_email import is_inspection_email, handle_inspection_email
     if is_inspection_email(sender, subject, f"{html_body} {plain_body}"):
         logger.info("Carrier inspection email detected — routing to inspection handler")
@@ -1196,6 +1183,14 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             import traceback
             traceback.print_exc()
             # Fall through to generic handler
+
+    # ── Grange Non-Renewal Alerts → non-renewal handler ──
+    # Only match actual GrangeWire Alert emails, not inspection follow-ups
+    is_grange_nonrenewal = (
+        ("grangewire" in all_text or "grange" in (sender or "").lower())
+        and ("non-renewal" in all_text or "nonrenewal" in all_text or "non renewal" in all_text)
+        and ("grangewire" in all_text or "non-renewal alert" in all_text or "non-renewals alert" in all_text)
+    )
 
     # Check for skip keywords in subject
     if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
