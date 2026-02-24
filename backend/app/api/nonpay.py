@@ -2619,10 +2619,11 @@ def customer_lookup(policy_number: str, db: Session = Depends(get_db)):
 
 
 @router.post("/push-note")
-def push_note_only(request: Request, db: Session = Depends(get_db)):
+async def push_note_only(request: Request, db: Session = Depends(get_db)):
     """Push a NowCerts note without sending an email. Body: {client_name, email, policy_number, carrier, note_type, requirement_type, due_date}"""
     import json
-    body = json.loads(request._body.decode() if hasattr(request, '_body') else '{}')
+    raw = await request.body()
+    body = json.loads(raw.decode()) if raw else {}
     
     note_type = body.get("note_type", "uw")
     
