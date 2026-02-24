@@ -742,7 +742,7 @@ async def retell_health():
     }
 
 
-@router.post("/warmup")
+@router.api_route("/warmup", methods=["GET", "POST"])
 async def warmup_nowcerts(request: Request = None):
     """Pre-authenticate with NowCerts and optionally cache a phone lookup.
     
