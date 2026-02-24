@@ -177,7 +177,7 @@ def send_nonpay_email(
     )
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <nonpay@{settings.MAILGUN_DOMAIN}>",
+        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,

@@ -429,3 +429,18 @@ def cleanup_orphaned_tasks(
 
     db.commit()
     return {"closed": closed, "count": len(closed)}
+
+
+@router.post("/run-compliance-reminders")
+def trigger_compliance_reminders(
+    dry_run: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually trigger compliance reminder check. Set dry_run=false to actually send."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.compliance_reminders import run_compliance_reminders
+    result = run_compliance_reminders(db, dry_run=dry_run)
+    return result

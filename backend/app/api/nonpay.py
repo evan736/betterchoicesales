@@ -2810,6 +2810,22 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
             logger.error("Escalation check failed: %s", e)
             results["escalation_check"] = {"error": str(e)}
 
+    # ── 6. Run compliance reminders for inspections + UW tasks ──
+    if natgen_dry_run:
+        results["compliance_reminders"] = {"skipped": "DRY RUN — compliance reminders not sent"}
+    else:
+        try:
+            from app.services.compliance_reminders import run_compliance_reminders
+            reminder_result = run_compliance_reminders(db)
+            results["compliance_reminders"] = {
+                "checked": reminder_result["checked"],
+                "sent": reminder_result["reminders_sent"],
+                "skipped": reminder_result["skipped"],
+            }
+        except Exception as e:
+            logger.error("Compliance reminders failed: %s", e)
+            results["compliance_reminders"] = {"error": str(e)}
+
     # Log full dry-run results for review
     import json
     logger.info("=== NATGEN HANDLER RESULTS ===\n%s", json.dumps(results, indent=2, default=str))
