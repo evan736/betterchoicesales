@@ -6,7 +6,7 @@ import { customersAPI, nonpayAPI } from '../lib/api';
 import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
-  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban
+  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink
 } from 'lucide-react';
 
 export default function CustomersPage() {
@@ -277,9 +277,21 @@ export default function CustomersPage() {
                             </div>
                             <div className="flex items-center justify-between mb-3">
                               <h3 className="font-bold text-slate-900">Policies ({detail.policies?.length || 0})</h3>
-                              {detail.customer?.id && (
-                                <button onClick={() => handleSync(detail.customer.id)} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold"><RefreshCw size={13} />Refresh from NowCerts</button>
-                              )}
+                              <div className="flex items-center gap-3">
+                                {detail.customer?.nowcerts_insured_id && (
+                                  <a
+                                    href={`https://www6.nowcerts.com/AMSINS/Insureds/Details/${detail.customer.nowcerts_insured_id}/Information`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-semibold"
+                                  >
+                                    <ExternalLink size={13} />Open in NowCerts
+                                  </a>
+                                )}
+                                {detail.customer?.id && (
+                                  <button onClick={() => handleSync(detail.customer.id)} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold"><RefreshCw size={13} />Refresh from NowCerts</button>
+                                )}
+                              </div>
                             </div>
                             {detail.policies?.length > 0 ? (
                               <div className="overflow-x-auto">

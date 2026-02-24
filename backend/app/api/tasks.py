@@ -122,6 +122,19 @@ def _task_to_dict(task: Task, db: Session) -> dict:
         if user:
             assignee_name = user.full_name or user.username
 
+    # Look up NowCerts insured ID for direct link
+    nowcerts_url = None
+    if task.policy_number:
+        from app.models.customer import Customer, CustomerPolicy
+        clean = task.policy_number.replace(" ", "").strip()
+        nc_pol = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number.ilike(f"%{clean}%")
+        ).first()
+        if nc_pol:
+            cust = db.query(Customer).filter(Customer.id == nc_pol.customer_id).first()
+            if cust and cust.nowcerts_insured_id:
+                nowcerts_url = f"https://www6.nowcerts.com/AMSINS/Insureds/Details/{cust.nowcerts_insured_id}/Information"
+
     return {
         "id": task.id,
         "title": task.title,
