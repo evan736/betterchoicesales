@@ -39,6 +39,12 @@ def search_customers(
         query = db.query(Customer)
         if q.strip():
             search = f"%{q.strip()}%"
+            # Find customer IDs matching by policy number
+            policy_customer_ids = db.query(CustomerPolicy.customer_id).filter(
+                CustomerPolicy.policy_number.ilike(search)
+            ).distinct().all()
+            policy_cids = [cid for (cid,) in policy_customer_ids]
+
             query = query.filter(
                 or_(
                     Customer.full_name.ilike(search),
@@ -47,6 +53,8 @@ def search_customers(
                     Customer.mobile_phone.ilike(search),
                     Customer.address.ilike(search),
                     Customer.city.ilike(search),
+                    Customer.zip.ilike(search),
+                    Customer.id.in_(policy_cids) if policy_cids else False,
                 )
             )
         query = query.order_by(Customer.full_name)
