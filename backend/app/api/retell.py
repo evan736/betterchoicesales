@@ -712,8 +712,17 @@ async def post_call_webhook(request: Request):
 
 @router.get("/health")
 async def retell_health():
-    """Health check for Retell webhook endpoints."""
+    """Health check for Retell webhook endpoints. Also warms NowCerts token."""
     client = get_nowcerts_client()
+    
+    # Warm up NowCerts token on every health check
+    token_cached = False
+    try:
+        if client.is_configured:
+            token = client._authenticate()
+            token_cached = bool(token)
+    except Exception:
+        pass
     
     # Check local DB
     db_count = 0
