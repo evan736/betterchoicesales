@@ -2237,6 +2237,27 @@ def _lookup_customer_for_natgen(db: Session, policy_number: str, insured_name: s
             ).first()
 
     if not sale:
+        # Fallback: check NowCerts customers table
+        from app.models.customer import Customer, CustomerPolicy
+        nc_policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number.ilike(f"%{clean_policy}%")
+        ).first()
+        if not nc_policy and len(clean_policy) > 2:
+            base = clean_policy[:-2] if clean_policy[-2:] in ("00", "01") else clean_policy
+            nc_policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number.ilike(f"%{base}%")
+            ).first()
+        if nc_policy:
+            customer = db.query(Customer).filter(Customer.id == nc_policy.customer_id).first()
+            if customer and customer.email:
+                return {
+                    "email": customer.email,
+                    "phone": customer.phone or customer.mobile_phone,
+                    "sale_id": None,
+                    "source": "nowcerts",
+                    "producer_name": nc_policy.agent_name,
+                    "producer_email": None,
+                }
         return None
 
     result = {
@@ -2528,25 +2549,53 @@ def nonpay_log(db: Session = Depends(get_db)):
 
 @router.get("/customer-lookup/{policy_number}")
 def customer_lookup(policy_number: str, db: Session = Depends(get_db)):
-    """Look up customer by policy number - no auth required."""
+    """Look up customer by policy number - checks both sales and NowCerts tables."""
     from app.models.sale import Sale
     from app.models.user import User
+    from app.models.customer import Customer, CustomerPolicy
+
     clean = policy_number.replace(" ", "").strip()
+    base = clean[:-2] if len(clean) > 2 and clean[-2:] in ("00", "01") else clean
+
+    # 1. Check sales table first
     sale = db.query(Sale).filter(Sale.policy_number.ilike(f"%{clean}%")).first()
-    if not sale:
-        base = clean[:-2] if len(clean) > 2 and clean[-2:] in ("00", "01") else clean
+    if not sale and base != clean:
         sale = db.query(Sale).filter(Sale.policy_number.ilike(f"%{base}%")).first()
-    if not sale:
-        return {"found": False, "policy": policy_number}
-    producer = None
-    if sale.producer_id:
-        producer = db.query(User).filter(User.id == sale.producer_id).first()
-    return {
-        "found": True,
-        "client_name": sale.client_name,
-        "client_email": sale.client_email,
-        "client_phone": getattr(sale, "client_phone", None),
-        "policy_number": sale.policy_number,
-        "carrier": sale.carrier,
-        "producer": producer.full_name if producer else None,
-    }
+
+    if sale:
+        producer = None
+        if sale.producer_id:
+            producer = db.query(User).filter(User.id == sale.producer_id).first()
+        return {
+            "found": True, "source": "sales",
+            "client_name": sale.client_name,
+            "client_email": sale.client_email,
+            "client_phone": getattr(sale, "client_phone", None),
+            "policy_number": sale.policy_number,
+            "carrier": sale.carrier,
+            "producer": producer.full_name if producer else None,
+        }
+
+    # 2. Check NowCerts customer_policies table
+    nc_policy = db.query(CustomerPolicy).filter(
+        CustomerPolicy.policy_number.ilike(f"%{clean}%")
+    ).first()
+    if not nc_policy and base != clean:
+        nc_policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number.ilike(f"%{base}%")
+        ).first()
+
+    if nc_policy:
+        customer = db.query(Customer).filter(Customer.id == nc_policy.customer_id).first()
+        if customer:
+            return {
+                "found": True, "source": "nowcerts",
+                "client_name": customer.full_name,
+                "client_email": customer.email,
+                "client_phone": customer.phone or customer.mobile_phone,
+                "policy_number": nc_policy.policy_number,
+                "carrier": nc_policy.carrier,
+                "producer": nc_policy.agent_name,
+            }
+
+    return {"found": False, "policy": policy_number}
