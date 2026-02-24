@@ -890,6 +890,28 @@ def _detect_progressive_file(file_bytes: bytes, ext: str, filename: str = "") ->
 
     sheet_names = [s.lower() for s in wb.sheetnames]
 
+    # ── Check for Progressive agent code 03BXR in any sheet ──
+    is_progressive_by_agent_code = False
+    for sheet_name in wb.sheetnames:
+        ws_check = wb[sheet_name]
+        rows_check = list(ws_check.iter_rows(values_only=True))
+        if len(rows_check) < 2:
+            continue
+        headers_check = [str(c).lower().strip() if c else "" for c in rows_check[0]]
+        agent_col = next((i for i, h in enumerate(headers_check) if h == "agent code"), None)
+        if agent_col is not None:
+            for row in rows_check[1:]:
+                if agent_col < len(row) and str(row[agent_col] or "").strip() == "03BXR":
+                    is_progressive_by_agent_code = True
+                    break
+        if is_progressive_by_agent_code:
+            break
+
+    if not is_progressive_by_agent_code:
+        return None
+
+    logger.info("Progressive file detected (Agent Code 03BXR)")
+
     # ── Format 1: PoliciesPendingCancelOrRenewal ──
     if "non-payment" in sheet_names or "underwriting" in sheet_names:
         logger.info("Progressive PoliciesPendingCancel format detected")
@@ -938,7 +960,7 @@ def _detect_progressive_file(file_bytes: bytes, ext: str, filename: str = "") ->
     headers_lower = [h.lower() for h in headers]
 
     # Detect by "Message Subject" column (unique to CustomerFollowup)
-    if "message subject" in headers_lower and "agent code" in headers_lower:
+    if "message subject" in headers_lower:
         logger.info("Progressive CustomerFollowup format detected")
         col_map = _progressive_col_map(headers)
         msg_col = next((i for i, h in enumerate(headers_lower) if h == "message subject"), None)
