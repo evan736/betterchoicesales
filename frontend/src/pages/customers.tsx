@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
+import USHeatmap from '../components/USHeatmap';
 import { customersAPI, nonpayAPI } from '../lib/api';
 import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
@@ -371,7 +372,7 @@ export default function CustomersPage() {
             )}
           </>
         ) : (
-          <CustomerHeatmap />
+          <USHeatmap />
         )}
 
         {/* Duplicates Modal */}
@@ -753,125 +754,6 @@ const NonPayModal: React.FC<{
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Customer Heatmap ──────────────────────────────────────────────
-const US_STATES: Record<string, { name: string; path: string }> = {};
-
-const STATE_COORDS: Record<string, [number, number]> = {
-  AL:[87,240],AK:[42,310],AZ:[52,230],AR:[150,230],CA:[18,180],CO:[80,175],CT:[267,105],
-  DE:[262,145],FL:[220,280],GA:[210,240],HI:[70,310],ID:[48,115],IL:[175,175],IN:[192,165],
-  IA:[155,145],KS:[120,190],KY:[205,185],LA:[155,265],ME:[285,60],MD:[255,150],MA:[275,98],
-  MI:[195,125],MN:[148,100],MS:[170,250],MO:[155,195],MT:[72,80],NE:[115,155],NV:[32,165],
-  NH:[275,78],NJ:[265,130],NM:[68,230],NY:[255,95],NC:[235,200],ND:[118,85],OH:[210,155],
-  OK:[120,220],OR:[25,95],PA:[245,130],RI:[278,105],SC:[230,225],SD:[118,115],TN:[195,210],
-  TX:[110,265],UT:[52,170],VT:[270,72],VA:[240,175],WA:[30,60],WV:[225,170],WI:[170,110],
-  WY:[72,130],DC:[258,157]
-};
-
-const CustomerHeatmap: React.FC = () => {
-  const [stateData, setStateData] = useState<Record<string, number>>({});
-  const [hoveredState, setHoveredState] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    customersAPI.stateDistribution()
-      .then(r => setStateData(r.data || {}))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const maxCount = Math.max(1, ...Object.values(stateData));
-
-  const getColor = (count: number) => {
-    if (!count) return '#1e293b';
-    const intensity = Math.min(count / maxCount, 1);
-    if (intensity > 0.7) return '#0ea5e9';
-    if (intensity > 0.4) return '#0284c7';
-    if (intensity > 0.15) return '#0369a1';
-    return '#075985';
-  };
-
-  const totalCustomers = Object.values(stateData).reduce((a, b) => a + b, 0);
-  const topStates = Object.entries(stateData)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-
-  if (loading) return <div className="text-center py-20"><Loader2 size={24} className="animate-spin mx-auto text-slate-400" /></div>;
-
-  return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-lg font-bold text-slate-200">Customer Distribution</h3>
-          <p className="text-sm text-slate-400">{totalCustomers.toLocaleString()} customers across {Object.keys(stateData).length} states</p>
-        </div>
-        {hoveredState && stateData[hoveredState] && (
-          <div className="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-right">
-            <p className="text-white font-bold">{hoveredState}</p>
-            <p className="text-cyan-400 text-lg font-bold">{stateData[hoveredState].toLocaleString()} customers</p>
-          </div>
-        )}
-      </div>
-
-      <div className="relative bg-slate-900/50 rounded-2xl border border-slate-700/50 p-6 overflow-hidden">
-        {/* SVG Heatmap using positioned dots */}
-        <svg viewBox="0 0 310 340" className="w-full max-w-3xl mx-auto" style={{ filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.15))' }}>
-          {Object.entries(STATE_COORDS).map(([abbr, [x, y]]) => {
-            const count = stateData[abbr] || 0;
-            const radius = count ? Math.max(4, Math.min(18, Math.sqrt(count) * 2.2)) : 3;
-            const isHovered = hoveredState === abbr;
-            return (
-              <g key={abbr}
-                onMouseEnter={() => setHoveredState(abbr)}
-                onMouseLeave={() => setHoveredState(null)}
-                style={{ cursor: count ? 'pointer' : 'default' }}
-              >
-                {/* Glow effect for states with customers */}
-                {count > 0 && (
-                  <circle cx={x} cy={y} r={radius + 4} fill={getColor(count)} opacity={isHovered ? 0.4 : 0.15} />
-                )}
-                <circle
-                  cx={x} cy={y} r={radius}
-                  fill={count ? getColor(count) : '#334155'}
-                  stroke={isHovered ? '#38bdf8' : count ? '#0ea5e9' : '#475569'}
-                  strokeWidth={isHovered ? 2 : count ? 1 : 0.5}
-                  opacity={count ? 1 : 0.5}
-                />
-                <text
-                  x={x} y={y + 1}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={count ? '#fff' : '#94a3b8'}
-                  fontSize={radius > 6 ? 6 : 5}
-                  fontWeight={count ? 700 : 400}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {abbr}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Top States Legend */}
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {topStates.map(([abbr, count]) => (
-            <div
-              key={abbr}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                hoveredState === abbr ? 'bg-cyan-500/30 text-cyan-300 ring-1 ring-cyan-500' : 'bg-slate-800 text-slate-300'
-              }`}
-              onMouseEnter={() => setHoveredState(abbr)}
-              onMouseLeave={() => setHoveredState(null)}
-            >
-              {abbr}: {count.toLocaleString()}
-            </div>
-          ))}
         </div>
       </div>
     </div>
