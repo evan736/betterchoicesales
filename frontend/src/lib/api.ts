@@ -228,6 +228,7 @@ export const customersAPI = {
   duplicates: () => api.get('/api/customers/duplicates'),
   merge: (keepId: number, mergeIds: number[]) =>
     api.post('/api/customers/merge', null, { params: { keep_id: keepId, merge_ids: mergeIds.join(',') } }),
+  stateDistribution: () => api.get('/api/customers/state-distribution'),
 };
 
 export const nonpayAPI = {

@@ -310,6 +310,21 @@ def agency_stats(
     }
 
 
+@router.get("/state-distribution")
+def state_distribution(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get customer count by state for heatmap display."""
+    rows = (
+        db.query(Customer.state, func.count(Customer.id))
+        .filter(Customer.state.isnot(None), Customer.state != "")
+        .group_by(Customer.state)
+        .all()
+    )
+    return {row[0].upper().strip(): row[1] for row in rows if row[0]}
+
+
 # ── Duplicate Detection ──────────────────────────────────────────
 
 @router.get("/duplicates")
