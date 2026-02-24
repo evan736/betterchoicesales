@@ -178,6 +178,50 @@ _executor = ThreadPoolExecutor(max_workers=4)
 _phone_cache: dict = {}
 _CACHE_TTL = 3600  # 1 hour
 
+# Repeat caller detection — tracks recent calls per phone number
+# Format: {phone_digits: [timestamp1, timestamp2, ...]}
+_recent_calls: dict = {}
+_REPEAT_WINDOW_SHORT = 1800   # 30 minutes — same session repeat
+_REPEAT_WINDOW_LONG = 86400   # 24 hours — same day repeat
+_REPEAT_CLEANUP_INTERVAL = 3600  # Clean old entries every hour
+_last_repeat_cleanup = 0.0
+
+
+def _check_repeat_caller(phone_digits: str) -> dict:
+    """Check if this phone number has called recently. Returns repeat info."""
+    global _last_repeat_cleanup
+    now = _time.time()
+
+    # Periodic cleanup of old entries
+    if now - _last_repeat_cleanup > _REPEAT_CLEANUP_INTERVAL:
+        stale = [k for k, v in _recent_calls.items()
+                 if not v or (now - max(v)) > _REPEAT_WINDOW_LONG]
+        for k in stale:
+            del _recent_calls[k]
+        _last_repeat_cleanup = now
+
+    history = _recent_calls.get(phone_digits, [])
+
+    # Count calls within windows
+    calls_30min = sum(1 for t in history if (now - t) < _REPEAT_WINDOW_SHORT)
+    calls_24hr = sum(1 for t in history if (now - t) < _REPEAT_WINDOW_LONG)
+
+    # Record this call
+    history.append(now)
+    # Keep only last 24 hours of entries
+    history = [t for t in history if (now - t) < _REPEAT_WINDOW_LONG]
+    _recent_calls[phone_digits] = history
+
+    is_repeat_short = calls_30min > 0  # Called at least once in last 30 min
+    is_repeat_long = calls_24hr > 1    # Called 2+ times today (not counting current)
+
+    return {
+        "is_repeat": is_repeat_short or is_repeat_long,
+        "is_repeat_30min": is_repeat_short,
+        "calls_30min": calls_30min + 1,  # Including current call
+        "calls_24hr": calls_24hr + 1,
+    }
+
 
 def _local_db_phone_lookup(phone_digits: str) -> dict:
     """Look up customer in local PostgreSQL cache — should take <100ms."""
@@ -358,10 +402,18 @@ async def inbound_call_webhook(request: Request):
             "customer_phone": from_number,
             "nowcerts_insured_id": "",
             "customer_found": "false",
+            "is_repeat_caller": "false",
+            "repeat_call_count": "1",
+            "customer_email": "",
         }
 
-        # Look up caller — try local DB first (fast), then NowCerts API (slow)
+        # Check for repeat caller
         phone_digits = normalize_phone(from_number)
+        repeat_info = {"is_repeat": False, "calls_30min": 1, "calls_24hr": 1}
+        if phone_digits and len(phone_digits) >= 10:
+            repeat_info = _check_repeat_caller(phone_digits)
+            dynamic_variables["is_repeat_caller"] = "true" if repeat_info["is_repeat"] else "false"
+            dynamic_variables["repeat_call_count"] = str(repeat_info["calls_24hr"])
         result = None
         if phone_digits and len(phone_digits) >= 10:
             # Layer 1: In-memory cache (~0ms)
@@ -408,6 +460,10 @@ async def inbound_call_webhook(request: Request):
                 dynamic_variables["nowcerts_insured_id"] = str(insured_id)
                 dynamic_variables["customer_found"] = "true"
 
+                # Extract email for document requests / confirmations
+                customer_email = customer.get("email") or customer.get("eMail") or ""
+                dynamic_variables["customer_email"] = customer_email
+
                 if policies:
                     dynamic_variables["policy_summary"] = build_policy_summary(policies)
                     dynamic_variables["carrier_list"] = build_carrier_list(policies)
@@ -422,9 +478,28 @@ async def inbound_call_webhook(request: Request):
                 logger.info("No match found for phone: %s", phone_digits)
 
         # Build the greeting message based on whether we found the customer
+        is_repeat = repeat_info["is_repeat"]
+        is_repeat_30min = repeat_info.get("is_repeat_30min", False)
+        call_count = repeat_info["calls_24hr"]
+
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
             name = dynamic_variables["customer_name"].split()[0]  # First name only
-            if dynamic_variables["policy_summary"]:
+
+            if is_repeat_30min:
+                # Called within last 30 min — acknowledge immediately
+                begin_msg = (
+                    f"Hi {name}, welcome back! I see you just called a little while ago. "
+                    f"I want to make sure we get this taken care of for you. "
+                    f"How can I help?"
+                )
+            elif is_repeat and call_count >= 3:
+                # 3+ calls today — escalate tone
+                begin_msg = (
+                    f"Hi {name}, I can see you've called a few times today and I want to make sure "
+                    f"you get the help you need. Let me take down your information and have someone "
+                    f"from our team call you back as a priority. What can I help you with?"
+                )
+            elif dynamic_variables["policy_summary"]:
                 begin_msg = (
                     f"Thank you for calling Better Choice Insurance Group! "
                     f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
@@ -436,10 +511,17 @@ async def inbound_call_webhook(request: Request):
                     f"Hi {name}! How can I help you today?"
                 )
         else:
-            begin_msg = (
-                "Thank you for calling Better Choice Insurance Group! "
-                "My name is Mia. How can I help you today?"
-            )
+            if is_repeat_30min:
+                begin_msg = (
+                    "Welcome back to Better Choice Insurance Group! "
+                    "I see you just called — let's make sure we get this handled. "
+                    "How can I help?"
+                )
+            else:
+                begin_msg = (
+                    "Thank you for calling Better Choice Insurance Group! "
+                    "My name is Mia. How can I help you today?"
+                )
 
         dynamic_variables["greeting_message"] = begin_msg
 
