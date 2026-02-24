@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.inspection import InspectionDraft
+from app.models.task import Task, TaskStatus
 from app.services.inspection_email import approve_by_token, approve_and_send
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,14 @@ def reject_draft(
 
     draft.status = "rejected"
     draft.approved_by = current_user.username
+
+    # Also close the associated task if one exists
+    if draft.task_id:
+        task = db.query(Task).filter(Task.id == draft.task_id).first()
+        if task:
+            task.status = TaskStatus.COMPLETED
+            task.notes = (task.notes or "") + "\n[Draft rejected — task auto-closed]"
+
     db.commit()
 
     return {"status": "rejected", "draft_id": draft.id}
@@ -374,3 +383,49 @@ async def test_forward_form(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cleanup-orphaned-tasks")
+def cleanup_orphaned_tasks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Close tasks linked to rejected inspection drafts."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    # Find rejected drafts that still have open tasks
+    rejected = db.query(InspectionDraft).filter(
+        InspectionDraft.status == "rejected",
+        InspectionDraft.task_id.isnot(None),
+    ).all()
+
+    closed = []
+    for draft in rejected:
+        task = db.query(Task).filter(Task.id == draft.task_id).first()
+        if task and task.status in ("open", "in_progress"):
+            task.status = TaskStatus.COMPLETED
+            task.notes = (task.notes or "") + "\n[Auto-closed: draft was rejected]"
+            closed.append({"task_id": task.id, "draft_id": draft.id, "policy": draft.policy_number})
+
+    # Also find duplicate inspection tasks (same policy, multiple open tasks)
+    from sqlalchemy import func
+    dupes = db.query(Task.policy_number, func.count(Task.id)).filter(
+        Task.task_type == "inspection",
+        Task.status.in_(["open", "in_progress"]),
+    ).group_by(Task.policy_number).having(func.count(Task.id) > 1).all()
+
+    for policy_number, count in dupes:
+        tasks = db.query(Task).filter(
+            Task.policy_number == policy_number,
+            Task.task_type == "inspection",
+            Task.status.in_(["open", "in_progress"]),
+        ).order_by(Task.created_at.desc()).all()
+        # Keep the newest, close the rest
+        for t in tasks[1:]:
+            t.status = TaskStatus.COMPLETED
+            t.notes = (t.notes or "") + "\n[Auto-closed: duplicate]"
+            closed.append({"task_id": t.id, "policy": policy_number, "reason": "duplicate"})
+
+    db.commit()
+    return {"closed": closed, "count": len(closed)}

@@ -675,30 +675,41 @@ async def handle_inspection_email(
                 except ValueError:
                     continue
 
-        task = Task(
-            title=f"Inspection Follow-Up: {policy_number} ({carrier})",
-            description=(
-                f"Carrier inspection found issues requiring customer action.\n\n"
-                f"Action Required: {details.get('action_required', 'See report')}\n"
-                f"Deadline: {deadline_str}\n"
-                f"Issues: {', '.join(details.get('issues_found', []))}\n\n"
-                f"Draft email pending approval (Draft #{draft.id})"
-            ),
-            task_type="inspection",
-            priority="high" if details.get("severity") == "high" else "medium",
-            status="open",
-            created_by="system",
-            customer_name=customer.full_name if customer else insured_name,
-            policy_number=policy_number,
-            carrier=carrier,
-            due_date=due_date,
-            source="inspection_email",
-            notes=f"From: {sender}\nSubject: {subject}",
-        )
-        db.add(task)
-        db.flush()
-        draft.task_id = task.id
-        result["task_id"] = task.id
+        # Dedup: skip if an open inspection task already exists for this policy
+        existing_task = db.query(Task).filter(
+            Task.policy_number == policy_number,
+            Task.task_type == "inspection",
+            Task.status.in_(["open", "in_progress"]),
+        ).first()
+        if existing_task:
+            logger.info(f"Inspection task already exists for {policy_number} (task #{existing_task.id}) — linking draft")
+            draft.task_id = existing_task.id
+            result["task_id"] = existing_task.id
+        else:
+            task = Task(
+                title=f"Inspection Follow-Up: {policy_number} ({carrier})",
+                description=(
+                    f"Carrier inspection found issues requiring customer action.\n\n"
+                    f"Action Required: {details.get('action_required', 'See report')}\n"
+                    f"Deadline: {deadline_str}\n"
+                    f"Issues: {', '.join(details.get('issues_found', []))}\n\n"
+                    f"Draft email pending approval (Draft #{draft.id})"
+                ),
+                task_type="inspection",
+                priority="high" if details.get("severity") == "high" else "medium",
+                status="open",
+                created_by="system",
+                customer_name=customer.full_name if customer else insured_name,
+                policy_number=policy_number,
+                carrier=carrier,
+                due_date=due_date,
+                source="inspection_email",
+                notes=f"From: {sender}\nSubject: {subject}",
+            )
+            db.add(task)
+            db.flush()
+            draft.task_id = task.id
+            result["task_id"] = task.id
     except Exception as e:
         logger.warning("Task creation failed for inspection %s: %s", policy_number, e)
 
