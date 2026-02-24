@@ -2524,3 +2524,29 @@ def nonpay_log(db: Session = Depends(get_db)):
         } for r in records]
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/customer-lookup/{policy_number}")
+def customer_lookup(policy_number: str, db: Session = Depends(get_db)):
+    """Look up customer by policy number - no auth required."""
+    from app.models.sale import Sale
+    from app.models.user import User
+    clean = policy_number.replace(" ", "").strip()
+    sale = db.query(Sale).filter(Sale.policy_number.ilike(f"%{clean}%")).first()
+    if not sale:
+        base = clean[:-2] if len(clean) > 2 and clean[-2:] in ("00", "01") else clean
+        sale = db.query(Sale).filter(Sale.policy_number.ilike(f"%{base}%")).first()
+    if not sale:
+        return {"found": False, "policy": policy_number}
+    producer = None
+    if sale.producer_id:
+        producer = db.query(User).filter(User.id == sale.producer_id).first()
+    return {
+        "found": True,
+        "client_name": sale.client_name,
+        "client_email": sale.client_email,
+        "client_phone": getattr(sale, "client_phone", None),
+        "policy_number": sale.policy_number,
+        "carrier": sale.carrier,
+        "producer": producer.full_name if producer else None,
+    }
