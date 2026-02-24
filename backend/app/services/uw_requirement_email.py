@@ -192,6 +192,17 @@ def send_uw_requirement_email(
         if resp.status_code == 200:
             msg_id = resp.json().get("id", "")
             logger.info("UW requirement email sent to %s for %s - %s", to_email, policy_number, msg_id)
+
+            # Add note in NowCerts
+            _add_uw_nowcerts_note(
+                client_name=client_name,
+                to_email=to_email,
+                policy_number=policy_number,
+                carrier=carrier,
+                requirement_type=requirement_type,
+                due_date=due_date,
+            )
+
             return {"success": True, "message_id": msg_id}
         else:
             logger.error("Mailgun error %s: %s", resp.status_code, resp.text)
@@ -408,3 +419,62 @@ def send_non_renewal_email(
         return {"success": False, "error": f"Mailgun {resp.status_code}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _add_uw_nowcerts_note(
+    client_name: str,
+    to_email: str,
+    policy_number: str,
+    carrier: str,
+    requirement_type: str = "proof_of_continuous_insurance",
+    due_date: Optional[str] = None,
+):
+    """Add a note in NowCerts when a UW requirement email is sent."""
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        if not nc.is_configured:
+            return
+
+        req_labels = {
+            "proof_of_continuous_insurance": "Proof of Continuous Insurance",
+            "nopop": "No Proof of Prior Insurance",
+            "change_prior_bi": "Change Prior BI Limits",
+            "proof_of_prior_bi": "Proof of Prior BI",
+        }
+        req_label = req_labels.get(requirement_type, requirement_type)
+        carrier_display = carrier.replace("_", " ").title() if carrier else "Unknown"
+        due_str = due_date or "Not specified"
+
+        note_subject = f"UW Requirement Email Sent — {req_label}"
+        note_body = (
+            f"Automated email sent to {client_name} ({to_email}).\n"
+            f"Requirement: {req_label}\n"
+            f"Policy: {policy_number}\n"
+            f"Carrier: {carrier_display}\n"
+            f"Due Date: {due_str}\n"
+            f"Customer was asked to email proof to service@betterchoiceins.com.\n"
+            f"Sent via BCI CRM UW Automation"
+        )
+
+        parts = client_name.strip().split() if client_name else []
+        first_name = parts[0] if parts else ""
+        last_name = parts[-1] if len(parts) > 1 else ""
+
+        note_data = {
+            "subject": f"{note_subject} | {note_body}",
+            "insured_email": to_email,
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "type": "Email",
+            "creator_name": "BCI UW System",
+            "create_date": __import__("datetime").datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+        }
+
+        result = nc.insert_note(note_data)
+        if result:
+            logger.info("NowCerts UW note added for %s / %s", client_name, policy_number)
+        else:
+            logger.warning("NowCerts UW note returned None for %s / %s", client_name, policy_number)
+    except Exception as e:
+        logger.error("NowCerts UW note failed for %s: %s", policy_number, e)
