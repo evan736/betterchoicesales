@@ -51,15 +51,59 @@ const Navbar: React.FC = () => {
 
   return (
     <nav className="glass sticky top-0 z-50 border-b border-white/20">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-14">
           {/* Left: Logo + Nav Dropdown */}
           <div className="flex items-center space-x-4">
             <Link href="/dashboard" className="flex items-center space-x-2.5 group flex-shrink-0">
-              <img src="/logo-bci.png" alt="BCI" className="h-8 w-auto" />
-              <span className="font-display font-bold text-base text-brand-900 tracking-tight hidden sm:inline">
-                Better Choice
-              </span>
+              {/* AEGIS Logo Mark */}
+              <div className="relative h-9 w-9 flex items-center justify-center">
+                <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none">
+                  {/* Outer shield glow */}
+                  <defs>
+                    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#06b6d4" />
+                      <stop offset="50%" stopColor="#0ea5e9" />
+                      <stop offset="100%" stopColor="#3b82f6" />
+                    </linearGradient>
+                    <filter id="logoGlow">
+                      <feGaussianBlur stdDeviation="1.5" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                  </defs>
+                  {/* Shield shape */}
+                  <path
+                    d="M20 3L5 10v10c0 10.5 6.4 20.3 15 23 8.6-2.7 15-12.5 15-23V10L20 3z"
+                    fill="url(#shieldGrad)"
+                    opacity="0.15"
+                    filter="url(#logoGlow)"
+                  />
+                  <path
+                    d="M20 3L5 10v10c0 10.5 6.4 20.3 15 23 8.6-2.7 15-12.5 15-23V10L20 3z"
+                    fill="none"
+                    stroke="url(#shieldGrad)"
+                    strokeWidth="1.5"
+                  />
+                  {/* Inner A letterform */}
+                  <path
+                    d="M20 11L13 27h3l1.5-4h5l1.5 4h3L20 11zm0 5.5L22.5 22h-5L20 16.5z"
+                    fill="url(#shieldGrad)"
+                  />
+                </svg>
+              </div>
+              <div className="hidden sm:flex flex-col leading-none">
+                <span className="font-display font-extrabold text-[15px] tracking-wider aegis-title" style={{
+                  background: 'linear-gradient(135deg, #06b6d4, #0ea5e9, #3b82f6)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  letterSpacing: '0.15em',
+                }}>
+                  AEGIS
+                </span>
+                <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
+                  COMMAND CENTER
+                </span>
+              </div>
             </Link>
 
             {/* Nav Dropdown */}
