@@ -27,6 +27,8 @@ CARRIER_NORMALIZE = {
     "integon national": "National General",
     "integon national insurance": "National General",
     "integon national insurance company": "National General",
+    "integon natl": "National General",
+    "integon natl ins": "National General",
     "upcic": "Universal Property",
     "amig": "American Modern",
 }

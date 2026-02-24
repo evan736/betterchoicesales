@@ -498,6 +498,22 @@ const LinkDropdown: React.FC<{ label: string; links: { name: string; url: string
 
 // ── Compliance Center ────────────────────────────────────────────────
 
+const CARRIER_DISPLAY_NAMES: Record<string, string> = {
+  'integon natl': 'National General',
+  'integon natl ins': 'National General',
+  'integon national': 'National General',
+  'integon': 'National General',
+  'ngic': 'National General',
+  'nat gen': 'National General',
+  'bristol west': 'Bristol West',
+};
+
+function normalizeCarrierName(carrier: string | null): string {
+  if (!carrier) return '';
+  const key = carrier.toLowerCase().trim();
+  return CARRIER_DISPLAY_NAMES[key] || carrier;
+}
+
 const CARRIER_PORTALS: Record<string, string> = {
   'national_general': 'https://natgenagency.com',
   'nat gen': 'https://natgenagency.com',
@@ -819,7 +835,7 @@ const ComplianceCenter: React.FC = () => {
 
                           {/* Title */}
                           <p className="text-[13px] font-semibold text-slate-800 leading-snug">
-                            {draft.customer_name || 'Unknown'} — {draft.carrier}
+                            {draft.customer_name || 'Unknown'} — {normalizeCarrierName(draft.carrier)}
                           </p>
 
                           {/* Meta */}
@@ -850,7 +866,7 @@ const ComplianceCenter: React.FC = () => {
                           <div className="grid grid-cols-2 gap-2 text-[11px]">
                             <div><span className="text-slate-400">Customer:</span> <span className="font-semibold text-slate-700">{draft.customer_name}</span></div>
                             <div><span className="text-slate-400">Email:</span> <span className={`font-semibold ${draft.customer_email ? 'text-slate-700' : 'text-red-500'}`}>{draft.customer_email || 'Missing'}</span></div>
-                            <div><span className="text-slate-400">Carrier:</span> <span className="font-semibold text-slate-700">{draft.carrier}</span></div>
+                            <div><span className="text-slate-400">Carrier:</span> <span className="font-semibold text-slate-700">{normalizeCarrierName(draft.carrier)}</span></div>
                             <div><span className="text-slate-400">From:</span> <span className="text-slate-600">{draft.source_sender}</span></div>
                           </div>
 
@@ -1117,7 +1133,7 @@ const ComplianceCenter: React.FC = () => {
                                 <span className="font-mono">{task.policy_number}</span>
                               )
                             )}
-                            {task.carrier && <span>• {task.carrier}</span>}
+                            {task.carrier && <span>• {normalizeCarrierName(task.carrier)}</span>}
                           </div>
 
                           {/* Producer / Assigned To */}

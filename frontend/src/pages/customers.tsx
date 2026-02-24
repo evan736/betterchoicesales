@@ -10,6 +10,16 @@ import {
   FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink
 } from 'lucide-react';
 
+const CARRIER_DISPLAY: Record<string, string> = {
+  'integon natl': 'National General', 'integon natl ins': 'National General',
+  'integon national': 'National General', 'integon': 'National General',
+  'ngic': 'National General', 'nat gen': 'National General',
+};
+function normCarrier(c: string | null): string {
+  if (!c) return '—';
+  return CARRIER_DISPLAY[c.toLowerCase().trim()] || c;
+}
+
 export default function CustomersPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -320,6 +330,9 @@ export default function CustomersPage() {
                                                 'safeco': 'https://now.safeco.com',
                                                 'national general': 'https://natgenagency.com',
                                                 'nat gen': 'https://natgenagency.com',
+                                                'integon': 'https://natgenagency.com',
+                                                'integon natl': 'https://natgenagency.com',
+                                                'integon national': 'https://natgenagency.com',
                                                 'openly': 'https://portal.openly.com',
                                                 'progressive': 'https://www.foragentsonly.com',
                                                 'travelers': 'https://www.mserviceportal.com',
@@ -344,7 +357,7 @@ export default function CustomersPage() {
                                             {copiedPolicy === p.policy_number ? '✓ Copied!' : (p.policy_number || '—')}
                                           </button>
                                         </td>
-                                        <td className="py-2.5">{p.carrier || '—'}</td>
+                                        <td className="py-2.5">{normCarrier(p.carrier)}</td>
                                         <td className="py-2.5 capitalize">{p.line_of_business || p.policy_type || '—'}</td>
                                         <td className="py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || 'Unknown'}</span></td>
                                         <td className="py-2.5">{p.effective_date ? new Date(p.effective_date).toLocaleDateString() : '—'}</td>
