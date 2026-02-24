@@ -2616,3 +2616,35 @@ def customer_lookup(policy_number: str, db: Session = Depends(get_db)):
             }
 
     return {"found": False, "policy": policy_number}
+
+
+@router.post("/push-note")
+def push_note_only(request: Request, db: Session = Depends(get_db)):
+    """Push a NowCerts note without sending an email. Body: {client_name, email, policy_number, carrier, note_type, requirement_type, due_date}"""
+    import json
+    body = json.loads(request._body.decode() if hasattr(request, '_body') else '{}')
+    
+    note_type = body.get("note_type", "uw")
+    
+    if note_type == "uw":
+        from app.services.uw_requirement_email import _add_uw_nowcerts_note
+        _add_uw_nowcerts_note(
+            client_name=body.get("client_name", ""),
+            to_email=body.get("email", ""),
+            policy_number=body.get("policy_number", ""),
+            carrier=body.get("carrier", ""),
+            requirement_type=body.get("requirement_type", "proof_of_continuous_insurance"),
+            due_date=body.get("due_date"),
+        )
+    elif note_type == "nonpay":
+        from app.services.nonpay_email import _add_nowcerts_nonpay_note
+        _add_nowcerts_nonpay_note(
+            client_name=body.get("client_name", ""),
+            to_email=body.get("email", ""),
+            policy_number=body.get("policy_number", ""),
+            carrier=body.get("carrier", ""),
+            amount_due=body.get("amount_due"),
+            due_date=body.get("due_date"),
+        )
+    
+    return {"status": "note_pushed", "type": note_type}
