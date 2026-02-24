@@ -316,9 +316,10 @@ export default function CustomersPage() {
                                               setCopiedPolicy(pn);
                                               setTimeout(() => setCopiedPolicy(null), 2000);
                                               const carrierPortals: Record<string, string> = {
-                                                'grange': 'https://www.grangeagent.com',
+                                                'grange': 'https://eodb.grangeagent.com',
                                                 'safeco': 'https://now.safeco.com',
-                                                'national general': 'https://www.nationalgeneral.com/agentportal',
+                                                'national general': 'https://natgenagency.com',
+                                                'nat gen': 'https://natgenagency.com',
                                                 'openly': 'https://portal.openly.com',
                                                 'progressive': 'https://www.foragentsonly.com',
                                                 'travelers': 'https://www.mserviceportal.com',

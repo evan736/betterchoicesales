@@ -497,6 +497,30 @@ const LinkDropdown: React.FC<{ label: string; links: { name: string; url: string
 
 // ── Compliance Center ────────────────────────────────────────────────
 
+const CARRIER_PORTALS: Record<string, string> = {
+  'national_general': 'https://natgenagency.com',
+  'nat gen': 'https://natgenagency.com',
+  'natgen': 'https://natgenagency.com',
+  'ngic': 'https://natgenagency.com',
+  'grange': 'https://eodb.grangeagent.com',
+  'grange insurance': 'https://eodb.grangeagent.com',
+  'progressive': 'https://www.foragentsonly.com',
+  'safeco': 'https://www.safeco.com/agent',
+  'travelers': 'https://www.travelers.com',
+  'branch': 'https://www.ourbranch.com',
+  'openly': 'https://www.openly.com',
+  'hippo': 'https://www.hippo.com',
+  'universal_property': 'https://www.universalproperty.com',
+  'geico': 'https://www.geico.com',
+  'bristol_west': 'https://www.bristolwest.com',
+};
+
+function getCarrierPortalUrl(carrier: string | null): string | null {
+  if (!carrier) return null;
+  const key = carrier.toLowerCase().trim();
+  return CARRIER_PORTALS[key] || null;
+}
+
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   urgent: { bg: 'bg-red-100', text: 'text-red-700', label: 'URGENT' },
   high:   { bg: 'bg-orange-100', text: 'text-orange-700', label: 'HIGH' },
@@ -638,6 +662,7 @@ const ComplianceCenter: React.FC = () => {
   const nrCount = tasks.filter(t => t.task_type === 'non_renewal').length;
   const undCount = tasks.filter(t => t.task_type === 'undeliverable').length;
   const inspCount = inspectionDrafts.length;
+  const nonInspTaskCount = tasks.filter(t => t.task_type !== 'inspection').length;
   const overdueCount = tasks.filter(t => { const d = daysUntil(t.due_date); return d !== null && d < 0; }).length;
 
   const showInspection = filter === 'all' || filter === 'inspection';
@@ -656,7 +681,7 @@ const ComplianceCenter: React.FC = () => {
               <p className="text-slate-300 text-[11px]">UW Requirements • Non-Renewals • Inspections • Notices</p>
             </div>
           </div>
-          {(counts.open > 0 || inspCount > 0) && (
+          {(nonInspTaskCount > 0 || inspCount > 0) && (
             <div className="flex items-center space-x-1.5">
               {overdueCount > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white animate-pulse">
@@ -664,14 +689,14 @@ const ComplianceCenter: React.FC = () => {
                 </span>
               )}
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white">
-                {counts.open + inspCount}
+                {nonInspTaskCount + inspCount}
               </span>
             </div>
           )}
         </div>
 
         {/* Summary pills */}
-        {(counts.open > 0 || inspCount > 0) && (
+        {(nonInspTaskCount > 0 || inspCount > 0) && (
           <div className="flex gap-2 mt-3 flex-wrap">
             {uwCount > 0 && (
               <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-amber-500/20 text-amber-200 text-[11px] font-semibold">
@@ -780,7 +805,11 @@ const ComplianceCenter: React.FC = () => {
 
                           {/* Meta */}
                           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-                            <span className="font-mono">{draft.policy_number}</span>
+                            {getCarrierPortalUrl(draft.carrier) ? (
+                              <a href={getCarrierPortalUrl(draft.carrier)!} target="_blank" rel="noopener noreferrer" className="font-mono text-cyan-400 hover:text-cyan-300 hover:underline" onClick={e => e.stopPropagation()}>{draft.policy_number}</a>
+                            ) : (
+                              <span className="font-mono">{draft.policy_number}</span>
+                            )}
                             <span>•</span>
                             <span>Deadline: <strong className={draft.deadline === 'As soon as possible' ? 'text-orange-500' : 'text-red-500'}>{draft.deadline}</strong></span>
                           </div>
@@ -990,7 +1019,7 @@ const ComplianceCenter: React.FC = () => {
               })}
             </div>
 
-            {filter === 'all' && tasks.length > 0 && (
+            {filter === 'all' && tasks.filter(t => t.task_type !== 'inspection').length > 0 && (
               <div className="px-4 py-2 bg-slate-50 border-y border-slate-100">
                 <div className="flex items-center space-x-1.5">
                   <ClipboardList size={13} className="text-slate-500" />
@@ -1010,15 +1039,15 @@ const ComplianceCenter: React.FC = () => {
               <div className="flex items-center justify-center py-8">
                 <Loader size={20} className="animate-spin text-slate-300" />
               </div>
-            ) : tasks.length === 0 && inspCount === 0 ? (
+            ) : tasks.filter(t => t.task_type !== 'inspection').length === 0 && inspCount === 0 ? (
               <div className="text-center py-10 px-4">
                 <div className="text-3xl mb-2">✅</div>
                 <p className="text-sm font-semibold text-slate-600">All clear!</p>
                 <p className="text-xs text-slate-400 mt-1">No open compliance items</p>
               </div>
-            ) : tasks.length === 0 ? null : (
+            ) : tasks.filter(t => t.task_type !== 'inspection').length === 0 ? null : (
               <div className="divide-y divide-slate-100">
-                {tasks.map((task) => {
+                {tasks.filter(t => t.task_type !== 'inspection').map((task) => {
                   const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
                   const typeConf = TYPE_CONFIG[task.task_type] || { bg: 'bg-slate-100', text: 'text-slate-600', label: task.task_type?.toUpperCase() || 'TASK', icon: '📌' };
                   const days = daysUntil(task.due_date);
@@ -1062,7 +1091,13 @@ const ComplianceCenter: React.FC = () => {
 
                           {/* Meta */}
                           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-                            {task.policy_number && <span className="font-mono">{task.policy_number}</span>}
+                            {task.policy_number && (
+                              getCarrierPortalUrl(task.carrier) ? (
+                                <a href={getCarrierPortalUrl(task.carrier)!} target="_blank" rel="noopener noreferrer" className="font-mono text-cyan-400 hover:text-cyan-300 hover:underline" onClick={e => e.stopPropagation()}>{task.policy_number}</a>
+                              ) : (
+                                <span className="font-mono">{task.policy_number}</span>
+                              )
+                            )}
                             {task.carrier && <span>• {task.carrier}</span>}
                           </div>
 
