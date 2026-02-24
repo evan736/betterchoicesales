@@ -2506,3 +2506,21 @@ def db_check(db: Session = Depends(get_db)):
         }
     except Exception as e:
         return {"database": "error", "error": str(e)}
+
+
+@router.get("/nonpay-log")
+def nonpay_log(db: Session = Depends(get_db)):
+    """Check recent NonPayEmail records - no auth required."""
+    from app.models.nonpay import NonPayEmail
+    try:
+        records = db.query(NonPayEmail).order_by(NonPayEmail.sent_at.desc()).limit(30).all()
+        return [{
+            "id": r.id,
+            "policy_number": r.policy_number,
+            "customer_email": r.customer_email,
+            "email_status": r.email_status,
+            "sent_at": str(r.sent_at) if r.sent_at else None,
+            "carrier": r.carrier,
+        } for r in records]
+    except Exception as e:
+        return {"error": str(e)}
