@@ -827,16 +827,29 @@ const ComplianceCenter: React.FC = () => {
                               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Attachments</p>
                               <div className="flex flex-wrap gap-2">
                                 {draft.attachment_info.map((a: any, i: number) => (
-                                  <a
+                                  <button
                                     key={i}
-                                    href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/inspection/drafts/${draft.id}/attachment/${i}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold hover:bg-red-100 transition-colors"
-                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold hover:bg-red-100 transition-colors cursor-pointer"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        const token = localStorage.getItem('token');
+                                        const res = await fetch(
+                                          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/inspection/drafts/${draft.id}/attachment/${i}`,
+                                          { headers: { 'Authorization': `Bearer ${token}` } }
+                                        );
+                                        if (!res.ok) throw new Error('Download failed');
+                                        const blob = await res.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        window.open(url, '_blank');
+                                      } catch (err) {
+                                        console.error('PDF download error:', err);
+                                        alert('Failed to download PDF');
+                                      }
+                                    }}
                                   >
                                     📎 {a.filename} <span className="text-red-400 font-normal">({(a.size / 1024).toFixed(0)} KB)</span>
-                                  </a>
+                                  </button>
                                 ))}
                               </div>
                             </div>

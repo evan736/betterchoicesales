@@ -626,6 +626,19 @@ async def handle_inspection_email(
         att_info = [{"filename": name, "size": len(data)} for name, data in pdf_attachments]
         att_data = pickle.dumps(pdf_attachments)
 
+    # ── Dedup: skip if a pending draft already exists for this policy ──
+    existing = db.query(InspectionDraft).filter(
+        InspectionDraft.policy_number == policy_number,
+        InspectionDraft.status == "pending_review",
+    ).first()
+    if existing:
+        logger.info(f"Inspection draft already pending for policy {policy_number} (draft #{existing.id}) — skipping duplicate")
+        return {
+            "status": "duplicate_skipped",
+            "existing_draft_id": existing.id,
+            "policy_number": policy_number,
+        }
+
     draft = InspectionDraft(
         status="pending_review",
         approval_token=approval_token,
