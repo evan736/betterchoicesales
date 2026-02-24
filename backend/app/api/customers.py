@@ -89,14 +89,32 @@ def search_customers(
             return {"customers": results, "total": len(results), "page": page, "source": "local_only"}
 
         try:
-            nc_results = client.search_insureds(q.strip() if q.strip() else "", limit=page_size)
+            nc_results = []
+            q_stripped = q.strip() if q else ""
 
-            # If name/email/phone search returned nothing, try policy number search
-            if not nc_results and q.strip():
+            # Detect if query looks like a policy number (mostly digits, or short alphanumeric)
+            is_policy_like = q_stripped and (
+                q_stripped.replace(" ", "").replace("-", "").isdigit() or
+                (len(q_stripped) >= 5 and sum(c.isdigit() for c in q_stripped) >= len(q_stripped) * 0.5)
+            )
+
+            if is_policy_like:
+                # Try policy number search first
                 try:
-                    nc_results = client.search_by_policy_number(q.strip())
+                    nc_results = client.search_by_policy_number(q_stripped)
                 except Exception as pe:
                     logger.warning("NowCerts policy number search failed: %s", pe)
+
+            if not nc_results:
+                # Standard name/email/phone search
+                nc_results = client.search_insureds(q_stripped, limit=page_size)
+
+            if not nc_results and q_stripped and not is_policy_like:
+                # Last resort: try as policy number anyway
+                try:
+                    nc_results = client.search_by_policy_number(q_stripped)
+                except Exception as pe:
+                    logger.warning("NowCerts policy number fallback failed: %s", pe)
 
             nc_customers = []
             for raw in nc_results:

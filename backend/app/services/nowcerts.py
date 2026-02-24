@@ -391,35 +391,67 @@ class NowCertsClient:
     def search_by_policy_number(self, policy_number: str) -> list[dict]:
         """Search NowCerts for an insured by policy number.
         
-        Queries PolicyDetailList by number, then returns the linked insured(s).
+        Uses GetPolicies Zapier endpoint to find matching policies,
+        then fetches the linked insured details.
         """
         try:
-            clean = policy_number.strip().replace("'", "''")
-            filter_expr = f"contains(tolower(number), '{clean.lower()}')"
-            data = self._odata_get("PolicyDetailList", skip=0, top=10,
-                                   filter_expr=filter_expr)
-            policies = data.get("value", [])
-            if not policies:
-                return []
+            clean = policy_number.strip().lower()
+            
+            # Method 1: Try OData PolicyDetailList with contains filter
+            try:
+                q = policy_number.strip().replace("'", "''")
+                filter_expr = f"contains(tolower(number), '{q.lower()}')"
+                data = self._odata_get("PolicyDetailList", skip=0, top=10,
+                                       filter_expr=filter_expr)
+                policies = data.get("value", [])
+                if policies:
+                    seen_ids = set()
+                    insureds = []
+                    for pol in policies:
+                        iid = pol.get("insuredDatabaseId")
+                        if iid and str(iid) not in seen_ids:
+                            seen_ids.add(str(iid))
+                            try:
+                                filter_ins = f"databaseId eq {iid}"
+                                ins_data = self._odata_get("InsuredDetailList", skip=0, top=1,
+                                                            filter_expr=filter_ins)
+                                for ins in ins_data.get("value", []):
+                                    insureds.append(self._normalize_odata_insured(ins))
+                            except Exception:
+                                pass
+                    if insureds:
+                        return insureds
+            except Exception as e:
+                logger.debug("OData policy search failed, trying Zapier: %s", e)
 
-            # Get unique insured IDs from the policy results
-            seen_ids = set()
-            insureds = []
-            for pol in policies:
-                iid = pol.get("insuredDatabaseId") or pol.get("insured_database_id")
-                if iid and str(iid) not in seen_ids:
-                    seen_ids.add(str(iid))
-                    # Fetch the insured detail
-                    try:
-                        filter_ins = f"databaseId eq {iid}"
-                        ins_data = self._odata_get("InsuredDetailList", skip=0, top=1,
-                                                    filter_expr=filter_ins)
-                        for ins in ins_data.get("value", []):
-                            insureds.append(self._normalize_odata_insured(ins))
-                    except Exception as e:
-                        logger.warning("Failed to fetch insured %s: %s", iid, e)
+            # Method 2: Fallback to Zapier GetPolicies and search locally
+            try:
+                data = self._get("/api/Zapier/GetPolicies")
+                all_policies = data if isinstance(data, list) else []
+                matched_insured_ids = set()
+                for pol in all_policies:
+                    pnum = (pol.get("policy_number") or pol.get("number") or "").lower()
+                    if clean in pnum:
+                        iid = pol.get("insured_database_id") or pol.get("insuredDatabaseId") or pol.get("database_id_of_insured")
+                        if iid:
+                            matched_insured_ids.add(str(iid))
+                
+                if matched_insured_ids:
+                    insureds = []
+                    for iid in matched_insured_ids:
+                        try:
+                            filter_ins = f"databaseId eq {iid}"
+                            ins_data = self._odata_get("InsuredDetailList", skip=0, top=1,
+                                                        filter_expr=filter_ins)
+                            for ins in ins_data.get("value", []):
+                                insureds.append(self._normalize_odata_insured(ins))
+                        except Exception:
+                            pass
+                    return insureds
+            except Exception as e:
+                logger.debug("Zapier policy search also failed: %s", e)
 
-            return insureds
+            return []
         except Exception as e:
             logger.error("NowCerts policy number search failed: %s", e)
             return []
