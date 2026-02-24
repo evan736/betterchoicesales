@@ -56,52 +56,45 @@ const Navbar: React.FC = () => {
           {/* Left: Logo + Nav Dropdown */}
           <div className="flex items-center space-x-4">
             <Link href="/dashboard" className="flex items-center space-x-2.5 group flex-shrink-0">
-              {/* AEGIS Logo Mark */}
+              {/* ORBIT Logo Mark */}
               <div className="relative h-9 w-9 flex items-center justify-center">
                 <svg viewBox="0 0 40 40" className="h-9 w-9" fill="none">
-                  {/* Outer shield glow */}
                   <defs>
-                    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <linearGradient id="orbitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                       <stop offset="0%" stopColor="#06b6d4" />
-                      <stop offset="50%" stopColor="#0ea5e9" />
-                      <stop offset="100%" stopColor="#3b82f6" />
+                      <stop offset="60%" stopColor="#0ea5e9" />
+                      <stop offset="100%" stopColor="#6366f1" />
                     </linearGradient>
-                    <filter id="logoGlow">
-                      <feGaussianBlur stdDeviation="1.5" result="blur" />
+                    <filter id="orbitGlow">
+                      <feGaussianBlur stdDeviation="1.2" result="blur" />
                       <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
                   </defs>
-                  {/* Shield shape */}
-                  <path
-                    d="M20 3L5 10v10c0 10.5 6.4 20.3 15 23 8.6-2.7 15-12.5 15-23V10L20 3z"
-                    fill="url(#shieldGrad)"
-                    opacity="0.15"
-                    filter="url(#logoGlow)"
-                  />
-                  <path
-                    d="M20 3L5 10v10c0 10.5 6.4 20.3 15 23 8.6-2.7 15-12.5 15-23V10L20 3z"
-                    fill="none"
-                    stroke="url(#shieldGrad)"
-                    strokeWidth="1.5"
-                  />
-                  {/* Inner A letterform */}
-                  <path
-                    d="M20 11L13 27h3l1.5-4h5l1.5 4h3L20 11zm0 5.5L22.5 22h-5L20 16.5z"
-                    fill="url(#shieldGrad)"
-                  />
+                  {/* Outer orbital ring */}
+                  <ellipse cx="20" cy="20" rx="17" ry="10" stroke="url(#orbitGrad)" strokeWidth="1.2" opacity="0.5" transform="rotate(-25 20 20)" />
+                  {/* Inner orbital ring */}
+                  <ellipse cx="20" cy="20" rx="14" ry="7" stroke="url(#orbitGrad)" strokeWidth="0.8" opacity="0.3" transform="rotate(30 20 20)" />
+                  {/* Core circle */}
+                  <circle cx="20" cy="20" r="7" fill="url(#orbitGrad)" opacity="0.15" filter="url(#orbitGlow)" />
+                  <circle cx="20" cy="20" r="7" stroke="url(#orbitGrad)" strokeWidth="1.5" fill="none" />
+                  {/* Satellite dot */}
+                  <circle cx="35" cy="14" r="2.5" fill="#06b6d4" filter="url(#orbitGlow)" />
+                  <circle cx="35" cy="14" r="1.5" fill="#fff" />
+                  {/* Center dot */}
+                  <circle cx="20" cy="20" r="2" fill="url(#orbitGrad)" />
                 </svg>
               </div>
               <div className="hidden sm:flex flex-col leading-none">
-                <span className="font-display font-extrabold text-[15px] tracking-wider aegis-title" style={{
-                  background: 'linear-gradient(135deg, #06b6d4, #0ea5e9, #3b82f6)',
+                <span className="font-display font-extrabold text-[16px]" style={{
+                  background: 'linear-gradient(135deg, #06b6d4, #0ea5e9, #6366f1)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
-                  letterSpacing: '0.15em',
+                  letterSpacing: '0.18em',
                 }}>
-                  AEGIS
+                  ORBIT
                 </span>
-                <span className="text-[9px] font-semibold text-slate-400 tracking-widest mt-0.5">
-                  COMMAND CENTER
+                <span className="text-[8px] font-medium text-slate-400 tracking-[0.08em] mt-0.5">
+                  Operations · Renewals · Binding · Intelligence · Tracking
                 </span>
               </div>
             </Link>
