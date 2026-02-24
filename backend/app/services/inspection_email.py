@@ -754,6 +754,7 @@ def approve_and_send(draft_id: int, db: Session, approved_by: str = "evan") -> d
     """
     import pickle
     from app.models.inspection import InspectionDraft
+    from app.models.task import Task
 
     draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
     if not draft:
@@ -790,6 +791,29 @@ def approve_and_send(draft_id: int, db: Session, approved_by: str = "evan") -> d
     if email_result.get("success"):
         draft.status = "sent"
         draft.mailgun_message_id = email_result.get("message_id")
+
+        # Update linked task: mark as sent but keep open for follow-ups
+        if draft.task_id:
+            task = db.query(Task).filter(Task.id == draft.task_id).first()
+            if task:
+                task.last_sent_at = datetime.utcnow()
+                task.send_count = (task.send_count or 0) + 1
+                task.last_send_method = "email"
+                task.customer_email = draft.customer_email
+
+        # Push NowCerts note
+        try:
+            from app.services.nowcerts_notes import push_nowcerts_note
+            note_text = (
+                f"📧 Inspection follow-up email sent to {draft.customer_email}\n"
+                f"Policy: {draft.policy_number} | Carrier: {draft.carrier}\n"
+                f"Action Required: {(draft.extraction_details or {}).get('action_required', 'See email')}\n"
+                f"Deadline: {draft.deadline or 'N/A'}\n"
+                f"Sent by: {approved_by} via ORBIT"
+            )
+            push_nowcerts_note(db, draft.policy_number, note_text)
+        except Exception as e:
+            logger.warning("NowCerts note push failed for inspection %s: %s", draft.policy_number, e)
     else:
         draft.status = "send_failed"
         draft.send_error = email_result.get("error")

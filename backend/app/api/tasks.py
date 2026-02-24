@@ -475,6 +475,28 @@ def send_task_notification(
         task.customer_email = email
         db.commit()
 
+        # Push NowCerts note
+        try:
+            from app.services.nowcerts_notes import push_nowcerts_note
+            method_label = "email" if result["method"] == "email" else "physical letter via Thanks.io"
+            task_label = {
+                "uw_requirement": "UW Requirement",
+                "inspection": "Inspection Follow-Up",
+            }.get(task.task_type, "Compliance")
+            note_text = (
+                f"{task_label} {method_label} sent to {email or 'mailing address'}\n"
+                f"Policy: {task.policy_number} | Carrier: {task.carrier}\n"
+                f"Task: {task.title}\n"
+                f"Send #{task.send_count} | Sent via ORBIT Compliance Center"
+            )
+            push_nowcerts_note(
+                db, task.policy_number, note_text,
+                subject=f"📧 ORBIT: {task_label} sent — {task.policy_number}",
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("NowCerts note failed for task %s: %s", task_id, e)
+
     result["last_sent_at"] = task.last_sent_at.isoformat() if task.last_sent_at else None
     result["send_count"] = task.send_count or 0
     return result
