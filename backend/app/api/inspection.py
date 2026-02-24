@@ -5,7 +5,7 @@
 - POST /api/inspection/drafts/{id}/reject — Reject a draft (auth required)
 """
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -231,3 +231,102 @@ def preview_draft_email(
         return HTMLResponse(content=draft_html)
 
     return HTMLResponse(content=draft.draft_html)
+
+
+# ── Test Endpoint: Forward Real Carrier Emails ─────────────────────────
+
+@router.post("/test-forward")
+async def test_forward_inspection_email(
+    sender: str = "",
+    subject: str = "",
+    body_plain: str = "",
+    body_html: str = "",
+    attachments: list = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Test endpoint: simulate an inbound carrier inspection email.
+    
+    Accepts multipart form data — forward a real carrier email here:
+    - sender: original sender (e.g. Jamie.Zuppa@NGIC.com)
+    - subject: original subject
+    - body_plain: plain text body
+    - body_html: HTML body
+    - attachments: PDF file uploads (multipart)
+    
+    This runs the full inspection pipeline: detection → Claude extraction → 
+    customer lookup → draft creation → Evan approval email.
+    """
+    from fastapi import UploadFile, File, Form, Request
+    # Re-import needed since this uses the service directly
+    from app.services.inspection_email import is_inspection_email, handle_inspection_email
+
+    logger.info("Test forward: sender=%s subject=%s", sender, subject[:80])
+
+    return {"status": "use_form_endpoint", "message": "Use POST /api/inspection/test-forward-form with multipart form data"}
+
+
+@router.post("/test-forward-form")
+async def test_forward_form(
+    request: "Request",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Test endpoint: forward a real carrier email with PDF attachments.
+    
+    Send as multipart form with fields:
+    - sender: original sender email
+    - subject: original subject line  
+    - body_plain: plain text body
+    - body_html: HTML body (optional)
+    - file(s): PDF attachments (field name: files)
+    
+    Example curl:
+      curl -X POST .../api/inspection/test-forward-form \\
+        -H "Authorization: Bearer TOKEN" \\
+        -F "sender=Jamie.Zuppa@NGIC.com" \\
+        -F "subject=2033220589 Nancy Pilato" \\
+        -F "body_plain=Coverage A revision..." \\
+        -F "files=@inspection_report.pdf"
+    """
+    from app.services.inspection_email import handle_inspection_email
+
+    form = await request.form()
+    
+    sender = str(form.get("sender", ""))
+    subject_val = str(form.get("subject", ""))
+    body_plain = str(form.get("body_plain", ""))
+    body_html = str(form.get("body_html", ""))
+
+    # Collect file uploads
+    pdf_attachments = []
+    for key in form:
+        val = form[key]
+        if hasattr(val, 'filename') and hasattr(val, 'read'):
+            file_bytes = await val.read()
+            if file_bytes and len(file_bytes) > 0:
+                fname = val.filename or f"attachment_{len(pdf_attachments)+1}.pdf"
+                pdf_attachments.append((fname, file_bytes))
+                logger.info("Test forward: received attachment %s (%d bytes)", fname, len(file_bytes))
+
+    logger.info("Test forward: sender=%s subject=%s attachments=%d body_len=%d",
+                sender, subject_val[:80], len(pdf_attachments), len(body_plain) + len(body_html))
+
+    if not sender and not subject_val and not body_plain and not body_html:
+        raise HTTPException(status_code=400, detail="No email content provided. Send sender, subject, body_plain, and optionally files.")
+
+    try:
+        result = await handle_inspection_email(
+            sender=sender,
+            subject=subject_val,
+            html_body=body_html,
+            plain_body=body_plain,
+            attachments=pdf_attachments,
+            db=db,
+        )
+        return result
+    except Exception as e:
+        logger.error("Test forward failed: %s", e)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -328,7 +328,34 @@ def build_inspection_customer_email(
     issues = details.get("issues_found", [])
     severity = details.get("severity", "medium")
 
-    subject = f"Action Required: Home Inspection Follow-Up for Your {display_carrier} Policy"
+    # Determine if this is a physical repair (needs photos) or a coverage/policy change (needs contact)
+    all_text = f"{action} {' '.join(issues)}".lower()
+    is_physical_repair = any(kw in all_text for kw in [
+        "railing", "deck", "roof", "siding", "repair", "install", "replace", "fix",
+        "photo", "stairs", "handrail", "gutter", "tree", "brush", "chimney",
+        "foundation", "electrical", "plumbing", "mold", "water damage",
+    ])
+    is_coverage_change = any(kw in all_text for kw in [
+        "coverage a", "dwelling", "coverage revision", "policy adjustment",
+        "increase", "limit", "valuation", "replacement cost",
+    ])
+    has_pdf = bool(details.get("has_pdf_report") or details.get("attachment_info"))
+
+    # Determine subject line based on type
+    if is_coverage_change and not is_physical_repair:
+        subject = f"Action Required: Policy Update for Your {display_carrier} Policy"
+        intro_text = (
+            f"{display_carrier} has completed a review of your policy "
+            f"<strong>{policy_number}</strong> and identified updates that need to be made."
+        )
+        header_title = "Policy Update Required"
+    else:
+        subject = f"Action Required: Home Inspection Follow-Up for Your {display_carrier} Policy"
+        intro_text = (
+            f"{display_carrier} recently completed a routine home inspection on your policy "
+            f"<strong>{policy_number}</strong> and found one or more items that need your attention."
+        )
+        header_title = "Home Inspection Follow-Up"
 
     # Severity-based header color
     if severity == "high":
@@ -364,7 +391,7 @@ def build_inspection_customer_email(
 <!-- Header -->
 <div style="background:{header_bg};border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;">
     <p style="margin:0 0 4px;font-size:13px;color:rgba(255,255,255,0.85);letter-spacing:1px;font-weight:600;">{header_icon} {header_text}</p>
-    <h1 style="margin:0;font-size:20px;color:#ffffff;font-weight:700;">Home Inspection Follow-Up</h1>
+    <h1 style="margin:0;font-size:20px;color:#ffffff;font-weight:700;">{header_title}</h1>
 </div>
 
 <!-- Body -->
@@ -373,8 +400,7 @@ def build_inspection_customer_email(
     <p style="margin:0 0 16px;font-size:16px;color:#1e293b;">Hi {first_name},</p>
 
     <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.6;">
-        {display_carrier} recently completed a routine home inspection on your policy 
-        <strong>{policy_number}</strong> and found one or more items that need your attention.
+        {intro_text}
     </p>
 
     <!-- What needs to be done -->
@@ -394,14 +420,14 @@ def build_inspection_customer_email(
         </p>
     </div>
 
-    <!-- PDF note -->
-    <p style="margin:20px 0 16px;font-size:14px;color:#334155;line-height:1.6;">
-        📎 <strong>We've attached the full inspection report</strong> for your reference. 
-        Please review it carefully for complete details on what was identified.
-    </p>
+    <!-- PDF note (only if attachments present) -->
+    {f'''<p style="margin:20px 0 16px;font-size:14px;color:#334155;line-height:1.6;">
+        📎 <strong>We've attached the full report</strong> for your reference. 
+        Please review it carefully for complete details.
+    </p>''' if has_pdf else ''}
 
-    <!-- What to do next -->
-    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:16px 20px;margin:20px 0;">
+    <!-- Next steps — varies by issue type -->
+    {f'''<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:16px 20px;margin:20px 0;">
         <p style="margin:0 0 8px;font-weight:700;color:#166534;font-size:14px;">Once You've Addressed the Items:</p>
         <p style="margin:0;color:#334155;font-size:14px;line-height:1.6;">
             Please send us <strong>photos or documentation</strong> showing the completed work. 
@@ -409,10 +435,16 @@ def build_inspection_customer_email(
             <a href="mailto:service@betterchoiceins.com" style="color:{accent};font-weight:600;">service@betterchoiceins.com</a>.
             We'll forward the documentation to {display_carrier} on your behalf.
         </p>
-    </div>
+    </div>''' if is_physical_repair else f'''<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:16px 20px;margin:20px 0;">
+        <p style="margin:0 0 8px;font-weight:700;color:#166534;font-size:14px;">What Happens Next:</p>
+        <p style="margin:0;color:#334155;font-size:14px;line-height:1.6;">
+            Please give us a call or reply to this email so we can review these changes together. 
+            We'll walk you through what's needed and take care of any updates with {display_carrier} on your behalf.
+        </p>
+    </div>'''}
 
     <p style="margin:20px 0 0;font-size:14px;color:#334155;line-height:1.6;">
-        If you have any questions or need help understanding the inspection findings, 
+        If you have any questions{' or need help understanding the findings' if is_physical_repair else ''}, 
         don't hesitate to reach out. We're here to help!
     </p>
 
