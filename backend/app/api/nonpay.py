@@ -312,7 +312,16 @@ async def upload_nonpay_file(
         if ext == "pdf":
             policies = await _extract_from_pdf(file_bytes)
         elif ext in ("xlsx", "xls"):
-            policies = _extract_from_excel(file_bytes, ext)
+            # Check for Progressive-specific file formats first
+            progressive_result = _detect_progressive_file(file_bytes, ext, file.filename)
+            if progressive_result:
+                policies = progressive_result["policies"]
+                # Process UW items separately — create tasks and optionally send emails
+                uw_items = progressive_result.get("uw_items", [])
+                if uw_items:
+                    _process_progressive_uw_items(db, uw_items, dry_run=dry_run, notice_id=notice.id)
+            else:
+                policies = _extract_from_excel(file_bytes, ext)
         else:
             policies = _extract_from_csv(file_bytes)
 
@@ -854,6 +863,264 @@ def _extract_from_csv(file_bytes: bytes) -> list[dict]:
         })
 
     return results
+
+
+# ── Progressive File Detection & Processing ────────────────────────────
+
+def _detect_progressive_file(file_bytes: bytes, ext: str, filename: str = "") -> Optional[dict]:
+    """Detect and parse Progressive-specific file formats.
+    
+    Returns dict with 'policies' (non-pay items) and 'uw_items' (UW requirements),
+    or None if this isn't a recognized Progressive format.
+    
+    Recognized formats:
+    1. PoliciesPendingCancelOrRenewal — multi-sheet (Non-Payment, Underwriting, Pending Renewal)
+    2. CustomerFollowup — single sheet with Message Subject / Action columns (UW items)
+    """
+    import io
+
+    if ext != "xlsx":
+        return None
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    except Exception:
+        return None
+
+    sheet_names = [s.lower() for s in wb.sheetnames]
+
+    # ── Format 1: PoliciesPendingCancelOrRenewal ──
+    if "non-payment" in sheet_names or "underwriting" in sheet_names:
+        logger.info("Progressive PoliciesPendingCancel format detected")
+        policies = []
+        uw_items = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if len(rows) < 2:
+                continue
+
+            headers = [str(c).strip() if c else "" for c in rows[0]]
+            col_map = _progressive_col_map(headers)
+
+            sheet_lower = sheet_name.lower()
+            for row in rows[1:]:
+                cells = list(row)
+                record = _progressive_row_to_dict(cells, col_map, headers)
+                if not record.get("policy_number"):
+                    continue
+                record["carrier"] = "progressive"
+
+                if "non-payment" in sheet_lower or "non payment" in sheet_lower:
+                    record["notice_type"] = "non-pay"
+                    record["cancel_reason"] = "Pending Cancel for Non Payment"
+                    policies.append(record)
+                elif "underwriting" in sheet_lower:
+                    record["notice_type"] = "underwriting"
+                    record["cancel_reason"] = record.get("cancel_reason", "Underwriting")
+                    record["requirement_type"] = "general_uw"
+                    uw_items.append(record)
+                elif "pending renewal" in sheet_lower or "renewal" in sheet_lower:
+                    # Skip renewals for now — could add renewal tracking later
+                    pass
+
+        return {"policies": policies, "uw_items": uw_items}
+
+    # ── Format 2: CustomerFollowup (UW compliance) ──
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 2:
+        return None
+
+    headers = [str(c).strip() if c else "" for c in rows[0]]
+    headers_lower = [h.lower() for h in headers]
+
+    # Detect by "Message Subject" column (unique to CustomerFollowup)
+    if "message subject" in headers_lower and "agent code" in headers_lower:
+        logger.info("Progressive CustomerFollowup format detected")
+        col_map = _progressive_col_map(headers)
+        msg_col = next((i for i, h in enumerate(headers_lower) if h == "message subject"), None)
+        memo_col = next((i for i, h in enumerate(headers_lower) if h == "memo sent"), None)
+
+        uw_items = []
+        for row in rows[1:]:
+            cells = list(row)
+            record = _progressive_row_to_dict(cells, col_map, headers)
+            if not record.get("policy_number"):
+                continue
+            record["carrier"] = "progressive"
+
+            # Map Message Subject to UW requirement type
+            msg_subject = str(cells[msg_col]).strip() if msg_col is not None and msg_col < len(cells) and cells[msg_col] else ""
+            memo_date = str(cells[memo_col]).strip() if memo_col is not None and memo_col < len(cells) and cells[memo_col] else ""
+
+            record["message_subject"] = msg_subject
+            record["memo_sent"] = memo_date
+            record["requirement_type"] = _map_progressive_uw_type(msg_subject)
+            record["notice_type"] = "uw_requirement"
+            uw_items.append(record)
+
+        return {"policies": [], "uw_items": uw_items}
+
+    return None
+
+
+def _progressive_col_map(headers: list[str]) -> dict:
+    """Map Progressive column headers to standard field names."""
+    headers_lower = [h.lower().strip() for h in headers]
+    col_map = {}
+
+    mappings = {
+        "policy_number": ["policy number", "policy", "policy no"],
+        "insured_name": ["full name", "named insured", "name", "insured"],
+        "email": ["email address", "email"],
+        "phone": ["phone number", "phone", "phone #"],
+        "address": ["address"],
+        "city": ["city"],
+        "state": ["state", "policy state"],
+        "zip": ["zip", "zip code"],
+        "product": ["product"],
+        "producer": ["producer"],
+        "agent_code": ["agent code"],
+        "amount_due": ["amount due", "amount"],
+        "cancel_date": ["cancel effective date", "cancel date", "cancellation date"],
+        "cancel_reason": ["cancel reason", "reason"],
+        "reference_number": ["reference number"],
+    }
+
+    for field, patterns in mappings.items():
+        for i, h in enumerate(headers_lower):
+            if h in patterns:
+                col_map[field] = i
+                break
+
+    return col_map
+
+
+def _progressive_row_to_dict(cells: list, col_map: dict, headers: list) -> dict:
+    """Convert a Progressive row to a standard policy dict."""
+    def _get(field):
+        idx = col_map.get(field)
+        if idx is not None and idx < len(cells) and cells[idx] is not None:
+            return str(cells[idx]).strip()
+        return ""
+
+    # Handle "Last, First" name format
+    raw_name = _get("insured_name")
+    if "," in raw_name:
+        parts = raw_name.split(",", 1)
+        name = f"{parts[1].strip()} {parts[0].strip()}"
+    else:
+        name = raw_name
+
+    # Parse amount
+    amount = None
+    raw_amt = _get("amount_due")
+    if raw_amt:
+        try:
+            amount = float(raw_amt.replace(",", "").replace("$", ""))
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "policy_number": _get("policy_number"),
+        "insured_name": name,
+        "email": _get("email"),
+        "phone": _get("phone"),
+        "address": _get("address"),
+        "city": _get("city"),
+        "state": _get("state"),
+        "zip": _get("zip"),
+        "product": _get("product"),
+        "producer": _get("producer"),
+        "agent_code": _get("agent_code"),
+        "amount_due": amount,
+        "due_date": _get("cancel_date"),
+        "cancel_reason": _get("cancel_reason"),
+        "carrier": "progressive",
+    }
+
+
+def _map_progressive_uw_type(message_subject: str) -> str:
+    """Map Progressive's Message Subject to a UW requirement type."""
+    subj = message_subject.lower().strip()
+
+    if "vehicle photo" in subj:
+        return "vehicle_photos"
+    if "mileage" in subj or "annual mileage" in subj or "odometer" in subj:
+        return "proof_of_mileage"
+    if "residence" in subj or "homeowner" in subj or "renter" in subj:
+        return "proof_of_residence"
+    if "discount" in subj:
+        return "discount_verification"
+    if "continuous" in subj or "prior" in subj or "proof of insurance" in subj:
+        return "proof_of_continuous_insurance"
+    if "photo" in subj:
+        return "vehicle_photos"
+
+    return "general_uw"
+
+
+def _process_progressive_uw_items(db: Session, uw_items: list[dict], dry_run: bool = False, notice_id: int = None):
+    """Create UW tasks and optionally send emails for Progressive UW items."""
+    from app.api.tasks import create_uw_requirement_task
+    from app.services.uw_requirement_email import send_uw_requirement_email
+
+    for item in uw_items:
+        policy_number = item.get("policy_number", "")
+        customer_name = item.get("insured_name", "")
+        email = item.get("email", "")
+        carrier = "progressive"
+        requirement_type = item.get("requirement_type", "general_uw")
+        producer = item.get("producer", "")
+        memo_date = item.get("memo_sent", "")
+        msg_subject = item.get("message_subject", "")
+
+        # Create task in Compliance Center (even in dry_run — tasks are informational)
+        try:
+            task = create_uw_requirement_task(
+                db=db,
+                customer_name=customer_name,
+                policy_number=policy_number,
+                carrier=carrier,
+                requirement_type=requirement_type,
+                due_date=memo_date,  # Use memo sent date as reference
+                producer_name=producer,
+            )
+            # Update task description with Progressive-specific details
+            if task and msg_subject:
+                task.description = (
+                    f"Progressive UW Requirement: {msg_subject}\n"
+                    f"Policy: {policy_number} ({item.get('product', '')})\n"
+                    f"Customer: {customer_name}\n"
+                    f"Email: {email or 'N/A'}\n"
+                    f"Producer: {producer}\n"
+                    f"Memo Sent: {memo_date}\n\n"
+                    f"Action: Contact customer to obtain {msg_subject.lower()} documentation."
+                )
+                task.source = "progressive_upload"
+                db.commit()
+            logger.info("UW task created for %s / %s: %s", customer_name, policy_number, msg_subject)
+        except Exception as e:
+            logger.warning("UW task creation failed for %s: %s", policy_number, e)
+
+        # Send UW email to customer (skip in dry_run)
+        if not dry_run and email:
+            try:
+                send_uw_requirement_email(
+                    to_email=email,
+                    client_name=customer_name,
+                    policy_number=policy_number,
+                    carrier=carrier,
+                    requirement_type=requirement_type,
+                    due_date=memo_date or None,
+                    producer_name=producer,
+                )
+                logger.info("UW email sent to %s for %s", email, policy_number)
+            except Exception as e:
+                logger.warning("UW email failed for %s: %s", policy_number, e)
 
 
 def _extract_from_excel(file_bytes: bytes, ext: str) -> list[dict]:

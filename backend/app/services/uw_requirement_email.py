@@ -31,6 +31,67 @@ UW_REQUIREMENT_TYPES = {
         "urgency": "If this documentation is not provided by the deadline, your policy premium may increase "
                    "or your policy could be subject to cancellation.",
     },
+    "vehicle_photos": {
+        "short": "Vehicle Photos",
+        "subject": "Action Required: Vehicle Photos Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier has requested <strong>photos of your vehicle(s)</strong>. "
+                       "This is a standard requirement to verify the condition of your vehicle and confirm coverage details.",
+        "how_to": [
+            "Take <strong>clear, well-lit photos</strong> of all four sides of your vehicle (front, back, left side, right side)",
+            "Include a close-up photo of the <strong>odometer</strong> showing current mileage",
+            "Include a photo of the <strong>VIN plate</strong> (usually visible through the windshield on the driver's side)",
+            "Email all photos to <strong>service@betterchoiceins.com</strong> or reply to this email with the attachments",
+        ],
+        "urgency": "If these photos are not provided by the deadline, your policy may be subject to cancellation or non-renewal.",
+    },
+    "proof_of_mileage": {
+        "short": "Proof of Annual Mileage",
+        "subject": "Action Required: Mileage Verification Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier has requested <strong>proof of your annual mileage</strong>. "
+                       "This is needed to verify the mileage estimate on your policy and ensure you have the correct rate.",
+        "how_to": [
+            "Take a <strong>clear photo of your odometer</strong> showing the current reading",
+            "If available, provide a <strong>recent oil change receipt</strong> or <strong>vehicle inspection report</strong> that shows mileage",
+            "Email the photo/documentation to <strong>service@betterchoiceins.com</strong> or reply to this email",
+        ],
+        "urgency": "If mileage verification is not provided by the deadline, your rate discount may be removed or your policy could be affected.",
+    },
+    "proof_of_residence": {
+        "short": "Proof of Residence Insurance",
+        "subject": "Action Required: Proof of Residence Insurance Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier has requested <strong>proof that you have homeowners, renters, or condo insurance</strong>. "
+                       "This is needed to maintain your multi-policy discount.",
+        "how_to": [
+            "Provide a <strong>declarations page</strong> from your current home, renters, or condo insurance policy",
+            "The document should show your name, address, and current coverage dates",
+            "Email the document to <strong>service@betterchoiceins.com</strong> or reply to this email with the attachment",
+        ],
+        "urgency": "If proof of residence insurance is not provided, your multi-policy discount may be removed, resulting in a premium increase.",
+    },
+    "discount_verification": {
+        "short": "Discount Verification",
+        "subject": "Action Required: Documentation Needed to Keep Your {carrier} Discount",
+        "what_needed": "Your carrier needs to <strong>verify a discount on your policy</strong>. "
+                       "Without the required documentation, the discount may be removed and your premium could increase.",
+        "how_to": [
+            "Check the details below for which specific discount needs verification",
+            "Gather the supporting documentation (certificate, ID, proof of completion, etc.)",
+            "Email the document to <strong>service@betterchoiceins.com</strong> or reply to this email with the attachment",
+        ],
+        "urgency": "If verification is not provided by the deadline, the discount will be removed from your policy and your premium will increase.",
+    },
+    "general_uw": {
+        "short": "Underwriting Documentation",
+        "subject": "Action Required: Documentation Needed for Your {carrier} Policy",
+        "what_needed": "Your carrier has requested <strong>additional documentation</strong> for your policy. "
+                       "Please review the details below and provide the required items as soon as possible.",
+        "how_to": [
+            "Review the requirement details below",
+            "Gather the requested documentation",
+            "Email the document to <strong>service@betterchoiceins.com</strong> or reply to this email with the attachment",
+        ],
+        "urgency": "If this documentation is not provided by the deadline, your policy could be subject to changes, premium increases, or cancellation.",
+    },
 }
 
 # All UW requirement types map to the same template
@@ -39,6 +100,13 @@ UW_TYPE_ALIASES = {
     "nopop": "proof_of_continuous_insurance",
     "change_prior_bi": "proof_of_continuous_insurance",
     "proof_of_prior_bi": "proof_of_continuous_insurance",
+    "vehicle_photos": "vehicle_photos",
+    "proof_of_mileage": "proof_of_mileage",
+    "proof_of_residence": "proof_of_residence",
+    "proof_of_residence_insurance": "proof_of_residence",
+    "discount": "discount_verification",
+    "discount_verification": "discount_verification",
+    "general_uw": "general_uw",
 }
 
 

@@ -298,6 +298,13 @@ def create_uw_requirement_task(
         "nopop": "No Proof of Prior Insurance",
         "change_prior_bi": "Change Prior BI Limits",
         "proof_of_prior_bi": "Proof of Prior BI",
+        "vehicle_photos": "Vehicle Photos",
+        "proof_of_mileage": "Proof of Annual Mileage",
+        "proof_of_residence": "Proof of Residence Insurance",
+        "proof_of_residence_insurance": "Proof of Residence Insurance",
+        "discount": "Discount Verification",
+        "discount_verification": "Discount Verification",
+        "general_uw": "Underwriting Documentation",
     }
     req_label = req_labels.get(requirement_type, requirement_type)
 
