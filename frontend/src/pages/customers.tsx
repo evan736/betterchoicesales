@@ -67,7 +67,17 @@ export default function CustomersPage() {
     setLoading(true); setHasSearched(true);
     try {
       const res = await customersAPI.search({ q: query, source: 'local', page: p ?? page, page_size: 50 });
-      setCustomers(res.data.customers || []); setTotal(res.data.total || 0);
+      if ((res.data.total || 0) === 0 && query.trim().length >= 3) {
+        // No local results — try NowCerts live search
+        try {
+          const ncRes = await customersAPI.search({ q: query, source: 'nowcerts', page: 1, page_size: 50 });
+          setCustomers(ncRes.data.customers || []); setTotal(ncRes.data.total || 0);
+        } catch {
+          setCustomers([]); setTotal(0);
+        }
+      } else {
+        setCustomers(res.data.customers || []); setTotal(res.data.total || 0);
+      }
     } catch {} setLoading(false);
   }, [searchQuery, page]);
 
