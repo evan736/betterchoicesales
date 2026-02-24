@@ -233,7 +233,51 @@ def preview_draft_email(
     return HTMLResponse(content=draft.draft_html)
 
 
-# ── Test Endpoint: Forward Real Carrier Emails ─────────────────────────
+@router.get("/drafts/{draft_id}/attachments")
+def list_draft_attachments(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List attachments for a draft."""
+    draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return {"attachments": draft.attachment_info or [], "draft_id": draft.id}
+
+
+@router.get("/drafts/{draft_id}/attachment/{index}")
+def download_draft_attachment(
+    draft_id: int,
+    index: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download a specific PDF attachment from a draft."""
+    import pickle
+    from fastapi.responses import Response
+
+    draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    if not draft.attachment_data:
+        raise HTTPException(status_code=404, detail="No attachments on this draft")
+
+    try:
+        attachments = pickle.loads(draft.attachment_data)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load attachment data")
+
+    if index < 0 or index >= len(attachments):
+        raise HTTPException(status_code=404, detail=f"Attachment index {index} out of range (0-{len(attachments)-1})")
+
+    filename, pdf_bytes = attachments[index]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 @router.post("/test-forward")
 async def test_forward_inspection_email(

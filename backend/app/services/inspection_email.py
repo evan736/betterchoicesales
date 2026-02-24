@@ -691,8 +691,8 @@ async def handle_inspection_email(
 
     db.commit()
 
-    # Step 6: Send Evan approval email
-    _send_evan_approval_email(draft, details, sender, subject, customer)
+    # Step 6: Send Evan approval email (with PDF attachments so Evan can review)
+    _send_evan_approval_email(draft, details, sender, subject, customer, pdf_attachments=pdf_attachments)
 
     # Step 7: Push NowCerts note
     try:
@@ -882,8 +882,8 @@ def _send_evan_alert_no_match(sender: str, subject: str, details: dict, status_m
         logger.warning("Evan alert failed: %s", e)
 
 
-def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, customer=None):
-    """Send Evan an approval email with draft preview and one-click Approve button."""
+def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, customer=None, pdf_attachments=None):
+    """Send Evan an approval email with draft preview, one-click Approve button, and PDF attachments."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return
 
@@ -967,16 +967,26 @@ def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, c
     </div></div>"""
 
     try:
+        mail_data = {
+            "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
+            "to": ["evan@betterchoiceins.com"],
+            "subject": f"🔍 APPROVE? Inspection: {policy} — {carrier} ({customer_name})",
+            "html": html,
+        }
+
+        # Attach PDFs so Evan can review what the customer will receive
+        files = []
+        if pdf_attachments:
+            for filename, pdf_bytes in pdf_attachments:
+                files.append(("attachment", (filename, pdf_bytes, "application/pdf")))
+                logger.info("Attaching %s (%d bytes) to approval email", filename, len(pdf_bytes))
+
         http_requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
-            data={
-                "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
-                "to": ["evan@betterchoiceins.com"],
-                "subject": f"🔍 APPROVE? Inspection: {policy} — {carrier} ({customer_name})",
-                "html": html,
-            },
+            data=mail_data,
+            files=files if files else None,
         )
-        logger.info("Approval email sent for draft #%s", draft.id)
+        logger.info("Approval email sent for draft #%s (with %d attachments)", draft.id, len(files))
     except Exception as e:
         logger.warning("Approval email failed: %s", e)

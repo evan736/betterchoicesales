@@ -823,9 +823,22 @@ const ComplianceCenter: React.FC = () => {
                           )}
 
                           {draft.attachment_info && draft.attachment_info.length > 0 && (
-                            <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
-                              <span>📎</span>
-                              <span>{draft.attachment_info.map((a: any) => a.filename).join(', ')}</span>
+                            <div className="mt-2">
+                              <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Attachments</p>
+                              <div className="flex flex-wrap gap-2">
+                                {draft.attachment_info.map((a: any, i: number) => (
+                                  <a
+                                    key={i}
+                                    href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/inspection/drafts/${draft.id}/attachment/${i}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold hover:bg-red-100 transition-colors"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    📎 {a.filename} <span className="text-red-400 font-normal">({(a.size / 1024).toFixed(0)} KB)</span>
+                                  </a>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
