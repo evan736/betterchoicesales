@@ -710,7 +710,7 @@ async def post_call_webhook(request: Request):
 
 # ── 4. HEALTH CHECK ───────────────────────────────────────────────
 
-@router.get("/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def retell_health():
     """Health check for Retell webhook endpoints. Also warms NowCerts token."""
     client = get_nowcerts_client()
