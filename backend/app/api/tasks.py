@@ -135,6 +135,16 @@ def _task_to_dict(task: Task, db: Session) -> dict:
             if cust and cust.nowcerts_insured_id:
                 nowcerts_url = f"https://www6.nowcerts.com/AMSINS/Insureds/Details/{cust.nowcerts_insured_id}/Information"
 
+    # Look up customer email if not stored on task
+    customer_email = task.customer_email
+    if not customer_email and task.policy_number:
+        from app.models.customer import Customer as Cust2, CustomerPolicy as CP2
+        cp = db.query(CP2).filter(CP2.policy_number == task.policy_number).first()
+        if cp:
+            c = db.query(Cust2).filter(Cust2.id == cp.customer_id).first()
+            if c:
+                customer_email = c.email
+
     return {
         "id": task.id,
         "title": task.title,
@@ -153,6 +163,11 @@ def _task_to_dict(task: Task, db: Session) -> dict:
         "notes": task.notes,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "customer_email": customer_email,
+        "last_sent_at": task.last_sent_at.isoformat() if task.last_sent_at else None,
+        "send_count": task.send_count or 0,
+        "last_send_method": task.last_send_method,
+        "nowcerts_url": nowcerts_url,
     }
 
 
@@ -333,3 +348,133 @@ def create_uw_requirement_task(
     db.refresh(task)
     logger.info("Created UW requirement task #%d for %s/%s", task.id, customer_name, policy_number)
     return task
+
+
+@router.post("/{task_id}/send")
+def send_task_notification(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually send/resend the compliance notification for a task.
+    
+    - If customer has email → sends appropriate email (UW requirement, inspection, etc.)
+    - If no email but has address → sends Thanks.io letter
+    - Tracks last_sent_at and send_count
+    """
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Look up customer info
+    from app.models.customer import Customer, CustomerPolicy
+    customer = None
+    if task.policy_number:
+        policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number == task.policy_number
+        ).first()
+        if policy:
+            customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+
+    # Use task.customer_email or fall back to customer record
+    email = task.customer_email or (customer.email if customer else None)
+    customer_name = task.customer_name or (customer.full_name if customer else "Valued Customer")
+
+    result = {
+        "task_id": task_id,
+        "method": None,
+        "success": False,
+        "error": None,
+    }
+
+    if email:
+        # ── Send email based on task type ──
+        result["method"] = "email"
+        try:
+            if task.task_type == "uw_requirement":
+                from app.services.uw_requirement_email import send_uw_requirement_email
+                # Determine UW type from task description/title
+                uw_type = "general_uw"
+                title_lower = (task.title or "").lower()
+                if "vehicle photo" in title_lower:
+                    uw_type = "vehicle_photos"
+                elif "mileage" in title_lower:
+                    uw_type = "proof_of_mileage"
+                elif "residence" in title_lower:
+                    uw_type = "proof_of_residence"
+                elif "continuous" in title_lower or "proof of insurance" in title_lower:
+                    uw_type = "proof_of_continuous_insurance"
+                elif "discount" in title_lower:
+                    uw_type = "discount_verification"
+
+                email_result = send_uw_requirement_email(
+                    to_email=email,
+                    customer_name=customer_name,
+                    policy_number=task.policy_number or "",
+                    carrier=task.carrier or "",
+                    requirement_type=uw_type,
+                    deadline=task.due_date.strftime("%m/%d/%Y") if task.due_date else None,
+                )
+                result["success"] = email_result.get("success", False)
+                result["error"] = email_result.get("error")
+
+            elif task.task_type == "inspection":
+                # For inspection tasks, use the compliance reminder email
+                from app.services.compliance_reminders import _build_reminder_email, _send_reminder_email
+                from datetime import datetime
+                days_remaining = (task.due_date.replace(tzinfo=None) - datetime.utcnow()).days if task.due_date else 30
+                tier = "7d" if days_remaining <= 7 else "14d" if days_remaining <= 14 else "30d" if days_remaining <= 30 else "60d"
+                subject, html = _build_reminder_email(task, tier, days_remaining)
+                email_result = _send_reminder_email(email, subject, html)
+                result["success"] = email_result.get("success", False)
+                result["error"] = email_result.get("error")
+
+            else:
+                # Generic: use compliance reminder
+                from app.services.compliance_reminders import _build_reminder_email, _send_reminder_email
+                from datetime import datetime
+                days_remaining = (task.due_date.replace(tzinfo=None) - datetime.utcnow()).days if task.due_date else 30
+                tier = "7d" if days_remaining <= 7 else "14d" if days_remaining <= 14 else "30d"
+                subject, html = _build_reminder_email(task, tier, days_remaining)
+                email_result = _send_reminder_email(email, subject, html)
+                result["success"] = email_result.get("success", False)
+                result["error"] = email_result.get("error")
+
+        except Exception as e:
+            result["error"] = str(e)
+
+    elif customer and customer.address and customer.city and customer.state and customer.zip:
+        # ── No email — send Thanks.io letter ──
+        result["method"] = "letter"
+        try:
+            from app.services.thanksio_letter import send_thanksio_letter
+            letter_result = send_thanksio_letter(
+                client_name=customer_name,
+                address=customer.address,
+                city=customer.city,
+                state=customer.state,
+                zip_code=customer.zip,
+                policy_number=task.policy_number or "",
+                carrier=task.carrier or "",
+                due_date=task.due_date.strftime("%m/%d/%Y") if task.due_date else None,
+            )
+            result["success"] = letter_result.get("success", False)
+            result["order_id"] = letter_result.get("order_id")
+            result["error"] = letter_result.get("error")
+        except Exception as e:
+            result["error"] = str(e)
+    else:
+        result["error"] = "No email address and no mailing address on file"
+
+    # Update task tracking
+    if result["success"]:
+        from datetime import datetime
+        task.last_sent_at = datetime.utcnow()
+        task.send_count = (task.send_count or 0) + 1
+        task.last_send_method = result["method"]
+        task.customer_email = email
+        db.commit()
+
+    result["last_sent_at"] = task.last_sent_at.isoformat() if task.last_sent_at else None
+    result["send_count"] = task.send_count or 0
+    return result

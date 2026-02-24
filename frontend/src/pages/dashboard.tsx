@@ -28,6 +28,7 @@ import {
   Eye,
   Edit3,
   Mail,
+  Send,
   XCircle,
   Shield,
 } from 'lucide-react';
@@ -545,6 +546,7 @@ const ComplianceCenter: React.FC = () => {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [reassigningId, setReassigningId] = useState<number | null>(null);
+  const [sendingTaskId, setSendingTaskId] = useState<number | null>(null);
 
   // Inspection drafts state
   const [inspectionDrafts, setInspectionDrafts] = useState<any[]>([]);
@@ -593,6 +595,23 @@ const ComplianceCenter: React.FC = () => {
       await tasksAPI.update(id, { status: 'completed' });
       loadTasks();
     } catch (e) { console.error('Task update failed:', e); }
+  };
+
+  const handleSendTask = async (id: number) => {
+    setSendingTaskId(id);
+    try {
+      const res = await tasksAPI.send(id);
+      const d = res.data;
+      if (d.success) {
+        alert(`✅ ${d.method === 'letter' ? 'Letter sent via Thanks.io' : 'Email sent'} successfully!`);
+        loadTasks(); // Refresh to show updated last_sent_at
+      } else {
+        alert(`❌ Send failed: ${d.error || 'Unknown error'}`);
+      }
+    } catch (e: any) {
+      alert(`❌ Send failed: ${e?.response?.data?.detail || e.message}`);
+    }
+    setSendingTaskId(null);
   };
 
   const handleReassign = async (taskId: number, newAgentId: number) => {
@@ -1136,14 +1155,44 @@ const ComplianceCenter: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Complete button */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleComplete(task.id); }}
-                          className="ml-2 p-1.5 rounded-lg hover:bg-green-100 text-slate-300 hover:text-green-600 transition-colors flex-shrink-0"
-                          title="Mark complete"
-                        >
-                          <CheckCircle size={16} />
-                        </button>
+                        {/* Action buttons */}
+                        <div className="flex flex-col items-center gap-1.5 ml-2 flex-shrink-0">
+                          {/* Send button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleSendTask(task.id); }}
+                            disabled={sendingTaskId === task.id}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              sendingTaskId === task.id
+                                ? 'bg-blue-100 text-blue-400 animate-pulse'
+                                : task.customer_email
+                                ? 'hover:bg-blue-100 text-slate-300 hover:text-blue-600'
+                                : 'hover:bg-amber-100 text-slate-300 hover:text-amber-600'
+                            }`}
+                            title={task.customer_email ? `Send email to ${task.customer_email}` : 'Send letter (no email on file)'}
+                          >
+                            {sendingTaskId === task.id ? (
+                              <Loader size={14} className="animate-spin" />
+                            ) : task.customer_email ? (
+                              <Send size={14} />
+                            ) : (
+                              <Mail size={14} />
+                            )}
+                          </button>
+                          {/* Complete button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleComplete(task.id); }}
+                            className="p-1.5 rounded-lg hover:bg-green-100 text-slate-300 hover:text-green-600 transition-colors"
+                            title="Mark complete"
+                          >
+                            <CheckCircle size={14} />
+                          </button>
+                          {/* Last sent indicator */}
+                          {task.last_sent_at && (
+                            <span className="text-[9px] text-slate-400 text-center leading-tight" title={`Sent ${task.send_count || 1}x via ${task.last_send_method || 'email'}`}>
+                              {task.last_send_method === 'letter' ? '📬' : '📧'} {new Date(task.last_sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

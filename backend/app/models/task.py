@@ -45,6 +45,12 @@ class Task(Base):
     source = Column(String, nullable=True)  # "natgen_activity", "manual", etc.
     notes = Column(Text, nullable=True)
 
+    # Communication tracking
+    customer_email = Column(String, nullable=True)
+    last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    send_count = Column(Integer, default=0)
+    last_send_method = Column(String, nullable=True)  # "email", "letter"
+
     # Non-renewal escalation tracking
     last_notification_tier = Column(String, nullable=True)  # "60d", "45d", "30d", "14d", "7d", "3d"
     notifications_disabled = Column(Boolean, default=False)

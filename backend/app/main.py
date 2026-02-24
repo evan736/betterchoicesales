@@ -242,6 +242,18 @@ def init_database():
                         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='customer_notified') THEN
                             ALTER TABLE tasks ADD COLUMN customer_notified BOOLEAN DEFAULT FALSE;
                         END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='customer_email') THEN
+                            ALTER TABLE tasks ADD COLUMN customer_email VARCHAR;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='last_sent_at') THEN
+                            ALTER TABLE tasks ADD COLUMN last_sent_at TIMESTAMP WITH TIME ZONE;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='send_count') THEN
+                            ALTER TABLE tasks ADD COLUMN send_count INTEGER DEFAULT 0;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tasks' AND column_name='last_send_method') THEN
+                            ALTER TABLE tasks ADD COLUMN last_send_method VARCHAR;
+                        END IF;
                     END IF;
                 END $$;
             """))

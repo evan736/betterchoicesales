@@ -349,6 +349,7 @@ export const tasksAPI = {
   counts: () => api.get('/api/tasks/counts'),
   update: (id: number, payload: { status?: string; assigned_to_id?: number; notes?: string; priority?: string }) =>
     api.patch(`/api/tasks/${id}`, payload),
+  send: (id: number) => api.post(`/api/tasks/${id}/send`),
 };
 
 // Inspection API
