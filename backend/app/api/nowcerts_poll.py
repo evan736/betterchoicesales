@@ -123,9 +123,10 @@ def debug_poll(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Debug endpoint — shows exactly what each NowCerts API call returns.
+    """Debug endpoint — full scan of NowCerts pending cancellations.
     
-    Does NOT send any emails. Just shows raw API responses.
+    Scans ALL policies in batches, returns only ACTIVE pending cancellations.
+    Does NOT send any emails.
     """
     from app.services.nowcerts import get_nowcerts_client
     from app.models.customer import Customer, CustomerPolicy
@@ -133,127 +134,107 @@ def debug_poll(
     client = get_nowcerts_client()
     debug = {
         "nowcerts_configured": client.is_configured,
-        "steps": [],
+        "auth": None,
+        "total_policies_with_nc_id": 0,
+        "total_customers_with_nc_id": 0,
+        "batches_processed": 0,
+        "total_raw_results": 0,
+        "active_pending_cancellations": [],
+        "inactive_count": 0,
+        "errors": [],
     }
 
     if not client.is_configured:
         debug["error"] = "NowCerts credentials not configured"
         return debug
 
-    # Step 1: Auth check
+    # Auth
     try:
-        token = client._authenticate()
+        client._authenticate()
         debug["auth"] = "success"
-        debug["token_preview"] = token[:20] + "..." if token else None
     except Exception as e:
         debug["auth"] = f"failed: {e}"
         return debug
 
-    # Step 2: Count policies with NowCerts IDs
+    # Get all policies with NowCerts IDs
     policies = db.query(CustomerPolicy).filter(
         CustomerPolicy.nowcerts_policy_id.isnot(None),
         CustomerPolicy.nowcerts_policy_id != "",
     ).all()
     debug["total_policies_with_nc_id"] = len(policies)
 
-    # Step 3: Count customers with NowCerts IDs
+    # Build policy map for carrier lookup
+    nc_policy_map = {}
+    for p in policies:
+        if p.nowcerts_policy_id:
+            nc_policy_map[p.nowcerts_policy_id] = p
+
     customers = db.query(Customer).filter(
         Customer.nowcerts_insured_id.isnot(None),
         Customer.nowcerts_insured_id != "",
-        Customer.is_active == True,
     ).all()
     debug["total_customers_with_nc_id"] = len(customers)
 
-    # Step 4: Try Policy PendingCancellations with first 5 policy IDs
-    sample_policy_ids = [p.nowcerts_policy_id for p in policies[:5]]
-    debug["sample_policy_ids"] = sample_policy_ids
+    # Scan ALL policies in batches of 100
+    policy_db_ids = list(nc_policy_map.keys())
+    seen = set()
 
-    try:
-        resp = client._post("/api/Policy/PendingCancellations", {
-            "policyDataBaseId": sample_policy_ids
-        })
-        debug["steps"].append({
-            "endpoint": "POST /api/Policy/PendingCancellations",
-            "payload": {"policyDataBaseId": sample_policy_ids},
-            "response_type": type(resp).__name__,
-            "response_preview": str(resp)[:1000] if resp else "empty",
-        })
-    except Exception as e:
-        debug["steps"].append({
-            "endpoint": "POST /api/Policy/PendingCancellations",
-            "error": str(e),
-        })
+    for i in range(0, len(policy_db_ids), 100):
+        batch = policy_db_ids[i:i + 100]
+        debug["batches_processed"] += 1
+        try:
+            data = client._post("/api/Policy/PendingCancellations", {
+                "policyDataBaseId": batch
+            })
 
-    # Step 5: Try Insured PendingCancellations with first 5 insured IDs
-    sample_insured_ids = [c.nowcerts_insured_id for c in customers[:5]]
-    debug["sample_insured_ids"] = sample_insured_ids
+            items = data if isinstance(data, list) else []
+            debug["total_raw_results"] += len(items)
 
-    try:
-        resp = client._post("/api/Insured/PendingCancellations", {
-            "insuredDataBaseId": sample_insured_ids
-        })
-        debug["steps"].append({
-            "endpoint": "POST /api/Insured/PendingCancellations",
-            "payload": {"insuredDataBaseId": sample_insured_ids[:3]},
-            "response_type": type(resp).__name__,
-            "response_preview": str(resp)[:1000] if resp else "empty",
-        })
-    except Exception as e:
-        debug["steps"].append({
-            "endpoint": "POST /api/Insured/PendingCancellations",
-            "error": str(e),
-        })
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
 
-    # Step 6: Try OData fallback for pending cancel status
-    try:
-        for status_filter in [
-            "status eq 'Pending Cancellation'",
-            "status eq 'Pending Cancel'",
-            "contains(tolower(status), 'cancel')",
-            "contains(tolower(status), 'pending')",
-        ]:
-            try:
-                resp = client._odata_get("PolicyDetailList", skip=0, top=10,
-                                          filter_expr=status_filter)
-                items = resp.get("value", [])
-                count = resp.get("@odata.count", len(items))
-                debug["steps"].append({
-                    "endpoint": f"GET PolicyDetailList?$filter={status_filter}",
-                    "count": count,
-                    "sample": [
-                        {
-                            "number": i.get("number", ""),
-                            "status": i.get("status", ""),
-                            "carrier": i.get("carrierName", ""),
-                            "insured": i.get("insuredName", i.get("commercialName", "")),
-                        }
-                        for i in items[:5]
-                    ] if items else [],
+                is_active = str(item.get("active", "")).lower() in ("yes", "true")
+                policy_num = item.get("policyNumber", "")
+
+                if not is_active:
+                    debug["inactive_count"] += 1
+                    continue
+
+                if policy_num in seen:
+                    continue
+                seen.add(policy_num)
+
+                # Look up carrier from our DB
+                nc_pid = item.get("policyDatabaseId") or ""
+                our_policy = nc_policy_map.get(nc_pid)
+                carrier = our_policy.carrier if our_policy else ""
+
+                # Check customer email
+                insured_email = item.get("insuredEmail") or ""
+                commercial_name = item.get("insuredCommercialName") or ""
+                first = item.get("insuredFirstName") or ""
+                last = item.get("insuredLastName") or ""
+
+                debug["active_pending_cancellations"].append({
+                    "policy_number": policy_num,
+                    "carrier": carrier,
+                    "customer_name": commercial_name or f"{first} {last}".strip(),
+                    "customer_email": insured_email,
+                    "cancel_date": str(item.get("to", ""))[:10],
+                    "description": item.get("description") or "",
+                    "created": str(item.get("createDate", ""))[:10],
+                    "our_policy_status": our_policy.status if our_policy else "not_found",
                 })
-                if count > 0:
-                    break  # Found results, no need to try other filters
-            except Exception as e:
-                debug["steps"].append({
-                    "endpoint": f"GET PolicyDetailList?$filter={status_filter}",
-                    "error": str(e),
-                })
-    except Exception as e:
-        debug["steps"].append({
-            "endpoint": "OData fallback",
-            "error": str(e),
-        })
 
-    # Step 7: Get distinct policy statuses to understand what NowCerts uses
-    try:
-        resp = client._get("/api/Policy/StatusTypes")
-        debug["steps"].append({
-            "endpoint": "GET /api/Policy/StatusTypes",
-            "response_preview": str(resp)[:500] if resp else "empty",
-        })
-    except Exception as e:
-        debug["steps"].append({
-            "endpoint": "GET /api/Policy/StatusTypes",
-            "error": str(e),
-        })
+        except Exception as e:
+            debug["errors"].append(f"Batch {i}: {str(e)}")
+
+    debug["active_count"] = len(debug["active_pending_cancellations"])
+    debug["message"] = (
+        f"Scanned {debug['batches_processed']} batches ({len(policy_db_ids)} policies). "
+        f"Found {debug['total_raw_results']} total records: "
+        f"{debug['active_count']} ACTIVE, {debug['inactive_count']} inactive."
+    )
 
     return debug

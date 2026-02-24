@@ -145,232 +145,163 @@ def poll_pending_cancellations(db: Session) -> dict:
 def _fetch_pending_cancellations(client, policies: list) -> list[dict]:
     """Fetch pending cancellations from NowCerts API.
     
-    Tries two approaches:
-    1. Policy-level endpoint with policy database IDs (more precise)
-    2. Insured-level endpoint as fallback
+    NowCerts PendingCancellations response format (confirmed via debug):
+    {
+        "databaseId": "guid",
+        "to": "2024-10-04T00:00:00",          # cancellation effective date
+        "changeDate": "2024-09-23T10:14:00",
+        "createDate": "2024-09-23T10:14:00",
+        "sendReminders": "No",
+        "description": "",
+        "active": "Yes" or "No",               # CRITICAL: only process "Yes"
+        "insuredDatabaseId": "guid",
+        "insuredEmail": "email@example.com",
+        "insuredFirstName": "John",
+        "insuredLastName": "Wright",
+        "insuredCommercialName": "Wright, John",
+        "policyDatabaseId": "guid",
+        "policyNumber": "975063537"
+    }
     
-    Returns list of dicts with: policy_number, carrier, insured_name,
-    cancel_date, reason, amount_due, nowcerts_policy_id
+    NOTE: Carrier name is NOT in the response — we look it up from our DB.
     """
     results = []
     seen_policies = set()
 
     # Build a map of NowCerts policy IDs to our policy records
     nc_policy_map = {}
-    nc_insured_ids = set()
     for p in policies:
         if p.nowcerts_policy_id:
             nc_policy_map[p.nowcerts_policy_id] = p
-        # Also collect insured IDs for the insured-level fetch
-        if p.customer_id:
-            customer = None
-            try:
-                from app.models.customer import Customer
-                # We'll use the customer's NowCerts insured ID
-                pass  # Collected below via batch
-            except Exception:
-                pass
 
-    # Approach 1: Try fetching pending cancellations via policy database IDs
-    # The NowCerts API takes a list of policy database IDs
-    policy_db_ids = [p.nowcerts_policy_id for p in policies if p.nowcerts_policy_id]
+    # Approach 1: Fetch via policy database IDs (batches of 100)
+    policy_db_ids = list(nc_policy_map.keys())
+    logger.info("Fetching pending cancellations for %d policies...", len(policy_db_ids))
 
-    if policy_db_ids:
+    for i in range(0, len(policy_db_ids), 100):
+        batch = policy_db_ids[i:i + 100]
         try:
-            # NowCerts POST api/Policy/PendingCancellations expects:
-            # { "policyDataBaseId": ["guid1", "guid2", ...] }
-            # Process in batches of 50 to avoid payload limits
-            for i in range(0, len(policy_db_ids), 50):
-                batch = policy_db_ids[i:i + 50]
-                try:
-                    data = client._post("/api/Policy/PendingCancellations", {
-                        "policyDataBaseId": batch
-                    })
+            data = client._post("/api/Policy/PendingCancellations", {
+                "policyDataBaseId": batch
+            })
 
-                    # Response is a list of pending cancellation objects
-                    items = data if isinstance(data, list) else data.get("value", data.get("items", []))
-                    if isinstance(items, dict):
-                        items = [items]
+            items = data if isinstance(data, list) else []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
 
-                    for item in items:
-                        if not isinstance(item, dict):
-                            continue
+                # CRITICAL: Only process ACTIVE pending cancellations
+                if str(item.get("active", "")).lower() not in ("yes", "true"):
+                    continue
 
-                        pc = _normalize_pending_cancellation(item, nc_policy_map)
-                        if pc and pc.get("policy_number") not in seen_policies:
-                            results.append(pc)
-                            seen_policies.add(pc["policy_number"])
-
-                except Exception as e:
-                    logger.warning("Policy PendingCancellations batch failed: %s", e)
+                pc = _normalize_pending_cancellation(item, nc_policy_map)
+                if pc and pc.get("policy_number") not in seen_policies:
+                    results.append(pc)
+                    seen_policies.add(pc["policy_number"])
 
         except Exception as e:
-            logger.error("Policy-level pending cancellation fetch failed: %s", e)
+            logger.warning("Policy PendingCancellations batch %d failed: %s", i, e)
 
-    # Approach 2: Try the insured-level endpoint
-    # Collect unique insured database IDs from our customers
-    try:
-        from app.models.customer import Customer
-        customers = (
-            db.query(Customer)
-            .filter(
-                Customer.nowcerts_insured_id.isnot(None),
-                Customer.nowcerts_insured_id != "",
-                Customer.is_active == True,
-            )
-            .all()
-        )
-        insured_db_ids = [c.nowcerts_insured_id for c in customers if c.nowcerts_insured_id]
-
-        if insured_db_ids:
-            for i in range(0, len(insured_db_ids), 50):
-                batch = insured_db_ids[i:i + 50]
-                try:
-                    data = client._post("/api/Insured/PendingCancellations", {
-                        "insuredDataBaseId": batch
-                    })
-
-                    items = data if isinstance(data, list) else data.get("value", data.get("items", []))
-                    if isinstance(items, dict):
-                        items = [items]
-
-                    for item in items:
-                        if not isinstance(item, dict):
-                            continue
-
-                        pc = _normalize_pending_cancellation(item, nc_policy_map)
-                        if pc and pc.get("policy_number") not in seen_policies:
-                            results.append(pc)
-                            seen_policies.add(pc["policy_number"])
-
-                except Exception as e:
-                    logger.warning("Insured PendingCancellations batch failed: %s", e)
-
-    except Exception as e:
-        logger.error("Insured-level pending cancellation fetch failed: %s", e)
-
-    # Approach 3: Try the OData endpoint as a global fallback
+    # Approach 2: If no results from policy-level, try insured-level
     if not results:
         try:
-            # Some NowCerts setups expose an OData list endpoint
-            data = client._odata_get("PolicyDetailList", skip=0, top=500,
-                                      filter_expr="status eq 'Pending Cancellation' or status eq 'Pending Cancel'")
-            items = data.get("value", [])
-            for item in items:
-                policy_num = item.get("number", "")
-                if policy_num and policy_num not in seen_policies:
-                    results.append({
-                        "policy_number": policy_num,
-                        "carrier": item.get("carrierName", ""),
-                        "insured_name": item.get("insuredName", item.get("commercialName", "")),
-                        "cancel_date": item.get("cancellationDate", item.get("expirationDate", "")),
-                        "reason": "non_pay",
-                        "amount_due": None,
-                        "nowcerts_policy_id": item.get("databaseId", ""),
-                        "source": "odata_policy_status",
-                    })
-                    seen_policies.add(policy_num)
-            logger.info("OData fallback found %d pending cancellation policies", len(items))
-        except Exception as e:
-            logger.warning("OData pending cancellation fallback failed: %s", e)
+            from app.models.customer import Customer
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                customers = db.query(Customer).filter(
+                    Customer.nowcerts_insured_id.isnot(None),
+                    Customer.nowcerts_insured_id != "",
+                    Customer.is_active == True,
+                ).all()
+                insured_db_ids = [c.nowcerts_insured_id for c in customers if c.nowcerts_insured_id]
 
+                logger.info("Trying insured-level fetch for %d customers...", len(insured_db_ids))
+
+                for i in range(0, len(insured_db_ids), 100):
+                    batch = insured_db_ids[i:i + 100]
+                    try:
+                        data = client._post("/api/Insured/PendingCancellations", {
+                            "insuredDataBaseId": batch
+                        })
+
+                        items = data if isinstance(data, list) else []
+                        for item in items:
+                            if not isinstance(item, dict):
+                                continue
+                            if str(item.get("active", "")).lower() not in ("yes", "true"):
+                                continue
+
+                            pc = _normalize_pending_cancellation(item, nc_policy_map)
+                            if pc and pc.get("policy_number") not in seen_policies:
+                                results.append(pc)
+                                seen_policies.add(pc["policy_number"])
+
+                    except Exception as e:
+                        logger.warning("Insured PendingCancellations batch %d failed: %s", i, e)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error("Insured-level pending cancellation fetch failed: %s", e)
+
+    logger.info("Total active pending cancellations found: %d", len(results))
     return results
 
 
 def _normalize_pending_cancellation(raw: dict, policy_map: dict) -> Optional[dict]:
     """Normalize a NowCerts pending cancellation API response.
     
-    NowCerts PendingCancellations response fields vary but commonly include:
-    - policyNumber / number
-    - carrierName / carrier
-    - insuredName / commercialName
-    - cancellationDate / cancelDate / effectiveDate
-    - reason / cancellationReason
-    - amountDue / balanceDue / amount
-    - policyDatabaseId / databaseId
+    Confirmed NowCerts fields:
+    - policyNumber          → policy_number
+    - policyDatabaseId      → nowcerts_policy_id (used to look up carrier from our DB)
+    - insuredCommercialName → insured_name
+    - insuredEmail          → customer email
+    - insuredFirstName/LastName
+    - to                    → cancellation effective date
+    - active                → "Yes" or "No"
+    - description           → reason/notes
+    - createDate / changeDate
+    
+    NOTE: Carrier is NOT in the response — we look it up from our policy map.
     """
-    # Extract policy number (try multiple field names)
-    policy_number = (
-        raw.get("policyNumber") or
-        raw.get("number") or
-        raw.get("policy_number") or
-        ""
-    ).strip()
-
+    policy_number = (raw.get("policyNumber") or "").strip()
     if not policy_number:
         return None
 
-    # Extract other fields with fallbacks
-    carrier = (
-        raw.get("carrierName") or
-        raw.get("carrier") or
-        raw.get("carrier_name") or
-        raw.get("companyName") or
-        ""
-    ).strip()
+    # Look up carrier from our DB via the policy map
+    nc_policy_id = raw.get("policyDatabaseId") or raw.get("policyDataBaseId") or ""
+    carrier = ""
+    our_policy = policy_map.get(nc_policy_id)
+    if our_policy:
+        carrier = our_policy.carrier or ""
 
-    insured_name = (
-        raw.get("insuredName") or
-        raw.get("commercialName") or
-        raw.get("insured_name") or
-        raw.get("name") or
-        ""
-    ).strip()
+    # Build insured name
+    commercial_name = raw.get("insuredCommercialName") or ""
+    first = raw.get("insuredFirstName") or ""
+    last = raw.get("insuredLastName") or ""
+    insured_name = commercial_name or f"{first} {last}".strip() or ""
 
-    cancel_date = (
-        raw.get("cancellationDate") or
-        raw.get("cancelDate") or
-        raw.get("cancellation_date") or
-        raw.get("effectiveDate") or
-        ""
-    )
+    # Parse cancellation date from "to" field
+    cancel_date = raw.get("to") or ""
+    if cancel_date and "T" in str(cancel_date):
+        cancel_date = str(cancel_date)[:10]
 
-    # Parse date if it's a NowCerts /Date() format
-    if cancel_date and "/Date(" in str(cancel_date):
-        try:
-            ts = int(str(cancel_date).split("(")[1].split(")")[0].split("-")[0].split("+")[0])
-            cancel_date = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    elif cancel_date and isinstance(cancel_date, str) and "T" in cancel_date:
-        cancel_date = cancel_date[:10]
-
-    reason = (
-        raw.get("reason") or
-        raw.get("cancellationReason") or
-        raw.get("cancellation_reason") or
-        "non_pay"
-    )
-
-    amount_due = (
-        raw.get("amountDue") or
-        raw.get("balanceDue") or
-        raw.get("amount") or
-        raw.get("amount_due") or
-        None
-    )
-    if amount_due:
-        try:
-            amount_due = float(amount_due)
-        except (ValueError, TypeError):
-            amount_due = None
-
-    nc_policy_id = (
-        raw.get("policyDatabaseId") or
-        raw.get("databaseId") or
-        raw.get("policyDataBaseId") or
-        ""
-    )
+    # Description as reason
+    reason = raw.get("description") or "non_pay"
 
     return {
         "policy_number": policy_number,
         "carrier": carrier,
         "insured_name": insured_name,
+        "insured_email": raw.get("insuredEmail") or "",
         "cancel_date": cancel_date,
         "reason": reason,
-        "amount_due": amount_due,
+        "amount_due": None,  # Not provided by NowCerts PendingCancellations endpoint
         "nowcerts_policy_id": nc_policy_id,
+        "nowcerts_insured_id": raw.get("insuredDatabaseId") or "",
         "source": "nowcerts_pending_cancellation",
+        "active": raw.get("active", ""),
+        "create_date": raw.get("createDate") or "",
         "_raw": raw,
     }
 
