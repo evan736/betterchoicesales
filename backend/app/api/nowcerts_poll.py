@@ -238,3 +238,135 @@ def debug_poll(
     )
 
     return debug
+
+
+@router.post("/debug-policy/{policy_number}")
+def debug_policy(
+    policy_number: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Debug: check everything NowCerts knows about a specific policy."""
+    from app.services.nowcerts import get_nowcerts_client
+    from app.models.customer import Customer, CustomerPolicy
+
+    client = get_nowcerts_client()
+    result = {"policy_number": policy_number, "checks": []}
+
+    if not client.is_configured:
+        return {"error": "NowCerts not configured"}
+
+    try:
+        client._authenticate()
+    except Exception as e:
+        return {"error": f"Auth failed: {e}"}
+
+    # Find the policy in our DB
+    policy = db.query(CustomerPolicy).filter(
+        CustomerPolicy.policy_number.ilike(f"%{policy_number}%")
+    ).first()
+
+    if policy:
+        result["orbit_policy"] = {
+            "id": policy.id,
+            "policy_number": policy.policy_number,
+            "carrier": policy.carrier,
+            "status": policy.status,
+            "nowcerts_policy_id": policy.nowcerts_policy_id,
+            "customer_id": policy.customer_id,
+        }
+
+        # Check NowCerts for this policy's pending cancellations
+        if policy.nowcerts_policy_id:
+            try:
+                data = client._post("/api/Policy/PendingCancellations", {
+                    "policyDataBaseId": [policy.nowcerts_policy_id]
+                })
+                result["checks"].append({
+                    "endpoint": "PendingCancellations",
+                    "count": len(data) if isinstance(data, list) else 0,
+                    "data": data if isinstance(data, list) else str(data)[:500],
+                })
+            except Exception as e:
+                result["checks"].append({"endpoint": "PendingCancellations", "error": str(e)})
+
+        # Check NowCerts PolicyDetailList for this policy's current status
+        try:
+            data = client._odata_get("PolicyDetailList", skip=0, top=5,
+                                      filter_expr=f"contains(number, '{policy_number}')")
+            items = data.get("value", [])
+            result["checks"].append({
+                "endpoint": "PolicyDetailList (OData)",
+                "count": len(items),
+                "data": [{
+                    "number": i.get("number"),
+                    "status": i.get("status"),
+                    "carrier": i.get("carrierName"),
+                    "insured": i.get("insuredName", i.get("commercialName")),
+                    "effectiveDate": i.get("effectiveDate"),
+                    "expirationDate": i.get("expirationDate"),
+                } for i in items],
+            })
+        except Exception as e:
+            result["checks"].append({"endpoint": "PolicyDetailList", "error": str(e)})
+
+        # Check Important Dates for this policy
+        if policy.nowcerts_policy_id:
+            try:
+                data = client._odata_get("PolicyImportantDateList", skip=0, top=20,
+                                          filter_expr=f"policyDatabaseId eq '{policy.nowcerts_policy_id}'")
+                items = data.get("value", [])
+                result["checks"].append({
+                    "endpoint": "PolicyImportantDateList",
+                    "count": len(items),
+                    "data": items[:10] if items else [],
+                })
+            except Exception as e:
+                result["checks"].append({"endpoint": "PolicyImportantDateList", "error": str(e)})
+
+        # Check Notes for the insured
+        if policy.customer_id:
+            customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+            if customer and customer.nowcerts_insured_id:
+                try:
+                    data = client._post("/api/Insured/InsuredNotes", {
+                        "insuredDataBaseId": [customer.nowcerts_insured_id]
+                    })
+                    notes = data if isinstance(data, list) else []
+                    # Filter for billing/cancel related notes
+                    billing_notes = [n for n in notes if any(
+                        kw in str(n).lower() for kw in 
+                        ["cancel", "billing", "non-pay", "nonpay", "past due", "payment", "alert", "notice"]
+                    )]
+                    result["checks"].append({
+                        "endpoint": "InsuredNotes",
+                        "total_notes": len(notes),
+                        "billing_related": len(billing_notes),
+                        "billing_notes": [str(n)[:300] for n in billing_notes[:5]],
+                    })
+                except Exception as e:
+                    result["checks"].append({"endpoint": "InsuredNotes", "error": str(e)})
+
+                # Check Tasks for the insured
+                try:
+                    data = client._post("/api/Insured/InsuredTasks", {
+                        "insuredDataBaseId": [customer.nowcerts_insured_id]
+                    })
+                    tasks = data if isinstance(data, list) else []
+                    billing_tasks = [t for t in tasks if any(
+                        kw in str(t).lower() for kw in
+                        ["cancel", "billing", "non-pay", "nonpay", "past due", "payment"]
+                    )]
+                    result["checks"].append({
+                        "endpoint": "InsuredTasks",
+                        "total_tasks": len(tasks),
+                        "billing_related": len(billing_tasks),
+                        "billing_tasks": [str(t)[:300] for t in billing_tasks[:5]],
+                    })
+                except Exception as e:
+                    result["checks"].append({"endpoint": "InsuredTasks", "error": str(e)})
+
+    else:
+        result["orbit_policy"] = "NOT FOUND"
+
+    return result
