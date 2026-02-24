@@ -52,7 +52,7 @@ def search_customers(
                 Customer.mobile_phone.ilike(search),
                 Customer.address.ilike(search),
                 Customer.city.ilike(search),
-                Customer.zip.ilike(search),
+                Customer.zip_code.ilike(search),
             ]
             if policy_cids:
                 filters.append(Customer.id.in_(policy_cids))
