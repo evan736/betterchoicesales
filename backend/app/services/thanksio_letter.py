@@ -401,6 +401,117 @@ def generate_pastdue_pdf(
     return buf.read()
 
 
+def generate_compliance_pdf(
+    client_name: str,
+    address: str,
+    city: str,
+    state: str,
+    zip_code: str,
+    policy_number: str,
+    carrier: str = "",
+    due_date: str = None,
+    subject: str = "Action Required Regarding Your Policy",
+    message: str = "",
+) -> bytes:
+    """Generate a compliance/inspection follow-up PDF letter."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    width, height = letter
+
+    carrier_key = carrier.lower().strip().replace(" ", "_") if carrier else ""
+    info = CARRIER_INFO.get(carrier_key, {})
+    carrier_name = info.get("name", carrier.replace("_", " ").title() if carrier else "your insurance carrier")
+
+    y = height - 60
+
+    # ── Agency header ──
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColorRGB(0.1, 0.15, 0.3)
+    c.drawString(60, y, "Better Choice Insurance")
+    y -= 18
+    c.setFont("Helvetica", 9)
+    c.setFillColorRGB(0.4, 0.4, 0.4)
+    c.drawString(60, y, "(773) 985-0711  •  service@betterchoiceins.com")
+    y -= 30
+
+    # ── Date ──
+    c.setFont("Helvetica", 10)
+    c.setFillColorRGB(0.3, 0.3, 0.3)
+    from datetime import datetime
+    c.drawString(60, y, datetime.now().strftime("%B %d, %Y"))
+    y -= 30
+
+    # ── Recipient ──
+    c.setFont("Helvetica", 11)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.drawString(60, y, client_name)
+    y -= 15
+    c.drawString(60, y, address)
+    y -= 15
+    c.drawString(60, y, f"{city}, {state} {zip_code}")
+    y -= 30
+
+    # ── Subject line ──
+    c.setFont("Helvetica-Bold", 12)
+    c.setFillColorRGB(0.8, 0.1, 0.1)
+    c.drawString(60, y, f"RE: {subject}")
+    y -= 8
+    c.setStrokeColorRGB(0.8, 0.1, 0.1)
+    c.setLineWidth(1)
+    c.line(60, y, width - 60, y)
+    y -= 25
+
+    # ── Policy info ──
+    c.setFont("Helvetica", 10)
+    c.setFillColorRGB(0.2, 0.2, 0.2)
+    c.drawString(60, y, f"Policy Number: {policy_number}     Carrier: {carrier_name}")
+    if due_date:
+        y -= 15
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColorRGB(0.8, 0.1, 0.1)
+        c.drawString(60, y, f"Deadline: {due_date}")
+    y -= 25
+
+    # ── Greeting ──
+    c.setFont("Helvetica", 11)
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    first_name = client_name.split()[0] if client_name else "Valued Customer"
+    c.drawString(60, y, f"Dear {first_name},")
+    y -= 20
+
+    # ── Message body ──
+    max_width = width - 120
+    for paragraph in message.split("\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            y -= 10
+            continue
+        y = _draw_wrapped_text(c, paragraph, 60, y, "Helvetica", 10, max_width, line_height=14)
+        y -= 6
+        if y < 120:
+            c.showPage()
+            y = height - 60
+
+    y -= 15
+
+    # ── Closing ──
+    c.setFont("Helvetica", 10)
+    c.setFillColorRGB(0.2, 0.2, 0.2)
+    c.drawString(60, y, "Thank you for your prompt attention to this matter.")
+    y -= 20
+    c.drawString(60, y, "Sincerely,")
+    y -= 20
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(60, y, "Better Choice Insurance")
+    y -= 15
+    c.setFont("Helvetica", 9)
+    c.setFillColorRGB(0.4, 0.4, 0.4)
+    c.drawString(60, y, "(773) 985-0711  •  service@betterchoiceins.com")
+
+    c.save()
+    return buf.getvalue()
+
+
 def send_thanksio_letter(
     client_name: str,
     address: str,
@@ -411,9 +522,14 @@ def send_thanksio_letter(
     carrier: str = "",
     amount_due: float = None,
     due_date: str = None,
+    custom_message: str = None,
+    letter_subject: str = None,
 ) -> dict:
     """
-    Generate a past-due PDF letter and send via Thanks.io API.
+    Generate a PDF letter and send via Thanks.io API.
+
+    If custom_message is provided, generates a general compliance letter
+    instead of the default past-due letter.
 
     Thanks.io requires a publicly accessible URL for the PDF (pdf_only_url).
     We save the PDF to a temp endpoint on our backend and pass that URL.
@@ -428,17 +544,31 @@ def send_thanksio_letter(
 
     # Generate the PDF
     try:
-        pdf_bytes = generate_pastdue_pdf(
-            client_name=client_name,
-            address=address,
-            city=city,
-            state=state,
-            zip_code=zip_code,
-            policy_number=policy_number,
-            carrier=carrier,
-            amount_due=amount_due,
-            due_date=due_date,
-        )
+        if custom_message:
+            pdf_bytes = generate_compliance_pdf(
+                client_name=client_name,
+                address=address,
+                city=city,
+                state=state,
+                zip_code=zip_code,
+                policy_number=policy_number,
+                carrier=carrier,
+                due_date=due_date,
+                subject=letter_subject or "Action Required Regarding Your Policy",
+                message=custom_message,
+            )
+        else:
+            pdf_bytes = generate_pastdue_pdf(
+                client_name=client_name,
+                address=address,
+                city=city,
+                state=state,
+                zip_code=zip_code,
+                policy_number=policy_number,
+                carrier=carrier,
+                amount_due=amount_due,
+                due_date=due_date,
+            )
     except Exception as e:
         logger.error("PDF generation failed: %s", e)
         return {"success": False, "error": f"PDF generation failed: {str(e)}"}

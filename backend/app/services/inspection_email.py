@@ -763,9 +763,6 @@ def approve_and_send(draft_id: int, db: Session, approved_by: str = "evan") -> d
     if draft.status != "pending_review":
         return {"success": False, "error": f"Draft already {draft.status}"}
 
-    if not draft.customer_email:
-        return {"success": False, "error": "No customer email on file"}
-
     # Restore PDF attachments
     pdf_attachments = []
     if draft.attachment_data:
@@ -773,6 +770,106 @@ def approve_and_send(draft_id: int, db: Session, approved_by: str = "evan") -> d
             pdf_attachments = pickle.loads(draft.attachment_data)
         except Exception as e:
             logger.warning("Failed to restore attachments: %s", e)
+
+    # ── No email: send Thanks.io letter ──
+    if not draft.customer_email:
+        from app.models.customer import Customer, CustomerPolicy
+
+        # Look up customer address
+        customer = None
+        if draft.customer_id:
+            customer = db.query(Customer).filter(Customer.id == draft.customer_id).first()
+        if not customer and draft.policy_number:
+            pol = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number == draft.policy_number
+            ).first()
+            if pol:
+                customer = db.query(Customer).filter(Customer.id == pol.customer_id).first()
+
+        if not customer or not customer.address:
+            return {"success": False, "error": "No email and no mailing address on file"}
+
+        # Build a summary of the inspection for the letter
+        details = draft.extraction_details or {}
+        issues = details.get("issues_found", [])
+        action = details.get("action_required", "Please contact us regarding your policy.")
+        deadline = draft.deadline or "as soon as possible"
+
+        letter_summary = (
+            f"Action Required: {action}\n\n"
+            f"Deadline: {deadline}\n\n"
+        )
+        if issues:
+            letter_summary += "Issues Found:\n"
+            for issue in issues:
+                letter_summary += f"  - {issue}\n"
+            letter_summary += "\n"
+        letter_summary += (
+            "Please contact us as soon as possible to resolve this matter.\n"
+            "Call: (773) 985-0711\n"
+            "Email: service@betterchoiceins.com"
+        )
+
+        try:
+            from app.services.thanksio_letter import send_thanksio_letter
+            letter_result = send_thanksio_letter(
+                client_name=draft.customer_name or customer.full_name,
+                address=customer.address,
+                city=customer.city or "",
+                state=customer.state or "",
+                zip_code=customer.zip_code or "",
+                policy_number=draft.policy_number or "",
+                carrier=draft.carrier or "",
+                due_date=deadline,
+                letter_subject=f"Inspection Follow-Up — {draft.carrier or 'Your'} Policy",
+                custom_message=letter_summary,
+            )
+        except Exception as e:
+            letter_result = {"success": False, "error": str(e)}
+
+        # Update draft status
+        draft.approved_by = approved_by
+        draft.approved_at = datetime.utcnow()
+
+        if letter_result.get("success"):
+            draft.status = "sent"
+
+            # Update linked task
+            if draft.task_id:
+                task = db.query(Task).filter(Task.id == draft.task_id).first()
+                if task:
+                    task.last_sent_at = datetime.utcnow()
+                    task.send_count = (task.send_count or 0) + 1
+                    task.last_send_method = "letter"
+
+            # Push NowCerts note
+            try:
+                from app.services.nowcerts_notes import push_nowcerts_note
+                push_nowcerts_note(
+                    db, draft.policy_number,
+                    f"📬 Inspection follow-up LETTER sent via Thanks.io\n"
+                    f"Policy: {draft.policy_number} | Carrier: {draft.carrier}\n"
+                    f"No email on file — physical letter mailed to {customer.address}, {customer.city}\n"
+                    f"Action: {action}\nDeadline: {deadline}\n"
+                    f"Approved by: {approved_by}",
+                    subject=f"📬 ORBIT: Inspection letter mailed — {draft.policy_number}",
+                )
+            except Exception as e:
+                logger.warning("NowCerts note failed: %s", e)
+        else:
+            draft.status = "send_failed"
+            draft.send_error = letter_result.get("error")
+
+        db.commit()
+
+        return {
+            "success": letter_result.get("success", False),
+            "draft_id": draft.id,
+            "status": draft.status,
+            "method": "letter",
+            "order_id": letter_result.get("order_id"),
+            "error": letter_result.get("error"),
+        }
 
     # Send the email
     email_result = send_inspection_customer_email(

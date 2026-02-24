@@ -873,7 +873,7 @@ const ComplianceCenter: React.FC = () => {
                             <div><span className="text-slate-400">Customer:</span> <span className="font-semibold text-slate-700">{draft.customer_name}</span></div>
                             <div><span className="text-slate-400">Email:</span> <span className={`font-semibold ${draft.customer_email ? 'text-slate-700' : 'text-red-500'}`}>{draft.customer_email || 'Missing'}</span></div>
                             <div><span className="text-slate-400">Carrier:</span> <span className="font-semibold text-slate-700">{normalizeCarrierName(draft.carrier)}</span></div>
-                            <div><span className="text-slate-400">From:</span> <span className="text-slate-600">{draft.source_sender}</span></div>
+                            <div><span className="text-slate-400">From:</span> <span className="text-slate-600">service@betterchoiceins.com</span></div>
                           </div>
 
                           <div className="mt-2">
@@ -930,11 +930,13 @@ const ComplianceCenter: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleApproveDraft(draft.id)}
-                            disabled={isActioning || !draft.customer_email}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+                            disabled={isActioning}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                              draft.customer_email ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                            }`}
                           >
-                            {isActioning ? <Loader size={12} className="animate-spin" /> : <Mail size={12} />}
-                            Approve & Send
+                            {isActioning ? <Loader size={12} className="animate-spin" /> : draft.customer_email ? <Mail size={12} /> : <Send size={12} />}
+                            {draft.customer_email ? 'Approve & Send' : 'Approve & Mail Letter'}
                           </button>
                           <button
                             onClick={() => startEdit(draft)}
