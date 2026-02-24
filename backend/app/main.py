@@ -532,6 +532,37 @@ async def lifespan(app: FastAPI):
     followup_thread.start()
     logger.info("Background follow-up scheduler started (every 6 hours)")
 
+    # Start NowCerts auto-sync (runs twice daily — 6 AM and 6 PM CT)
+    def _run_nowcerts_sync():
+        """Sync all customers/policies from NowCerts twice daily."""
+        import time
+        time.sleep(120)  # Wait 2 min for app to fully start
+        while True:
+            try:
+                from datetime import datetime
+                now = datetime.utcnow()
+                # Run at ~12:00 UTC (6 AM CT) and ~00:00 UTC (6 PM CT)
+                hour = now.hour
+                if hour in (0, 12):
+                    logger.info("Starting scheduled NowCerts sync...")
+                    from app.core.database import SessionLocal
+                    from app.api.customers import sync_all_customers_internal
+                    db = SessionLocal()
+                    try:
+                        result = sync_all_customers_internal(db)
+                        logger.info(f"NowCerts sync complete: {result}")
+                    except Exception as e:
+                        logger.error(f"NowCerts sync error: {e}")
+                    finally:
+                        db.close()
+            except Exception as e:
+                logger.error(f"NowCerts sync scheduler error: {e}")
+            time.sleep(3600)  # Check every hour
+
+    sync_thread = threading.Thread(target=_run_nowcerts_sync, daemon=True)
+    sync_thread.start()
+    logger.info("NowCerts auto-sync scheduler started (twice daily: 6 AM / 6 PM CT)")
+
     yield
 
 

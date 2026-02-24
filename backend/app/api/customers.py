@@ -693,6 +693,106 @@ def sync_all_customers(
     }
 
 
+def sync_all_customers_internal(db: Session) -> dict:
+    """Internal version of sync_all_customers for background scheduler. No auth required."""
+    from app.services.nowcerts import get_nowcerts_client, normalize_insured
+
+    client = get_nowcerts_client()
+    if not client.is_configured:
+        return {"error": "NowCerts not configured"}
+
+    imported = 0
+    updated = 0
+    policies_imported = 0
+    policies_updated = 0
+    errors = []
+
+    try:
+        all_insureds = client.get_all_insureds_paginated(page_size=200)
+        logger.info("Auto-sync: fetched %d insureds from NowCerts", len(all_insureds))
+
+        for raw in all_insureds:
+            try:
+                normalized = normalize_insured(raw)
+                nc_id = normalized.get("nowcerts_insured_id")
+                if not nc_id:
+                    continue
+                existing = db.query(Customer).filter(Customer.nowcerts_insured_id == nc_id).first()
+                if existing:
+                    for k, v in normalized.items():
+                        if v is not None:
+                            setattr(existing, k, v)
+                    existing.last_synced_at = datetime.utcnow()
+                    updated += 1
+                else:
+                    customer = Customer(**normalized, last_synced_at=datetime.utcnow())
+                    db.add(customer)
+                    imported += 1
+                if (imported + updated) % 200 == 0:
+                    db.commit()
+            except Exception as e:
+                errors.append(f"Insured: {str(e)[:80]}")
+
+        db.commit()
+
+        try:
+            all_policies = client.get_all_policies_paginated(page_size=200)
+            for raw_pol in all_policies:
+                try:
+                    iid = raw_pol.get("insuredDatabaseId", "")
+                    if not iid:
+                        continue
+                    customer = db.query(Customer).filter(Customer.nowcerts_insured_id == iid).first()
+                    if not customer:
+                        cust_data = {
+                            "nowcerts_insured_id": iid,
+                            "first_name": raw_pol.get("insuredFirstName", ""),
+                            "last_name": raw_pol.get("insuredLastName", ""),
+                            "full_name": raw_pol.get("insuredCommercialName") or f"{raw_pol.get('insuredFirstName', '')} {raw_pol.get('insuredLastName', '')}".strip() or "Unknown",
+                            "email": raw_pol.get("insuredEmail", ""),
+                            "phone": raw_pol.get("insuredPhoneNumber", ""),
+                            "last_synced_at": datetime.utcnow(),
+                        }
+                        customer = Customer(**cust_data)
+                        db.add(customer)
+                        db.flush()
+                        imported += 1
+                    norm_pol = client._normalize_odata_policy(raw_pol, customer.id)
+                    nc_pol_id = norm_pol.get("nowcerts_policy_id")
+                    if nc_pol_id:
+                        existing_pol = db.query(CustomerPolicy).filter(CustomerPolicy.nowcerts_policy_id == nc_pol_id).first()
+                        if existing_pol:
+                            for k, v in norm_pol.items():
+                                if v is not None:
+                                    setattr(existing_pol, k, v)
+                            existing_pol.last_synced_at = datetime.utcnow()
+                            policies_updated += 1
+                        else:
+                            policy = CustomerPolicy(**norm_pol, last_synced_at=datetime.utcnow())
+                            db.add(policy)
+                            policies_imported += 1
+                    if (policies_imported + policies_updated) % 200 == 0:
+                        db.commit()
+                except Exception as e:
+                    errors.append(f"Policy: {str(e)[:80]}")
+            db.commit()
+        except Exception as e:
+            errors.append(f"Policy sync: {str(e)[:100]}")
+
+    except Exception as e:
+        logger.error("Auto-sync error: %s", e)
+        errors.append(str(e))
+
+    result = {
+        "imported": imported, "updated": updated,
+        "policies_imported": policies_imported, "policies_updated": policies_updated,
+        "errors": errors[:20],
+    }
+    logger.info("Auto-sync complete: %d imported, %d updated, %d pol imported, %d pol updated",
+                imported, updated, policies_imported, policies_updated)
+    return result
+
+
 
 # ── Helpers ────────────────────────────────────────────────────────
 
