@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import TrendingGoals from '../components/TrendingGoals';
-import { salesAPI, commissionsAPI, timeclockAPI, tasksAPI, adminAPI } from '../lib/api';
+import { salesAPI, commissionsAPI, timeclockAPI, tasksAPI, adminAPI, inspectionAPI } from '../lib/api';
 import {
   DollarSign,
   TrendingUp,
@@ -24,6 +24,12 @@ import {
   AlertCircle,
   ClipboardList,
   UserCheck,
+  Search,
+  Eye,
+  Edit3,
+  Mail,
+  XCircle,
+  Shield,
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -502,6 +508,7 @@ const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string; ico
   uw_requirement: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'UW REQUIREMENT', icon: '📋' },
   non_renewal:    { bg: 'bg-purple-100', text: 'text-purple-700', label: 'NON-RENEWAL', icon: '🔄' },
   undeliverable:  { bg: 'bg-violet-100', text: 'text-violet-700', label: 'UNDELIVERABLE', icon: '📭' },
+  inspection:     { bg: 'bg-cyan-100', text: 'text-cyan-700', label: 'INSPECTION', icon: '🔍' },
 };
 
 const ComplianceCenter: React.FC = () => {
@@ -509,16 +516,25 @@ const ComplianceCenter: React.FC = () => {
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const [tasks, setTasks] = useState<any[]>([]);
   const [counts, setCounts] = useState<any>({ open: 0, urgent: 0, my_tasks: 0 });
-  const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement' | 'undeliverable'>('all');
+  const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement' | 'undeliverable' | 'inspection'>('all');
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [reassigningId, setReassigningId] = useState<number | null>(null);
 
+  // Inspection drafts state
+  const [inspectionDrafts, setInspectionDrafts] = useState<any[]>([]);
+  const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [expandedDraftId, setExpandedDraftId] = useState<number | null>(null);
+  const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [previewDraftId, setPreviewDraftId] = useState<number | null>(null);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
   const loadTasks = async () => {
     try {
       const params: any = { limit: 30 };
-      if (filter !== 'all') params.task_type = filter;
+      if (filter !== 'all' && filter !== 'inspection') params.task_type = filter;
       const [tasksRes, countsRes] = await Promise.all([
         tasksAPI.list(params),
         tasksAPI.counts(),
@@ -529,7 +545,17 @@ const ComplianceCenter: React.FC = () => {
     setLoading(false);
   };
 
+  const loadInspectionDrafts = async () => {
+    setInspectionLoading(true);
+    try {
+      const res = await inspectionAPI.listDrafts('pending_review');
+      setInspectionDrafts(res.data?.drafts || []);
+    } catch (e) { console.error('Inspection drafts load failed:', e); }
+    setInspectionLoading(false);
+  };
+
   useEffect(() => { loadTasks(); }, [filter]);
+  useEffect(() => { loadInspectionDrafts(); }, []);
 
   // Load agents for reassign dropdown (admin only)
   useEffect(() => {
@@ -553,6 +579,55 @@ const ComplianceCenter: React.FC = () => {
     } catch (e) { console.error('Reassign failed:', e); }
   };
 
+  // Inspection actions
+  const handleApproveDraft = async (id: number) => {
+    setActionLoading(id);
+    try {
+      await inspectionAPI.approveDraft(id);
+      loadInspectionDrafts();
+      loadTasks();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Approve failed — check customer email');
+    }
+    setActionLoading(null);
+  };
+
+  const handleRejectDraft = async (id: number) => {
+    if (!confirm('Reject this inspection draft? No email will be sent.')) return;
+    setActionLoading(id);
+    try {
+      await inspectionAPI.rejectDraft(id);
+      loadInspectionDrafts();
+      loadTasks();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Reject failed');
+    }
+    setActionLoading(null);
+  };
+
+  const startEdit = (draft: any) => {
+    setEditingDraftId(draft.id);
+    setEditForm({
+      customer_email: draft.customer_email || '',
+      customer_name: draft.customer_name || '',
+      action_required: draft.action_required || '',
+      deadline: draft.deadline || '',
+      severity: draft.severity || 'medium',
+    });
+  };
+
+  const saveEdit = async (id: number) => {
+    setActionLoading(id);
+    try {
+      await inspectionAPI.updateDraft(id, editForm);
+      setEditingDraftId(null);
+      loadInspectionDrafts();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Save failed');
+    }
+    setActionLoading(null);
+  };
+
   const daysUntil = (dateStr: string | null) => {
     if (!dateStr) return null;
     return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
@@ -562,7 +637,10 @@ const ComplianceCenter: React.FC = () => {
   const uwCount = tasks.filter(t => t.task_type === 'uw_requirement').length;
   const nrCount = tasks.filter(t => t.task_type === 'non_renewal').length;
   const undCount = tasks.filter(t => t.task_type === 'undeliverable').length;
+  const inspCount = inspectionDrafts.length;
   const overdueCount = tasks.filter(t => { const d = daysUntil(t.due_date); return d !== null && d < 0; }).length;
+
+  const showInspection = filter === 'all' || filter === 'inspection';
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -575,10 +653,10 @@ const ComplianceCenter: React.FC = () => {
             </div>
             <div>
               <h3 className="text-white font-bold text-sm">Compliance Center</h3>
-              <p className="text-slate-300 text-[11px]">UW Requirements • Non-Renewals • Notices</p>
+              <p className="text-slate-300 text-[11px]">UW Requirements • Non-Renewals • Inspections • Notices</p>
             </div>
           </div>
-          {counts.open > 0 && (
+          {(counts.open > 0 || inspCount > 0) && (
             <div className="flex items-center space-x-1.5">
               {overdueCount > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white animate-pulse">
@@ -586,15 +664,15 @@ const ComplianceCenter: React.FC = () => {
                 </span>
               )}
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white">
-                {counts.open}
+                {counts.open + inspCount}
               </span>
             </div>
           )}
         </div>
 
         {/* Summary pills */}
-        {counts.open > 0 && (
-          <div className="flex gap-2 mt-3">
+        {(counts.open > 0 || inspCount > 0) && (
+          <div className="flex gap-2 mt-3 flex-wrap">
             {uwCount > 0 && (
               <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-amber-500/20 text-amber-200 text-[11px] font-semibold">
                 <span>📋</span><span>{uwCount} UW</span>
@@ -603,6 +681,11 @@ const ComplianceCenter: React.FC = () => {
             {nrCount > 0 && (
               <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20 text-purple-200 text-[11px] font-semibold">
                 <span>🔄</span><span>{nrCount} Non-Renewal</span>
+              </div>
+            )}
+            {inspCount > 0 && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-cyan-500/20 text-cyan-200 text-[11px] font-semibold">
+                <span>🔍</span><span>{inspCount} Inspection{inspCount > 1 ? 's' : ''}</span>
               </div>
             )}
             {undCount > 0 && (
@@ -616,8 +699,8 @@ const ComplianceCenter: React.FC = () => {
 
       {/* Filters */}
       <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50">
-        <div className="flex space-x-1">
-          {(['all', 'uw_requirement', 'non_renewal', 'undeliverable'] as const).map((f) => (
+        <div className="flex space-x-1 flex-wrap">
+          {(['all', 'inspection', 'uw_requirement', 'non_renewal', 'undeliverable'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -627,121 +710,394 @@ const ComplianceCenter: React.FC = () => {
                   : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
-              {f === 'all' ? 'All' : f === 'uw_requirement' ? 'UW Reqs' : f === 'non_renewal' ? 'Non-Renewals' : 'Mail'}
+              {f === 'all' ? 'All' :
+               f === 'inspection' ? `🔍 Inspections${inspCount > 0 ? ` (${inspCount})` : ''}` :
+               f === 'uw_requirement' ? 'UW Reqs' :
+               f === 'non_renewal' ? 'Non-Renewals' : 'Mail'}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Task List */}
-      <div className="max-h-[600px] overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader size={20} className="animate-spin text-slate-300" />
-          </div>
-        ) : tasks.length === 0 ? (
-          <div className="text-center py-10 px-4">
-            <div className="text-3xl mb-2">✅</div>
-            <p className="text-sm font-semibold text-slate-600">All clear!</p>
-            <p className="text-xs text-slate-400 mt-1">No open compliance items</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {tasks.map((task) => {
-              const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
-              const typeConf = TYPE_CONFIG[task.task_type] || { bg: 'bg-slate-100', text: 'text-slate-600', label: task.task_type?.toUpperCase() || 'TASK', icon: '📌' };
-              const days = daysUntil(task.due_date);
-              const isOverdue = days !== null && days < 0;
-              const isUrgent = days !== null && days <= 7;
-              const isExpanded = expandedId === task.id;
+      {/* Content */}
+      <div className="max-h-[700px] overflow-y-auto">
+        {/* ── Inspection Drafts Section ── */}
+        {showInspection && inspCount > 0 && (
+          <div>
+            {filter === 'all' && (
+              <div className="px-4 py-2 bg-cyan-50 border-b border-cyan-100">
+                <div className="flex items-center space-x-1.5">
+                  <Shield size={13} className="text-cyan-600" />
+                  <span className="text-[11px] font-bold text-cyan-700 uppercase tracking-wider">
+                    Inspection Alerts — Pending Approval
+                  </span>
+                </div>
+              </div>
+            )}
 
-              return (
-                <div
-                  key={task.id}
-                  className={`px-4 py-3 transition-all cursor-pointer hover:bg-slate-50 ${
-                    isOverdue ? 'bg-red-50/40' : isUrgent ? 'bg-orange-50/30' : ''
-                  }`}
-                  onClick={() => setExpandedId(isExpanded ? null : task.id)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      {/* Type + Priority + Due */}
-                      <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${typeConf.bg} ${typeConf.text}`}>
-                          {typeConf.icon} {typeConf.label}
-                        </span>
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pri.bg} ${pri.text}`}>
-                          {pri.label}
-                        </span>
-                        {days !== null && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isOverdue ? 'bg-red-600 text-white' :
-                            isUrgent ? 'bg-orange-500 text-white' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
-                            {isOverdue ? `${Math.abs(days)}d OVERDUE` :
-                             days === 0 ? 'DUE TODAY' :
-                             `${days}d left`}
-                          </span>
-                        )}
-                      </div>
+            <div className="divide-y divide-slate-100">
+              {inspectionDrafts.map((draft) => {
+                const isExpanded = expandedDraftId === draft.id;
+                const isEditing = editingDraftId === draft.id;
+                const isActioning = actionLoading === draft.id;
+                const sevStyle = draft.severity === 'high'
+                  ? { bg: 'bg-red-100', text: 'text-red-700', label: 'HIGH' }
+                  : draft.severity === 'low'
+                  ? { bg: 'bg-blue-100', text: 'text-blue-700', label: 'LOW' }
+                  : { bg: 'bg-orange-100', text: 'text-orange-700', label: 'MEDIUM' };
 
-                      {/* Title */}
-                      <p className="text-[13px] font-semibold text-slate-800 leading-snug">{task.title}</p>
+                return (
+                  <div key={`insp-${draft.id}`} className="px-4 py-3 transition-all hover:bg-cyan-50/30">
+                    {/* Header row */}
+                    <div
+                      className="cursor-pointer"
+                      onClick={() => { setExpandedDraftId(isExpanded ? null : draft.id); setEditingDraftId(null); }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          {/* Badges */}
+                          <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-100 text-cyan-700">
+                              🔍 INSPECTION
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${sevStyle.bg} ${sevStyle.text}`}>
+                              {sevStyle.label}
+                            </span>
+                            {!draft.customer_email && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-600">
+                                ⚠ NO EMAIL
+                              </span>
+                            )}
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-100 text-yellow-700">
+                              PENDING REVIEW
+                            </span>
+                          </div>
 
-                      {/* Meta */}
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-                        {task.policy_number && <span className="font-mono">{task.policy_number}</span>}
-                        {task.carrier && <span>• {task.carrier}</span>}
-                      </div>
+                          {/* Title */}
+                          <p className="text-[13px] font-semibold text-slate-800 leading-snug">
+                            {draft.customer_name || 'Unknown'} — {draft.carrier}
+                          </p>
 
-                      {/* Producer / Assigned To */}
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <UserCheck size={10} className="text-slate-400" />
-                        {isAdmin && reassigningId === task.id ? (
-                          <select
-                            className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                            value={task.assigned_to_id || ''}
-                            onChange={(e) => handleReassign(task.id, parseInt(e.target.value))}
-                            onBlur={() => setReassigningId(null)}
-                            autoFocus
-                          >
-                            <option value="">Unassigned</option>
-                            {agents.map((a: any) => (
-                              <option key={a.id} value={a.id}>{a.full_name || a.username}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span
-                            className={`text-[11px] font-medium ${isAdmin ? 'text-brand-600 cursor-pointer hover:underline' : 'text-slate-500'}`}
-                            onClick={(e) => { if (isAdmin) { e.stopPropagation(); setReassigningId(task.id); } }}
-                            title={isAdmin ? 'Click to reassign' : ''}
-                          >
-                            {task.assigned_to_name || 'Unassigned'}
-                          </span>
-                        )}
-                      </div>
+                          {/* Meta */}
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                            <span className="font-mono">{draft.policy_number}</span>
+                            <span>•</span>
+                            <span>Deadline: <strong className={draft.deadline === 'As soon as possible' ? 'text-orange-500' : 'text-red-500'}>{draft.deadline}</strong></span>
+                          </div>
 
-                      {/* Expanded details */}
-                      {isExpanded && task.description && (
-                        <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                          <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{task.description}</p>
+                          {/* Action preview */}
+                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{draft.action_required}</p>
                         </div>
-                      )}
+
+                        {/* Expand chevron */}
+                        <ChevronDown size={16} className={`text-slate-400 transition-transform flex-shrink-0 ml-2 ${isExpanded ? 'rotate-180' : ''}`} />
+                      </div>
                     </div>
 
-                    {/* Complete button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleComplete(task.id); }}
-                      className="ml-2 p-1.5 rounded-lg hover:bg-green-100 text-slate-300 hover:text-green-600 transition-colors flex-shrink-0"
-                      title="Mark complete"
-                    >
-                      <CheckCircle size={16} />
-                    </button>
+                    {/* Expanded detail */}
+                    {isExpanded && !isEditing && (
+                      <div className="mt-3 space-y-3">
+                        {/* Detail card */}
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div><span className="text-slate-400">Customer:</span> <span className="font-semibold text-slate-700">{draft.customer_name}</span></div>
+                            <div><span className="text-slate-400">Email:</span> <span className={`font-semibold ${draft.customer_email ? 'text-slate-700' : 'text-red-500'}`}>{draft.customer_email || 'Missing'}</span></div>
+                            <div><span className="text-slate-400">Carrier:</span> <span className="font-semibold text-slate-700">{draft.carrier}</span></div>
+                            <div><span className="text-slate-400">From:</span> <span className="text-slate-600">{draft.source_sender}</span></div>
+                          </div>
+
+                          <div className="mt-2">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Action Required</p>
+                            <p className="text-[12px] text-slate-700 leading-relaxed bg-white rounded p-2 border border-slate-100">{draft.action_required}</p>
+                          </div>
+
+                          {draft.issues_found && draft.issues_found.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Issues Found</p>
+                              <ul className="text-[12px] text-slate-700 space-y-0.5 pl-4">
+                                {draft.issues_found.map((issue: string, i: number) => (
+                                  <li key={i} className="list-disc">{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {draft.attachment_info && draft.attachment_info.length > 0 && (
+                            <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
+                              <span>📎</span>
+                              <span>{draft.attachment_info.map((a: any) => a.filename).join(', ')}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleApproveDraft(draft.id)}
+                            disabled={isActioning || !draft.customer_email}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+                          >
+                            {isActioning ? <Loader size={12} className="animate-spin" /> : <Mail size={12} />}
+                            Approve & Send
+                          </button>
+                          <button
+                            onClick={() => startEdit(draft)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
+                          >
+                            <Edit3 size={12} />
+                            Edit Draft
+                          </button>
+                          <button
+                            onClick={() => setPreviewDraftId(previewDraftId === draft.id ? null : draft.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-slate-600 text-white hover:bg-slate-700 transition-colors shadow-sm"
+                          >
+                            <Eye size={12} />
+                            {previewDraftId === draft.id ? 'Hide Preview' : 'Preview Email'}
+                          </button>
+                          <button
+                            onClick={() => handleRejectDraft(draft.id)}
+                            disabled={isActioning}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-red-100 text-red-700 hover:bg-red-200 transition-colors ml-auto"
+                          >
+                            <XCircle size={12} />
+                            Reject
+                          </button>
+                        </div>
+
+                        {/* Email preview iframe */}
+                        {previewDraftId === draft.id && draft.draft_html && (
+                          <div className="rounded-lg border border-slate-200 overflow-hidden bg-white">
+                            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase">
+                              Email Preview — {draft.draft_subject || 'Inspection Follow-Up'}
+                            </div>
+                            <iframe
+                              srcDoc={draft.draft_html}
+                              className="w-full border-0"
+                              style={{ height: '400px' }}
+                              sandbox="allow-same-origin"
+                              title="Email Preview"
+                            />
+                          </div>
+                        )}
+
+                        {previewDraftId === draft.id && !draft.draft_html && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+                            Preview not yet generated. Edit and save the draft to generate the email preview.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Edit form */}
+                    {isExpanded && isEditing && (
+                      <div className="mt-3 rounded-lg bg-blue-50 border border-blue-200 p-3 space-y-3">
+                        <p className="text-[11px] font-bold text-blue-700 uppercase">Edit Draft</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Customer Name</label>
+                            <input
+                              value={editForm.customer_name || ''}
+                              onChange={(e) => setEditForm({ ...editForm, customer_name: e.target.value })}
+                              className="w-full mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Customer Email</label>
+                            <input
+                              value={editForm.customer_email || ''}
+                              onChange={(e) => setEditForm({ ...editForm, customer_email: e.target.value })}
+                              className="w-full mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              placeholder="customer@email.com"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Deadline</label>
+                            <input
+                              value={editForm.deadline || ''}
+                              onChange={(e) => setEditForm({ ...editForm, deadline: e.target.value })}
+                              className="w-full mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              placeholder="MM/DD/YYYY"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Severity</label>
+                            <select
+                              value={editForm.severity || 'medium'}
+                              onChange={(e) => setEditForm({ ...editForm, severity: e.target.value })}
+                              className="w-full mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            >
+                              <option value="low">Low</option>
+                              <option value="medium">Medium</option>
+                              <option value="high">High</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Action Required (customer will see this)</label>
+                          <textarea
+                            value={editForm.action_required || ''}
+                            onChange={(e) => setEditForm({ ...editForm, action_required: e.target.value })}
+                            rows={3}
+                            className="w-full mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 leading-relaxed"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => saveEdit(draft.id)}
+                            disabled={isActioning}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+                          >
+                            {isActioning ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                            Save Changes
+                          </button>
+                          <button
+                            onClick={() => setEditingDraftId(null)}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+
+            {filter === 'all' && tasks.length > 0 && (
+              <div className="px-4 py-2 bg-slate-50 border-y border-slate-100">
+                <div className="flex items-center space-x-1.5">
+                  <ClipboardList size={13} className="text-slate-500" />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Tasks & Compliance Items
+                  </span>
                 </div>
-              );
-            })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Regular Tasks ── */}
+        {filter !== 'inspection' && (
+          <>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader size={20} className="animate-spin text-slate-300" />
+              </div>
+            ) : tasks.length === 0 && inspCount === 0 ? (
+              <div className="text-center py-10 px-4">
+                <div className="text-3xl mb-2">✅</div>
+                <p className="text-sm font-semibold text-slate-600">All clear!</p>
+                <p className="text-xs text-slate-400 mt-1">No open compliance items</p>
+              </div>
+            ) : tasks.length === 0 ? null : (
+              <div className="divide-y divide-slate-100">
+                {tasks.map((task) => {
+                  const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
+                  const typeConf = TYPE_CONFIG[task.task_type] || { bg: 'bg-slate-100', text: 'text-slate-600', label: task.task_type?.toUpperCase() || 'TASK', icon: '📌' };
+                  const days = daysUntil(task.due_date);
+                  const isOverdue = days !== null && days < 0;
+                  const isUrgent = days !== null && days <= 7;
+                  const isExpanded = expandedId === task.id;
+
+                  return (
+                    <div
+                      key={task.id}
+                      className={`px-4 py-3 transition-all cursor-pointer hover:bg-slate-50 ${
+                        isOverdue ? 'bg-red-50/40' : isUrgent ? 'bg-orange-50/30' : ''
+                      }`}
+                      onClick={() => setExpandedId(isExpanded ? null : task.id)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          {/* Type + Priority + Due */}
+                          <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${typeConf.bg} ${typeConf.text}`}>
+                              {typeConf.icon} {typeConf.label}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pri.bg} ${pri.text}`}>
+                              {pri.label}
+                            </span>
+                            {days !== null && (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                isOverdue ? 'bg-red-600 text-white' :
+                                isUrgent ? 'bg-orange-500 text-white' :
+                                'bg-slate-100 text-slate-600'
+                              }`}>
+                                {isOverdue ? `${Math.abs(days)}d OVERDUE` :
+                                 days === 0 ? 'DUE TODAY' :
+                                 `${days}d left`}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Title */}
+                          <p className="text-[13px] font-semibold text-slate-800 leading-snug">{task.title}</p>
+
+                          {/* Meta */}
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                            {task.policy_number && <span className="font-mono">{task.policy_number}</span>}
+                            {task.carrier && <span>• {task.carrier}</span>}
+                          </div>
+
+                          {/* Producer / Assigned To */}
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <UserCheck size={10} className="text-slate-400" />
+                            {isAdmin && reassigningId === task.id ? (
+                              <select
+                                className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                value={task.assigned_to_id || ''}
+                                onChange={(e) => handleReassign(task.id, parseInt(e.target.value))}
+                                onBlur={() => setReassigningId(null)}
+                                autoFocus
+                              >
+                                <option value="">Unassigned</option>
+                                {agents.map((a: any) => (
+                                  <option key={a.id} value={a.id}>{a.full_name || a.username}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                className={`text-[11px] font-medium ${isAdmin ? 'text-brand-600 cursor-pointer hover:underline' : 'text-slate-500'}`}
+                                onClick={(e) => { if (isAdmin) { e.stopPropagation(); setReassigningId(task.id); } }}
+                                title={isAdmin ? 'Click to reassign' : ''}
+                              >
+                                {task.assigned_to_name || 'Unassigned'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Expanded details */}
+                          {isExpanded && task.description && (
+                            <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                              <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{task.description}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Complete button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleComplete(task.id); }}
+                          className="ml-2 p-1.5 rounded-lg hover:bg-green-100 text-slate-300 hover:text-green-600 transition-colors flex-shrink-0"
+                          title="Mark complete"
+                        >
+                          <CheckCircle size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Empty state for inspection tab */}
+        {filter === 'inspection' && inspCount === 0 && !inspectionLoading && (
+          <div className="text-center py-10 px-4">
+            <div className="text-3xl mb-2">🔍</div>
+            <p className="text-sm font-semibold text-slate-600">No pending inspection alerts</p>
+            <p className="text-xs text-slate-400 mt-1">Inspection emails will appear here for review</p>
           </div>
         )}
       </div>

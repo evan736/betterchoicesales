@@ -95,6 +95,8 @@ def list_drafts(
                 "source_subject": d.source_subject,
                 "attachment_info": d.attachment_info,
                 "task_id": d.task_id,
+                "draft_subject": d.draft_subject,
+                "draft_html": d.draft_html,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
                 "approved_by": d.approved_by,
                 "approved_at": d.approved_at.isoformat() if d.approved_at else None,
@@ -137,3 +139,95 @@ def reject_draft(
     db.commit()
 
     return {"status": "rejected", "draft_id": draft.id}
+
+
+@router.patch("/drafts/{draft_id}")
+def update_draft(
+    draft_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Edit a pending inspection draft — update customer email, action text, deadline, etc.
+    
+    Allows editing before approval. Also regenerates the draft email HTML.
+    """
+    draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.status != "pending_review":
+        raise HTTPException(status_code=400, detail=f"Draft already {draft.status} — cannot edit")
+
+    # Updatable fields
+    editable = ["customer_email", "customer_name", "action_required", "deadline", "severity", "issues_found"]
+    changed = False
+    for field in editable:
+        if field in body:
+            setattr(draft, field, body[field])
+            changed = True
+
+    if changed:
+        # Regenerate the draft email HTML with updated details
+        details = draft.extraction_details or {}
+        details["action_required"] = draft.action_required
+        details["deadline"] = draft.deadline
+        details["issues_found"] = draft.issues_found or []
+        details["severity"] = draft.severity
+
+        from app.services.inspection_email import build_inspection_customer_email
+        draft_subject, draft_html = build_inspection_customer_email(
+            customer_name=draft.customer_name or "Valued Customer",
+            policy_number=draft.policy_number or "",
+            carrier=draft.carrier or "",
+            details=details,
+        )
+        draft.draft_subject = draft_subject
+        draft.draft_html = draft_html
+        draft.extraction_details = details
+        db.commit()
+
+    return {
+        "status": "updated",
+        "draft_id": draft.id,
+        "customer_email": draft.customer_email,
+        "customer_name": draft.customer_name,
+        "action_required": draft.action_required,
+        "deadline": draft.deadline,
+        "severity": draft.severity,
+        "issues_found": draft.issues_found,
+        "draft_subject": draft.draft_subject,
+    }
+
+
+@router.get("/drafts/{draft_id}/preview", response_class=HTMLResponse)
+def preview_draft_email(
+    draft_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the draft HTML for preview in an iframe."""
+    draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    if not draft.draft_html:
+        # Generate it on the fly
+        details = draft.extraction_details or {}
+        details["action_required"] = draft.action_required
+        details["deadline"] = draft.deadline
+        details["issues_found"] = draft.issues_found or []
+        details["severity"] = draft.severity
+
+        from app.services.inspection_email import build_inspection_customer_email
+        draft_subject, draft_html = build_inspection_customer_email(
+            customer_name=draft.customer_name or "Valued Customer",
+            policy_number=draft.policy_number or "",
+            carrier=draft.carrier or "",
+            details=details,
+        )
+        draft.draft_subject = draft_subject
+        draft.draft_html = draft_html
+        db.commit()
+        return HTMLResponse(content=draft_html)
+
+    return HTMLResponse(content=draft.draft_html)

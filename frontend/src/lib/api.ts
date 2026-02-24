@@ -350,3 +350,21 @@ export const tasksAPI = {
   update: (id: number, payload: { status?: string; assigned_to_id?: number; notes?: string; priority?: string }) =>
     api.patch(`/api/tasks/${id}`, payload),
 };
+
+// Inspection API
+export const inspectionAPI = {
+  listDrafts: (status: string = 'pending_review') =>
+    api.get('/api/inspection/drafts', { params: { status } }),
+  approveDraft: (id: number) =>
+    api.post(`/api/inspection/drafts/${id}/approve`),
+  rejectDraft: (id: number) =>
+    api.post(`/api/inspection/drafts/${id}/reject`),
+  updateDraft: (id: number, payload: {
+    customer_email?: string;
+    customer_name?: string;
+    action_required?: string;
+    deadline?: string;
+    severity?: string;
+    issues_found?: string[];
+  }) => api.patch(`/api/inspection/drafts/${id}`, payload),
+};

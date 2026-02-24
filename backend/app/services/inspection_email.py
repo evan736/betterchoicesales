@@ -228,16 +228,74 @@ def _regex_extract_inspection(email_body: str, subject: str, sender: str) -> dic
 
     carrier = detect_carrier_from_inspection(sender, email_body)
 
+    # ── Detect specific issue types for better action text ──
+    text_lower = text.lower()
+    issues = []
+    action = ""
+    severity = "medium"
+
+    # Coverage A revision detection
+    if "coverage a revision" in text_lower or "coverage a" in text_lower:
+        issues.append("Coverage A (dwelling coverage) revision required")
+        action = (
+            "Your insurance carrier has reviewed your property and determined that your dwelling coverage (Coverage A) "
+            "needs to be updated. This is typically based on a recent inspection or updated property valuation. "
+            "Please contact us so we can review and process the coverage adjustment for your policy."
+        )
+        severity = "medium"
+
+    # Policy adjustment detection
+    if "policy adjustment" in text_lower:
+        issues.append("Policy adjustment(s) needed")
+        if not action:
+            action = (
+                "Your insurance carrier has identified adjustments needed on your policy based on a recent review. "
+                "Please contact us so we can go over the changes and update your policy accordingly."
+            )
+
+    # Inspection-specific items
+    if any(kw in text_lower for kw in ["railing", "deck", "fall exposure", "handrail"]):
+        issues.append("Railing/deck safety concerns identified")
+    if any(kw in text_lower for kw in ["roof", "shingle", "missing"]):
+        issues.append("Roof condition issues identified")
+    if any(kw in text_lower for kw in ["siding", "exterior"]):
+        issues.append("Exterior maintenance items identified")
+    if "photo documentation" in text_lower or "photo" in text_lower:
+        issues.append("Photo documentation of repairs required")
+
+    # Letter not mailed detection (NatGen pattern)
+    if "not been mailed" in text_lower or "please notify the insured" in text_lower:
+        if not action:
+            action = (
+                "Your insurance carrier has sent us a notice regarding your policy that requires your attention. "
+                "Please contact us at your earliest convenience so we can review the details and help resolve any required items."
+            )
+        if not issues:
+            issues.append("Carrier notice requires customer notification")
+
+    # General fallback
+    if not action:
+        action = (
+            "Your insurance carrier has completed a review of your policy and found items requiring attention. "
+            "Please review the attached report for details and contact us if you need help understanding what needs to be done."
+        )
+    if not issues:
+        issues.append("See attached inspection report for details")
+
+    # Severity escalation
+    if any(kw in text_lower for kw in ["cancel", "non-renew", "non-renewal", "terminated"]):
+        severity = "high"
+
     return {
         "policy_number": policy_number,
         "insured_name": insured_name,
         "carrier": carrier,
-        "action_required": "Your insurance carrier has completed an inspection and found items requiring attention. Please review the attached inspection report for details.",
+        "action_required": action,
         "deadline": deadline or "As soon as possible",
-        "issues_found": ["See attached inspection report for details"],
+        "issues_found": issues,
         "underwriter_name": "",
         "underwriter_phone": "",
-        "severity": "medium",
+        "severity": severity,
         "has_pdf_report": True,
     }
 
