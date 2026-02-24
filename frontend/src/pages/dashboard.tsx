@@ -158,7 +158,7 @@ export default function Dashboard() {
     <div className="min-h-screen">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* ── Row 1: Welcome + Clock Widget ── */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
           <div>
@@ -244,23 +244,31 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ── Row 3: Trending & Goals (full width) ── */}
-        <div className="mb-6">
-          <TrendingGoals compact />
-        </div>
+        {/* ── Two-Column Layout: Main Content + Compliance Center ── */}
+        <div className="flex flex-col xl:flex-row gap-6">
+          {/* Left: Main Dashboard Content */}
+          <div className="flex-1 min-w-0">
+            {/* ── Trending & Goals ── */}
+            <div className="mb-6">
+              <TrendingGoals compact />
+            </div>
 
-        {/* ── Tasks Panel ── */}
-        <TasksPanel />
-
-        {/* ── Row 4: Recent Sales Ticker ── */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Recent Sales</h3>
-            <button onClick={() => router.push('/sales')} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
-              View All →
-            </button>
+            {/* ── Recent Sales Ticker ── */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Recent Sales</h3>
+                <button onClick={() => router.push('/sales')} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+                  View All →
+                </button>
+              </div>
+              <SalesTicker sales={recentSales} />
+            </div>
           </div>
-          <SalesTicker sales={recentSales} />
+
+          {/* Right: Compliance Center */}
+          <div className="xl:w-[420px] flex-shrink-0">
+            <ComplianceCenter />
+          </div>
         </div>
 
       </main>
@@ -481,7 +489,7 @@ const LinkDropdown: React.FC<{ label: string; links: { name: string; url: string
 };
 
 
-// ── Tasks Panel ─────────────────────────────────────────────────────
+// ── Compliance Center ────────────────────────────────────────────────
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   urgent: { bg: 'bg-red-100', text: 'text-red-700', label: 'URGENT' },
@@ -490,15 +498,22 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string 
   low:    { bg: 'bg-slate-100', text: 'text-slate-600', label: 'LOW' },
 };
 
-const TasksPanel: React.FC = () => {
+const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string; icon: string }> = {
+  uw_requirement: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'UW REQUIREMENT', icon: '📋' },
+  non_renewal:    { bg: 'bg-purple-100', text: 'text-purple-700', label: 'NON-RENEWAL', icon: '🔄' },
+  undeliverable:  { bg: 'bg-violet-100', text: 'text-violet-700', label: 'UNDELIVERABLE', icon: '📭' },
+};
+
+const ComplianceCenter: React.FC = () => {
   const [tasks, setTasks] = useState<any[]>([]);
   const [counts, setCounts] = useState<any>({ open: 0, urgent: 0, my_tasks: 0 });
   const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement' | 'undeliverable'>('all');
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const loadTasks = async () => {
     try {
-      const params: any = { limit: 20 };
+      const params: any = { limit: 30 };
       if (filter !== 'all') params.task_type = filter;
       const [tasksRes, countsRes] = await Promise.all([
         tasksAPI.list(params),
@@ -506,7 +521,7 @@ const TasksPanel: React.FC = () => {
       ]);
       setTasks(tasksRes.data || []);
       setCounts(countsRes.data || { open: 0, urgent: 0, my_tasks: 0 });
-    } catch (e) { console.error('Tasks load failed:', e); }
+    } catch (e) { console.error('Compliance load failed:', e); }
     setLoading(false);
   };
 
@@ -521,125 +536,172 @@ const TasksPanel: React.FC = () => {
 
   const daysUntil = (dateStr: string | null) => {
     if (!dateStr) return null;
-    const d = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
-    return d;
+    return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
   };
 
-  if (loading) return null;
-  if (counts.open === 0) return null; // Hide panel when no tasks
+  // Count by type
+  const uwCount = tasks.filter(t => t.task_type === 'uw_requirement').length;
+  const nrCount = tasks.filter(t => t.task_type === 'non_renewal').length;
+  const undCount = tasks.filter(t => t.task_type === 'undeliverable').length;
+  const overdueCount = tasks.filter(t => { const d = daysUntil(t.due_date); return d !== null && d < 0; }).length;
 
   return (
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <ClipboardList size={16} className="text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
-            Tasks
-          </h3>
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-5 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-1.5 rounded-lg bg-white/10">
+              <AlertCircle size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="text-white font-bold text-sm">Compliance Center</h3>
+              <p className="text-slate-300 text-[11px]">UW Requirements • Non-Renewals • Notices</p>
+            </div>
+          </div>
           {counts.open > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
-              {counts.open}
-            </span>
-          )}
-          {counts.urgent > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-600 text-white">
-              {counts.urgent} urgent
-            </span>
+            <div className="flex items-center space-x-1.5">
+              {overdueCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white animate-pulse">
+                  {overdueCount} overdue
+                </span>
+              )}
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white">
+                {counts.open}
+              </span>
+            </div>
           )}
         </div>
+
+        {/* Summary pills */}
+        {counts.open > 0 && (
+          <div className="flex gap-2 mt-3">
+            {uwCount > 0 && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-amber-500/20 text-amber-200 text-[11px] font-semibold">
+                <span>📋</span><span>{uwCount} UW</span>
+              </div>
+            )}
+            {nrCount > 0 && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-purple-500/20 text-purple-200 text-[11px] font-semibold">
+                <span>🔄</span><span>{nrCount} Non-Renewal</span>
+              </div>
+            )}
+            {undCount > 0 && (
+              <div className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-violet-500/20 text-violet-200 text-[11px] font-semibold">
+                <span>📭</span><span>{undCount} Mail</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50">
         <div className="flex space-x-1">
-          {(['all', 'non_renewal', 'uw_requirement', 'undeliverable'] as const).map((f) => (
+          {(['all', 'uw_requirement', 'non_renewal', 'undeliverable'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                 filter === f
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
-              {f === 'all' ? 'All' : f === 'non_renewal' ? 'Non-Renewals' : f === 'uw_requirement' ? 'UW Reqs' : 'Undeliverable'}
+              {f === 'all' ? 'All' : f === 'uw_requirement' ? 'UW Reqs' : f === 'non_renewal' ? 'Non-Renewals' : 'Mail'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="space-y-2">
-        {tasks.map((task) => {
-          const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
-          const days = daysUntil(task.due_date);
-          const isOverdue = days !== null && days < 0;
-          const isUrgent = days !== null && days <= 7;
+      {/* Task List */}
+      <div className="max-h-[600px] overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader size={20} className="animate-spin text-slate-300" />
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="text-center py-10 px-4">
+            <div className="text-3xl mb-2">✅</div>
+            <p className="text-sm font-semibold text-slate-600">All clear!</p>
+            <p className="text-xs text-slate-400 mt-1">No open compliance items</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {tasks.map((task) => {
+              const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
+              const typeConf = TYPE_CONFIG[task.task_type] || { bg: 'bg-slate-100', text: 'text-slate-600', label: task.task_type?.toUpperCase() || 'TASK', icon: '📌' };
+              const days = daysUntil(task.due_date);
+              const isOverdue = days !== null && days < 0;
+              const isUrgent = days !== null && days <= 7;
+              const isExpanded = expandedId === task.id;
 
-          return (
-            <div
-              key={task.id}
-              className={`rounded-xl border px-4 py-3 transition-all ${
-                isOverdue ? 'border-red-300 bg-red-50/50' :
-                isUrgent ? 'border-orange-200 bg-orange-50/30' :
-                'border-slate-200 bg-white'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pri.bg} ${pri.text}`}>
-                      {pri.label}
-                    </span>
-                    {task.task_type === 'non_renewal' && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700">
-                        NON-RENEWAL
-                      </span>
-                    )}
-                    {task.task_type === 'uw_requirement' && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
-                        UW REQ
-                      </span>
-                    )}
-                    {task.task_type === 'undeliverable' && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-700">
-                        UNDELIVERABLE
-                      </span>
-                    )}
-                    {days !== null && (
-                      <span className={`text-[11px] font-semibold ${
-                        isOverdue ? 'text-red-600' :
-                        isUrgent ? 'text-orange-600' :
-                        'text-slate-500'
-                      }`}>
-                        {isOverdue ? `${Math.abs(days)}d overdue` :
-                         days === 0 ? 'Due today' :
-                         `${days}d left`}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-semibold text-slate-800 truncate">{task.title}</p>
-                  <div className="flex items-center space-x-3 mt-1 text-xs text-slate-500">
-                    <span>{task.policy_number}</span>
-                    {task.carrier && <span>• {task.carrier}</span>}
-                    {task.assigned_to_name && (
-                      <span className="flex items-center space-x-1">
-                        <UserCheck size={10} />
-                        <span>{task.assigned_to_name}</span>
-                      </span>
-                    )}
+              return (
+                <div
+                  key={task.id}
+                  className={`px-4 py-3 transition-all cursor-pointer hover:bg-slate-50 ${
+                    isOverdue ? 'bg-red-50/40' : isUrgent ? 'bg-orange-50/30' : ''
+                  }`}
+                  onClick={() => setExpandedId(isExpanded ? null : task.id)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      {/* Type + Priority + Due */}
+                      <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${typeConf.bg} ${typeConf.text}`}>
+                          {typeConf.icon} {typeConf.label}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pri.bg} ${pri.text}`}>
+                          {pri.label}
+                        </span>
+                        {days !== null && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isOverdue ? 'bg-red-600 text-white' :
+                            isUrgent ? 'bg-orange-500 text-white' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isOverdue ? `${Math.abs(days)}d OVERDUE` :
+                             days === 0 ? 'DUE TODAY' :
+                             `${days}d left`}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Title */}
+                      <p className="text-[13px] font-semibold text-slate-800 leading-snug">{task.title}</p>
+
+                      {/* Meta */}
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                        {task.policy_number && <span className="font-mono">{task.policy_number}</span>}
+                        {task.carrier && <span>• {task.carrier}</span>}
+                        {task.assigned_to_name && (
+                          <span className="flex items-center gap-0.5">
+                            <UserCheck size={9} />
+                            {task.assigned_to_name}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Expanded details */}
+                      {isExpanded && task.description && (
+                        <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
+                          <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">{task.description}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Complete button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleComplete(task.id); }}
+                      className="ml-2 p-1.5 rounded-lg hover:bg-green-100 text-slate-300 hover:text-green-600 transition-colors flex-shrink-0"
+                      title="Mark complete"
+                    >
+                      <CheckCircle size={16} />
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleComplete(task.id)}
-                  className="ml-3 p-1.5 rounded-lg hover:bg-green-100 text-slate-400 hover:text-green-600 transition-colors"
-                  title="Mark complete"
-                >
-                  <CheckCircle size={18} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
-
-        {tasks.length === 0 && (
-          <div className="text-center py-6 text-sm text-slate-400">
-            No open tasks
+              );
+            })}
           </div>
         )}
       </div>
