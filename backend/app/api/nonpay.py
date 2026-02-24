@@ -1169,6 +1169,34 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             traceback.print_exc()
             # Fall through to generic handler
 
+    # ── Carrier Inspection Follow-Ups → inspection handler ──
+    from app.services.inspection_email import is_inspection_email, handle_inspection_email
+    if is_inspection_email(sender, subject, f"{html_body} {plain_body}"):
+        logger.info("Carrier inspection email detected — routing to inspection handler")
+        try:
+            # Collect attachments from Mailgun form data
+            inspection_attachments = []
+            att_count = int(form.get("attachment-count", 0) or 0)
+            for i in range(1, att_count + 1):
+                att = form.get(f"attachment-{i}")
+                if att and hasattr(att, 'filename') and hasattr(att, 'read'):
+                    att_bytes = await att.read()
+                    inspection_attachments.append((att.filename, att_bytes))
+            
+            return await handle_inspection_email(
+                sender=sender,
+                subject=subject,
+                html_body=html_body,
+                plain_body=plain_body,
+                attachments=inspection_attachments,
+                db=db,
+            )
+        except Exception as e:
+            logger.error("Inspection handler failed: %s", e)
+            import traceback
+            traceback.print_exc()
+            # Fall through to generic handler
+
     # Check for skip keywords in subject
     if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
         # But only skip if the body doesn't ALSO contain non-pay content

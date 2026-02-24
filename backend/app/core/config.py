@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     MISSIVE_API_TOKEN: Optional[str] = None
     MISSIVE_WEBHOOK_SECRET: Optional[str] = None
     
+    # Inspection email automation (live or dry_run)
+    INSPECTION_EMAIL_MODE: str = "dry_run"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
