@@ -89,9 +89,9 @@ const Navbar: React.FC = () => {
                   background: 'linear-gradient(135deg, #06b6d4, #0ea5e9, #6366f1)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
-                  letterSpacing: '0.18em',
+                  letterSpacing: '0.05em',
                 }}>
-                  ORBIT
+                  Better Choice <span style={{ letterSpacing: '0.15em' }}>ORBIT</span>
                 </span>
                 <span className="text-[8px] font-medium text-slate-400 tracking-[0.08em] mt-0.5">
                   Operations · Renewals · Binding · Intelligence · Tracking
