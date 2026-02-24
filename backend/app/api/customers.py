@@ -490,9 +490,20 @@ def get_customer(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    # Only show policies from the last 2 years (active or expired within 2 years)
+    from datetime import datetime, timedelta
+    two_years_ago = datetime.utcnow() - timedelta(days=730)
+
     policies = (
         db.query(CustomerPolicy)
-        .filter(CustomerPolicy.customer_id == customer_id)
+        .filter(
+            CustomerPolicy.customer_id == customer_id,
+            or_(
+                CustomerPolicy.expiration_date.is_(None),
+                CustomerPolicy.expiration_date >= two_years_ago,
+                func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+            ),
+        )
         .order_by(CustomerPolicy.effective_date.desc())
         .all()
     )
