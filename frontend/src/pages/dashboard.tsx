@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import TrendingGoals from '../components/TrendingGoals';
-import { salesAPI, commissionsAPI, timeclockAPI, tasksAPI } from '../lib/api';
+import { salesAPI, commissionsAPI, timeclockAPI, tasksAPI, adminAPI } from '../lib/api';
 import {
   DollarSign,
   TrendingUp,
@@ -505,11 +505,15 @@ const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string; ico
 };
 
 const ComplianceCenter: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
   const [tasks, setTasks] = useState<any[]>([]);
   const [counts, setCounts] = useState<any>({ open: 0, urgent: 0, my_tasks: 0 });
   const [filter, setFilter] = useState<'all' | 'non_renewal' | 'uw_requirement' | 'undeliverable'>('all');
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [reassigningId, setReassigningId] = useState<number | null>(null);
 
   const loadTasks = async () => {
     try {
@@ -527,11 +531,26 @@ const ComplianceCenter: React.FC = () => {
 
   useEffect(() => { loadTasks(); }, [filter]);
 
+  // Load agents for reassign dropdown (admin only)
+  useEffect(() => {
+    if (isAdmin) {
+      adminAPI.listEmployees().then(r => setAgents(r.data || [])).catch(() => {});
+    }
+  }, [isAdmin]);
+
   const handleComplete = async (id: number) => {
     try {
       await tasksAPI.update(id, { status: 'completed' });
       loadTasks();
     } catch (e) { console.error('Task update failed:', e); }
+  };
+
+  const handleReassign = async (taskId: number, newAgentId: number) => {
+    try {
+      await tasksAPI.update(taskId, { assigned_to_id: newAgentId });
+      setReassigningId(null);
+      loadTasks();
+    } catch (e) { console.error('Reassign failed:', e); }
   };
 
   const daysUntil = (dateStr: string | null) => {
@@ -674,10 +693,31 @@ const ComplianceCenter: React.FC = () => {
                       <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
                         {task.policy_number && <span className="font-mono">{task.policy_number}</span>}
                         {task.carrier && <span>• {task.carrier}</span>}
-                        {task.assigned_to_name && (
-                          <span className="flex items-center gap-0.5">
-                            <UserCheck size={9} />
-                            {task.assigned_to_name}
+                      </div>
+
+                      {/* Producer / Assigned To */}
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        <UserCheck size={10} className="text-slate-400" />
+                        {isAdmin && reassigningId === task.id ? (
+                          <select
+                            className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            value={task.assigned_to_id || ''}
+                            onChange={(e) => handleReassign(task.id, parseInt(e.target.value))}
+                            onBlur={() => setReassigningId(null)}
+                            autoFocus
+                          >
+                            <option value="">Unassigned</option>
+                            {agents.map((a: any) => (
+                              <option key={a.id} value={a.id}>{a.full_name || a.username}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className={`text-[11px] font-medium ${isAdmin ? 'text-brand-600 cursor-pointer hover:underline' : 'text-slate-500'}`}
+                            onClick={(e) => { if (isAdmin) { e.stopPropagation(); setReassigningId(task.id); } }}
+                            title={isAdmin ? 'Click to reassign' : ''}
+                          >
+                            {task.assigned_to_name || 'Unassigned'}
                           </span>
                         )}
                       </div>
