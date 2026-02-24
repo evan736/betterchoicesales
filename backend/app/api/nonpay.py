@@ -495,6 +495,17 @@ def _process_single_policy(
                     if not customer.email:
                         # Try Thanks.io letter for name-matched customers without email
                         if customer.address and customer.city and customer.state and customer.zip_code:
+                            # Check rate limit before sending letter
+                            one_week_ago = datetime.utcnow() - timedelta(days=7)
+                            recent_contact = db.query(NonPayEmail).filter(
+                                NonPayEmail.policy_number == policy_number,
+                                NonPayEmail.email_status.in_(["sent", "letter_sent"]),
+                                NonPayEmail.sent_at >= one_week_ago,
+                            ).first()
+                            if recent_contact:
+                                result["skipped_rate_limit"] = True
+                                result["last_sent"] = recent_contact.sent_at.isoformat() if recent_contact.sent_at else None
+                                return result
                             if dry_run:
                                 result["would_send_letter"] = True
                                 result["letter_address"] = f"{customer.address}, {customer.city}, {customer.state} {customer.zip_code}"
