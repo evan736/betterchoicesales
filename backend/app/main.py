@@ -19,6 +19,7 @@ from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
 from app.api import retell as retell_api
+from app.api import cancellation as cancellation_api
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def init_database():
         RenewalNotice, UWRequirement, WinBackCampaign,
         Quote, OnboardingCampaign, GHLWebhookLog
     )
+    from app.models.cancellation import CancellationRequest, CancellationCarrier  # ensure tables
     from decimal import Decimal
 
     logger.info("Creating database tables...")
@@ -492,6 +494,164 @@ def init_database():
 
         db.commit()
         logger.info("Database seeded successfully")
+
+        # ── Seed Cancellation Carrier Directory ──
+        try:
+            existing_count = db.query(CancellationCarrier).count()
+            if existing_count == 0:
+                carriers_seed = [
+                    {
+                        "carrier_name": "state_farm",
+                        "display_name": "State Farm",
+                        "preferred_method": "mail",
+                        "cancellation_phone": "1-800-782-8332",
+                        "cancellation_mail_address": "Attn: Policy Cancellation\nState Farm Insurance\nPO Box 2001\nBloomington, IL 61702-2001",
+                        "notes": "Must be policyholder request. Phone or mail only — no fax/email. Call 800-STATEFARM or mail signed letter.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "allstate",
+                        "display_name": "Allstate",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-255-7828",
+                        "cancellation_mail_address": "Allstate Insurance Company\nPO Box 660598\nDallas, TX 75266-0598",
+                        "notes": "Customer must call local agent or 1-800-ALLSTATE. Some agents accept fax. Written letter also accepted by mail.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "geico",
+                        "display_name": "GEICO",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-841-3000",
+                        "cancellation_mail_address": "GEICO\nOne GEICO Plaza\nWashington, DC 20076",
+                        "notes": "Customer must call GEICO directly. No online cancellation. Written request also accepted by mail.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "progressive",
+                        "display_name": "Progressive",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-888-671-4405",
+                        "cancellation_fax": "1-888-375-5765",
+                        "notes": "Can cancel by phone, fax, or online at progressive.com. Fax accepts signed cancellation letters.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "farmers",
+                        "display_name": "Farmers Insurance",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-888-327-6335",
+                        "notes": "Customer contacts local agent or calls 1-888-FARMERS. Written request also accepted.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "liberty_mutual",
+                        "display_name": "Liberty Mutual",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-290-8711",
+                        "cancellation_mail_address": "Liberty Mutual Insurance\n175 Berkeley Street\nBoston, MA 02116",
+                        "notes": "Can cancel by phone, mail, or through local agent. Online cancellation available for some policies.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "nationwide",
+                        "display_name": "Nationwide",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-877-669-6877",
+                        "cancellation_mail_address": "Nationwide Insurance\nOne Nationwide Plaza\nColumbus, OH 43215",
+                        "notes": "Call or contact local agent. Written cancellation requests accepted by mail.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "american_family",
+                        "display_name": "American Family Insurance",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-692-6326",
+                        "cancellation_mail_address": "American Family Insurance\n6000 American Parkway\nMadison, WI 53783",
+                        "notes": "Contact local agent or call customer service. Written request accepted.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "erie",
+                        "display_name": "Erie Insurance",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-458-0811",
+                        "cancellation_mail_address": "Erie Insurance Group\n100 Erie Insurance Place\nErie, PA 16530",
+                        "notes": "Must go through local Erie agent. Written cancellation accepted by mail.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "usaa",
+                        "display_name": "USAA",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-531-8722",
+                        "notes": "Members call USAA directly. Online cancellation available. Military/veteran exclusive.",
+                        "accepts_agent_submission": False,
+                    },
+                    {
+                        "carrier_name": "travelers",
+                        "display_name": "Travelers",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-842-5075",
+                        "cancellation_fax": "1-866-336-2077",
+                        "cancellation_mail_address": "Travelers Insurance\nOne Tower Square\nHartford, CT 06183",
+                        "notes": "Accepts cancellation by phone, fax, or mail. Agent can submit on behalf of customer.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "auto_owners",
+                        "display_name": "Auto-Owners Insurance",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-346-0346",
+                        "cancellation_mail_address": "Auto-Owners Insurance\n6101 Anacapri Blvd\nLansing, MI 48917",
+                        "notes": "Contact local agent or company directly.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "the_hartford",
+                        "display_name": "The Hartford",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-243-5860",
+                        "cancellation_mail_address": "The Hartford\nOne Hartford Plaza\nHartford, CT 06155",
+                        "notes": "Call or contact through AARP if applicable. Written request accepted.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "mercury",
+                        "display_name": "Mercury Insurance",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-956-3728",
+                        "notes": "Contact local agent or call Mercury directly.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "metlife",
+                        "display_name": "MetLife",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-438-6388",
+                        "cancellation_mail_address": "MetLife Auto & Home\nPO Box 350\nWarwick, RI 02887-9954",
+                        "notes": "Call customer service or mail written request.",
+                        "accepts_agent_submission": True,
+                    },
+                    {
+                        "carrier_name": "amica",
+                        "display_name": "Amica Mutual",
+                        "preferred_method": "phone",
+                        "cancellation_phone": "1-800-242-6422",
+                        "cancellation_mail_address": "Amica Mutual Insurance\n100 Amica Way\nLincoln, RI 02865",
+                        "notes": "Call or mail written request. Known for smooth cancellation process.",
+                        "accepts_agent_submission": True,
+                    },
+                ]
+
+                for cd in carriers_seed:
+                    carrier = CancellationCarrier(**cd)
+                    db.add(carrier)
+                db.commit()
+                logger.info(f"Seeded {len(carriers_seed)} cancellation carriers")
+        except Exception as e:
+            logger.error(f"Error seeding cancellation carriers: {e}")
+            db.rollback()
     except Exception as e:
         logger.error(f"Error seeding data: {e}")
         db.rollback()
@@ -706,6 +866,7 @@ app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
 app.include_router(retell_api.router)
+app.include_router(cancellation_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
