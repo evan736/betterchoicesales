@@ -625,8 +625,6 @@ async def post_call_webhook(request: Request):
                     if follow_up == "true":
                         subject_parts.append("⚠️ Follow-up needed")
                     subject_parts.append(f"Caller: {customer_name} ({from_number})")
-                    if transcript:
-                        subject_parts.append(f"\n--- Transcript ---\n{transcript[:1500]}")
 
                     note_subject = "\n".join(subject_parts)
 
