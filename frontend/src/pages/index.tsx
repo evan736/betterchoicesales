@@ -18,7 +18,12 @@ export default function Login() {
 
     try {
       await login(username, password);
-      router.push('/dashboard');
+      // Route based on username
+      if (username.toLowerCase() === 'evan.larson') {
+        router.push('/customers');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed. Please try again.');
     } finally {
