@@ -529,6 +529,17 @@ def _process_single_policy(
                             result["error"] = "No email and incomplete mailing address"
                             return result
                     # Skip rate limit check and sending for name matches in case of ambiguity
+                    # Actually, DO check rate limit to avoid duplicate sends
+                    one_week_ago = datetime.utcnow() - timedelta(days=7)
+                    recent_email = db.query(NonPayEmail).filter(
+                        NonPayEmail.policy_number == policy_number,
+                        NonPayEmail.email_status.in_(["sent", "letter_sent"]),
+                        NonPayEmail.sent_at >= one_week_ago,
+                    ).first()
+                    if recent_email:
+                        result["skipped_rate_limit"] = True
+                        result["last_sent"] = recent_email.sent_at.isoformat() if recent_email.sent_at else None
+                        return result
                     if dry_run:
                         result["would_send"] = True
                         result["dry_run"] = True
@@ -579,6 +590,19 @@ def _process_single_policy(
     if not customer.email:
         # No email — try sending a physical letter via Thanks.io
         if customer.address and customer.city and customer.state and customer.zip_code:
+            # Check 1x/week rate limit for letters (applies in both dry_run and live)
+            one_week_ago = datetime.utcnow() - timedelta(days=7)
+            recent_letter = db.query(NonPayEmail).filter(
+                NonPayEmail.policy_number == policy_number,
+                NonPayEmail.email_status.in_(["letter_sent", "sent"]),
+                NonPayEmail.sent_at >= one_week_ago,
+            ).first()
+            if recent_letter:
+                result["skipped_rate_limit"] = True
+                result["error"] = "Already contacted this week"
+                result["last_sent"] = recent_letter.sent_at.isoformat() if recent_letter.sent_at else None
+                return result
+
             if dry_run:
                 result["would_send_letter"] = True
                 result["letter_address"] = f"{customer.address}, {customer.city}, {customer.state} {customer.zip_code}"
@@ -586,16 +610,7 @@ def _process_single_policy(
                 return result
 
             # Check 1x/week rate limit for letters too
-            one_week_ago = datetime.utcnow() - timedelta(days=7)
-            recent_letter = db.query(NonPayEmail).filter(
-                NonPayEmail.policy_number == policy_number,
-                NonPayEmail.email_status == "letter_sent",
-                NonPayEmail.sent_at >= one_week_ago,
-            ).first()
-            if recent_letter:
-                result["skipped_rate_limit"] = True
-                result["error"] = "Letter already sent this week"
-                return result
+            # (Already checked above for both dry_run and live)
 
             from app.services.thanksio_letter import send_thanksio_letter
             letter_result = send_thanksio_letter(
