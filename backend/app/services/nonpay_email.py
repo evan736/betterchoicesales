@@ -21,6 +21,7 @@ def build_nonpay_email_html(
     carrier: str,
     amount_due: Optional[float] = None,
     due_date: Optional[str] = None,
+    cancel_date: Optional[str] = None,
 ) -> tuple[str, str]:
     """Build carrier-specific past-due email. Returns (subject, html_body)."""
 
@@ -85,6 +86,8 @@ def build_nonpay_email_html(
         h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Amount Due</td><td style="padding:6px 0; font-weight:700; color:#dc2626; font-size:18px;">${amount_due:,.2f}</td></tr>')
     if due_date:
         h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Due Date</td><td style="padding:6px 0; font-weight:600; color:#dc2626;">{due_date}</td></tr>')
+    if cancel_date:
+        h.append(f'<tr><td style="padding:6px 0; color:#64748b;">Cancellation Date</td><td style="padding:6px 0; font-weight:700; color:#dc2626;">⚠️ {cancel_date}</td></tr>')
     h.append('</table></div>')
 
     # ── Payment action ──
@@ -154,6 +157,7 @@ def send_nonpay_email(
     carrier: str,
     amount_due: Optional[float] = None,
     due_date: Optional[str] = None,
+    cancel_date: Optional[str] = None,
 ) -> dict:
     """Send past-due email via Mailgun."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
@@ -169,6 +173,7 @@ def send_nonpay_email(
         carrier=carrier,
         amount_due=amount_due,
         due_date=due_date,
+        cancel_date=cancel_date,
     )
 
     mail_data = {

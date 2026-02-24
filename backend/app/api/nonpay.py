@@ -237,6 +237,7 @@ async def upload_nonpay_b64(
                 db=db, notice_id=notice.id, policy_number=pnum,
                 carrier=pol.get("carrier", ""), insured_name=pol.get("insured_name", ""),
                 amount_due=pol.get("amount_due"), due_date=pol.get("due_date"),
+                cancel_date=pol.get("cancel_date"),
                 dry_run=dry_run,
             )
             result["cancel_reason"] = cancel_reason
@@ -395,6 +396,7 @@ async def upload_nonpay_file(
                 insured_name=pol.get("insured_name", ""),
                 amount_due=pol.get("amount_due"),
                 due_date=pol.get("due_date"),
+                cancel_date=pol.get("cancel_date"),
                 dry_run=dry_run,
             )
             result["cancel_reason"] = cancel_reason
@@ -446,6 +448,7 @@ def _process_single_policy(
     insured_name: str,
     amount_due: Optional[float],
     due_date: Optional[str],
+    cancel_date: Optional[str] = None,
     dry_run: bool = False,
 ) -> dict:
     """Match a policy to a customer and send email if within rate limit."""
@@ -573,6 +576,7 @@ def _process_single_policy(
                         carrier=effective_carrier,
                         amount_due=amount_due,
                         due_date=due_date,
+                        cancel_date=cancel_date,
                     )
                     email_record = NonPayEmail(
                         notice_id=notice_id,
@@ -718,6 +722,7 @@ def _process_single_policy(
         carrier=effective_carrier,
         amount_due=amount_due,
         due_date=due_date,
+        cancel_date=cancel_date,
     )
 
     # Update with actual result
@@ -1046,6 +1051,27 @@ def _progressive_row_to_dict(cells: list, col_map: dict, headers: list) -> dict:
         except (ValueError, TypeError):
             pass
 
+    # Parse cancel date and compute payment due date (day before cancellation)
+    raw_cancel = _get("cancel_date")
+    due_date = ""
+    cancel_display = ""
+    if raw_cancel:
+        import datetime as _dt
+        parsed = None
+        # openpyxl may return datetime object → str becomes "2026-03-02 00:00:00"
+        for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"]:
+            try:
+                parsed = _dt.datetime.strptime(raw_cancel, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed:
+            cancel_display = parsed.strftime("%m/%d/%Y")
+            payment_due = parsed - _dt.timedelta(days=1)
+            due_date = payment_due.strftime("%m/%d/%Y")
+        else:
+            due_date = raw_cancel  # fallback to raw string
+
     return {
         "policy_number": _get("policy_number"),
         "insured_name": name,
@@ -1059,7 +1085,8 @@ def _progressive_row_to_dict(cells: list, col_map: dict, headers: list) -> dict:
         "producer": _get("producer"),
         "agent_code": _get("agent_code"),
         "amount_due": amount,
-        "due_date": _get("cancel_date"),
+        "due_date": due_date,
+        "cancel_date": cancel_display,
         "cancel_reason": _get("cancel_reason"),
         "carrier": "progressive",
     }
@@ -1611,6 +1638,7 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             insured_name=pol.get("insured_name", ""),
             amount_due=pol.get("amount_due"),
             due_date=pol.get("due_date"),
+            cancel_date=pol.get("cancel_date"),
             dry_run=dry_run,
         )
         result["cancel_reason"] = cancel_reason
@@ -2702,6 +2730,7 @@ async def _handle_natgen_policy_activity(html_body: str, sender: str, db: Sessio
                 insured_name=insured,
                 amount_due=canc.get("amount_due"),
                 due_date=canc.get("cancel_date"),
+                cancel_date=canc.get("cancel_date"),
                 dry_run=dry_run,
             )
             result["cancel_type"] = cancel_type
