@@ -2266,6 +2266,23 @@ def _lookup_customer_for_natgen(db: Session, policy_number: str, insured_name: s
         "sale_id": sale.id,
     }
 
+    # If sale has no email, try to enrich from NowCerts customers table
+    if not result["email"]:
+        from app.models.customer import Customer, CustomerPolicy
+        nc_policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number.ilike(f"%{clean_policy}%")
+        ).first()
+        if not nc_policy and len(clean_policy) > 2:
+            base2 = clean_policy[:-2] if clean_policy[-2:] in ("00", "01") else clean_policy
+            nc_policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number.ilike(f"%{base2}%")
+            ).first()
+        if nc_policy:
+            customer = db.query(Customer).filter(Customer.id == nc_policy.customer_id).first()
+            if customer and customer.email:
+                result["email"] = customer.email
+                result["phone"] = result["phone"] or customer.phone or customer.mobile_phone
+
     # Get producer info
     if sale.producer_id:
         producer = db.query(User).filter(User.id == sale.producer_id).first()
