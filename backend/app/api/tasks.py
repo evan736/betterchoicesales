@@ -28,7 +28,7 @@ def list_tasks(
     q = db.query(Task)
 
     # Visibility: non-admin users only see tasks assigned to them
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "ADMIN"):
         q = q.filter(Task.assigned_to_id == current_user.id)
 
     if status:
@@ -60,7 +60,7 @@ def task_counts(
     """Get task counts by status for badge display."""
     base_filter = [Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS])]
     # Non-admin users only count their own tasks
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "ADMIN"):
         base_filter.append(Task.assigned_to_id == current_user.id)
 
     open_count = db.query(func.count(Task.id)).filter(
