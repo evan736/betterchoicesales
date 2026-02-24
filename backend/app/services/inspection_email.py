@@ -452,31 +452,34 @@ async def handle_inspection_email(
 ) -> dict:
     """Main handler for inbound inspection emails.
     
-    Called from the inbound email webhook when an inspection email is detected.
+    Draft+Approve flow:
+    1. Extract details via Claude API
+    2. Look up customer
+    3. Generate draft email
+    4. Store draft in DB with approval_token
+    5. Create task in ORBIT
+    6. Send Evan approval email with preview + one-click approve button
+    7. Push NowCerts note
     
-    Args:
-        sender: email sender
-        subject: email subject
-        html_body: HTML body
-        plain_body: plain text body
-        attachments: list of (filename, bytes) tuples
-        db: database session
-    
-    Returns result dict.
+    Nothing goes to the customer until Evan clicks "Approve & Send".
     """
+    import pickle
+    import uuid
+    from app.models.inspection import InspectionDraft
+    from app.models.task import Task
+
     result = {
-        "status": "processed",
+        "status": "draft_created",
         "type": "inspection",
-        "mode": INSPECTION_MODE,
         "policy_number": None,
         "customer_name": None,
         "customer_email": None,
-        "email_sent": False,
+        "draft_id": None,
+        "task_id": None,
         "nowcerts_note": False,
-        "details": None,
     }
 
-    # Separate PDF attachments from others
+    # Separate PDF attachments
     pdf_attachments = [
         (name, data) for name, data in attachments
         if name.lower().endswith(".pdf")
@@ -496,7 +499,6 @@ async def handle_inspection_email(
         logger.error("Inspection detail extraction failed: %s", e)
         details = _regex_extract_inspection(body_text, subject, sender)
 
-    result["details"] = details
     policy_number = details.get("policy_number", "")
     insured_name = details.get("insured_name", "")
     result["policy_number"] = policy_number
@@ -505,96 +507,202 @@ async def handle_inspection_email(
         logger.warning("No policy number extracted from inspection email: %s", subject)
         result["status"] = "error"
         result["error"] = "Could not extract policy number"
-        # Still notify Evan
-        _send_evan_alert(sender, subject, details, "Could not extract policy number")
+        _send_evan_alert_no_match(sender, subject, details, "Could not extract policy number")
         return result
 
-    # Step 2: Look up customer in ORBIT
+    # Step 2: Look up customer
     customer, policy = _lookup_customer(db, policy_number, insured_name)
-
-    if not customer:
-        logger.warning("No customer found for inspection policy %s", policy_number)
-        result["status"] = "no_match"
-        result["error"] = f"Policy {policy_number} not found in ORBIT"
-        _send_evan_alert(sender, subject, details, f"Policy {policy_number} not matched")
-        return result
-
-    result["customer_name"] = customer.full_name
-    result["customer_email"] = customer.email
     carrier = details.get("carrier") or (policy.carrier if policy else "") or detect_carrier_from_inspection(sender, body_text)
 
-    if not customer.email:
-        logger.warning("Customer %s has no email — cannot send inspection notice", customer.full_name)
-        result["status"] = "no_email"
-        result["error"] = "Customer has no email address"
-        _send_evan_alert(sender, subject, details, f"Customer {customer.full_name} has no email")
-        return result
+    if customer:
+        result["customer_name"] = customer.full_name
+        result["customer_email"] = customer.email
 
-    # Step 3: Send customer email (if live mode)
-    if INSPECTION_MODE == "live":
-        email_result = send_inspection_customer_email(
-            to_email=customer.email,
-            customer_name=customer.full_name,
+    # Step 3: Generate draft email
+    draft_subject, draft_html = build_inspection_customer_email(
+        customer_name=customer.full_name if customer else insured_name,
+        policy_number=policy_number,
+        carrier=carrier,
+        details=details,
+    )
+
+    # Step 4: Store draft in DB
+    approval_token = str(uuid.uuid4())
+
+    # Serialize PDF attachments for storage
+    att_data = None
+    att_info = []
+    if pdf_attachments:
+        att_info = [{"filename": name, "size": len(data)} for name, data in pdf_attachments]
+        att_data = pickle.dumps(pdf_attachments)
+
+    draft = InspectionDraft(
+        status="pending_review",
+        approval_token=approval_token,
+        source_sender=sender,
+        source_subject=subject,
+        policy_number=policy_number,
+        customer_name=customer.full_name if customer else insured_name,
+        customer_email=customer.email if customer else None,
+        carrier=carrier,
+        deadline=details.get("deadline", ""),
+        action_required=details.get("action_required", ""),
+        issues_found=details.get("issues_found", []),
+        severity=details.get("severity", "medium"),
+        extraction_details=details,
+        customer_id=customer.id if customer else None,
+        draft_subject=draft_subject,
+        draft_html=draft_html,
+        attachment_info=att_info,
+        attachment_data=att_data,
+    )
+    db.add(draft)
+    db.flush()  # Get the ID
+    result["draft_id"] = draft.id
+
+    # Step 5: Create task in ORBIT
+    try:
+        deadline_str = details.get("deadline", "")
+        due_date = None
+        if deadline_str:
+            for fmt in ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"]:
+                try:
+                    due_date = datetime.strptime(deadline_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+        task = Task(
+            title=f"Inspection Follow-Up: {policy_number} ({carrier})",
+            description=(
+                f"Carrier inspection found issues requiring customer action.\n\n"
+                f"Action Required: {details.get('action_required', 'See report')}\n"
+                f"Deadline: {deadline_str}\n"
+                f"Issues: {', '.join(details.get('issues_found', []))}\n\n"
+                f"Draft email pending approval (Draft #{draft.id})"
+            ),
+            task_type="inspection",
+            priority="high" if details.get("severity") == "high" else "medium",
+            status="open",
+            created_by="system",
+            customer_name=customer.full_name if customer else insured_name,
             policy_number=policy_number,
             carrier=carrier,
-            details=details,
-            pdf_attachments=pdf_attachments,
+            due_date=due_date,
+            source="inspection_email",
+            notes=f"From: {sender}\nSubject: {subject}",
         )
-        result["email_sent"] = email_result.get("success", False)
-        result["email_message_id"] = email_result.get("message_id")
-        if not email_result.get("success"):
-            result["email_error"] = email_result.get("error")
-    else:
-        result["email_sent"] = False
-        result["dry_run"] = True
-        logger.info("DRY RUN: Would send inspection email to %s for policy %s",
-                    customer.email, policy_number)
+        db.add(task)
+        db.flush()
+        draft.task_id = task.id
+        result["task_id"] = task.id
+    except Exception as e:
+        logger.warning("Task creation failed for inspection %s: %s", policy_number, e)
 
-    # Step 4: Push note to NowCerts
+    db.commit()
+
+    # Step 6: Send Evan approval email
+    _send_evan_approval_email(draft, details, sender, subject, customer)
+
+    # Step 7: Push NowCerts note
     try:
         from app.services.nowcerts import get_nowcerts_client
-        nc_client = get_nowcerts_client()
-        if nc_client.is_configured:
-            deadline = details.get("deadline", "N/A")
-            action = details.get("action_required", "See inspection report")
-            issues = details.get("issues_found", [])
-            issues_text = "\n".join(f"  • {i}" for i in issues) if issues else "See report"
-
-            note_text = (
-                f"ORBIT Auto-Inspection Alert\n"
-                f"{'='*40}\n"
-                f"Carrier: {carrier}\n"
-                f"Policy: {policy_number}\n"
-                f"Deadline: {deadline}\n"
-                f"Action Required: {action}\n"
-                f"Issues Found:\n{issues_text}\n"
-                f"{'='*40}\n"
-                f"Customer email {'SENT' if result['email_sent'] else 'NOT SENT (dry run)' if INSPECTION_MODE != 'live' else 'FAILED'} to {customer.email}\n"
-                f"Original from: {sender}"
-            )
-
-            nc_client.insert_note({
-                "subject": f"🔍 Inspection Follow-Up — {policy_number} (Deadline: {deadline})",
-                "text": note_text,
+        nc = get_nowcerts_client()
+        if nc.is_configured and customer:
+            nc.insert_note({
+                "subject": f"🔍 Inspection Received — {policy_number} (Deadline: {details.get('deadline', 'N/A')})",
+                "text": (
+                    f"Carrier inspection email received.\n"
+                    f"Carrier: {carrier}\nPolicy: {policy_number}\n"
+                    f"Deadline: {details.get('deadline', 'N/A')}\n"
+                    f"Action: {details.get('action_required', 'See report')}\n"
+                    f"Customer email DRAFTED — awaiting approval."
+                ),
                 "insured_commercial_name": customer.full_name,
-                "insured_email": customer.email,
+                "insured_email": customer.email or "",
                 "insured_database_id": customer.nowcerts_insured_id or "",
                 "creator_name": "ORBIT System",
                 "type": "Email",
             })
             result["nowcerts_note"] = True
-            logger.info("NowCerts note pushed for inspection %s", policy_number)
     except Exception as e:
-        logger.warning("NowCerts note failed for inspection %s: %s", policy_number, e)
+        logger.warning("NowCerts note failed: %s", e)
 
-    # Step 5: Send Evan a summary alert
-    _send_evan_alert(sender, subject, details,
-                     f"{'Email sent' if result['email_sent'] else 'DRY RUN'} to {customer.email}",
-                     customer=customer)
-
-    logger.info("Inspection email processed: policy=%s customer=%s sent=%s mode=%s",
-                policy_number, customer.full_name, result["email_sent"], INSPECTION_MODE)
+    logger.info("Inspection draft created: id=%s policy=%s customer=%s",
+                draft.id, policy_number, customer.full_name if customer else "unknown")
     return result
+
+
+def approve_and_send(draft_id: int, db: Session, approved_by: str = "evan") -> dict:
+    """Approve a pending inspection draft and send the customer email.
+    
+    Called when Evan clicks the "Approve & Send" button.
+    """
+    import pickle
+    from app.models.inspection import InspectionDraft
+
+    draft = db.query(InspectionDraft).filter(InspectionDraft.id == draft_id).first()
+    if not draft:
+        return {"success": False, "error": "Draft not found"}
+
+    if draft.status != "pending_review":
+        return {"success": False, "error": f"Draft already {draft.status}"}
+
+    if not draft.customer_email:
+        return {"success": False, "error": "No customer email on file"}
+
+    # Restore PDF attachments
+    pdf_attachments = []
+    if draft.attachment_data:
+        try:
+            pdf_attachments = pickle.loads(draft.attachment_data)
+        except Exception as e:
+            logger.warning("Failed to restore attachments: %s", e)
+
+    # Send the email
+    email_result = send_inspection_customer_email(
+        to_email=draft.customer_email,
+        customer_name=draft.customer_name,
+        policy_number=draft.policy_number,
+        carrier=draft.carrier,
+        details=draft.extraction_details or {},
+        pdf_attachments=pdf_attachments,
+    )
+
+    # Update draft
+    draft.approved_by = approved_by
+    draft.approved_at = datetime.utcnow()
+
+    if email_result.get("success"):
+        draft.status = "sent"
+        draft.mailgun_message_id = email_result.get("message_id")
+    else:
+        draft.status = "send_failed"
+        draft.send_error = email_result.get("error")
+
+    db.commit()
+
+    return {
+        "success": email_result.get("success", False),
+        "draft_id": draft.id,
+        "status": draft.status,
+        "message_id": email_result.get("message_id"),
+        "error": email_result.get("error"),
+    }
+
+
+def approve_by_token(token: str, db: Session) -> dict:
+    """Approve a draft by its approval token (from email link)."""
+    from app.models.inspection import InspectionDraft
+
+    draft = db.query(InspectionDraft).filter(
+        InspectionDraft.approval_token == token
+    ).first()
+
+    if not draft:
+        return {"success": False, "error": "Invalid approval token"}
+
+    return approve_and_send(draft.id, db, approved_by="evan_email_link")
 
 
 def _lookup_customer(db: Session, policy_number: str, insured_name: str):
@@ -649,48 +757,24 @@ def _lookup_customer(db: Session, policy_number: str, insured_name: str):
     return None, None
 
 
-def _send_evan_alert(sender: str, subject: str, details: dict, status_msg: str, customer=None):
-    """Send Evan a summary email about the inspection detection."""
+def _send_evan_alert_no_match(sender: str, subject: str, details: dict, status_msg: str):
+    """Send Evan an alert when we can't match the policy — no approve button."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return
 
     policy = details.get("policy_number", "Unknown")
-    insured = details.get("insured_name", "Unknown")
     carrier = details.get("carrier", "Unknown")
-    deadline = details.get("deadline", "N/A")
     action = details.get("action_required", "N/A")
-    issues = details.get("issues_found", [])
-    issues_html = "".join(f"<li>{i}</li>" for i in issues) if issues else "<li>See report</li>"
-
-    customer_info = ""
-    if customer:
-        customer_info = f"""
-        <tr><td style="padding:6px 0;color:#64748b;">Customer</td><td style="padding:6px 0;font-weight:600;">{customer.full_name}</td></tr>
-        <tr><td style="padding:6px 0;color:#64748b;">Email</td><td style="padding:6px 0;">{customer.email or 'N/A'}</td></tr>"""
 
     html = f"""<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-    <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:20px;border-radius:12px 12px 0 0;text-align:center;">
-        <h2 style="color:white;margin:0;">🔍 Inspection Email Detected</h2>
-        <p style="color:#c4b5fd;margin:4px 0 0;font-size:13px;">{INSPECTION_MODE.upper()} MODE</p>
+    <div style="background:linear-gradient(135deg,#dc2626,#b91c1c);padding:20px;border-radius:12px 12px 0 0;text-align:center;">
+        <h2 style="color:white;margin:0;">🔍 Inspection Email — Needs Manual Review</h2>
     </div>
     <div style="background:white;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;">
-        <p style="font-weight:700;color:#1e293b;margin:0 0 12px;">Status: {status_msg}</p>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;">
-            <tr><td style="padding:6px 0;color:#64748b;">Policy</td><td style="padding:6px 0;font-weight:700;">{policy}</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Insured</td><td style="padding:6px 0;">{insured}</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Carrier</td><td style="padding:6px 0;">{carrier}</td></tr>
-            <tr><td style="padding:6px 0;color:#64748b;">Deadline</td><td style="padding:6px 0;font-weight:700;color:#dc2626;">{deadline}</td></tr>
-            {customer_info}
-        </table>
-        <div style="margin:16px 0;padding:12px;background:#f8fafc;border-radius:8px;">
-            <p style="margin:0 0 8px;font-weight:600;font-size:13px;color:#475569;">Action Required:</p>
-            <p style="margin:0;font-size:13px;color:#334155;">{action}</p>
-        </div>
-        <div style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;">
-            <p style="margin:0 0 8px;font-weight:600;font-size:13px;color:#475569;">Issues Found:</p>
-            <ul style="margin:0;padding-left:20px;font-size:13px;color:#334155;">{issues_html}</ul>
-        </div>
-        <p style="margin:12px 0 0;font-size:12px;color:#94a3b8;">From: {sender}<br>Subject: {subject}</p>
+        <p style="font-weight:700;color:#dc2626;margin:0 0 12px;">⚠️ {status_msg}</p>
+        <p style="font-size:14px;color:#334155;">Policy: <strong>{policy}</strong> · Carrier: {carrier}</p>
+        <p style="font-size:13px;color:#64748b;">Action: {action}</p>
+        <p style="font-size:12px;color:#94a3b8;margin-top:12px;">From: {sender}<br>Subject: {subject}</p>
     </div></div>"""
 
     try:
@@ -700,9 +784,109 @@ def _send_evan_alert(sender: str, subject: str, details: dict, status_msg: str, 
             data={
                 "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
                 "to": ["evan@betterchoiceins.com"],
-                "subject": f"🔍 Inspection Alert: {policy} — {carrier} ({status_msg})",
+                "subject": f"🔍 Inspection Alert: {policy} — {status_msg}",
                 "html": html,
             },
         )
     except Exception as e:
-        logger.warning("Evan alert email failed: %s", e)
+        logger.warning("Evan alert failed: %s", e)
+
+
+def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, customer=None):
+    """Send Evan an approval email with draft preview and one-click Approve button."""
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        return
+
+    from app.core.config import settings as app_settings
+
+    policy = details.get("policy_number", "Unknown")
+    carrier = details.get("carrier", "Unknown")
+    deadline = details.get("deadline", "N/A")
+    action = details.get("action_required", "N/A")
+    issues = details.get("issues_found", [])
+    issues_html = "".join(f"<li>{i}</li>" for i in issues) if issues else "<li>See report</li>"
+    severity = details.get("severity", "medium")
+
+    severity_badge = {
+        "high": '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:12px;">HIGH</span>',
+        "medium": '<span style="background:#d97706;color:white;padding:2px 8px;border-radius:4px;font-size:12px;">MEDIUM</span>',
+        "low": '<span style="background:#2563eb;color:white;padding:2px 8px;border-radius:4px;font-size:12px;">LOW</span>',
+    }.get(severity, "")
+
+    customer_name = customer.full_name if customer else draft.customer_name or "Unknown"
+    customer_email = customer.email if customer else draft.customer_email or "N/A"
+
+    # Approval URL
+    api_base = "https://better-choice-api.onrender.com"
+    approve_url = f"{api_base}/api/inspection/approve/{draft.approval_token}"
+
+    att_count = len(details.get("issues_found", [])) or 0
+    att_info = draft.attachment_info or []
+    pdf_list = ", ".join(a["filename"] for a in att_info) if att_info else "None"
+
+    html = f"""<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px;border-radius:12px 12px 0 0;text-align:center;">
+        <h2 style="color:white;margin:0 0 4px;">🔍 Inspection Email — Review Draft</h2>
+        <p style="color:#c4b5fd;margin:0;font-size:13px;">Approve to send customer email</p>
+    </div>
+
+    <div style="background:white;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;">
+
+        <!-- Key Details -->
+        <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+            <tr><td style="padding:6px 0;color:#64748b;width:120px;">Policy</td><td style="padding:6px 0;font-weight:700;">{policy}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">Carrier</td><td style="padding:6px 0;">{carrier}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">Customer</td><td style="padding:6px 0;font-weight:600;">{customer_name}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">Email</td><td style="padding:6px 0;">{customer_email}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">Deadline</td><td style="padding:6px 0;font-weight:700;color:#dc2626;">{deadline}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">Severity</td><td style="padding:6px 0;">{severity_badge}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;">PDFs</td><td style="padding:6px 0;font-size:13px;">{pdf_list}</td></tr>
+        </table>
+
+        <!-- Action Required -->
+        <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:14px;margin-bottom:16px;">
+            <p style="margin:0 0 6px;font-weight:700;color:#0c4a6e;font-size:13px;">What the customer will be told:</p>
+            <p style="margin:0;font-size:14px;color:#334155;line-height:1.5;">{action}</p>
+        </div>
+
+        <!-- Issues -->
+        <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:14px;margin-bottom:20px;">
+            <p style="margin:0 0 6px;font-weight:700;color:#9a3412;font-size:13px;">Issues Found:</p>
+            <ul style="margin:0;padding-left:18px;font-size:13px;color:#334155;">{issues_html}</ul>
+        </div>
+
+        <!-- APPROVE BUTTON -->
+        <div style="text-align:center;margin:24px 0;">
+            <a href="{approve_url}" 
+               style="display:inline-block;background:linear-gradient(135deg,#059669,#10b981);color:white;padding:16px 48px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px;box-shadow:0 4px 12px rgba(5,150,105,0.3);">
+                ✅ Approve & Send to Customer
+            </a>
+        </div>
+        <p style="text-align:center;font-size:12px;color:#94a3b8;margin:0;">
+            This will send the drafted email with PDF attachments to {customer_email}
+        </p>
+
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+        <p style="font-size:12px;color:#94a3b8;margin:0;">
+            Original from: {sender}<br>
+            Subject: {subject}<br>
+            Draft #{draft.id}
+        </p>
+    </div></div>"""
+
+    try:
+        http_requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
+                "to": ["evan@betterchoiceins.com"],
+                "subject": f"🔍 APPROVE? Inspection: {policy} — {carrier} ({customer_name})",
+                "html": html,
+            },
+        )
+        logger.info("Approval email sent for draft #%s", draft.id)
+    except Exception as e:
+        logger.warning("Approval email failed: %s", e)

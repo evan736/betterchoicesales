@@ -21,6 +21,8 @@ from app.api import non_renewal as non_renewal_api
 from app.api import retell as retell_api
 from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
+from app.api import inspection as inspection_api
+from app.models.inspection import InspectionDraft
 
 logger = logging.getLogger(__name__)
 
@@ -888,6 +890,7 @@ app.include_router(non_renewal_api.router)
 app.include_router(retell_api.router)
 app.include_router(cancellation_api.router)
 app.include_router(nowcerts_poll_api.router)
+app.include_router(inspection_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
