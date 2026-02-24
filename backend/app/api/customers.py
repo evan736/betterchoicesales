@@ -45,18 +45,19 @@ def search_customers(
             ).distinct().all()
             policy_cids = [cid for (cid,) in policy_customer_ids]
 
-            query = query.filter(
-                or_(
-                    Customer.full_name.ilike(search),
-                    Customer.email.ilike(search),
-                    Customer.phone.ilike(search),
-                    Customer.mobile_phone.ilike(search),
-                    Customer.address.ilike(search),
-                    Customer.city.ilike(search),
-                    Customer.zip.ilike(search),
-                    Customer.id.in_(policy_cids) if policy_cids else False,
-                )
-            )
+            filters = [
+                Customer.full_name.ilike(search),
+                Customer.email.ilike(search),
+                Customer.phone.ilike(search),
+                Customer.mobile_phone.ilike(search),
+                Customer.address.ilike(search),
+                Customer.city.ilike(search),
+                Customer.zip.ilike(search),
+            ]
+            if policy_cids:
+                filters.append(Customer.id.in_(policy_cids))
+
+            query = query.filter(or_(*filters))
         query = query.order_by(Customer.full_name)
         total = query.count()
         customers = query.offset((page - 1) * page_size).limit(page_size).all()
