@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORBIT — Customer Context</title>
+  <link href="https://integrations.missiveapp.com/missive.css" rel="stylesheet">
+  <script src="https://integrations.missiveapp.com/missive.js"></script>
+  <style>
+    :root {
+      --orbit-cyan: #0ea5e9;
+      --orbit-blue: #3b82f6;
+      --orbit-indigo: #6366f1;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+    }
+
+    /* Header */
+    .orbit-header {
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .orbit-header svg { flex-shrink: 0; }
+    .orbit-header .brand {
+      font-weight: 800;
+      font-size: 13px;
+      background: linear-gradient(135deg, #06b6d4, #0ea5e9, #6366f1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.08em;
+    }
+    .orbit-header .sub {
+      font-size: 9px;
+      color: #94a3b8;
+      letter-spacing: 0.05em;
+    }
+
+    /* States */
+    .state-container {
+      padding: 20px 14px;
+      text-align: center;
+      color: var(--secondary-text-color, #64748b);
+    }
+    .state-container .icon { font-size: 28px; margin-bottom: 8px; }
+    .state-container .title { font-weight: 600; font-size: 13px; color: var(--primary-text-color, #334155); }
+    .state-container .subtitle { font-size: 11px; margin-top: 4px; }
+
+    /* Customer Card */
+    .customer-card {
+      padding: 14px;
+    }
+    .customer-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary-text-color, #1e293b);
+      margin: 0 0 2px;
+    }
+    .customer-status {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .status-active { background: #dcfce7; color: #166534; }
+    .status-inactive { background: #fef2f2; color: #991b1b; }
+
+    .customer-meta {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--secondary-text-color, #64748b);
+    }
+    .meta-row .label { color: var(--tertiary-text-color, #94a3b8); min-width: 50px; }
+    .meta-row .value { color: var(--primary-text-color, #334155); font-weight: 500; }
+    .meta-row a { color: var(--orbit-cyan); text-decoration: none; font-weight: 600; }
+    .meta-row a:hover { text-decoration: underline; }
+
+    /* Summary Bar */
+    .summary-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border-color, #e2e8f0);
+      margin: 12px 0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .summary-item {
+      padding: 10px 8px;
+      text-align: center;
+      background: var(--secondary-bg-color, #f8fafc);
+    }
+    .summary-item .num {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--orbit-cyan);
+    }
+    .summary-item .lbl {
+      font-size: 9px;
+      color: var(--secondary-text-color, #64748b);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 2px;
+    }
+
+    /* Policies */
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--secondary-text-color, #64748b);
+      margin: 14px 14px 8px;
+    }
+    .policy-card {
+      margin: 0 14px 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color, #e2e8f0);
+      background: var(--secondary-bg-color, #f8fafc);
+    }
+    .policy-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .policy-carrier {
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--primary-text-color, #1e293b);
+    }
+    .policy-status {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 6px;
+    }
+    .ps-active { background: #dcfce7; color: #166534; }
+    .ps-cancelled { background: #fef2f2; color: #991b1b; }
+    .ps-renewed { background: #dbeafe; color: #1e40af; }
+    .ps-other { background: #f1f5f9; color: #475569; }
+    .policy-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      margin-top: 6px;
+    }
+    .policy-detail {
+      font-size: 11px;
+    }
+    .policy-detail .dl { color: var(--tertiary-text-color, #94a3b8); }
+    .policy-detail .dv { color: var(--primary-text-color, #334155); font-weight: 500; }
+
+    /* Actions */
+    .actions {
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+    }
+    .action-primary {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+    }
+    .action-primary:hover { opacity: 0.9; }
+    .action-secondary {
+      background: var(--secondary-bg-color, #f1f5f9);
+      color: var(--primary-text-color, #334155);
+      border: 1px solid var(--border-color, #e2e8f0);
+    }
+    .action-secondary:hover { background: var(--tertiary-bg-color, #e2e8f0); }
+
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(14, 165, 233, 0.2);
+      border-top-color: #0ea5e9;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="orbit-header">
+    <svg viewBox="0 0 28 28" width="22" height="22" fill="none">
+      <defs>
+        <linearGradient id="og" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#06b6d4"/>
+          <stop offset="60%" stop-color="#0ea5e9"/>
+          <stop offset="100%" stop-color="#6366f1"/>
+        </linearGradient>
+      </defs>
+      <ellipse cx="14" cy="14" rx="12" ry="7" stroke="url(#og)" stroke-width="1" opacity="0.5" transform="rotate(-25 14 14)"/>
+      <ellipse cx="14" cy="14" rx="10" ry="5" stroke="url(#og)" stroke-width="0.7" opacity="0.3" transform="rotate(30 14 14)"/>
+      <circle cx="14" cy="14" r="5" stroke="url(#og)" stroke-width="1.2" fill="none"/>
+      <circle cx="24" cy="9" r="1.8" fill="#06b6d4"/>
+      <circle cx="24" cy="9" r="1" fill="#fff"/>
+      <circle cx="14" cy="14" r="1.5" fill="url(#og)"/>
+    </svg>
+    <div>
+      <div class="brand">Better Choice ORBIT</div>
+      <div class="sub">Customer Intelligence</div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div id="content">
+    <div class="state-container">
+      <div class="icon">📧</div>
+      <div class="title">Select a conversation</div>
+      <div class="subtitle">Customer details will appear here</div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://better-choice-api.onrender.com';
+    const contentEl = document.getElementById('content');
+    let currentEmail = null;
+
+    // Listen for conversation changes
+    Missive.on('change:conversations', function (ids) {
+      if (!ids || ids.length === 0) {
+        showState('📧', 'Select a conversation', 'Customer details will appear here');
+        return;
+      }
+      if (ids.length > 1) {
+        showState('📋', 'Multiple conversations', 'Select a single conversation to view customer details');
+        return;
+      }
+      // Fetch conversation details
+      showState(null, null, null, true); // loading
+      Missive.fetchConversations(ids).then(function (convos) {
+        if (!convos || convos.length === 0) return;
+        const convo = convos[0];
+        const email = extractEmail(convo);
+        if (!email) {
+          showState('🔍', 'No customer email found', 'Could not identify a customer in this conversation');
+          return;
+        }
+        if (email === currentEmail) return; // same customer, skip
+        currentEmail = email;
+        fetchCustomerContext(email);
+      });
+    });
+
+    function extractEmail(convo) {
+      const agencyDomains = ['betterchoiceins.com', 'mg.betterchoiceins.com'];
+      function isAgency(addr) {
+        if (!addr) return true;
+        const domain = addr.toLowerCase().split('@').pop();
+        return agencyDomains.includes(domain);
+      }
+
+      // Check messages
+      if (convo.messages && convo.messages.length > 0) {
+        for (const msg of convo.messages) {
+          // Check from
+          if (msg.from_field && msg.from_field.address && !isAgency(msg.from_field.address)) {
+            return msg.from_field.address.toLowerCase();
+          }
+          // Check to
+          if (msg.to_fields) {
+            for (const to of msg.to_fields) {
+              if (to.address && !isAgency(to.address)) {
+                return to.address.toLowerCase();
+              }
+            }
+          }
+        }
+      }
+
+      // Check latest_message
+      if (convo.latest_message) {
+        const lm = convo.latest_message;
+        if (lm.from_field && lm.from_field.address && !isAgency(lm.from_field.address)) {
+          return lm.from_field.address.toLowerCase();
+        }
+        if (lm.to_fields) {
+          for (const to of lm.to_fields) {
+            if (to.address && !isAgency(to.address)) {
+              return to.address.toLowerCase();
+            }
+          }
+        }
+      }
+
+      // Check authors
+      if (convo.authors) {
+        for (const a of convo.authors) {
+          if (a.address && !isAgency(a.address)) {
+            return a.address.toLowerCase();
+          }
+        }
+      }
+
+      return null;
+    }
+
+    async function fetchCustomerContext(email) {
+      showState(null, null, null, true);
+      try {
+        const resp = await fetch(`${API_BASE}/api/missive/customer-context?email=${encodeURIComponent(email)}`);
+        const data = await resp.json();
+        if (data.found) {
+          renderCustomer(data);
+        } else {
+          showState('👤', 'Customer not found', `No match for ${email}`);
+        }
+      } catch (err) {
+        showState('⚠️', 'Connection error', 'Could not reach ORBIT');
+      }
+    }
+
+    function renderCustomer(data) {
+      const c = data.customer;
+      const policies = data.policies || [];
+      const s = data.summary || {};
+
+      const activePolicies = policies.filter(p => (p.status || '').toLowerCase().match(/active|in force|inforce/));
+      const otherPolicies = policies.filter(p => !(p.status || '').toLowerCase().match(/active|in force|inforce/));
+
+      let html = `
+        <div class="customer-card">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+            <div class="customer-name">${esc(c.name)}</div>
+            <span class="customer-status ${c.is_active ? 'status-active' : 'status-inactive'}">
+              ${c.is_active ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+          <div class="customer-meta">
+            ${c.email ? `<div class="meta-row"><span class="label">Email</span><span class="value">${esc(c.email)}</span></div>` : ''}
+            ${c.phone ? `<div class="meta-row"><span class="label">Phone</span><span class="value">${esc(c.phone)}</span></div>` : ''}
+            ${c.address && c.address.length > 3 ? `<div class="meta-row"><span class="label">Addr</span><span class="value">${esc(c.address)}</span></div>` : ''}
+            ${c.agent ? `<div class="meta-row"><span class="label">Agent</span><span class="value">${esc(c.agent)}</span></div>` : ''}
+          </div>
+
+          <div class="summary-bar">
+            <div class="summary-item">
+              <div class="num">${s.active_policies || 0}</div>
+              <div class="lbl">Active</div>
+            </div>
+            <div class="summary-item">
+              <div class="num">${s.total_policies || 0}</div>
+              <div class="lbl">Total</div>
+            </div>
+            <div class="summary-item">
+              <div class="num">$${(s.total_premium || 0).toLocaleString()}</div>
+              <div class="lbl">Premium</div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Policies
+      if (policies.length > 0) {
+        html += `<div class="section-title">Policies</div>`;
+        for (const p of [...activePolicies, ...otherPolicies]) {
+          const statusLower = (p.status || '').toLowerCase();
+          const statusClass = statusLower.match(/active|in force|inforce/) ? 'ps-active' :
+                              statusLower === 'cancelled' ? 'ps-cancelled' :
+                              statusLower === 'renewed' ? 'ps-renewed' : 'ps-other';
+          html += `
+            <div class="policy-card">
+              <div class="policy-header">
+                <span class="policy-carrier">${esc(p.carrier || 'Unknown')}</span>
+                <span class="policy-status ${statusClass}">${esc(p.status || 'Unknown')}</span>
+              </div>
+              <div style="font-size:11px; color:var(--secondary-text-color, #64748b); font-family:monospace;">${esc(p.number || '')}</div>
+              <div class="policy-details">
+                <div class="policy-detail"><span class="dl">Type:</span> <span class="dv">${esc(p.type || '—')}</span></div>
+                <div class="policy-detail"><span class="dl">Premium:</span> <span class="dv">$${(p.premium || 0).toLocaleString()}</span></div>
+                <div class="policy-detail"><span class="dl">Eff:</span> <span class="dv">${esc(p.effective || '—')}</span></div>
+                <div class="policy-detail"><span class="dl">Exp:</span> <span class="dv">${esc(p.expiration || '—')}</span></div>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      // Actions
+      html += `<div class="actions">`;
+      if (c.nowcerts_url) {
+        html += `<button class="action-btn action-primary" onclick="openURL('${c.nowcerts_url}')">📋 Open in NowCerts</button>`;
+      }
+      html += `<button class="action-btn action-secondary" onclick="openURL('https://better-choice-web.onrender.com/customers')">🛰️ Open ORBIT</button>`;
+      html += `</div>`;
+
+      contentEl.innerHTML = html;
+    }
+
+    function showState(icon, title, subtitle, loading) {
+      if (loading) {
+        contentEl.innerHTML = `
+          <div class="state-container">
+            <div class="spinner" style="margin:0 auto 10px;"></div>
+            <div class="title">Looking up customer…</div>
+          </div>
+        `;
+        return;
+      }
+      contentEl.innerHTML = `
+        <div class="state-container">
+          <div class="icon">${icon}</div>
+          <div class="title">${title}</div>
+          <div class="subtitle">${subtitle}</div>
+        </div>
+      `;
+    }
+
+    function openURL(url) {
+      Missive.openURL(url);
+    }
+
+    function esc(str) {
+      if (!str) return '';
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+  </script>
+</body>
+</html>
