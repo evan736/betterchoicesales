@@ -20,6 +20,7 @@ from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
 from app.api import retell as retell_api
 from app.api import cancellation as cancellation_api
+from app.api import nowcerts_poll as nowcerts_poll_api
 
 logger = logging.getLogger(__name__)
 
@@ -724,6 +725,25 @@ async def lifespan(app: FastAPI):
     sync_thread.start()
     logger.info("NowCerts auto-sync scheduler started (twice daily: 6 AM / 6 PM CT)")
 
+    # Start NowCerts Pending Cancellation Poller (every 4 hours)
+    def _run_pending_cancel_poll():
+        """Poll NowCerts for pending cancellations and trigger non-pay emails."""
+        import time
+        time.sleep(180)  # Wait 3 min for app to fully start + initial sync
+        while True:
+            try:
+                from app.services.nowcerts_cancellation_poller import run_scheduled_poll, POLL_ENABLED
+                if POLL_ENABLED:
+                    logger.info("Running NowCerts pending cancellation poll...")
+                    run_scheduled_poll()
+            except Exception as e:
+                logger.error(f"NowCerts pending cancel poll scheduler error: {e}")
+            time.sleep(4 * 3600)  # Every 4 hours
+
+    cancel_poll_thread = threading.Thread(target=_run_pending_cancel_poll, daemon=True)
+    cancel_poll_thread.start()
+    logger.info("NowCerts pending cancellation poller scheduler started (every 4 hours)")
+
     yield
 
 
@@ -867,6 +887,7 @@ app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
 app.include_router(retell_api.router)
 app.include_router(cancellation_api.router)
+app.include_router(nowcerts_poll_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
