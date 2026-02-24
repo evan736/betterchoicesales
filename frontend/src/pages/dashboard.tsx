@@ -697,7 +697,13 @@ const ComplianceCenter: React.FC = () => {
   const nrCount = tasks.filter(t => t.task_type === 'non_renewal').length;
   const undCount = tasks.filter(t => t.task_type === 'undeliverable').length;
   const inspCount = inspectionDrafts.length;
-  const nonInspTaskCount = tasks.filter(t => t.task_type !== 'inspection').length;
+  // Inspection tasks whose draft is still pending stay hidden (shown in Inspection Alerts)
+  // Inspection tasks with no pending draft (already sent) show for follow-up tracking
+  const pendingInspPolicies = new Set(inspectionDrafts.map(d => d.policy_number));
+  const visibleTasks = tasks.filter(t =>
+    t.task_type !== 'inspection' || !pendingInspPolicies.has(t.policy_number)
+  );
+  const nonInspTaskCount = visibleTasks.length;
   const overdueCount = tasks.filter(t => { const d = daysUntil(t.due_date); return d !== null && d < 0; }).length;
 
   const showInspection = filter === 'all' || filter === 'inspection';
@@ -1054,7 +1060,7 @@ const ComplianceCenter: React.FC = () => {
               })}
             </div>
 
-            {filter === 'all' && tasks.filter(t => t.task_type !== 'inspection').length > 0 && (
+            {filter === 'all' && visibleTasks.length > 0 && (
               <div className="px-4 py-2 bg-slate-50 border-y border-slate-100">
                 <div className="flex items-center space-x-1.5">
                   <ClipboardList size={13} className="text-slate-500" />
@@ -1074,15 +1080,15 @@ const ComplianceCenter: React.FC = () => {
               <div className="flex items-center justify-center py-8">
                 <Loader size={20} className="animate-spin text-slate-300" />
               </div>
-            ) : tasks.filter(t => t.task_type !== 'inspection').length === 0 && inspCount === 0 ? (
+            ) : visibleTasks.length === 0 && inspCount === 0 ? (
               <div className="text-center py-10 px-4">
                 <div className="text-3xl mb-2">✅</div>
                 <p className="text-sm font-semibold text-slate-600">All clear!</p>
                 <p className="text-xs text-slate-400 mt-1">No open compliance items</p>
               </div>
-            ) : tasks.filter(t => t.task_type !== 'inspection').length === 0 ? null : (
+            ) : visibleTasks.length === 0 ? null : (
               <div className="divide-y divide-slate-100">
-                {tasks.filter(t => t.task_type !== 'inspection').map((task) => {
+                {visibleTasks.map((task) => {
                   const pri = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium;
                   const typeConf = TYPE_CONFIG[task.task_type] || { bg: 'bg-slate-100', text: 'text-slate-600', label: task.task_type?.toUpperCase() || 'TASK', icon: '📌' };
                   const days = daysUntil(task.due_date);
