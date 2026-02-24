@@ -97,8 +97,21 @@ export default function USHeatmap() {
               <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.03" />
               <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
             </radialGradient>
-            <filter id="stateGlow">
+            {/* Glow filters at different intensities */}
+            <filter id="glow1" x="-30%" y="-30%" width="160%" height="160%">
               <feGaussianBlur stdDeviation="3" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glow2" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="5" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glow3" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="8" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glowMax" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="12" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
@@ -109,19 +122,29 @@ export default function USHeatmap() {
             const count = stateData[abbr] || 0;
             const isHovered = hoveredState === abbr;
             const fill = getColor(count);
+            const pct = count / maxCount;
+
+            // Determine glow filter based on intensity
+            const glowFilter = pct > 0.5 ? 'url(#glowMax)' : pct > 0.2 ? 'url(#glow3)' : pct > 0.08 ? 'url(#glow2)' : pct > 0 ? 'url(#glow1)' : undefined;
+            const glowOpacity = isHovered ? Math.min(pct * 0.8 + 0.3, 0.7) : Math.min(pct * 0.5 + 0.05, 0.45);
+            const glowColor = pct > 0.5 ? '#22d3ee' : pct > 0.2 ? '#0ea5e9' : '#0284c7';
 
             return (
               <g key={abbr}>
-                {/* Glow behind hovered state */}
+                {/* Always-on glow behind states with customers */}
+                {count > 0 && (
+                  <path d={pathD} fill={glowColor} opacity={glowOpacity} filter={glowFilter} />
+                )}
+                {/* Extra bright glow on hover */}
                 {isHovered && count > 0 && (
-                  <path d={pathD} fill="#0ea5e9" opacity={0.3} filter="url(#stateGlow)" />
+                  <path d={pathD} fill="#38bdf8" opacity={0.35} filter="url(#glow3)" />
                 )}
                 <path
                   d={pathD}
                   fill={fill}
-                  stroke={isHovered ? '#38bdf8' : count > 0 ? '#1e3a5f' : '#1a2744'}
-                  strokeWidth={isHovered ? 1.8 : 0.5}
-                  opacity={isHovered ? 1 : count ? 0.92 : 0.35}
+                  stroke={isHovered ? '#67e8f9' : count > 0 ? '#1e3a5f' : '#1a2744'}
+                  strokeWidth={isHovered ? 2 : 0.5}
+                  opacity={isHovered ? 1 : count ? 0.95 : 0.3}
                   onMouseEnter={() => setHoveredState(abbr)}
                   style={{ cursor: 'pointer', transition: 'opacity 0.15s, stroke-width 0.1s' }}
                 />

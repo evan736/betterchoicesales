@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, distinct
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -315,10 +315,20 @@ def state_distribution(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get customer count by state for heatmap display."""
+    """Get active customer count by state for heatmap display."""
+    # Only count customers who have at least one active policy
+    active_customer_ids = (
+        db.query(distinct(CustomerPolicy.customer_id))
+        .filter(func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
+        .subquery()
+    )
     rows = (
         db.query(Customer.state, func.count(Customer.id))
-        .filter(Customer.state.isnot(None), Customer.state != "")
+        .filter(
+            Customer.state.isnot(None),
+            Customer.state != "",
+            Customer.id.in_(active_customer_ids),
+        )
         .group_by(Customer.state)
         .all()
     )
