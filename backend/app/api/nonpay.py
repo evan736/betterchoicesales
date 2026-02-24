@@ -1154,6 +1154,21 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             traceback.print_exc()
             # Fall through to generic handler
 
+    # ── Grange Non-Renewal Alerts → non-renewal handler ──
+    is_grange_nonrenewal = (
+        ("grangewire" in all_text or "grange" in (sender or "").lower())
+        and ("non-renewal" in all_text or "nonrenewal" in all_text or "non renewal" in all_text)
+    )
+    if is_grange_nonrenewal:
+        logger.info("GrangeWire Non-Renewal Alert detected — routing to non-renewal handler")
+        try:
+            return await _handle_grange_nonrenewal(html_body, sender, db)
+        except Exception as e:
+            logger.error("Grange non-renewal handler failed: %s", e)
+            import traceback
+            traceback.print_exc()
+            # Fall through to generic handler
+
     # Check for skip keywords in subject
     if any(kw in subject_lower for kw in SKIP_SUBJECT_KEYWORDS):
         # But only skip if the body doesn't ALSO contain non-pay content
@@ -1824,6 +1839,239 @@ def list_sent_nonpay_letters():
         ]
     finally:
         db.close()
+
+
+# ── Grange Non-Renewal Handler ───────────────────────────────────────
+
+async def _handle_grange_nonrenewal(html_body: str, sender: str, db: Session) -> dict:
+    """Handle GrangeWire Non-Renewal Alerts.
+    
+    These emails have a table with: Policy Symbol | Number | Insured
+    We parse the table, look up each customer in NowCerts, and trigger
+    the non-renewal notification workflow.
+    """
+    from app.api.non_renewal import NonRenewalCreate, _send_nonrenewal_email
+    
+    # Parse the HTML table — reuse existing parser but handle the simpler format
+    policies = _parse_grange_nonrenewal_table(html_body)
+    
+    if not policies:
+        logger.warning("GrangeWire non-renewal: no policies extracted")
+        return {"status": "ok", "message": "GrangeWire non-renewal parsed but no policies found"}
+    
+    logger.info(f"GrangeWire non-renewal: found {len(policies)} policies")
+    
+    # Create a notice record for tracking
+    notice = NonPayNotice(
+        filename=f"grange-nonrenewal-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+        upload_type="inbound-email",
+        uploaded_by=f"inbound:{sender[:60]}",
+        policies_found=len(policies),
+        status="processing",
+    )
+    db.add(notice)
+    db.commit()
+    db.refresh(notice)
+    
+    results = []
+    emails_sent = 0
+    
+    for pol in policies:
+        policy_number = pol.get("policy_number", "").strip()
+        insured_name = pol.get("insured_name", "").strip()
+        
+        if not policy_number:
+            continue
+        
+        # Look up customer in NowCerts
+        customer_email = None
+        customer_phone = None
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+            if nc.is_configured:
+                customer_data = nc.search_insured(policy_number)
+                if customer_data:
+                    customer_email = customer_data.get("email") or customer_data.get("commercial_email")
+                    customer_phone = customer_data.get("phone") or customer_data.get("home_phone")
+                    if not insured_name and customer_data.get("insured_name"):
+                        insured_name = customer_data["insured_name"]
+        except Exception as e:
+            logger.error(f"NowCerts lookup failed for {policy_number}: {e}")
+        
+        # Send non-renewal notification
+        nr_data = NonRenewalCreate(
+            customer_name=insured_name or "Valued Customer",
+            customer_email=customer_email,
+            customer_phone=customer_phone,
+            policy_number=policy_number,
+            carrier="grange",
+            reason="Carrier non-renewal",
+            send_notification=bool(customer_email),
+        )
+        
+        email_sent = False
+        if customer_email:
+            email_sent = _send_nonrenewal_email(nr_data)
+            if email_sent:
+                emails_sent += 1
+        
+        # Add NowCerts note regardless
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+            if nc.is_configured:
+                parts = insured_name.strip().split(maxsplit=1) if insured_name else [""]
+                note_body = (
+                    f"Non-Renewal Notice — Grange Insurance | "
+                    f"Policy: {policy_number} | "
+                    f"Source: GrangeWire Alert (auto-parsed) | "
+                    f"Customer notified via email: {'Yes' if email_sent else 'No — no email on file'}"
+                )
+                nc.insert_note({
+                    "subject": note_body,
+                    "insured_email": customer_email or "",
+                    "insured_first_name": parts[0] if parts else "",
+                    "insured_last_name": parts[1] if len(parts) > 1 else "",
+                    "type": "Email",
+                    "creator_name": "BCI Non-Renewal System",
+                    "create_date": datetime.now().strftime("%m/%d/%Y %I:%M %p"),
+                })
+        except Exception as e:
+            logger.error(f"NowCerts note failed for Grange non-renewal {policy_number}: {e}")
+        
+        results.append({
+            "policy_number": policy_number,
+            "insured_name": insured_name,
+            "email_sent": email_sent,
+            "customer_email": customer_email or "not found",
+        })
+    
+    # Update notice
+    notice.emails_sent = emails_sent
+    notice.policies_matched = len([r for r in results if r["customer_email"] != "not found"])
+    notice.status = "complete"
+    db.commit()
+    
+    logger.info(f"Grange non-renewal complete: {len(results)} processed, {emails_sent} emails sent")
+    return {
+        "status": "ok",
+        "carrier": "grange",
+        "notice_type": "non_renewal",
+        "policies_found": len(policies),
+        "emails_sent": emails_sent,
+        "results": results,
+    }
+
+
+def _parse_grange_nonrenewal_table(html_body: str) -> list[dict]:
+    """Parse GrangeWire Non-Renewal Alerts table.
+    
+    Format: Policy Symbol | Number | Insured
+    Policy number = Symbol + Number combined (e.g., "PHA" + "5168274 02")
+    """
+    from html.parser import HTMLParser
+
+    class TableParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_table = False
+            self.in_row = False
+            self.in_cell = False
+            self.current_row = []
+            self.current_cell = ""
+            self.rows = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "table":
+                self.in_table = True
+            elif tag == "tr" and self.in_table:
+                self.in_row = True
+                self.current_row = []
+            elif tag in ("td", "th") and self.in_row:
+                self.in_cell = True
+                self.current_cell = ""
+
+        def handle_endtag(self, tag):
+            if tag == "table":
+                self.in_table = False
+            elif tag == "tr" and self.in_row:
+                self.in_row = False
+                if self.current_row:
+                    self.rows.append(self.current_row)
+            elif tag in ("td", "th") and self.in_cell:
+                self.in_cell = False
+                self.current_row.append(self.current_cell.strip())
+
+        def handle_data(self, data):
+            if self.in_cell:
+                self.current_cell += data
+
+    parser = TableParser()
+    parser.feed(html_body or "")
+
+    if not parser.rows:
+        return []
+
+    # Find header row — look for "Symbol" or "Number" or "Insured"
+    header_idx = None
+    for i, row in enumerate(parser.rows):
+        row_upper = " ".join(row).upper()
+        if "SYMBOL" in row_upper or ("NUMBER" in row_upper and "INSURED" in row_upper):
+            header_idx = i
+            break
+        # Also try: "Policy Symbol" header format
+        if "POLICY" in row_upper and len(row) == 3:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        # Fallback: if we have 3-column rows, assume first is header
+        for i, row in enumerate(parser.rows):
+            if len(row) == 3:
+                header_idx = i
+                break
+
+    if header_idx is None:
+        return []
+
+    headers = [h.upper().strip() for h in parser.rows[header_idx]]
+
+    # Map columns
+    symbol_idx = 0
+    number_idx = 1
+    insured_idx = 2
+
+    for i, h in enumerate(headers):
+        if "SYMBOL" in h:
+            symbol_idx = i
+        elif "NUMBER" in h and "INSURED" not in h:
+            number_idx = i
+        elif "INSURED" in h or "NAME" in h:
+            insured_idx = i
+
+    results = []
+    for row in parser.rows[header_idx + 1:]:
+        if len(row) < 3:
+            continue
+
+        symbol = row[symbol_idx].strip() if symbol_idx < len(row) else ""
+        number = row[number_idx].strip() if number_idx < len(row) else ""
+        insured = row[insured_idx].strip() if insured_idx < len(row) else ""
+
+        if not number and not insured:
+            continue
+
+        # Combine symbol + number for full policy number
+        full_policy = f"{symbol}{number}".strip() if symbol else number.strip()
+
+        results.append({
+            "policy_number": full_policy,
+            "insured_name": insured,
+            "policy_symbol": symbol,
+        })
+
+    return results
 
 
 # ── National General Policy Activity Smart Router ─────────────────────

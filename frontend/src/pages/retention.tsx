@@ -1,54 +1,780 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { retentionAPI } from '../lib/api';
+import { retentionAPI, nonpayAPI } from '../lib/api';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Cell
-} from 'recharts';
-import {
-  Shield, AlertTriangle, Users, Building, Megaphone, ChevronDown
+  Shield,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Users,
+  FileText,
+  RefreshCw,
+  ChevronDown,
+  ExternalLink,
+  Mail,
+  Phone,
+  DollarSign,
+  Clock,
+  Activity,
+  Filter,
+  ArrowUpRight,
+  ArrowDownRight,
+  Zap,
+  Target,
+  BarChart2,
+  Send,
 } from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Cell,
+  PieChart,
+  Pie,
+} from 'recharts';
 
-const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'];
+// ── Helper Components ──
+interface StatCardProps {
+  label: string;
+  value: string | number;
+  sub?: string;
+  color?: string;
+  icon?: React.ReactNode;
+  trend?: 'up' | 'down' | null;
+}
 
-const RetentionPage = () => {
+function StatCard({ label, value, sub, color = '#00e5c7', icon, trend }: StatCardProps) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+      <div
+        className="absolute -top-5 -right-5 h-20 w-20 rounded-full"
+        style={{ background: `radial-gradient(circle, ${color}15, transparent)` }}
+      />
+      {icon && (
+        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${color}15` }}>
+          {icon}
+        </div>
+      )}
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 font-mono">{label}</div>
+      <div className="mt-1 text-3xl font-bold font-display" style={{ color }}>
+        {value}
+        {trend && (
+          <span className="ml-2 inline-flex items-center text-sm">
+            {trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+          </span>
+        )}
+      </div>
+      {sub && <div className="mt-1 text-[11px] text-slate-600 font-mono">{sub}</div>}
+    </div>
+  );
+}
+
+function Badge({ children, color = '#00e5c7' }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span
+      className="inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold font-mono tracking-wide"
+      style={{
+        background: `${color}18`,
+        color,
+        border: `1px solid ${color}30`,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ProgressBar({ value, max = 100, color = '#00e5c7' }: { value: number; max?: number; color?: string }) {
+  const pct = Math.min((value / max) * 100, 100);
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+      <div
+        className="h-full rounded-full transition-all duration-700"
+        style={{
+          width: `${pct}%`,
+          background: `linear-gradient(90deg, ${color}, ${color}cc)`,
+          boxShadow: `0 0 12px ${color}40`,
+        }}
+      />
+    </div>
+  );
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500 font-mono">{children}</h3>
+  );
+}
+
+// ── Tab: Overview ──
+function OverviewTab({
+  overview,
+  byCarrier,
+  byAgent,
+  trend,
+  bySource,
+}: {
+  overview: any;
+  byCarrier: any[];
+  byAgent: any[];
+  trend: any[];
+  bySource: any[];
+}) {
+  const bucketData = overview?.cancellation_buckets
+    ? Object.entries(overview.cancellation_buckets).map(([name, count]) => ({
+        name: name + 'd',
+        count: count as number,
+      }))
+    : [];
+
+  const bucketColors = ['#ff4757', '#ff6b81', '#ffa502', '#00e5c7', '#2ed573'];
+
+  const rateColor = (r: number) => (r >= 98 ? '#2ed573' : r >= 95 ? '#00e5c7' : r >= 90 ? '#ffa502' : '#ff4757');
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard
+          label="Total Policies"
+          value={overview?.total_sales?.toLocaleString() || '—'}
+          sub="All time tracked"
+          icon={<FileText size={16} color="#00e5c7" />}
+        />
+        <StatCard
+          label="Active"
+          value={overview?.total_active?.toLocaleString() || '—'}
+          sub={overview ? `${((overview.total_active / overview.total_sales) * 100).toFixed(1)}% of total` : ''}
+          color="#2ed573"
+          icon={<Shield size={16} color="#2ed573" />}
+        />
+        <StatCard
+          label="Cancelled"
+          value={overview?.total_cancelled || '—'}
+          sub="Across all carriers"
+          color="#ff4757"
+          icon={<AlertTriangle size={16} color="#ff4757" />}
+        />
+        <StatCard
+          label="Retention Rate"
+          value={overview ? `${overview.retention_rate}%` : '—'}
+          sub="Agency-wide"
+          color={overview ? rateColor(overview.retention_rate) : '#00e5c7'}
+          icon={<Target size={16} color={overview ? rateColor(overview.retention_rate) : '#00e5c7'} />}
+        />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-5 gap-4">
+        {/* Retention Trend — wider */}
+        <div className="col-span-3 rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+          <SectionHeader>Retention Trend</SectionHeader>
+          <div className="mt-3">
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={trend}>
+                <defs>
+                  <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00e5c7" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#00e5c7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#4a6280' }} axisLine={false} tickLine={false} />
+                <YAxis
+                  domain={[88, 101]}
+                  tick={{ fontSize: 10, fill: '#4a6280' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: '#0a1224',
+                    border: '1px solid rgba(0,229,199,0.2)',
+                    borderRadius: 10,
+                    fontSize: 12,
+                    color: '#c5d4e8',
+                  }}
+                  formatter={(v: number) => [`${v}%`, 'Retention']}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="retention_rate"
+                  stroke="#00e5c7"
+                  strokeWidth={2.5}
+                  fill="url(#retGrad)"
+                  dot={{ r: 4, fill: '#00e5c7', strokeWidth: 0 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Cancellation Timing */}
+        <div className="col-span-2 rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+          <SectionHeader>Cancellation Timing</SectionHeader>
+          <div className="mt-3">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={bucketData} barSize={28}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#4a6280' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#4a6280' }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: '#0a1224',
+                    border: '1px solid rgba(0,229,199,0.2)',
+                    borderRadius: 10,
+                    fontSize: 12,
+                    color: '#c5d4e8',
+                  }}
+                />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                  {bucketData.map((_, i) => (
+                    <Cell key={i} fill={bucketColors[i % bucketColors.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Carrier + Agent Tables */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* By Carrier */}
+        <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+          <SectionHeader>Retention by Carrier</SectionHeader>
+          <div className="mt-4 flex flex-col gap-3">
+            {byCarrier.map((c: any) => (
+              <div key={c.carrier} className="flex items-center gap-3">
+                <div className="w-32 truncate text-xs text-slate-300 font-display">{c.carrier}</div>
+                <div className="flex-1">
+                  <ProgressBar value={c.retention_rate} color={rateColor(c.retention_rate)} />
+                </div>
+                <div className="w-12 text-right text-xs font-mono" style={{ color: rateColor(c.retention_rate) }}>
+                  {c.retention_rate}%
+                </div>
+                <div className="w-8 text-right text-[11px] font-mono text-red-400">
+                  {c.cancelled > 0 ? `-${c.cancelled}` : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* By Agent */}
+        <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+          <SectionHeader>Retention by Producer</SectionHeader>
+          <div className="mt-4 flex flex-col gap-3.5">
+            {byAgent
+              .filter((a: any) => a.agent_name !== 'System Administrator')
+              .map((a: any) => (
+                <div key={a.agent_name}>
+                  <div className="mb-1.5 flex items-baseline justify-between">
+                    <span className="text-xs text-slate-300 font-display">{a.agent_name}</span>
+                    <span className="text-xs font-mono" style={{ color: rateColor(a.retention_rate) }}>
+                      {a.retention_rate}%{' '}
+                      <span className="text-[10px] text-slate-600">
+                        ({a.total_sales} sold / {a.cancelled} lost)
+                      </span>
+                    </span>
+                  </div>
+                  <ProgressBar value={a.retention_rate} color={rateColor(a.retention_rate)} />
+                </div>
+              ))}
+          </div>
+        </div>
+      </div>
+
+      {/* By Lead Source */}
+      <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+        <SectionHeader>Retention by Lead Source</SectionHeader>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {bySource
+            .filter((s: any) => s.total_sales >= 10)
+            .sort((a: any, b: any) => a.retention_rate - b.retention_rate)
+            .map((s: any) => (
+              <div key={s.lead_source} className="flex items-center gap-3 rounded-lg border border-white/3 p-3">
+                <div className="flex-1">
+                  <div className="text-xs text-slate-300 font-display capitalize">
+                    {s.lead_source.replace(/_/g, ' ')}
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-600 font-mono">
+                    {s.total_sales} sold · {s.cancelled} lost
+                  </div>
+                </div>
+                <div className="text-sm font-bold font-mono" style={{ color: rateColor(s.retention_rate) }}>
+                  {s.retention_rate}%
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Cancellations ──
+function CancellationsTab({ cancellations }: { cancellations: any[] }) {
+  const [sortBy, setSortBy] = useState('days_to_cancel');
+  const [filterCarrier, setFilterCarrier] = useState('All');
+
+  const carriers = ['All', ...Array.from(new Set(cancellations.map((c: any) => c.carrier)))];
+
+  const filtered = useMemo(() => {
+    let data = [...cancellations];
+    if (filterCarrier !== 'All') data = data.filter((c: any) => c.carrier === filterCarrier);
+    data.sort((a: any, b: any) => {
+      if (sortBy === 'days_to_cancel') return a.days_to_cancel - b.days_to_cancel;
+      if (sortBy === 'written_premium') return b.written_premium - a.written_premium;
+      return 0;
+    });
+    return data;
+  }, [cancellations, sortBy, filterCarrier]);
+
+  const totalLostPremium = filtered.reduce((s: number, c: any) => s + (c.written_premium || 0), 0);
+
+  const carrierColor = (carrier: string) => {
+    const colors: Record<string, string> = {
+      'National General': '#ffa502',
+      'Progressive Insurance': '#3742fa',
+      'Progressive': '#3742fa',
+      Grange: '#2ed573',
+      Travelers: '#ff6348',
+      Safeco: '#1a3054',
+      'Bristol West': '#003B8E',
+    };
+    return colors[carrier] || '#00e5c7';
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Summary + Filters */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-baseline gap-5">
+          <div>
+            <span className="text-2xl font-bold text-red-400 font-display">
+              ${totalLostPremium.toLocaleString()}
+            </span>
+            <span className="ml-2 text-xs text-slate-600 font-mono">
+              lost premium ({filtered.length} policies)
+            </span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <select
+            value={filterCarrier}
+            onChange={(e) => setFilterCarrier(e.target.value)}
+            className="rounded-lg border border-cyan-500/20 bg-[#0a1224] px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none"
+          >
+            {carriers.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="rounded-lg border border-cyan-500/20 bg-[#0a1224] px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none"
+          >
+            <option value="days_to_cancel">Sort: Days to Cancel</option>
+            <option value="written_premium">Sort: Premium</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-hidden rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/5">
+              {['Client', 'Policy #', 'Carrier', 'Producer', 'Premium', 'Effective', 'Cancelled', 'Days', 'Status'].map(
+                (h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-600 font-mono"
+                  >
+                    {h}
+                  </th>
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((c: any, i: number) => (
+              <tr
+                key={c.id || i}
+                className="border-b border-white/[0.02] transition-colors hover:bg-cyan-500/[0.03]"
+              >
+                <td className="px-4 py-3 text-xs font-medium text-slate-200 font-display">{c.client_name}</td>
+                <td className="px-4 py-3 text-[11px] text-slate-500 font-mono">{c.policy_number}</td>
+                <td className="px-4 py-3">
+                  <Badge color={carrierColor(c.carrier)}>{c.carrier}</Badge>
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-300 font-display">{c.producer}</td>
+                <td className="px-4 py-3 text-xs font-semibold text-red-400 font-mono">
+                  ${(c.written_premium || 0).toLocaleString()}
+                </td>
+                <td className="px-4 py-3 text-[11px] text-slate-500 font-mono">{c.effective_date}</td>
+                <td className="px-4 py-3 text-[11px] text-slate-500 font-mono">{c.cancelled_date}</td>
+                <td className="px-4 py-3">
+                  <Badge
+                    color={c.days_to_cancel <= 7 ? '#ff4757' : c.days_to_cancel <= 30 ? '#ffa502' : '#4a6280'}
+                  >
+                    {c.days_to_cancel}d
+                  </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge color={c.commission_status === 'paid' ? '#ffa502' : '#2ed573'}>
+                    {c.commission_status === 'paid' ? 'COMM PAID' : 'CLAWED'}
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <div className="py-12 text-center text-sm text-slate-600 font-mono">No cancellations found</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Non-Pay ──
+function NonPayTab({ nonpayEmails, nonpayHistory }: { nonpayEmails: any[]; nonpayHistory: any[] }) {
+  const totalSent = nonpayEmails.length;
+  const thisWeek = nonpayEmails.filter((e: any) => {
+    const sent = new Date(e.sent_at);
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return sent >= weekAgo;
+  }).length;
+
+  const avgAmount =
+    nonpayEmails.length > 0
+      ? nonpayEmails.reduce((s: number, e: any) => s + (e.amount_due || 0), 0) / nonpayEmails.length
+      : 0;
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard
+          label="Non-Pay Notices Sent"
+          value={totalSent}
+          sub="All time (NatGen automated)"
+          color="#ffa502"
+          icon={<Mail size={16} color="#ffa502" />}
+        />
+        <StatCard
+          label="This Week"
+          value={thisWeek}
+          sub="Last 7 days"
+          color="#00e5c7"
+          icon={<Send size={16} color="#00e5c7" />}
+        />
+        <StatCard
+          label="Avg Amount Due"
+          value={`$${Math.round(avgAmount).toLocaleString()}`}
+          sub="Across all notices"
+          color="#ff6348"
+          icon={<DollarSign size={16} color="#ff6348" />}
+        />
+      </div>
+
+      {/* Recent Notices */}
+      <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+        <div className="flex items-center justify-between">
+          <SectionHeader>Recent Non-Pay Notices</SectionHeader>
+          <Badge color="#2ed573">LIVE — AUTO</Badge>
+        </div>
+        <div className="mt-4 flex flex-col">
+          {nonpayEmails.slice(0, 8).map((n: any, i: number) => (
+            <div
+              key={n.id || i}
+              className="grid grid-cols-5 items-center border-b border-white/[0.02] py-3"
+              style={{ gridTemplateColumns: '1.5fr 1fr 0.8fr 0.8fr 0.5fr' }}
+            >
+              <div>
+                <div className="text-xs font-medium text-slate-200 font-display">{n.customer_name}</div>
+                <div className="text-[10px] text-slate-600 font-mono">{n.policy_number}</div>
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">{n.carrier || 'National General'}</div>
+              <div className="text-xs font-semibold text-orange-400 font-mono">
+                ${typeof n.amount_due === 'number' ? n.amount_due.toLocaleString() : n.amount_due}
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">Due {n.due_date}</div>
+              <div>
+                <Badge color={n.email_status === 'sent' ? '#2ed573' : '#ffa502'}>
+                  {(n.email_status || 'sent').toUpperCase()}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Carrier Automation Status */}
+      <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+        <SectionHeader>Carrier Automation Status</SectionHeader>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {[
+            {
+              carrier: 'National General',
+              status: 'live',
+              type: 'Non-Pay + UW + Non-Renewal',
+              method: 'Email parsing → auto-send',
+            },
+            {
+              carrier: 'Grange',
+              status: 'building',
+              type: 'Non-Renewal Notices',
+              method: 'GrangeWire email parsing',
+            },
+            {
+              carrier: 'Progressive',
+              status: 'manual',
+              type: 'Manual Upload',
+              method: 'CSV upload → review → send',
+            },
+            {
+              carrier: 'Travelers',
+              status: 'manual',
+              type: 'Manual Upload',
+              method: 'CSV upload → review → send',
+            },
+            {
+              carrier: 'Safeco',
+              status: 'manual',
+              type: 'Manual Upload',
+              method: 'CSV upload → review → send',
+            },
+            {
+              carrier: 'Bristol West',
+              status: 'manual',
+              type: 'Manual Upload',
+              method: 'CSV upload → review → send',
+            },
+          ].map((c) => (
+            <div
+              key={c.carrier}
+              className="rounded-lg border p-4"
+              style={{
+                borderColor:
+                  c.status === 'live'
+                    ? 'rgba(46,213,115,0.3)'
+                    : c.status === 'building'
+                    ? 'rgba(255,165,2,0.3)'
+                    : 'rgba(255,255,255,0.06)',
+                background: c.status === 'live' ? 'rgba(46,213,115,0.04)' : 'transparent',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-200 font-display">{c.carrier}</span>
+                <Badge
+                  color={c.status === 'live' ? '#2ed573' : c.status === 'building' ? '#ffa502' : '#4a6280'}
+                >
+                  {c.status.toUpperCase()}
+                </Badge>
+              </div>
+              <div className="mt-2 text-[10px] leading-relaxed text-slate-500 font-mono">
+                {c.type}
+                <br />
+                {c.method}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Upload History */}
+      {nonpayHistory.length > 0 && (
+        <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+          <SectionHeader>Processing History</SectionHeader>
+          <div className="mt-4 flex flex-col">
+            {nonpayHistory.slice(0, 5).map((h: any, i: number) => (
+              <div key={h.id || i} className="flex items-center justify-between border-b border-white/[0.02] py-3">
+                <div>
+                  <div className="text-xs text-slate-300 font-display">{h.filename}</div>
+                  <div className="text-[10px] text-slate-600 font-mono">{h.uploaded_by}</div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-[11px] text-slate-500 font-mono">
+                    {h.policies_found} found · {h.emails_sent} sent
+                  </div>
+                  <Badge color={h.status === 'complete' ? '#2ed573' : h.status === 'dry_run' ? '#ffa502' : '#4a6280'}>
+                    {h.status?.toUpperCase()}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Re-Shop ──
+function ReShopTab({ cancellations }: { cancellations: any[] }) {
+  const candidates = cancellations.filter((c: any) => c.days_to_cancel <= 30);
+  const totalRecovery = candidates.reduce((s: number, c: any) => s + (c.written_premium || 0), 0);
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard
+          label="Re-Shop Candidates"
+          value={candidates.length}
+          sub="Cancelled within 30 days"
+          color="#3742fa"
+          icon={<RefreshCw size={16} color="#3742fa" />}
+        />
+        <StatCard
+          label="Potential Recovery"
+          value={`$${totalRecovery.toLocaleString()}`}
+          sub="Lost premium to win back"
+          color="#2ed573"
+          icon={<DollarSign size={16} color="#2ed573" />}
+        />
+        <StatCard
+          label="Winback Campaigns"
+          value="0"
+          sub="Create your first campaign"
+          color="#ffa502"
+          icon={<Target size={16} color="#ffa502" />}
+        />
+      </div>
+
+      {/* Candidates List */}
+      <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
+        <div className="flex items-center justify-between">
+          <SectionHeader>Re-Shop Candidates</SectionHeader>
+          <button className="rounded-lg bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2 text-xs font-bold text-[#0a1224] font-display shadow-lg shadow-cyan-500/20 transition hover:shadow-cyan-500/30">
+            + Create Winback Campaign
+          </button>
+        </div>
+        <div className="mt-4 flex flex-col gap-2">
+          {candidates.map((c: any) => (
+            <div
+              key={c.id}
+              className="grid items-center gap-3 rounded-lg border border-white/[0.04] bg-white/[0.01] p-3"
+              style={{ gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr 0.8fr 0.5fr' }}
+            >
+              <div>
+                <div className="text-xs font-medium text-slate-200 font-display">{c.client_name}</div>
+                <div className="text-[10px] text-slate-600 font-mono">{c.policy_number}</div>
+              </div>
+              <div className="text-xs text-slate-500">{c.carrier}</div>
+              <div className="text-xs text-slate-500">{c.producer}</div>
+              <div className="text-xs font-semibold text-red-400 font-mono">
+                ${(c.written_premium || 0).toLocaleString()}
+              </div>
+              <Badge color="#ff4757">{c.days_to_cancel}d to cancel</Badge>
+              <button className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-[10px] font-semibold text-indigo-400 font-mono transition hover:bg-indigo-500/20">
+                Re-Shop
+              </button>
+            </div>
+          ))}
+          {candidates.length === 0 && (
+            <div className="py-8 text-center text-sm text-slate-600 font-mono">No re-shop candidates</div>
+          )}
+        </div>
+      </div>
+
+      {/* Workflow */}
+      <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-6">
+        <SectionHeader>Re-Shop Workflow</SectionHeader>
+        <div className="mt-5 grid grid-cols-4 gap-6">
+          {[
+            { step: '1', title: 'Identify', desc: 'Auto-detect early cancellations & non-renewals' },
+            { step: '2', title: 'Queue', desc: 'Producer assigned re-shop task with customer context' },
+            { step: '3', title: 'Quote', desc: 'Agent re-quotes with alternate carriers' },
+            { step: '4', title: 'Win Back', desc: 'Customer re-bound, retention preserved' },
+          ].map((s) => (
+            <div key={s.step} className="text-center">
+              <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-base font-bold text-white shadow-lg shadow-indigo-500/30 font-display">
+                {s.step}
+              </div>
+              <div className="text-sm font-semibold text-slate-200 font-display">{s.title}</div>
+              <div className="mt-1 text-[10px] leading-relaxed text-slate-600 font-mono">{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ──
+const TABS = ['Overview', 'Cancellations', 'Non-Pay', 'Re-Shop'] as const;
+type TabType = (typeof TABS)[number];
+
+export default function RetentionPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<TabType>('Overview');
+  const [loading, setLoading] = useState(true);
+
+  // Data
   const [overview, setOverview] = useState<any>(null);
-  const [byAgent, setByAgent] = useState<any[]>([]);
   const [byCarrier, setByCarrier] = useState<any[]>([]);
+  const [byAgent, setByAgent] = useState<any[]>([]);
   const [bySource, setBySource] = useState<any[]>([]);
   const [trend, setTrend] = useState<any[]>([]);
-  const [earlyCancels, setEarlyCancels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'agent' | 'carrier' | 'source' | 'list'>('overview');
-  const [period, setPeriod] = useState<string>('');
+  const [cancellations, setCancellations] = useState<any[]>([]);
+  const [nonpayEmails, setNonpayEmails] = useState<any[]>([]);
+  const [nonpayHistory, setNonpayHistory] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!authLoading && !user) { router.push('/'); return; }
-    if (user) loadData();
-  }, [user, authLoading, period]);
+    if (authLoading) return;
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    fetchData();
+  }, [user, authLoading]);
 
-  const loadData = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const p = period || undefined;
-      const [ovRes, agRes, caRes, srRes, trRes, ecRes] = await Promise.all([
-        retentionAPI.overview(p),
-        retentionAPI.byAgent(p),
-        retentionAPI.byCarrier(p),
-        retentionAPI.bySource(p),
-        retentionAPI.trend(12),
-        retentionAPI.earlyCancellations(120, p),
-      ]);
-      setOverview(ovRes.data);
-      setByAgent(agRes.data);
-      setByCarrier(caRes.data);
-      setBySource(srRes.data);
-      setTrend(trRes.data);
-      setEarlyCancels(ecRes.data);
+      const [ovRes, carrierRes, agentRes, sourceRes, trendRes, cancelRes, npEmailRes, npHistRes] =
+        await Promise.allSettled([
+          retentionAPI.overview(),
+          retentionAPI.byCarrier(),
+          retentionAPI.byAgent(),
+          retentionAPI.bySource(),
+          retentionAPI.trend(12),
+          retentionAPI.earlyCancellations(120),
+          nonpayAPI.emails(),
+          nonpayAPI.history(10),
+        ]);
+
+      if (ovRes.status === 'fulfilled') setOverview(ovRes.value.data);
+      if (carrierRes.status === 'fulfilled') setByCarrier(carrierRes.value.data);
+      if (agentRes.status === 'fulfilled') setByAgent(agentRes.value.data);
+      if (sourceRes.status === 'fulfilled') setBySource(sourceRes.value.data);
+      if (trendRes.status === 'fulfilled') setTrend(trendRes.value.data);
+      if (cancelRes.status === 'fulfilled') setCancellations(cancelRes.value.data);
+      if (npEmailRes.status === 'fulfilled') {
+        const emailData = npEmailRes.value.data;
+        setNonpayEmails(Array.isArray(emailData) ? emailData : emailData.emails || []);
+      }
+      if (npHistRes.status === 'fulfilled') {
+        const histData = npHistRes.value.data;
+        setNonpayHistory(Array.isArray(histData) ? histData : histData.notices || []);
+      }
     } catch (err) {
       console.error('Failed to load retention data:', err);
     } finally {
@@ -56,348 +782,77 @@ const RetentionPage = () => {
     }
   };
 
-  if (authLoading) return null;
-  if (!user) return null;
-
-  const tabs = [
-    { key: 'overview', label: 'Overview', icon: Shield },
-    { key: 'agent', label: 'By Agent', icon: Users },
-    { key: 'carrier', label: 'By Carrier', icon: Building },
-    { key: 'source', label: 'By Lead Source', icon: Megaphone },
-    { key: 'list', label: 'Early Cancellations', icon: AlertTriangle },
-  ];
-
-  // Generate period options
-  const periodOptions: { value: string; label: string }[] = [{ value: '', label: 'All Time' }];
-  const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    periodOptions.push({ value: val, label });
-  }
+  if (authLoading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[#050b18]">
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className="mx-auto max-w-[1600px] px-6 py-6">
+        {/* Header */}
+        <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Retention Analytics</h1>
-            <p className="text-sm text-slate-500">Track early terminations and retention rates</p>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-cyan-400 font-mono">
+              ORBIT • Policy Lifecycle
+            </div>
+            <h1 className="mt-1 text-2xl font-bold text-slate-100 font-display">Retention Command Center</h1>
           </div>
-          <div className="relative">
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              className="appearance-none bg-white border border-slate-300 rounded-lg px-4 py-2 pr-8 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+              <span className="text-xs text-emerald-400 font-mono">Systems Active</span>
+            </div>
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 rounded-lg border border-cyan-500/20 px-3 py-1.5 text-xs text-cyan-400 transition hover:bg-cyan-500/10 font-mono"
             >
-              {periodOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <ChevronDown size={14} className="absolute right-2.5 top-3 text-slate-400 pointer-events-none" />
+              <RefreshCw size={12} />
+              Refresh
+            </button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex space-x-1 bg-white rounded-xl p-1 shadow-sm border border-slate-200 mb-6">
-          {tabs.map(tab => (
+        <div className="mb-6 flex w-fit gap-1 rounded-xl border border-white/[0.06] bg-[#0a1224]/60 p-1">
+          {TABS.map((tab) => (
             <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.key
-                  ? 'bg-green-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100'
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`rounded-lg px-5 py-2.5 text-xs font-semibold transition-all font-display tracking-wide ${
+                activeTab === tab
+                  ? 'bg-cyan-500/10 text-cyan-400 shadow-lg shadow-cyan-500/5'
+                  : 'text-slate-600 hover:text-slate-400'
               }`}
             >
-              <tab.icon size={16} />
-              <span>{tab.label}</span>
+              {tab}
             </button>
           ))}
         </div>
 
+        {/* Loading */}
         {loading ? (
-          <div className="text-center py-20 text-slate-500">Loading retention data...</div>
+          <div className="flex items-center justify-center py-20">
+            <div className="flex items-center gap-3 text-sm text-slate-500 font-mono">
+              <Activity size={16} className="animate-spin" />
+              Loading retention data...
+            </div>
+          </div>
         ) : (
           <>
-            {activeTab === 'overview' && overview && (
-              <div className="space-y-6">
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <StatCard label="Total Policies" value={overview.total_sales} />
-                  <StatCard label="Active" value={overview.total_active} color="text-green-700" />
-                  <StatCard label="Cancelled" value={overview.total_cancelled} color="text-red-600" />
-                  <StatCard label="Retention Rate" value={`${overview.retention_rate}%`}
-                    color={overview.retention_rate >= 85 ? 'text-green-700' : overview.retention_rate >= 70 ? 'text-amber-600' : 'text-red-600'} />
-                </div>
-
-                {/* Charts Row */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Cancellation Buckets */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                    <h3 className="font-semibold text-slate-800 mb-4">Cancellations by Time Period</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={overview.bucket_chart_data}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <YAxis tick={{ fontSize: 12 }} />
-                        <Tooltip />
-                        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                          {overview.bucket_chart_data.map((_: any, i: number) => (
-                            <Cell key={i} fill={COLORS[i]} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Retention Trend */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                    <h3 className="font-semibold text-slate-800 mb-4">Monthly Retention Rate Trend</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={trend}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                        <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v: any) => [`${v}%`, 'Retention Rate']} />
-                        <Line type="monotone" dataKey="retention_rate" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 4 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
+            {activeTab === 'Overview' && (
+              <OverviewTab
+                overview={overview}
+                byCarrier={byCarrier}
+                byAgent={byAgent}
+                trend={trend}
+                bySource={bySource}
+              />
             )}
-
-            {activeTab === 'agent' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="font-semibold text-slate-800">Retention by Agent</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left py-3 px-4 font-semibold text-slate-600">Agent</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Total</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Active</th>
-                        <th className="text-right py-3 px-4 font-semibold text-red-600">Cancelled</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Retention</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">0-30d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">31-60d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">61-90d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">91-120d</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {byAgent.map((a: any, i: number) => (
-                        <tr key={a.agent_id} className={`border-t border-slate-100 ${i % 2 ? 'bg-slate-50/50' : ''}`}>
-                          <td className="py-2.5 px-4 font-medium">{a.agent_name}</td>
-                          <td className="py-2.5 px-4 text-right">{a.total_sales}</td>
-                          <td className="py-2.5 px-4 text-right text-green-700">{a.active}</td>
-                          <td className="py-2.5 px-4 text-right text-red-600">{a.cancelled}</td>
-                          <td className="py-2.5 px-4 text-right">
-                            <RetentionBadge rate={a.retention_rate} />
-                          </td>
-                          <td className="py-2.5 px-4 text-right">{a.cancel_30 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{a.cancel_60 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{a.cancel_90 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{a.cancel_120 || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {byAgent.length > 0 && (
-                  <div className="p-5 border-t border-slate-200">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={byAgent} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <YAxis type="category" dataKey="agent_name" width={120} tick={{ fontSize: 12 }} />
-                        <Tooltip formatter={(v: any) => [`${v}%`, 'Retention Rate']} />
-                        <Bar dataKey="retention_rate" radius={[0, 6, 6, 0]}>
-                          {byAgent.map((a: any, i: number) => (
-                            <Cell key={i} fill={a.retention_rate >= 85 ? '#22c55e' : a.retention_rate >= 70 ? '#eab308' : '#ef4444'} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'carrier' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="font-semibold text-slate-800">Retention by Carrier</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left py-3 px-4 font-semibold text-slate-600">Carrier</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Total</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Active</th>
-                        <th className="text-right py-3 px-4 font-semibold text-red-600">Cancelled</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Retention</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">0-30d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">31-60d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">61-90d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">91-120d</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {byCarrier.map((c: any, i: number) => (
-                        <tr key={c.carrier} className={`border-t border-slate-100 ${i % 2 ? 'bg-slate-50/50' : ''}`}>
-                          <td className="py-2.5 px-4 font-medium capitalize">{(c.carrier || '').replace('_', ' ')}</td>
-                          <td className="py-2.5 px-4 text-right">{c.total_sales}</td>
-                          <td className="py-2.5 px-4 text-right text-green-700">{c.active}</td>
-                          <td className="py-2.5 px-4 text-right text-red-600">{c.cancelled}</td>
-                          <td className="py-2.5 px-4 text-right"><RetentionBadge rate={c.retention_rate} /></td>
-                          <td className="py-2.5 px-4 text-right">{c.cancel_30 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{c.cancel_60 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{c.cancel_90 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{c.cancel_120 || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {byCarrier.length > 0 && (
-                  <div className="p-5 border-t border-slate-200">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={byCarrier}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="carrier" tick={{ fontSize: 12 }} />
-                        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v: any) => [`${v}%`, 'Retention Rate']} />
-                        <Bar dataKey="retention_rate" radius={[6, 6, 0, 0]}>
-                          {byCarrier.map((c: any, i: number) => (
-                            <Cell key={i} fill={c.retention_rate >= 85 ? '#22c55e' : c.retention_rate >= 70 ? '#eab308' : '#ef4444'} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'source' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="font-semibold text-slate-800">Retention by Lead Source</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left py-3 px-4 font-semibold text-slate-600">Lead Source</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Total</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Active</th>
-                        <th className="text-right py-3 px-4 font-semibold text-red-600">Cancelled</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">Retention</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">0-30d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">31-60d</th>
-                        <th className="text-right py-3 px-4 font-semibold text-slate-600">61-90d</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bySource.map((s: any, i: number) => (
-                        <tr key={s.lead_source} className={`border-t border-slate-100 ${i % 2 ? 'bg-slate-50/50' : ''}`}>
-                          <td className="py-2.5 px-4 font-medium capitalize">{(s.lead_source || '').replace('_', ' ')}</td>
-                          <td className="py-2.5 px-4 text-right">{s.total_sales}</td>
-                          <td className="py-2.5 px-4 text-right text-green-700">{s.active}</td>
-                          <td className="py-2.5 px-4 text-right text-red-600">{s.cancelled}</td>
-                          <td className="py-2.5 px-4 text-right"><RetentionBadge rate={s.retention_rate} /></td>
-                          <td className="py-2.5 px-4 text-right">{s.cancel_30 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{s.cancel_60 || '—'}</td>
-                          <td className="py-2.5 px-4 text-right">{s.cancel_90 || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'list' && (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-5 border-b border-slate-200">
-                  <h3 className="font-semibold text-slate-800">Early Cancellations (within 120 days)</h3>
-                  <p className="text-xs text-slate-500 mt-1">{earlyCancels.length} policies</p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-600">Policy #</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-600">Client</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-600">Carrier</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-600">Producer</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-600">Source</th>
-                        <th className="text-right py-2.5 px-3 font-semibold text-slate-600">Premium</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-slate-600">Effective</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-slate-600">Cancelled</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-red-600">Days</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-slate-600">Comm Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {earlyCancels.map((s: any, i: number) => (
-                        <tr key={s.id} className={`border-t border-slate-100 ${i % 2 ? 'bg-slate-50/50' : ''}`}>
-                          <td className="py-2 px-3 font-mono">{s.policy_number}</td>
-                          <td className="py-2 px-3">{s.client_name}</td>
-                          <td className="py-2 px-3 capitalize">{(s.carrier || '').replace('_', ' ')}</td>
-                          <td className="py-2 px-3">{s.producer}</td>
-                          <td className="py-2 px-3 capitalize">{(s.lead_source || '').replace('_', ' ')}</td>
-                          <td className="py-2 px-3 text-right">${(s.written_premium || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="py-2 px-3 text-center">{s.effective_date || '—'}</td>
-                          <td className="py-2 px-3 text-center">{s.cancelled_date || '—'}</td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${
-                              s.days_to_cancel <= 30 ? 'bg-red-100 text-red-700' :
-                              s.days_to_cancel <= 60 ? 'bg-orange-100 text-orange-700' :
-                              s.days_to_cancel <= 90 ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-blue-100 text-blue-700'
-                            }`}>
-                              {s.days_to_cancel}d
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                              s.commission_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {s.commission_status === 'paid' ? 'Paid' : 'Pending'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {activeTab === 'Cancellations' && <CancellationsTab cancellations={cancellations} />}
+            {activeTab === 'Non-Pay' && <NonPayTab nonpayEmails={nonpayEmails} nonpayHistory={nonpayHistory} />}
+            {activeTab === 'Re-Shop' && <ReShopTab cancellations={cancellations} />}
           </>
         )}
-      </main>
+      </div>
     </div>
   );
-};
-
-const StatCard: React.FC<{ label: string; value: string | number; color?: string }> = ({ label, value, color }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 text-center">
-    <div className={`text-2xl font-bold ${color || 'text-slate-900'}`}>{value}</div>
-    <div className="text-xs text-slate-500 mt-1">{label}</div>
-  </div>
-);
-
-const RetentionBadge: React.FC<{ rate: number }> = ({ rate }) => {
-  const color = rate >= 85 ? 'bg-green-100 text-green-700' : rate >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${color}`}>{rate}%</span>;
-};
-
-export default RetentionPage;
+}
