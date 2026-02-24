@@ -391,7 +391,7 @@ def cleanup_orphaned_tasks(
     current_user: User = Depends(get_current_user),
 ):
     """Close tasks linked to rejected inspection drafts."""
-    if current_user.role != "admin":
+    if (current_user.role or "").lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
     # Find rejected drafts that still have open tasks
@@ -438,7 +438,7 @@ def trigger_compliance_reminders(
     current_user: User = Depends(get_current_user),
 ):
     """Manually trigger compliance reminder check. Set dry_run=false to actually send."""
-    if current_user.role != "admin":
+    if (current_user.role or "").lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
     from app.services.compliance_reminders import run_compliance_reminders
