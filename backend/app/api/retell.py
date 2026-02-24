@@ -1,4 +1,4 @@
-"""Retell AI webhook routes for BCI AI Receptionist (Flora).
+"""Retell AI webhook routes for BCI AI Receptionist (MIA).
 
 Handles:
 1. Inbound Call Webhook - NowCerts caller lookup, returns dynamic variables
@@ -143,7 +143,7 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Flora AI Receptionist <service@{settings.MAILGUN_DOMAIN}>",
+                "from": f"MIA AI Receptionist <service@{settings.MAILGUN_DOMAIN}>",
                 "to": to,
                 "subject": subject,
                 "html": html,
@@ -159,7 +159,7 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
 
 # ── 1. INBOUND CALL WEBHOOK ───────────────────────────────────────
 # Retell POSTs here when a call comes in. We look up the caller in
-# NowCerts and return dynamic variables so Flora can greet by name.
+# NowCerts and return dynamic variables so MIA can greet by name.
 #
 # CRITICAL: Retell has a 10-second timeout. If we don't respond in 10s,
 # the call starts without dynamic variables. We must be FAST.
@@ -438,7 +438,7 @@ async def inbound_call_webhook(request: Request):
         else:
             begin_msg = (
                 "Thank you for calling Better Choice Insurance Group! "
-                "My name is Flora. How can I help you today?"
+                "My name is Mia. How can I help you today?"
             )
 
         dynamic_variables["greeting_message"] = begin_msg
@@ -466,14 +466,14 @@ async def inbound_call_webhook(request: Request):
 
 
 # ── 2. CUSTOM FUNCTION: CALLBACK / MESSAGE REQUEST ────────────────
-# Flora calls this when a caller wants a callback or leaves a message.
+# MIA calls this when a caller wants a callback or leaves a message.
 # Sends an email to service@betterchoiceins.com with the details.
 #
 # Retell sends: {name, args: {...}, call: {call_id, from_number, ...}}
 
 @router.post("/callback-request")
 async def callback_request(request: Request):
-    """Handle callback/message requests from Flora — sends email to service team."""
+    """Handle callback/message requests from MIA — sends email to service team."""
     try:
         body = await request.json()
         args = body.get("args", {})
@@ -492,7 +492,7 @@ async def callback_request(request: Request):
         timestamp = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p CT")
 
         logger.info(
-            "Flora %s request: name=%s phone=%s reason=%s",
+            "MIA %s request: name=%s phone=%s reason=%s",
             request_type, caller_name, caller_phone, reason[:80]
         )
 
@@ -514,7 +514,7 @@ async def callback_request(request: Request):
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #1a5276; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
                 <h2 style="margin: 0;">{type_label}</h2>
-                <p style="margin: 4px 0 0; opacity: 0.9;">From Flora AI Receptionist</p>
+                <p style="margin: 4px 0 0; opacity: 0.9;">From MIA AI Receptionist</p>
             </div>
             <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
                 <p style="margin-top: 0;"><strong>Priority:</strong> {urgency_badge}</p>
@@ -542,7 +542,7 @@ async def callback_request(request: Request):
         subject = f"{type_label} — {caller_name} ({caller_phone})"
         send_mailgun_email("service@betterchoiceins.com", subject, html)
 
-        # Return success message that Flora will read to caller
+        # Return success message that MIA will read to caller
         return {
             "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} as soon as possible."
         }
@@ -609,7 +609,7 @@ async def post_call_webhook(request: Request):
                 if client.is_configured:
                     # Build note content — put everything in subject since 
                     # that's the field NowCerts displays in the Notes tab
-                    subject_parts = [f"Flora AI Call — {duration_str}"]
+                    subject_parts = [f"MIA Call — {duration_str}"]
                     if call_type:
                         subject_parts[0] += f" — {call_type.replace('_', ' ').title()}"
                     if call_summary:
@@ -634,7 +634,7 @@ async def post_call_webhook(request: Request):
                         "text": note_subject,
                         "description": note_subject,
                         "insured_commercial_name": customer_name,
-                        "creator_name": "Flora AI Receptionist",
+                        "creator_name": "MIA AI Receptionist",
                         "type": "Phone Call",
                     })
                     logger.info("NowCerts note logged for insured %s", insured_id)
@@ -667,7 +667,7 @@ async def post_call_webhook(request: Request):
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #2c3e50; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
                     <h2 style="margin: 0;">📊 Call Summary</h2>
-                    <p style="margin: 4px 0 0; opacity: 0.9;">Flora AI Receptionist</p>
+                    <p style="margin: 4px 0 0; opacity: 0.9;">MIA AI Receptionist</p>
                 </div>
                 <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
                     <table style="width: 100%; border-collapse: collapse;">
@@ -698,7 +698,7 @@ async def post_call_webhook(request: Request):
             </div>
             """
 
-            subject = f"📊 Flora Call — {customer_name} — {resolution_badge}"
+            subject = f"📊 MIA Call — {customer_name} — {resolution_badge}"
             send_mailgun_email("service@betterchoiceins.com", subject, html)
 
         return {"status": "ok"}

@@ -225,6 +225,7 @@ export const customersAPI = {
   syncAll: () => api.post('/api/customers/sync-all'),
   nowcertsStatus: () => api.get('/api/customers/nowcerts/status'),
   agencyStats: () => api.get('/api/customers/agency-stats'),
+  geographicDistribution: () => api.get('/api/customers/state-distribution'),
   duplicates: () => api.get('/api/customers/duplicates'),
   merge: (keepId: number, mergeIds: number[]) =>
     api.post('/api/customers/merge', null, { params: { keep_id: keepId, merge_ids: mergeIds.join(',') } }),
