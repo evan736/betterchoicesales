@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { retentionAPI, nonpayAPI } from '../lib/api';
+import { retentionAPI, nonpayAPI, customersAPI } from '../lib/api';
 import {
   Shield,
   AlertTriangle,
@@ -31,9 +31,12 @@ import {
   Area,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
+  Legend,
   ResponsiveContainer,
   CartesianGrid,
   Cell,
@@ -717,8 +720,206 @@ function ReShopTab({ cancellations }: { cancellations: any[] }) {
   );
 }
 
+// ── Growth Tab ──
+function GrowthTab({ data }: { data: any }) {
+  const [capturing, setCapturing] = useState(false);
+
+  const handleCapture = async () => {
+    setCapturing(true);
+    try {
+      await customersAPI.captureSnapshot();
+      window.location.reload();
+    } catch (e) {
+      alert('Failed to capture snapshot');
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const summary = data?.growth_summary || [];
+  const snapshots = data?.snapshots || [];
+
+  // Format for charts
+  const chartData = summary.map((s: any) => ({
+    ...s,
+    label: s.period,
+    premium_k: Math.round((s.active_premium || 0) / 1000),
+  }));
+
+  const latest = summary.length > 0 ? summary[summary.length - 1] : null;
+  const prev = summary.length > 1 ? summary[summary.length - 2] : null;
+
+  const fmtNum = (n: number) => n?.toLocaleString() ?? '—';
+  const fmtMoney = (n: number) => n != null ? `$${Math.round(n).toLocaleString()}` : '—';
+  const fmtPct = (n: number) => n != null ? `${n > 0 ? '+' : ''}${n}%` : '—';
+  const changeColor = (n: number) => n > 0 ? 'text-emerald-400' : n < 0 ? 'text-red-400' : 'text-slate-400';
+
+  return (
+    <div className="space-y-6">
+      {/* Header + Capture Button */}
+      <div className="flex items-center justify-between">
+        <SectionHeader>Agency Growth</SectionHeader>
+        <button
+          onClick={handleCapture}
+          disabled={capturing}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-600/30 transition-colors disabled:opacity-50"
+        >
+          {capturing ? <RefreshCw size={12} className="animate-spin" /> : <Activity size={12} />}
+          Capture Snapshot
+        </button>
+      </div>
+
+      {snapshots.length === 0 ? (
+        <div className="text-center py-16">
+          <Activity size={40} className="mx-auto text-slate-600 mb-4" />
+          <p className="text-slate-400 text-sm">No growth data yet.</p>
+          <p className="text-slate-500 text-xs mt-1">Click "Capture Snapshot" to start tracking, or wait for the daily auto-capture.</p>
+        </div>
+      ) : (
+        <>
+          {/* KPI Cards */}
+          {latest && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Active Customers</div>
+                <div className="text-2xl font-bold text-slate-100">{fmtNum(latest.active_customers)}</div>
+                {latest.customer_change != null && (
+                  <div className={`text-xs mt-1 ${changeColor(latest.customer_change)}`}>
+                    {latest.customer_change > 0 ? '↑' : latest.customer_change < 0 ? '↓' : '→'} {fmtNum(Math.abs(latest.customer_change))} MoM ({fmtPct(latest.customer_change_pct)})
+                  </div>
+                )}
+                {latest.yoy_customer_change != null && (
+                  <div className={`text-[10px] mt-0.5 ${changeColor(latest.yoy_customer_change)}`}>
+                    YoY: {latest.yoy_customer_change > 0 ? '+' : ''}{fmtNum(latest.yoy_customer_change)} ({fmtPct(latest.yoy_customer_pct)})
+                  </div>
+                )}
+              </div>
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Active Premium</div>
+                <div className="text-2xl font-bold text-slate-100">{fmtMoney(latest.active_premium)}</div>
+                {latest.premium_change != null && (
+                  <div className={`text-xs mt-1 ${changeColor(latest.premium_change)}`}>
+                    {latest.premium_change > 0 ? '↑' : '↓'} {fmtMoney(Math.abs(latest.premium_change))} MoM ({fmtPct(latest.premium_change_pct)})
+                  </div>
+                )}
+                {latest.yoy_premium_change != null && (
+                  <div className={`text-[10px] mt-0.5 ${changeColor(latest.yoy_premium_change)}`}>
+                    YoY: {latest.yoy_premium_change > 0 ? '+' : ''}{fmtMoney(Math.abs(latest.yoy_premium_change))} ({fmtPct(latest.yoy_premium_pct)})
+                  </div>
+                )}
+              </div>
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">Active Policies</div>
+                <div className="text-2xl font-bold text-slate-100">{fmtNum(latest.active_policies)}</div>
+              </div>
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-1">New Sales (Month)</div>
+                <div className="text-2xl font-bold text-emerald-400">{fmtNum(latest.new_sales)}</div>
+                <div className="text-xs text-slate-400 mt-1">{fmtMoney(latest.new_sales_premium)} premium</div>
+              </div>
+            </div>
+          )}
+
+          {/* Customer Growth Chart */}
+          {chartData.length > 1 && (
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-5">
+              <h4 className="text-sm font-semibold text-slate-300 mb-4">Active Customers Over Time</h4>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="custGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
+                    labelStyle={{ color: '#94a3b8' }}
+                    itemStyle={{ color: '#06b6d4' }}
+                  />
+                  <Area type="monotone" dataKey="active_customers" stroke="#06b6d4" fill="url(#custGrad)" strokeWidth={2} name="Active Customers" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Premium Growth Chart */}
+          {chartData.length > 1 && (
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-5">
+              <h4 className="text-sm font-semibold text-slate-300 mb-4">Annualized Premium Over Time</h4>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="premGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
+                    labelStyle={{ color: '#94a3b8' }}
+                    formatter={(v: number) => [`$${v.toLocaleString()}`, 'Premium']}
+                  />
+                  <Area type="monotone" dataKey="active_premium" stroke="#10b981" fill="url(#premGrad)" strokeWidth={2} name="Premium" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Growth Table */}
+          {summary.length > 0 && (
+            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.06]">
+                <h4 className="text-sm font-semibold text-slate-300">Month-Over-Month Summary</h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.06] text-slate-500 uppercase tracking-wider">
+                      <th className="px-4 py-2 text-left font-mono">Period</th>
+                      <th className="px-4 py-2 text-right font-mono">Customers</th>
+                      <th className="px-4 py-2 text-right font-mono">MoM Δ</th>
+                      <th className="px-4 py-2 text-right font-mono">Premium</th>
+                      <th className="px-4 py-2 text-right font-mono">MoM Δ</th>
+                      <th className="px-4 py-2 text-right font-mono">Policies</th>
+                      <th className="px-4 py-2 text-right font-mono">New Sales</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...summary].reverse().map((s: any, i: number) => (
+                      <tr key={s.period} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                        <td className="px-4 py-2 text-slate-300 font-mono">{s.period}</td>
+                        <td className="px-4 py-2 text-right text-slate-200">{fmtNum(s.active_customers)}</td>
+                        <td className={`px-4 py-2 text-right ${changeColor(s.customer_change)}`}>
+                          {s.customer_change != null ? `${s.customer_change > 0 ? '+' : ''}${s.customer_change}` : '—'}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-200">{fmtMoney(s.active_premium)}</td>
+                        <td className={`px-4 py-2 text-right ${changeColor(s.premium_change)}`}>
+                          {s.premium_change != null ? `${s.premium_change > 0 ? '+' : ''}${fmtMoney(Math.abs(s.premium_change))}` : '—'}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-200">{fmtNum(s.active_policies)}</td>
+                        <td className="px-4 py-2 text-right text-emerald-400">{s.new_sales || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ──
-const TABS = ['Overview', 'Cancellations', 'Non-Pay', 'Re-Shop'] as const;
+const TABS = ['Overview', 'Growth', 'Cancellations', 'Non-Pay', 'Re-Shop'] as const;
 type TabType = (typeof TABS)[number];
 
 export default function RetentionPage() {
@@ -736,6 +937,7 @@ export default function RetentionPage() {
   const [cancellations, setCancellations] = useState<any[]>([]);
   const [nonpayEmails, setNonpayEmails] = useState<any[]>([]);
   const [nonpayHistory, setNonpayHistory] = useState<any[]>([]);
+  const [growthData, setGrowthData] = useState<any>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -749,7 +951,7 @@ export default function RetentionPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [ovRes, carrierRes, agentRes, sourceRes, trendRes, cancelRes, npEmailRes, npHistRes] =
+      const [ovRes, carrierRes, agentRes, sourceRes, trendRes, cancelRes, npEmailRes, npHistRes, growthRes] =
         await Promise.allSettled([
           retentionAPI.overview(),
           retentionAPI.byCarrier(),
@@ -759,6 +961,7 @@ export default function RetentionPage() {
           retentionAPI.earlyCancellations(120),
           nonpayAPI.emails(),
           nonpayAPI.history(10),
+          customersAPI.growthData(),
         ]);
 
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value.data);
@@ -775,6 +978,7 @@ export default function RetentionPage() {
         const histData = npHistRes.value.data;
         setNonpayHistory(Array.isArray(histData) ? histData : histData.notices || []);
       }
+      if (growthRes.status === 'fulfilled') setGrowthData(growthRes.value.data);
     } catch (err) {
       console.error('Failed to load retention data:', err);
     } finally {
@@ -847,6 +1051,7 @@ export default function RetentionPage() {
                 bySource={bySource}
               />
             )}
+            {activeTab === 'Growth' && <GrowthTab data={growthData} />}
             {activeTab === 'Cancellations' && <CancellationsTab cancellations={cancellations} />}
             {activeTab === 'Non-Pay' && <NonPayTab nonpayEmails={nonpayEmails} nonpayHistory={nonpayHistory} />}
             {activeTab === 'Re-Shop' && <ReShopTab cancellations={cancellations} />}

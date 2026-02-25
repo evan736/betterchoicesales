@@ -10,6 +10,7 @@ from app.models.survey import SurveyResponse
 from app.models.agency_config import AgencyConfig
 from app.models.timeclock import TimeClockEntry
 from app.models.customer import Customer, CustomerPolicy
+from app.models.agency_snapshot import AgencySnapshot
 
 __all__ = [
     "User",

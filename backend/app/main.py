@@ -282,6 +282,31 @@ def init_database():
         except Exception as e:
             logger.warning(f"sale_line_items migration: {e}")
 
+    # Ensure agency_snapshots table exists
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS agency_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    snapshot_date DATE NOT NULL UNIQUE,
+                    period VARCHAR NOT NULL,
+                    active_customers INTEGER NOT NULL DEFAULT 0,
+                    total_customers INTEGER NOT NULL DEFAULT 0,
+                    active_policies INTEGER NOT NULL DEFAULT 0,
+                    total_policies INTEGER NOT NULL DEFAULT 0,
+                    active_premium_annualized NUMERIC(14,2) NOT NULL DEFAULT 0,
+                    new_sales_count INTEGER DEFAULT 0,
+                    new_sales_premium NUMERIC(12,2) DEFAULT 0,
+                    cancellations_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_agency_snapshots_period ON agency_snapshots(period)"))
+            conn.commit()
+            logger.info("agency_snapshots table ready")
+        except Exception as e:
+            logger.warning(f"agency_snapshots migration: {e}")
+
     # Ensure timeclock_entries table exists with ALL columns
     with engine.connect() as conn:
         try:
@@ -775,6 +800,78 @@ async def lifespan(app: FastAPI):
     sync_thread = threading.Thread(target=_run_nowcerts_sync, daemon=True)
     sync_thread.start()
     logger.info("NowCerts auto-sync scheduler started (twice daily: 6 AM / 6 PM CT)")
+
+    # Daily agency snapshot (captures growth metrics once per day at ~7 AM CT)
+    def _run_daily_snapshot():
+        """Capture agency metrics snapshot daily for growth tracking."""
+        import time
+        time.sleep(300)  # Wait 5 min for app + sync to settle
+        while True:
+            try:
+                from datetime import datetime
+                now = datetime.utcnow()
+                ct_hour = (now.hour - 6) % 24  # UTC → CT
+                if ct_hour == 7:  # 7 AM CT
+                    from app.core.database import SessionLocal
+                    from app.models.agency_snapshot import AgencySnapshot
+                    from app.models.customer import Customer, CustomerPolicy
+                    from sqlalchemy import distinct, func as sqlfunc
+                    from decimal import Decimal
+                    from datetime import date
+
+                    sdb = SessionLocal()
+                    try:
+                        today = date.today()
+                        existing = sdb.query(AgencySnapshot).filter(AgencySnapshot.snapshot_date == today).first()
+                        if not existing:
+                            total_cust = sdb.query(sqlfunc.count(Customer.id)).scalar() or 0
+                            active_subq = (
+                                sdb.query(distinct(CustomerPolicy.customer_id))
+                                .filter(sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
+                                .subquery()
+                            )
+                            active_cust = sdb.query(sqlfunc.count()).select_from(active_subq).scalar() or 0
+                            active_pol = sdb.query(sqlfunc.count(CustomerPolicy.id)).filter(
+                                sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"])
+                            ).scalar() or 0
+                            total_pol = sdb.query(sqlfunc.count(CustomerPolicy.id)).scalar() or 0
+
+                            # Premium calculation
+                            active_rows = sdb.query(CustomerPolicy).filter(
+                                sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"])
+                            ).all()
+                            total_prem = Decimal("0")
+                            for p in active_rows:
+                                if not p.premium: continue
+                                prem = Decimal(str(p.premium))
+                                lob = (p.line_of_business or "").lower()
+                                ptype = (p.policy_type or "").lower()
+                                is_auto = any(kw in lob or kw in ptype for kw in ["auto", "vehicle", "car"])
+                                if is_auto and p.effective_date and p.expiration_date:
+                                    try:
+                                        term = (p.expiration_date.replace(tzinfo=None) - p.effective_date.replace(tzinfo=None)).days
+                                        if 150 <= term <= 200: prem *= 2
+                                    except: pass
+                                total_prem += prem
+
+                            snap = AgencySnapshot(
+                                snapshot_date=today, period=today.strftime("%Y-%m"),
+                                active_customers=active_cust, total_customers=total_cust,
+                                active_policies=active_pol, total_policies=total_pol,
+                                active_premium_annualized=float(total_prem),
+                            )
+                            sdb.add(snap)
+                            sdb.commit()
+                            logger.info(f"📊 Daily snapshot captured: {active_cust} active customers, ${float(total_prem):,.0f} premium")
+                    finally:
+                        sdb.close()
+            except Exception as e:
+                logger.error(f"Daily snapshot error: {e}")
+            time.sleep(3600)  # Check every hour
+
+    snapshot_thread = threading.Thread(target=_run_daily_snapshot, daemon=True)
+    snapshot_thread.start()
+    logger.info("Daily agency snapshot scheduler started")
 
     # Start NowCerts Pending Cancellation Poller (every 4 hours)
     def _run_pending_cancel_poll():

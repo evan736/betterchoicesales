@@ -7,7 +7,7 @@ import { customersAPI, nonpayAPI } from '../lib/api';
 import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
-  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink
+  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -217,10 +217,10 @@ export default function CustomersPage() {
 
         {/* Agency Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
-          <StatCard icon={<Users size={18} />} label="Total Customers" value={statsLoading ? '...' : fmt(stats?.total_customers)} color="blue" />
-          <StatCard icon={<CheckCircle2 size={18} />} label="Active Customers" value={statsLoading ? '...' : fmt(stats?.active_customers)} color="green" />
+          <StatCard icon={<Users size={18} />} label="Active Customers" value={statsLoading ? '...' : fmt(stats?.active_customers)} color="green" />
           <StatCard icon={<FileText size={18} />} label="Active Policies" value={statsLoading ? '...' : fmt(stats?.active_policies)} color="indigo" />
           <StatCard icon={<DollarSign size={18} />} label="Annual Premium" value={statsLoading ? '...' : fmtMoney(stats?.total_active_premium_annualized)} color="emerald" />
+          <StatCard icon={<TrendingUp size={18} />} label="Monthly Growth" value={statsLoading ? '...' : (stats?.monthly_customer_growth != null ? `${stats.monthly_customer_growth > 0 ? '+' : ''}${stats.monthly_customer_growth}` : '—')} color={stats?.monthly_customer_growth > 0 ? 'green' : stats?.monthly_customer_growth < 0 ? 'red' : 'slate'} />
           <StatCard icon={<Calendar size={18} />} label="Last Sync" value={statsLoading ? '...' : (stats?.last_sync ? new Date(stats.last_sync).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never')} color="slate" />
         </div>
 

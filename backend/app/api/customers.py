@@ -335,13 +335,219 @@ def agency_stats(
 
     last_sync = db.query(func.max(Customer.last_synced_at)).scalar()
 
+    # Monthly customer growth — compare to last month's snapshot
+    monthly_growth = None
+    try:
+        from app.models.agency_snapshot import AgencySnapshot
+        from datetime import date, timedelta
+        today = date.today()
+        first_of_month = today.replace(day=1)
+        last_month_end = first_of_month - timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+
+        # Get the latest snapshot from last month
+        last_month_snap = (
+            db.query(AgencySnapshot)
+            .filter(AgencySnapshot.snapshot_date >= last_month_start,
+                    AgencySnapshot.snapshot_date <= last_month_end)
+            .order_by(AgencySnapshot.snapshot_date.desc())
+            .first()
+        )
+        if last_month_snap:
+            monthly_growth = active_customers - last_month_snap.active_customers
+    except Exception:
+        pass
+
     return {
         "total_customers": total_customers,
         "active_customers": active_customers,
         "active_policies": active_policies,
         "total_policies": total_policies,
         "total_active_premium_annualized": float(total_premium),
+        "monthly_customer_growth": monthly_growth,
         "last_sync": last_sync.isoformat() if last_sync else None,
+    }
+
+
+@router.post("/capture-snapshot")
+def capture_snapshot(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Capture a point-in-time snapshot of agency metrics for growth tracking."""
+    from sqlalchemy import distinct
+    from decimal import Decimal
+    from datetime import date
+    from app.models.agency_snapshot import AgencySnapshot
+    from app.models.sale import Sale
+
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    today = date.today()
+    period = today.strftime("%Y-%m")
+
+    # Check if snapshot already exists for today
+    existing = db.query(AgencySnapshot).filter(AgencySnapshot.snapshot_date == today).first()
+
+    total_customers = db.query(func.count(Customer.id)).scalar() or 0
+
+    active_subq = (
+        db.query(distinct(CustomerPolicy.customer_id))
+        .filter(func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
+        .subquery()
+    )
+    active_customers = db.query(func.count()).select_from(active_subq).scalar() or 0
+
+    active_policies = (
+        db.query(func.count(CustomerPolicy.id))
+        .filter(func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
+        .scalar() or 0
+    )
+    total_policies = db.query(func.count(CustomerPolicy.id)).scalar() or 0
+
+    # Annualized premium
+    active_rows = (
+        db.query(CustomerPolicy)
+        .filter(func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
+        .all()
+    )
+    total_premium = Decimal("0")
+    for p in active_rows:
+        if not p.premium:
+            continue
+        prem = Decimal(str(p.premium))
+        lob = (p.line_of_business or "").lower()
+        ptype = (p.policy_type or "").lower()
+        is_auto = any(kw in lob or kw in ptype for kw in ["auto", "vehicle", "car", "motorcycle"])
+        if is_auto and p.effective_date and p.expiration_date:
+            try:
+                eff = p.effective_date.replace(tzinfo=None) if hasattr(p.effective_date, 'replace') else p.effective_date
+                exp = p.expiration_date.replace(tzinfo=None) if hasattr(p.expiration_date, 'replace') else p.expiration_date
+                term_days = (exp - eff).days
+                if 150 <= term_days <= 200:
+                    prem = prem * 2
+            except Exception:
+                pass
+        total_premium += prem
+
+    # Monthly sales
+    from sqlalchemy import extract as sql_ext
+    month_sales = (
+        db.query(func.count(Sale.id), func.coalesce(func.sum(Sale.written_premium), 0))
+        .filter(sql_ext("year", Sale.sale_date) == today.year,
+                sql_ext("month", Sale.sale_date) == today.month)
+        .first()
+    )
+    new_sales_count = month_sales[0] if month_sales else 0
+    new_sales_premium = float(month_sales[1]) if month_sales else 0
+
+    # Cancellations this month
+    cancel_count = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.status == "cancelled",
+                sql_ext("year", Sale.cancelled_date) == today.year,
+                sql_ext("month", Sale.cancelled_date) == today.month)
+        .scalar() or 0
+    )
+
+    if existing:
+        existing.active_customers = active_customers
+        existing.total_customers = total_customers
+        existing.active_policies = active_policies
+        existing.total_policies = total_policies
+        existing.active_premium_annualized = float(total_premium)
+        existing.new_sales_count = new_sales_count
+        existing.new_sales_premium = new_sales_premium
+        existing.cancellations_count = cancel_count
+        snapshot = existing
+    else:
+        snapshot = AgencySnapshot(
+            snapshot_date=today,
+            period=period,
+            active_customers=active_customers,
+            total_customers=total_customers,
+            active_policies=active_policies,
+            total_policies=total_policies,
+            active_premium_annualized=float(total_premium),
+            new_sales_count=new_sales_count,
+            new_sales_premium=new_sales_premium,
+            cancellations_count=cancel_count,
+        )
+        db.add(snapshot)
+
+    db.commit()
+
+    return {
+        "snapshot_date": str(today),
+        "period": period,
+        "active_customers": active_customers,
+        "active_policies": active_policies,
+        "active_premium": float(total_premium),
+        "new_sales": new_sales_count,
+        "cancellations": cancel_count,
+    }
+
+
+@router.get("/growth-data")
+def growth_data(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get growth data for charts — customer count and premium over time."""
+    from app.models.agency_snapshot import AgencySnapshot
+
+    snapshots = (
+        db.query(AgencySnapshot)
+        .order_by(AgencySnapshot.snapshot_date.asc())
+        .all()
+    )
+
+    data = []
+    for s in snapshots:
+        data.append({
+            "date": str(s.snapshot_date),
+            "period": s.period,
+            "active_customers": s.active_customers,
+            "total_customers": s.total_customers,
+            "active_policies": s.active_policies,
+            "active_premium": float(s.active_premium_annualized or 0),
+            "new_sales": s.new_sales_count or 0,
+            "new_sales_premium": float(s.new_sales_premium or 0),
+            "cancellations": s.cancellations_count or 0,
+        })
+
+    # Also compute MoM and YoY changes
+    monthly = {}
+    for d in data:
+        p = d["period"]
+        if p not in monthly or d["date"] > monthly[p]["date"]:
+            monthly[p] = d
+
+    periods = sorted(monthly.keys())
+    growth_summary = []
+    for i, p in enumerate(periods):
+        entry = {**monthly[p]}
+        if i > 0:
+            prev = monthly[periods[i-1]]
+            entry["customer_change"] = entry["active_customers"] - prev["active_customers"]
+            entry["premium_change"] = entry["active_premium"] - prev["active_premium"]
+            entry["customer_change_pct"] = round((entry["customer_change"] / prev["active_customers"] * 100), 1) if prev["active_customers"] else 0
+            entry["premium_change_pct"] = round((entry["premium_change"] / prev["active_premium"] * 100), 1) if prev["active_premium"] else 0
+        # YoY: compare to same month last year
+        yoy_period = str(int(p[:4]) - 1) + p[4:]
+        if yoy_period in monthly:
+            yoy = monthly[yoy_period]
+            entry["yoy_customer_change"] = entry["active_customers"] - yoy["active_customers"]
+            entry["yoy_premium_change"] = entry["active_premium"] - yoy["active_premium"]
+            entry["yoy_customer_pct"] = round((entry["yoy_customer_change"] / yoy["active_customers"] * 100), 1) if yoy["active_customers"] else 0
+            entry["yoy_premium_pct"] = round((entry["yoy_premium_change"] / yoy["active_premium"] * 100), 1) if yoy["active_premium"] else 0
+
+        growth_summary.append(entry)
+
+    return {
+        "snapshots": data,
+        "growth_summary": growth_summary,
     }
 
 
