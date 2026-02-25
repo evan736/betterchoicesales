@@ -584,7 +584,11 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
             <div>
               <p className="text-[11px] text-blue-700 mb-1">
                 <Clock size={10} className="inline mr-1" />
-                {status.temp_auth.minutes_remaining} min remaining
+                {status.temp_auth.minutes_remaining >= 1440
+                  ? `${Math.round(status.temp_auth.minutes_remaining / 1440 * 10) / 10} days remaining`
+                  : status.temp_auth.minutes_remaining >= 120
+                    ? `${Math.round(status.temp_auth.minutes_remaining / 60 * 10) / 10} hrs remaining`
+                    : `${status.temp_auth.minutes_remaining} min remaining`}
               </p>
               <p className="text-[10px] text-slate-500">
                 By {status.temp_auth.authorized_by}
@@ -602,6 +606,10 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
                 <option value={60}>1 hour</option>
                 <option value={120}>2 hours</option>
                 <option value={480}>Rest of day (~8hr)</option>
+                <option value={1440}>1 day</option>
+                <option value={2880}>2 days</option>
+                <option value={4320}>3 days</option>
+                <option value={7200}>5 days</option>
               </select>
               <input
                 type="text"

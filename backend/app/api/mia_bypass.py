@@ -80,7 +80,7 @@ class TempAuthCreateRequest(BaseModel):
     @field_validator("duration_minutes")
     @classmethod
     def validate_duration(cls, v):
-        allowed = [30, 60, 120, 480]  # 30min, 1hr, 2hr, end of day (~8hr)
+        allowed = [30, 60, 120, 480, 1440, 2880, 4320, 7200]  # 30min, 1hr, 2hr, 8hr, 1d, 2d, 3d, 5d
         if v not in allowed:
             raise ValueError(f"Duration must be one of: {allowed}")
         return v
