@@ -581,7 +581,6 @@ def compose_email(
         participants=[to_email, from_email] + cc_list,
         last_message_at=datetime.utcnow(),
         customer_id=customer.id if customer else None,
-        customer_name=customer.display_name if customer else (to_name or None),
     )
     db.add(thread)
     db.flush()
