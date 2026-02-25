@@ -107,6 +107,14 @@ export default function ChatPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<any>(null);
+  const notifAudio = useRef<HTMLAudioElement | null>(null);
+  const prevUnreadRef = useRef<number>(0);
+
+  // Initialize notification sound
+  useEffect(() => {
+    notifAudio.current = new Audio('/notification.wav');
+    notifAudio.current.volume = 0.5;
+  }, []);
 
   // Load channels + unread on mount
   useEffect(() => {
@@ -143,7 +151,13 @@ export default function ChatPanel() {
   const loadUnread = async () => {
     try {
       const res = await chatAPI.unread();
-      setTotalUnread(res.data.total_unread);
+      const newTotal = res.data.total_unread;
+      // Play notification sound when new unread messages arrive
+      if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
+        try { notifAudio.current?.play(); } catch {}
+      }
+      prevUnreadRef.current = newTotal;
+      setTotalUnread(newTotal);
       setTotalMentions(res.data.total_mentions);
       const map: Record<number, number> = {};
       for (const ch of res.data.channels) {
