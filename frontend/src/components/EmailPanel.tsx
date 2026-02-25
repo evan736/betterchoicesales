@@ -422,64 +422,72 @@ export default function EmailPanel() {
           </div>
 
           {/* Reply area */}
-          <div className="border-t border-white/[0.06] bg-[#0d1f3c]/50">
+          <div className="border-t border-white/[0.08] bg-[#0d1f3c]/80">
             {!replyOpen ? (
-              <div className="px-3 py-2 flex items-center gap-1.5">
+              <div className="px-4 py-3 flex items-center gap-2">
                 <button onClick={() => setReplyOpen(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold rounded-lg transition-colors">
-                  <Send size={10} /> Reply
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors">
+                  <Send size={13} /> Reply
                 </button>
                 <button onClick={handleAiDraft} disabled={aiLoading}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 text-[10px] font-semibold rounded-lg border border-purple-500/20 transition-colors disabled:opacity-50">
-                  {aiLoading ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 text-xs font-semibold rounded-lg border border-purple-500/20 transition-colors disabled:opacity-50">
+                  {aiLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                   AI Assist
                 </button>
                 {activeThread.status !== 'closed' && (
-                  <button onClick={() => handleStatus(activeThread.id, 'closed')} className="text-[9px] text-slate-600 hover:text-green-400 ml-auto" title="Close">
-                    <Archive size={12} />
+                  <button onClick={() => handleStatus(activeThread.id, 'closed')} className="text-[10px] text-slate-600 hover:text-green-400 ml-auto flex items-center gap-1" title="Close">
+                    <Archive size={13} /> Close
                   </button>
                 )}
               </div>
             ) : (
-              <div className="px-3 py-2 space-y-1.5">
-                {aiDraft && <div className="text-[8px] text-purple-400 font-semibold flex items-center gap-1"><Sparkles size={8} /> AI draft — edit before sending</div>}
-                <div className="flex gap-1.5">
-                  <button onClick={() => setReplySendAs('service')}
-                    className={`px-2 py-0.5 rounded text-[9px] font-semibold border transition-colors ${
-                      replySendAs === 'service' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
-                    }`}>service@</button>
-                  <button onClick={() => setReplySendAs('personal')}
-                    className={`px-2 py-0.5 rounded text-[9px] font-semibold border transition-colors ${
-                      replySendAs === 'personal' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
-                    }`}>My Email</button>
+              <div className="px-4 py-3 space-y-2.5">
+                {aiDraft && <div className="text-[10px] text-purple-400 font-semibold flex items-center gap-1"><Sparkles size={10} /> AI draft — edit before sending</div>}
+                
+                {/* Send-as + CC row */}
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    <button onClick={() => setReplySendAs('service')}
+                      className={`px-3 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                        replySendAs === 'service' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                      }`}>service@</button>
+                    <button onClick={() => setReplySendAs('personal')}
+                      className={`px-3 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                        replySendAs === 'personal' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                      }`}>My Email</button>
+                  </div>
+                  <input value={replyCc} onChange={e => setReplyCc(e.target.value)} placeholder="CC (optional)"
+                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1 text-xs text-white placeholder:text-slate-600 outline-none focus:border-blue-500/30" />
                 </div>
-                <input value={replyCc} onChange={e => setReplyCc(e.target.value)} placeholder="CC"
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[10px] text-white placeholder:text-slate-600 outline-none" />
-                <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={3} autoFocus
-                  placeholder="Type reply..."
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-[10px] text-white placeholder:text-slate-600 resize-none outline-none focus:border-blue-500/30" />
+
+                {/* Textarea */}
+                <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={6} autoFocus
+                  placeholder="Type your reply..."
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-[13px] leading-relaxed text-white placeholder:text-slate-600 resize-none outline-none focus:border-blue-500/30" />
+                
+                {/* Bottom bar: attachments + actions */}
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <input ref={replyFileRef} type="file" multiple className="hidden"
                       onChange={e => { if (e.target.files) setReplyFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
-                    <button onClick={() => replyFileRef.current?.click()} className="text-[9px] text-slate-600 hover:text-slate-400 flex items-center gap-0.5">
-                      <Paperclip size={9} /> Attach
+                    <button onClick={() => replyFileRef.current?.click()} className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-1 px-2 py-1 rounded hover:bg-white/[0.04]">
+                      <Paperclip size={12} /> Attach
                     </button>
                     {replyFiles.map((f, i) => (
-                      <span key={i} className="text-[8px] bg-white/[0.06] rounded px-1 text-slate-500">
-                        {f.name.slice(0, 12)} <button onClick={() => setReplyFiles(prev => prev.filter((_, j) => j !== i))} className="text-red-400">×</button>
+                      <span key={i} className="text-[9px] bg-white/[0.08] rounded px-1.5 py-0.5 text-slate-400 flex items-center gap-1">
+                        {f.name.slice(0, 15)} <button onClick={() => setReplyFiles(prev => prev.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-300">×</button>
                       </span>
                     ))}
-                    <label className="flex items-center gap-0.5 text-[8px] text-slate-600 cursor-pointer">
-                      <input type="checkbox" checked={closeAfterReply} onChange={e => setCloseAfterReply(e.target.checked)} className="rounded w-2.5 h-2.5" />
-                      Close
+                    <label className="flex items-center gap-1 text-[10px] text-slate-600 cursor-pointer hover:text-slate-400">
+                      <input type="checkbox" checked={closeAfterReply} onChange={e => setCloseAfterReply(e.target.checked)} className="rounded w-3 h-3" />
+                      Close after
                     </label>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => setReplyOpen(false)} className="text-[9px] text-slate-600">Cancel</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setReplyOpen(false)} className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1">Cancel</button>
                     <button disabled={!replyBody.trim() || replySending} onClick={handleReply}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[9px] font-semibold rounded-lg disabled:opacity-40 transition-colors">
-                      {replySending ? <Loader2 size={9} className="animate-spin" /> : <Send size={9} />}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg disabled:opacity-40 transition-colors">
+                      {replySending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                       Send
                     </button>
                   </div>
