@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { emailAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmail } from '../contexts/EmailContext';
-import { useChat } from '../contexts/ChatContext';
 import {
   Mail, Search, Inbox, Send, User, Clock, Loader2, X, CheckCircle2,
   Paperclip, Sparkles, Archive, RefreshCw, MailOpen, ChevronLeft,
@@ -169,41 +168,16 @@ export default function EmailPanel() {
   };
   const mailboxLabel = (mb: string) => mb === 'service' ? 'Service' : mb.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-  // Position: offset by chat sidebar width
-  const rightOffset = chatOpen ? 380 : 48;
-
+  // Position: always fixed right-0 (shares space with chat)
   if (!user) return null;
 
-  // ═══ COLLAPSED STATE ═══
-  if (!open) {
-    return (
-      <div className="fixed top-0 h-full w-12 z-40 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-4"
-        style={{ right: `${rightOffset}px`, backdropFilter: 'blur(10px)' }}>
-        <button onClick={() => { openSidebar(); loadMailboxes(); loadThreads(); }}
-          className="relative h-10 w-10 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 flex items-center justify-center transition-colors"
-          title="Open Email Inbox">
-          <Mail size={20} />
-          {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center animate-pulse">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-        </button>
-        {/* Quick stats dots */}
-        {openCount > 0 && (
-          <div className="flex flex-col items-center gap-1">
-            <span className="text-[8px] text-blue-400 font-bold">{openCount}</span>
-            <span className="text-[7px] text-slate-500">open</span>
-          </div>
-        )}
-      </div>
-    );
-  }
+  // ═══ COLLAPSED: handled by ChatPanel's collapsed bar ═══
+  if (!open) return null;
 
   // ═══ EXPANDED STATE ═══
   return (
-    <div className="fixed top-0 h-full w-[380px] z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40"
-      style={{ right: `${rightOffset}px`, backdropFilter: 'blur(20px)' }}>
+    <div className="fixed top-0 right-0 h-full w-[380px] z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40"
+      style={{ backdropFilter: 'blur(20px)' }}>
 
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#0d1f3c] to-[#0a1628] border-b border-blue-900/20">

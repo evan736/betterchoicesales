@@ -23,17 +23,16 @@ function AppLayout({ Component, pageProps }: { Component: any; pageProps: any })
     return <Component {...pageProps} />;
   }
 
-  // Calculate right margin: chat bar (48 collapsed / 380 open) + email bar (48 collapsed / 380 open)
-  const chatWidth = chatOpen ? 380 : 48;
-  const emailWidth = emailOpen ? 380 : 48;
-  const totalRight = chatWidth + emailWidth;
+  // Calculate right margin: shared sidebar bar (48px) or expanded panel (380px)
+  // Only one panel can be expanded at a time — they share the same space
+  const rightMargin = chatOpen || emailOpen ? 380 : 48;
 
   return (
     <div className="flex min-h-screen">
       {/* Main content — shrinks when sidebars open */}
       <div
         className="flex-1 min-w-0 transition-all duration-300"
-        style={{ marginRight: `${totalRight}px` }}
+        style={{ marginRight: `${rightMargin}px` }}
       >
         <Component {...pageProps} />
       </div>

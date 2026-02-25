@@ -2,11 +2,33 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { chatAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useEmail } from '../contexts/EmailContext';
 import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
   Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
-  Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen
+  Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
+  Mail,
 } from 'lucide-react';
+
+// Email toggle button used in collapsed sidebar
+function EmailToggleButton() {
+  const { openSidebar: openEmail, unreadCount } = useEmail();
+  const { closeSidebar: closeChat } = useChat();
+  return (
+    <button
+      onClick={() => { closeChat(); openEmail(); }}
+      className="relative h-10 w-10 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 flex items-center justify-center transition-colors"
+      title="Open Email Inbox"
+    >
+      <Mail size={20} />
+      {unreadCount > 0 && (
+        <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center animate-pulse">
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
+    </button>
+  );
+}
 
 // Popular emoji palette
 const EMOJI_LIST = ['👍','👎','❤️','🎉','😂','🔥','👀','💯','✅','❌','🤔','👏','🙏','💪','🚀','⭐'];
@@ -54,6 +76,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.o
 export default function ChatPanel() {
   const { user } = useAuth();
   const { sidebarOpen: open, toggleSidebar, openSidebar, closeSidebar } = useChat();
+  const { closeSidebar: closeEmail } = useEmail();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -312,14 +335,17 @@ export default function ChatPanel() {
 
   if (!user) return null;
 
-  // Collapsed sidebar bar
+  // Collapsed sidebar bar — includes both Chat + Email icons
   if (!open) {
     return (
-      <div className="fixed top-0 right-0 h-full w-12 z-40 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-4"
+      <div className="fixed top-0 right-0 h-full w-12 z-40 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-3"
         style={{ backdropFilter: 'blur(10px)' }}
       >
+        {/* Email icon */}
+        <EmailToggleButton />
+        {/* Chat icon */}
         <button
-          onClick={() => { openSidebar(); loadChannels(); loadUnread(); }}
+          onClick={() => { closeEmail(); openSidebar(); loadChannels(); loadUnread(); }}
           className="relative h-10 w-10 rounded-lg bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 flex items-center justify-center transition-colors"
           title="Open Team Chat"
         >
