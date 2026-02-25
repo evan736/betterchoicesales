@@ -144,7 +144,78 @@ def send_post_call_sms(
     return send_sms(caller_phone, body)
 
 
-# ── 3. CANCELLATION ALERT SMS TO STAFF ─────────────────────────────
+# ── 3. MID-CALL SMS (Retell Tool) ──────────────────────────────────
+
+@router.post("/send-to-caller")
+async def send_sms_to_caller(request: Request):
+    """Send an SMS to the caller mid-call. Called by MIA as a Retell custom tool.
+
+    Retell sends: {args: {caller_name, caller_phone, message_type, custom_message}, call: {...}}
+
+    message_type options:
+      - confirmation: "We received your request and our team will follow up shortly."
+      - document_request: "We received your document request. Our team will email your documents shortly."
+      - callback: "We received your callback request. A team member will reach out shortly."
+      - policy_change: "We received your policy change request. Our team will process and follow up."
+      - custom: Uses custom_message field
+    """
+    try:
+        body = await request.json()
+        args = body.get("args", {})
+        call_info = body.get("call", {})
+
+        caller_name = args.get("caller_name", "")
+        caller_phone = args.get("caller_phone", call_info.get("from_number", ""))
+        message_type = args.get("message_type", "confirmation")
+        custom_message = args.get("custom_message", "")
+
+        if not caller_phone:
+            return {"result": "No phone number available to send SMS."}
+
+        first_name = (caller_name or "").split()[0] if caller_name else ""
+        greeting = f"Hi{' ' + first_name if first_name else ''}! "
+        sign_off = " Questions? Call us at (847) 908-5665."
+
+        messages = {
+            "confirmation": (
+                f"{greeting}This is Better Choice Insurance Group. "
+                f"We received your request and our team will follow up with you shortly.{sign_off}"
+            ),
+            "callback": (
+                f"{greeting}This is Better Choice Insurance Group confirming we received your callback request. "
+                f"A member of our team will reach out to you shortly. "
+                f"If you need immediate assistance, please call us at (847) 908-5665."
+            ),
+            "document_request": (
+                f"{greeting}Better Choice Insurance Group here — we received your document request. "
+                f"Our team will email your documents shortly.{sign_off}"
+            ),
+            "policy_change": (
+                f"{greeting}Better Choice Insurance Group here — we received your policy change request. "
+                f"Our service team will process this and follow up with you.{sign_off}"
+            ),
+        }
+
+        if message_type == "custom" and custom_message:
+            sms_body = custom_message[:1600]
+        else:
+            sms_body = messages.get(message_type, messages["confirmation"])
+
+        result = send_sms(caller_phone, sms_body)
+
+        if result.get("success"):
+            logger.info("Mid-call SMS sent to %s (type=%s)", caller_phone, message_type)
+            return {"result": f"Text message sent successfully to {caller_phone}."}
+        else:
+            logger.error("Mid-call SMS failed: %s", result.get("error"))
+            return {"result": "I wasn't able to send the text message right now, but our team will follow up with you."}
+
+    except Exception as e:
+        logger.error("Mid-call SMS error: %s", e)
+        return {"result": "I wasn't able to send the text message right now, but our team will follow up with you."}
+
+
+# ── 4. CANCELLATION ALERT SMS TO STAFF ─────────────────────────────
 
 def send_cancellation_alert_sms(
     caller_name: str,

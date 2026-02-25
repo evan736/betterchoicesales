@@ -593,12 +593,13 @@ async def frontend_inbound_webhook(request: Request):
                 phone_digits, bypass_result["reason"], bypass_name
             )
 
-            greeting = (
-                f"One moment please, {bypass_name.split()[0] if bypass_name else 'caller'}, "
-                f"I'm connecting you now."
-                if bypass_name else
-                "One moment please, I'm connecting you to the office now."
-            )
+            # DO NOT set begin_message for bypass calls.
+            # If begin_message is set, it plays as a static greeting and
+            # the LLM then waits for user speech before it can act.
+            # By setting begin_message to null, the LLM generates its own
+            # first turn — which, per the BYPASS HANDLING prompt rule,
+            # will say the greeting AND call transfer_bci_office in one shot.
+            first_name = bypass_name.split()[0] if bypass_name else ""
 
             return {
                 "call_inbound": {
@@ -614,11 +615,11 @@ async def frontend_inbound_webhook(request: Request):
                         "customer_email": "",
                         "is_repeat_caller": "false",
                         "repeat_call_count": "1",
-                        "greeting_message": greeting,
+                        "greeting_message": f"Bypass active for {first_name or 'caller'} — transfer immediately.",
                     },
                     "agent_override": {
                         "retell_llm": {
-                            "begin_message": greeting,
+                            "begin_message": None,
                         }
                     },
                     "metadata": {
