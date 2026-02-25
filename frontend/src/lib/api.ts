@@ -22,6 +22,7 @@ export const salesAPI = {
   get: (id: number) => api.get(`/api/sales/${id}`),
   create: (data: any) => api.post('/api/sales/', data),
   createFromPdf: (data: any) => api.post('/api/sales/create-from-pdf', data),
+  createBundle: (data: any) => api.post('/api/sales/create-bundle', data),
   update: (id: number, data: any) => api.patch(`/api/sales/${id}`, data),
   delete: (id: number) => api.delete(`/api/sales/${id}`),
   uploadPDF: (id: number, file: File) => {

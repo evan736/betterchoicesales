@@ -262,6 +262,26 @@ def init_database():
         except Exception as e:
             logger.warning(f"Tasks column migration warning: {e}")
 
+    # Ensure sale_line_items table exists
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sale_line_items (
+                    id SERIAL PRIMARY KEY,
+                    sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+                    policy_type VARCHAR NOT NULL,
+                    policy_suffix VARCHAR,
+                    premium NUMERIC(10,2) NOT NULL,
+                    description VARCHAR,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sale_line_items_sale_id ON sale_line_items(sale_id)"))
+            conn.commit()
+            logger.info("sale_line_items table ready")
+        except Exception as e:
+            logger.warning(f"sale_line_items migration: {e}")
+
     # Ensure timeclock_entries table exists with ALL columns
     with engine.connect() as conn:
         try:
@@ -680,7 +700,7 @@ async def lifespan(app: FastAPI):
     """Run database init on startup + start background scheduler."""
     init_database()
 
-    # Mark pre-Feb 2026 sales as premium paid
+    # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
     try:
         from sqlalchemy import text as sa_text
         from app.core.database import engine
@@ -688,13 +708,13 @@ async def lifespan(app: FastAPI):
             r = conn.execute(sa_text(
                 "UPDATE sales SET commission_status = 'paid' "
                 "WHERE commission_status != 'paid' "
-                "AND (sale_date < '2026-02-01' OR effective_date < '2026-02-01')"
+                "AND sale_date < '2026-01-01'"
             ))
             conn.commit()
             if r.rowcount > 0:
-                logger.info(f"Marked {r.rowcount} pre-Feb-2026 sales as premium paid")
+                logger.info(f"Marked {r.rowcount} pre-2026 sales as premium paid")
     except Exception as e:
-        logger.warning(f"Pre-Feb paid update: {e}")
+        logger.warning(f"Pre-2026 paid update: {e}")
 
     # Start background follow-up checker (runs every 6 hours)
     import asyncio
@@ -891,18 +911,18 @@ def force_migrate():
         except Exception as e:
             results.append(f"SKIP: {str(e)[:80]}")
 
-    # Mark all sales before Feb 1 2026 as premium paid
+    # Mark all sales before Jan 2026 as premium paid
     try:
         with engine.connect() as conn:
             r = conn.execute(sa_text(
                 "UPDATE sales SET commission_status = 'paid' "
                 "WHERE commission_status != 'paid' "
-                "AND (sale_date < '2026-02-01' OR effective_date < '2026-02-01')"
+                "AND sale_date < '2026-01-01'"
             ))
             conn.commit()
-            results.append(f"OK: Marked {r.rowcount} pre-Feb-2026 sales as premium paid")
+            results.append(f"OK: Marked {r.rowcount} pre-2026 sales as premium paid")
     except Exception as e:
-        results.append(f"SKIP pre-Feb paid: {str(e)[:80]}")
+        results.append(f"SKIP pre-2026 paid: {str(e)[:80]}")
 
     return {"results": results}
 

@@ -506,6 +506,28 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             <InfoItem label="Email" value={currentEmail || '—'} />
             <InfoItem label="Phone" value={sale.client_phone || '—'} />
           </div>
+          {/* Line item breakdown for bundles */}
+          {sale.line_items && sale.line_items.length > 0 && (
+            <div className="mb-2 p-2 bg-slate-800/40 rounded-lg border border-slate-700/50">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">Premium Breakdown</div>
+              <div className="flex flex-wrap gap-3">
+                {sale.line_items.map((li: any) => (
+                  <div key={li.id} className="flex items-center gap-1.5 text-xs">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      li.policy_type === 'auto' ? 'bg-blue-900/50 text-blue-300' :
+                      li.policy_type === 'home' ? 'bg-green-900/50 text-green-300' :
+                      li.policy_type === 'renters' ? 'bg-purple-900/50 text-purple-300' :
+                      'bg-slate-700 text-slate-300'
+                    }`}>
+                      {li.policy_type?.replace(/_/g, ' ').toUpperCase()}
+                    </span>
+                    <span className="text-slate-300">${parseFloat(li.premium).toLocaleString()}</span>
+                    {li.policy_suffix && <span className="text-slate-500 text-[10px]">({li.policy_suffix})</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Add Email prompt when missing */}
           {!currentEmail && (
             <div className="mt-2 mb-1">
@@ -720,43 +742,67 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
     const results: any[] = [];
     const includedPolicies = policies.filter(p => p.include);
     
-    // Auto-suffix duplicate policy numbers
-    const policyNumbers: Record<string, number> = {};
+    // Validate all have policy numbers
     for (const pol of includedPolicies) {
-      const base = pol.policy_number;
-      if (!base) { alert('Please enter a policy number for all policies'); setSaving(false); return; }
-      if (policyNumbers[base] !== undefined) {
-        policyNumbers[base]++;
-        pol._saveNumber = `${base}-${pol.policy_type?.toUpperCase()?.slice(0,3) || policyNumbers[base]}`;
-      } else {
-        policyNumbers[base] = 0;
-        pol._saveNumber = base;
-      }
+      if (!pol.policy_number) { alert('Please enter a policy number for all policies'); setSaving(false); return; }
+    }
+
+    // Group policies by base policy number to detect bundles
+    const groups: Record<string, typeof includedPolicies> = {};
+    for (const pol of includedPolicies) {
+      const base = pol.policy_number.replace(/[-\s]+(AUT|HOM|HOME|AUTO|RNT|RENT|\d{1,2})$/i, '').trim();
+      if (!groups[base]) groups[base] = [];
+      groups[base].push(pol);
     }
 
     const createdSaleIds: number[] = [];
 
-    for (const pol of includedPolicies) {
+    for (const [basePn, groupPols] of Object.entries(groups)) {
       try {
-        // Fix effective_date format — append time if it's just a date
-        let effectiveDate = pol.effective_date || undefined;
+        // Normalize effective date
+        let effectiveDate = groupPols[0].effective_date || undefined;
         if (effectiveDate && typeof effectiveDate === 'string' && !effectiveDate.includes('T')) {
           effectiveDate = `${effectiveDate}T00:00:00`;
         }
-        const res = await salesAPI.createFromPdf({
-          policy_number: pol._saveNumber || pol.policy_number,
-          written_premium: parseFloat(pol.written_premium) || 0,
-          lead_source: leadSource,
-          policy_type: pol.policy_type || undefined,
-          carrier: clientInfo.carrier || undefined,
-          state: clientInfo.state || undefined,
-          client_name: clientInfo.client_name,
-          client_email: clientInfo.client_email || undefined,
-          client_phone: clientInfo.client_phone || undefined,
-          item_count: parseInt(pol.item_count) || 1,
-          effective_date: effectiveDate,
-          notes: pol.notes || undefined,
-        });
+
+        let res;
+        if (groupPols.length > 1) {
+          // BUNDLE: multiple policies with same base number → one sale with line items
+          res = await salesAPI.createBundle({
+            base_policy_number: basePn,
+            client_name: clientInfo.client_name,
+            client_email: clientInfo.client_email || undefined,
+            client_phone: clientInfo.client_phone || undefined,
+            carrier: clientInfo.carrier || undefined,
+            state: clientInfo.state || undefined,
+            lead_source: leadSource,
+            effective_date: effectiveDate,
+            lines: groupPols.map(p => ({
+              policy_type: p.policy_type || 'other',
+              premium: parseFloat(p.written_premium) || 0,
+              item_count: parseInt(p.item_count) || 1,
+              policy_suffix: p.policy_number.replace(basePn, '').replace(/^[-\s]+/, '').trim() || undefined,
+              notes: p.notes || undefined,
+            })),
+          });
+        } else {
+          // Single policy — use original endpoint
+          const pol = groupPols[0];
+          res = await salesAPI.createFromPdf({
+            policy_number: pol.policy_number,
+            written_premium: parseFloat(pol.written_premium) || 0,
+            lead_source: leadSource,
+            policy_type: pol.policy_type || undefined,
+            carrier: clientInfo.carrier || undefined,
+            state: clientInfo.state || undefined,
+            client_name: clientInfo.client_name,
+            client_email: clientInfo.client_email || undefined,
+            client_phone: clientInfo.client_phone || undefined,
+            item_count: parseInt(pol.item_count) || 1,
+            effective_date: effectiveDate,
+            notes: pol.notes || undefined,
+          });
+        }
         
         // Upload the PDF to the sale for e-signature later
         const saleId = res.data.sale?.id;
@@ -770,11 +816,14 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
 
         if (saleId) createdSaleIds.push(saleId);
         
-        results.push({ success: true, policy: pol._saveNumber || pol.policy_number, household: res.data.household, saleId });
+        const label = groupPols.length > 1 
+          ? `${basePn} (bundle: ${groupPols.map(p => p.policy_type).join(' + ')})`
+          : groupPols[0].policy_number;
+        results.push({ success: true, policy: label, household: res.data.household, saleId });
       } catch (err: any) {
         const detail = err.response?.data?.detail;
         const errMsg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || 'Failed to save');
-        results.push({ success: false, policy: pol._saveNumber || pol.policy_number, error: errMsg });
+        results.push({ success: false, policy: basePn, error: errMsg });
       }
     }
     setSaveResults(results);

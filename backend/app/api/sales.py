@@ -245,6 +245,108 @@ def create_from_pdf(
     }
 
 
+@router.post("/create-bundle")
+def create_bundle(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a single bundled sale with line items from multiple policy lines.
+
+    Expects: {
+        "base_policy_number": "2033884202",
+        "client_name": "Jack Liesen",
+        "client_email": "...",
+        "client_phone": "...",
+        "carrier": "Encompass",
+        "state": "IL",
+        "lead_source": "call_in",
+        "effective_date": "2026-03-06T00:00:00",
+        "lines": [
+            {"policy_type": "home", "premium": 1362.00, "item_count": 1, "policy_suffix": "", "notes": "..."},
+            {"policy_type": "auto", "premium": 1335.32, "item_count": 1, "policy_suffix": "AUT", "notes": "..."}
+        ]
+    }
+    """
+    from datetime import datetime
+    from app.models.sale import SaleLineItem
+
+    base_pn = str(request.get("base_policy_number", "")).strip()
+    if not base_pn:
+        raise HTTPException(status_code=400, detail="base_policy_number is required")
+
+    lines = request.get("lines", [])
+    if not lines:
+        raise HTTPException(status_code=400, detail="At least one line item is required")
+
+    # Check for duplicate
+    existing = db.query(Sale).filter(Sale.policy_number == base_pn).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Sale with policy number {base_pn} already exists")
+
+    total_premium = sum(float(l.get("premium", 0)) for l in lines)
+    total_items = sum(int(l.get("item_count", 1)) for l in lines)
+
+    # Parse effective_date
+    eff_date = None
+    eff_str = request.get("effective_date")
+    if eff_str:
+        try:
+            eff_date = datetime.fromisoformat(str(eff_str).replace("Z", "+00:00"))
+        except Exception:
+            pass
+
+    policy_type = "bundled" if len(lines) > 1 else (lines[0].get("policy_type") or "other")
+
+    sale = Sale(
+        policy_number=base_pn,
+        policy_type=policy_type,
+        carrier=_normalize_carrier(str(request.get("carrier", "")).strip()),
+        written_premium=total_premium,
+        recognized_premium=total_premium,
+        producer_id=current_user.id,
+        lead_source=request.get("lead_source"),
+        item_count=total_items,
+        client_name=str(request.get("client_name", "")).strip(),
+        client_email=request.get("client_email"),
+        client_phone=request.get("client_phone"),
+        state=request.get("state"),
+        status=determine_status(eff_date),
+        effective_date=eff_date,
+        notes=request.get("notes"),
+    )
+    db.add(sale)
+    db.flush()  # Get sale.id
+
+    # Create line items
+    for l in lines:
+        li = SaleLineItem(
+            sale_id=sale.id,
+            policy_type=l.get("policy_type", "other"),
+            policy_suffix=l.get("policy_suffix") or None,
+            premium=float(l.get("premium", 0)),
+            description=l.get("notes") or f"{l.get('policy_type', 'other').replace('_', ' ').title()}",
+        )
+        db.add(li)
+
+    db.commit()
+    db.refresh(sale)
+
+    # Send Hooray notification
+    _trigger_hooray_email(sale, current_user, db)
+
+    return {
+        "sale": SaleSchema.model_validate(sale),
+        "household": {
+            "client_name": sale.client_name,
+            "total_policies": 1,
+            "total_items": total_items,
+            "total_premium": total_premium,
+            "is_bundle": len(lines) > 1,
+        }
+    }
+
+
 @router.post("/", response_model=SaleSchema)
 def create_sale(
     sale_data: SaleCreate,
@@ -767,9 +869,79 @@ async def import_sales_csv(
 
     db.commit()
 
+    # ── Bundle Detection & Merging ──
+    # Find newly created sales that share the same base policy number + client + effective date
+    # e.g. 2033884202 (home) + 2033884202-AUT (auto) → merge into one bundled sale
+    import re
+    from app.models.sale import SaleLineItem
+
+    def _base_policy(pn: str) -> str:
+        """Strip suffix like -AUT, -01, -HOM from policy number."""
+        return re.sub(r'[- ]+(AUT|HOM|HOME|AUTO|RNT|RENT|01|02|03|04|05)$', '', pn.upper()).strip()
+
+    # Get all sales just created (in this import batch) — those without line_items yet
+    recent_sales = db.query(Sale).filter(
+        Sale.sale_date >= sale_date if sale_date else Sale.id > 0
+    ).order_by(Sale.id.desc()).limit(created + skipped).all()
+
+    # Group by (base_policy, client_name_upper, effective_date)
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for s in recent_sales:
+        base = _base_policy(s.policy_number or "")
+        client = (s.client_name or "").upper().strip()
+        eff = str(s.effective_date)[:10] if s.effective_date else ""
+        key = (base, client, eff)
+        groups[key].append(s)
+
+    merged_count = 0
+    for key, group_sales in groups.items():
+        if len(group_sales) < 2:
+            continue
+
+        # Sort by id to keep the first-created as the primary
+        group_sales.sort(key=lambda s: s.id)
+        primary = group_sales[0]
+
+        # Create line items for each sale in the group
+        total_premium = 0
+        total_items = 0
+        types_found = []
+        for s in group_sales:
+            suffix = s.policy_number.replace(_base_policy(s.policy_number), "").strip(" -")
+            line = SaleLineItem(
+                sale_id=primary.id,
+                policy_type=s.policy_type or "other",
+                policy_suffix=suffix or None,
+                premium=float(s.written_premium or 0),
+                description=f"{(s.policy_type or 'other').replace('_', ' ').title()} — {s.policy_number}",
+            )
+            db.add(line)
+            total_premium += float(s.written_premium or 0)
+            total_items += (s.item_count or 1)
+            types_found.append(s.policy_type or "other")
+
+        # Update primary sale
+        primary.policy_type = "bundled"
+        primary.written_premium = total_premium
+        primary.recognized_premium = total_premium
+        primary.item_count = total_items
+        # Use the base policy number (no suffix)
+        primary.policy_number = _base_policy(primary.policy_number)
+
+        # Delete the secondary sales (not the primary)
+        for s in group_sales[1:]:
+            db.delete(s)
+            merged_count += 1
+
+    if merged_count > 0:
+        db.commit()
+        logger.info(f"Merged {merged_count} duplicate policies into bundles")
+
     return {
-        "created": created,
+        "created": created - merged_count,
         "skipped": skipped,
+        "merged_into_bundles": merged_count,
         "errors": errors,
         "total_rows": len(df),
     }
@@ -796,4 +968,93 @@ def debug_sale_counts(
         "total_sales": total,
         "null_sale_dates": null_dates,
         "by_month": [{"year": r.y, "month": r.m, "count": r.cnt, "premium": float(r.premium or 0)} for r in results],
+    }
+
+
+@router.post("/merge-duplicate-policies")
+def merge_duplicate_policies(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Find and merge sales that share the same base policy number + client + effective date.
+    
+    e.g. 2033884202 (home) + 2033884202-AUT (auto) → one bundled sale with line items.
+    Admin only.
+    """
+    import re
+    from app.models.sale import SaleLineItem
+
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    def _base_policy(pn: str) -> str:
+        return re.sub(r'[-\s]+(AUT|HOM|HOME|AUTO|RNT|RENT|01|02|03|04|05)$', '', pn.upper()).strip()
+
+    all_sales = db.query(Sale).order_by(Sale.id).all()
+
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for s in all_sales:
+        base = _base_policy(s.policy_number or "")
+        client = (s.client_name or "").upper().strip()
+        eff = str(s.effective_date)[:10] if s.effective_date else ""
+        carrier = (s.carrier or "").upper().strip()
+        key = (base, client, eff, carrier)
+        groups[key].append(s)
+
+    merged = []
+    for key, group_sales in groups.items():
+        if len(group_sales) < 2:
+            continue
+
+        # Check they already don't have line items
+        group_sales.sort(key=lambda s: s.id)
+        primary = group_sales[0]
+
+        # Skip if primary already has line items (already merged)
+        existing_lines = db.query(SaleLineItem).filter(SaleLineItem.sale_id == primary.id).count()
+        if existing_lines > 0:
+            continue
+
+        total_premium = 0
+        total_items = 0
+        for s in group_sales:
+            base = _base_policy(s.policy_number or "")
+            suffix = (s.policy_number or "").upper().replace(base, "").strip(" -")
+            li = SaleLineItem(
+                sale_id=primary.id,
+                policy_type=s.policy_type or "other",
+                policy_suffix=suffix or None,
+                premium=float(s.written_premium or 0),
+                description=f"{(s.policy_type or 'other').replace('_', ' ').title()} — {s.policy_number}",
+            )
+            db.add(li)
+            total_premium += float(s.written_premium or 0)
+            total_items += (s.item_count or 1)
+
+        primary.policy_type = "bundled"
+        primary.written_premium = total_premium
+        primary.recognized_premium = total_premium
+        primary.item_count = total_items
+        primary.policy_number = _base_policy(primary.policy_number)
+
+        deleted_ids = []
+        for s in group_sales[1:]:
+            deleted_ids.append(s.id)
+            db.delete(s)
+
+        merged.append({
+            "primary_id": primary.id,
+            "policy_number": primary.policy_number,
+            "client": primary.client_name,
+            "merged_count": len(group_sales),
+            "total_premium": total_premium,
+            "deleted_sale_ids": deleted_ids,
+        })
+
+    db.commit()
+
+    return {
+        "merged_groups": len(merged),
+        "details": merged,
     }

@@ -102,3 +102,20 @@ class Sale(Base):
     # Relationships
     producer = relationship("User", back_populates="sales")
     commissions = relationship("Commission", back_populates="sale", cascade="all, delete-orphan")
+    line_items = relationship("SaleLineItem", back_populates="sale", cascade="all, delete-orphan")
+
+
+class SaleLineItem(Base):
+    """Individual policy lines within a bundled sale (e.g. auto + home)."""
+    __tablename__ = "sale_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sale_id = Column(Integer, ForeignKey("sales.id", ondelete="CASCADE"), nullable=False, index=True)
+    policy_type = Column(String, nullable=False)       # auto, home, renters, etc.
+    policy_suffix = Column(String, nullable=True)      # -AUT, -01, etc.
+    premium = Column(Numeric(10, 2), nullable=False)
+    description = Column(String, nullable=True)         # e.g. "Auto 6-month", "Homeowners"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    sale = relationship("Sale", back_populates="line_items")

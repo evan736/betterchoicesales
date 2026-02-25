@@ -1,7 +1,18 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
+
+
+class SaleLineItemSchema(BaseModel):
+    id: int
+    policy_type: str
+    policy_suffix: Optional[str] = None
+    premium: Decimal
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 class SaleBase(BaseModel):
@@ -55,6 +66,7 @@ class SaleInDB(SaleBase):
     effective_date: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    line_items: Optional[List[SaleLineItemSchema]] = None
 
     class Config:
         from_attributes = True
