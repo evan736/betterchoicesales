@@ -593,10 +593,17 @@ async def frontend_inbound_webhook(request: Request):
                 phone_digits, bypass_result["reason"], bypass_name
             )
 
-            # Use empty string "" for begin_message so the LLM generates
-            # its first turn freely. With bypass_active="true" and an
-            # empty greeting_message, the BYPASS HANDLING prompt rule
-            # tells the LLM to say the greeting AND call transfer_bci_office.
+            # Strategy: begin_message plays the greeting aloud.
+            # After it plays, the LLM waits for user speech. But the
+            # BYPASS HANDLING prompt tells the LLM: if bypass_active is
+            # true and the caller says ANYTHING (or even stays silent),
+            # immediately call transfer_bci_office.
+            first_name = bypass_name.split()[0] if bypass_name else ""
+            spoken_greeting = (
+                f"One moment please, {first_name}, I'm connecting you now."
+                if first_name else
+                "One moment please, I'm connecting you to the office now."
+            )
 
             return {
                 "call_inbound": {
@@ -612,11 +619,11 @@ async def frontend_inbound_webhook(request: Request):
                         "customer_email": "",
                         "is_repeat_caller": "false",
                         "repeat_call_count": "1",
-                        "greeting_message": "",
+                        "greeting_message": spoken_greeting,
                     },
                     "agent_override": {
                         "retell_llm": {
-                            "begin_message": "",
+                            "begin_message": spoken_greeting,
                         }
                     },
                     "metadata": {
