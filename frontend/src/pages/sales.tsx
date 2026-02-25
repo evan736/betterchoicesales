@@ -353,6 +353,27 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
   const [newEmail, setNewEmail] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [currentEmail, setCurrentEmail] = useState(sale.client_email || '');
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  const handleUploadPdf = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf';
+    input.onchange = async (e: any) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      setUploadingPdf(true);
+      try {
+        await salesAPI.uploadPDF(sale.id, f);
+        onUpdate();
+      } catch (err: any) {
+        alert(err.response?.data?.detail || 'Upload failed');
+      } finally {
+        setUploadingPdf(false);
+      }
+    };
+    input.click();
+  };
 
   const handleAddEmail = async () => {
     if (!newEmail.trim() || !newEmail.includes('@')) {
@@ -573,6 +594,15 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               <span>{sendingSig ? 'Uploading...' : (sigStatus === 'sent' || sigStatus === 'draft' ? 'Resend for Signature' : 'Send for Signature')}</span>
             </button>
           )}
+          {/* Upload / Re-upload PDF */}
+          <button
+            onClick={handleUploadPdf}
+            disabled={uploadingPdf}
+            className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-all text-sm font-medium"
+          >
+            <Upload size={14} />
+            <span>{uploadingPdf ? 'Uploading...' : (sale.application_pdf_path ? '↻ Replace PDF' : 'Upload PDF')}</span>
+          </button>
           {/* Check Status */}
           {(sigStatus === 'sent' || sigStatus === 'draft') && (
             <button
