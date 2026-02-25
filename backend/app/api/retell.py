@@ -924,17 +924,6 @@ async def callback_request(request: Request):
                 cancel_html
             )
 
-            # Also send SMS alert to staff (if configured)
-            try:
-                from app.api.sms import send_cancellation_alert_sms
-                send_cancellation_alert_sms(
-                    caller_name=caller_name,
-                    caller_phone=caller_phone,
-                    carrier=carrier,
-                )
-            except Exception as e:
-                logger.error("Cancellation SMS alert failed: %s", e)
-
         # Return success message that MIA will read to caller
         return {
             "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} as soon as possible."

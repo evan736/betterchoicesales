@@ -27,7 +27,7 @@ TWILIO_AUTH = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_SMS_NUMBER = os.environ.get("TWILIO_SMS_NUMBER", "+16305267478")
 TWILIO_API_URL = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
 
-BCI_OFFICE_NUMBER = "+16305280941"  # Main MIA/Retell number for reference in replies
+BCI_OFFICE_NUMBER = "+18479085665"  # Main MIA/Retell number for reference in replies
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ async def inbound_sms(request: Request):
     # Return TwiML auto-reply
     twiml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Message>This number is not monitored for text messages. For assistance, please call Better Choice Insurance Group at (630) 528-0941 or visit betterchoiceins.com</Message>
+    <Message>This number is not monitored for text messages. For assistance, please call Better Choice Insurance Group at (847) 908-5665.</Message>
 </Response>"""
 
     return Response(content=twiml, media_type="application/xml")
@@ -116,7 +116,7 @@ def send_post_call_sms(
             f"Hi{' ' + first_name if first_name else ''}! "
             f"This is Better Choice Insurance Group confirming we received your callback request. "
             f"A member of our team will reach out to you shortly. "
-            f"If you need immediate assistance, please call us at (630) 528-0941."
+            f"If you need immediate assistance, please call us at (847) 908-5665."
         )
     elif request_type == "policy_change":
         body = (
@@ -124,21 +124,21 @@ def send_post_call_sms(
             f"Better Choice Insurance Group here — we received your policy change request"
             f"{' for your ' + carrier + ' policy' if carrier else ''}. "
             f"Our service team will process this and follow up with you. "
-            f"Questions? Call us at (630) 528-0941."
+            f"Questions? Call us at (847) 908-5665."
         )
     elif request_type == "document_request":
         body = (
             f"Hi{' ' + first_name if first_name else ''}! "
             f"Better Choice Insurance Group here — we received your document request. "
             f"Our team will email your documents shortly. "
-            f"Questions? Call us at (630) 528-0941."
+            f"Questions? Call us at (847) 908-5665."
         )
     else:
         body = (
             f"Hi{' ' + first_name if first_name else ''}! "
             f"This is Better Choice Insurance Group. We received your message and "
             f"a member of our team will follow up with you shortly. "
-            f"Need immediate help? Call (630) 528-0941."
+            f"Need immediate help? Call (847) 908-5665."
         )
 
     return send_sms(caller_phone, body)
