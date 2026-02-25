@@ -54,6 +54,17 @@ def search_customers(
                 Customer.city.ilike(search),
                 Customer.zip_code.ilike(search),
             ]
+
+            # Phone normalization: strip non-digits and search against stripped DB values
+            import re
+            digits_only = re.sub(r'\D', '', q.strip())
+            if len(digits_only) >= 7:
+                # Search DB phone fields with formatting stripped
+                from sqlalchemy import func as sqlfunc
+                stripped_phone = f"%{digits_only}%"
+                filters.append(sqlfunc.regexp_replace(Customer.phone, '[^0-9]', '', 'g').ilike(stripped_phone))
+                filters.append(sqlfunc.regexp_replace(Customer.mobile_phone, '[^0-9]', '', 'g').ilike(stripped_phone))
+
             if policy_cids:
                 filters.append(Customer.id.in_(policy_cids))
 
