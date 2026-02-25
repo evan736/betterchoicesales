@@ -10,9 +10,9 @@
     ]
   },
   "_app.tsx -> ../components/EmailPanel": {
-    "id": 2406,
+    "id": 4725,
     "files": [
-      "static/chunks/406.efac7d64e37700e6.js"
+      "static/chunks/725.7216328689764d29.js"
     ]
   },
   "inbox.tsx -> ../lib/api": {

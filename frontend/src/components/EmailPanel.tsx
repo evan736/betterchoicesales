@@ -5,14 +5,14 @@ import { useEmail } from '../contexts/EmailContext';
 import {
   Mail, Search, Inbox, Send, User, Clock, Loader2, X, CheckCircle2,
   Paperclip, Sparkles, Archive, RefreshCw, MailOpen, ChevronLeft,
-  PanelRightClose, AlertCircle, AlertTriangle, ListChecks,
+  PanelRightClose, AlertCircle, AlertTriangle, ListChecks, Maximize2, Minimize2,
 } from 'lucide-react';
 
 const TAGS = ['billing', 'claims', 'new-business', 'endorsement', 'renewal', 'general', 'urgent'];
 
 export default function EmailPanel() {
   const { user } = useAuth();
-  const { sidebarOpen: open, openSidebar, closeSidebar, unreadCount, openCount, unassignedCount, refreshStats } = useEmail();
+  const { sidebarOpen: open, openSidebar, closeSidebar, unreadCount, openCount, unassignedCount, refreshStats, expanded, setExpanded } = useEmail();
 
   // Mailboxes
   const [mailboxes, setMailboxes] = useState<any[]>([]);
@@ -54,6 +54,7 @@ export default function EmailPanel() {
   // View state
   const [view, setView] = useState<'inbox' | 'thread'>('inbox');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const panelWidth = expanded ? 680 : 380;
 
   const loadMailboxes = async () => {
     try {
@@ -175,8 +176,8 @@ export default function EmailPanel() {
 
   // ═══ EXPANDED STATE ═══
   return (
-    <div className="fixed top-0 right-0 h-full w-[380px] z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40"
-      style={{ backdropFilter: 'blur(20px)' }}>
+    <div className="fixed top-0 right-0 h-full z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40 transition-all duration-300"
+      style={{ width: `${panelWidth}px`, backdropFilter: 'blur(20px)' }}>
 
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#0d1f3c] to-[#0a1628] border-b border-blue-900/20">
@@ -200,6 +201,9 @@ export default function EmailPanel() {
           </>
         )}
         <div className="flex items-center gap-1">
+          <button onClick={() => setExpanded(!expanded)} className="text-slate-500 hover:text-white p-1" title={expanded ? 'Collapse' : 'Expand'}>
+            {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
           <button onClick={() => { loadThreads(); refreshStats(); }} className="text-slate-500 hover:text-white p-1"><RefreshCw size={14} /></button>
           <button onClick={closeSidebar} className="text-slate-500 hover:text-white p-1"><PanelRightClose size={16} /></button>
         </div>
@@ -460,9 +464,9 @@ export default function EmailPanel() {
                 </div>
 
                 {/* Textarea */}
-                <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={6} autoFocus
+                <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={expanded ? 12 : 8} autoFocus
                   placeholder="Type your reply..."
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-[13px] leading-relaxed text-white placeholder:text-slate-600 resize-none outline-none focus:border-blue-500/30" />
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm leading-relaxed text-white placeholder:text-slate-600 resize-y outline-none focus:border-blue-500/30 min-h-[140px]" />
                 
                 {/* Bottom bar: attachments + actions */}
                 <div className="flex items-center justify-between">

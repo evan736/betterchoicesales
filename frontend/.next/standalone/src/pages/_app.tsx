@@ -17,15 +17,15 @@ const EmailSidebar = dynamic(() => import('../components/EmailPanel'), { ssr: fa
 function AppLayout({ Component, pageProps }: { Component: any; pageProps: any }) {
   const { user } = useAuth();
   const { sidebarOpen: chatOpen } = useChat();
-  const { sidebarOpen: emailOpen } = useEmail();
+  const { sidebarOpen: emailOpen, expanded: emailExpanded } = useEmail();
 
   if (!user) {
     return <Component {...pageProps} />;
   }
 
-  // Calculate right margin: shared sidebar bar (48px) or expanded panel (380px)
-  // Only one panel can be expanded at a time — they share the same space
-  const rightMargin = chatOpen || emailOpen ? 380 : 48;
+  // Calculate right margin: collapsed bar (48px) or expanded panel
+  const emailWidth = emailExpanded ? 680 : 380;
+  const rightMargin = chatOpen ? 380 : emailOpen ? emailWidth : 48;
 
   return (
     <div className="flex min-h-screen">

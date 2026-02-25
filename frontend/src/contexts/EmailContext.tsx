@@ -11,6 +11,8 @@ interface EmailContextType {
   openCount: number;
   unassignedCount: number;
   refreshStats: () => void;
+  expanded: boolean;
+  setExpanded: (val: boolean) => void;
 }
 
 const EmailContext = createContext<EmailContextType>({
@@ -22,11 +24,14 @@ const EmailContext = createContext<EmailContextType>({
   openCount: 0,
   unassignedCount: 0,
   refreshStats: () => {},
+  expanded: false,
+  setExpanded: () => {},
 });
 
 export function EmailProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [openCount, setOpenCount] = useState(0);
   const [unassignedCount, setUnassignedCount] = useState(0);
@@ -57,6 +62,7 @@ export function EmailProvider({ children }: { children: React.ReactNode }) {
     <EmailContext.Provider value={{
       sidebarOpen, toggleSidebar, openSidebar, closeSidebar,
       unreadCount, openCount, unassignedCount, refreshStats,
+      expanded, setExpanded,
     }}>
       {children}
     </EmailContext.Provider>
