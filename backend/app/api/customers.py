@@ -1194,25 +1194,10 @@ def send_quick_email(
 
     from_str = f"{current_user.full_name} <{from_email}>"
 
-    # Build clean, light branded HTML
+    # Build branded HTML using shared template
+    from app.api.email_inbox import _build_branded_email
     html_body = body.replace('\n', '<br>')
-    html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
-      <div style="background: #1e40af; padding: 20px 28px;">
-        <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-          <td style="color: #ffffff; font-size: 17px; font-weight: 700; letter-spacing: 0.3px;">Better Choice Insurance Group</td>
-        </tr></table>
-      </div>
-      <div style="padding: 28px; color: #1f2937; font-size: 14px; line-height: 1.75; background: #ffffff;">
-        {html_body}
-      </div>
-      <div style="padding: 18px 28px; border-top: 1px solid #e5e7eb; background: #f9fafb;">
-        <p style="margin: 0 0 2px 0; font-weight: 600; color: #1f2937; font-size: 13px;">{current_user.full_name}</p>
-        <p style="margin: 0; color: #6b7280; font-size: 12px;">Better Choice Insurance Group</p>
-        <p style="margin: 0; color: #6b7280; font-size: 12px;">(847) 908-5665 · {from_email}</p>
-      </div>
-    </div>
-    """
+    html = _build_branded_email(html_body, current_user.full_name, from_email)
 
     try:
         # Build multipart form data for Mailgun

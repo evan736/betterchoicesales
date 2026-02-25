@@ -368,25 +368,9 @@ def reply_to_thread(
         EmailMessage.thread_id == thread_id
     ).order_by(desc(EmailMessage.created_at)).first()
     
-    # Build HTML
+    # Build branded HTML
     html_body = body.replace('\n', '<br>')
-    html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
-      <div style="background: #1e40af; padding: 20px 28px;">
-        <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-          <td style="color: #ffffff; font-size: 17px; font-weight: 700; letter-spacing: 0.3px;">Better Choice Insurance Group</td>
-        </tr></table>
-      </div>
-      <div style="padding: 28px; color: #1f2937; font-size: 14px; line-height: 1.75; background: #ffffff;">
-        {html_body}
-      </div>
-      <div style="padding: 18px 28px; border-top: 1px solid #e5e7eb; background: #f9fafb;">
-        <p style="margin: 0 0 2px 0; font-weight: 600; color: #1f2937; font-size: 13px;">{current_user.full_name}</p>
-        <p style="margin: 0; color: #6b7280; font-size: 12px;">Better Choice Insurance Group</p>
-        <p style="margin: 0; color: #6b7280; font-size: 12px;">(847) 908-5665 · {from_email}</p>
-      </div>
-    </div>
-    """
+    html = _build_branded_email(html_body, current_user.full_name, from_email)
     
     # Save attachments
     att_info = []
@@ -838,8 +822,207 @@ def create_mailgun_route(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# MAILGUN HISTORY SYNC
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/setup/sync-history")
+def sync_mailgun_history(
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sync sent/received email history from Mailgun Events API.
+    Mailgun keeps events up to 30 days (paid). Stored message bodies for ~3 days.
+    """
+    import requests as http_requests
+    
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+    
+    domain = settings.MAILGUN_DOMAIN
+    begin = datetime.utcnow() - timedelta(days=min(days, 30))
+    
+    synced = 0
+    skipped = 0
+    errors = 0
+    next_url = f"https://api.mailgun.net/v3/{domain}/events"
+    params: dict = {
+        "begin": begin.strftime("%a, %d %b %Y %H:%M:%S +0000"),
+        "ascending": "yes",
+        "limit": 100,
+        "event": "stored OR accepted",
+    }
+    
+    page = 0
+    max_pages = 20
+    
+    while next_url and page < max_pages:
+        try:
+            resp = http_requests.get(
+                next_url,
+                auth=("api", settings.MAILGUN_API_KEY),
+                params=params if page == 0 else None,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("items", [])
+            if not items:
+                break
+            
+            for event in items:
+                try:
+                    r = _sync_event(db, event, domain)
+                    if r == "synced":
+                        synced += 1
+                    else:
+                        skipped += 1
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"Sync event error: {e}")
+            
+            db.commit()
+            next_url = data.get("paging", {}).get("next")
+            page += 1
+        except Exception as e:
+            logger.error(f"Events fetch failed page {page}: {e}")
+            break
+    
+    return {"status": "complete", "synced": synced, "skipped": skipped, "errors": errors, "pages": page}
+
+
+def _sync_event(db: Session, event: dict, domain: str) -> str:
+    """Sync a single Mailgun event into ORBIT inbox."""
+    headers = event.get("message", {}).get("headers", {})
+    message_id = headers.get("message-id", "")
+    if not message_id:
+        return "skipped"
+    
+    # Duplicate check
+    if db.query(EmailMessage).filter(EmailMessage.mailgun_message_id == message_id).first():
+        return "skipped"
+    
+    timestamp = event.get("timestamp", 0)
+    created_at = datetime.utcfromtimestamp(timestamp) if timestamp else datetime.utcnow()
+    
+    from_name, from_addr = _parse_email_address(headers.get("from", ""))
+    to_list = _parse_email_list(headers.get("to", ""))
+    subject = headers.get("subject", "(No Subject)")
+    
+    # Direction
+    mg_domain = domain.lower()
+    root_domain = mg_domain.replace("mg.", "") if mg_domain.startswith("mg.") else mg_domain
+    is_outbound = any(from_addr.lower().endswith(f"@{d}") for d in [mg_domain, root_domain])
+    direction = "outbound" if is_outbound else "inbound"
+    mailbox = _determine_mailbox(to_list) if direction == "inbound" else "service"
+    
+    # Thread
+    thread = _find_or_create_thread(
+        db, subject=subject, from_email=from_addr, from_name=from_name,
+        to_emails=to_list, cc_emails=[], mailbox=mailbox,
+        in_reply_to="", references="",
+    )
+    
+    # Try to retrieve stored message body
+    body_text = ""
+    storage_url = event.get("storage", {}).get("url", "") or event.get("message", {}).get("url", "")
+    if storage_url:
+        try:
+            import requests as http_requests
+            r = http_requests.get(storage_url, auth=("api", settings.MAILGUN_API_KEY),
+                                  headers={"Accept": "application/json"}, timeout=10)
+            if r.status_code == 200:
+                stored = r.json()
+                body_text = stored.get("body-plain", stored.get("stripped-text", ""))
+        except Exception:
+            pass
+    
+    msg = EmailMessage(
+        thread_id=thread.id, direction=direction,
+        from_email=from_addr, from_name=from_name,
+        to_emails=to_list, cc_emails=[], subject=subject,
+        body_text=body_text, body_html="", attachments=[],
+        mailgun_message_id=message_id, read_by={}, created_at=created_at,
+    )
+    db.add(msg)
+    
+    if not thread.last_message_at or created_at > thread.last_message_at:
+        thread.last_message_at = created_at
+    if direction == "inbound":
+        _link_customer(db, thread, from_addr)
+    
+    return "synced"
+
+# ══════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════
+
+def _build_branded_email(body_html: str, sender_name: str, sender_email: str) -> str:
+    """Build a branded Better Choice Insurance email with consistent design.
+    
+    Used by ALL outbound emails from ORBIT — replies, quick emails, automations.
+    Matches the agency's brand: navy header, clean white body, professional footer.
+    """
+    app_url = "https://better-choice-api.onrender.com"
+    logo_url = f"{app_url}/carrier-logos/bci_header_white.png"
+    
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f4f5f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+<div style="max-width:600px; margin:0 auto; background:#ffffff;">
+
+  <!-- Header -->
+  <div style="background: linear-gradient(135deg, #1e3a6e 0%, #1e40af 100%); padding:24px 32px; text-align:center;">
+    <img src="{logo_url}" alt="Better Choice Insurance Group" style="max-height:44px; width:auto; height:auto;" onerror="this.style.display='none';this.nextElementSibling.style.display='block';" />
+    <div style="display:none; color:#ffffff; font-size:18px; font-weight:700; letter-spacing:0.5px;">
+      Better Choice Insurance Group
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div style="padding:28px 32px; color:#1f2937; font-size:14px; line-height:1.75;">
+    {body_html}
+  </div>
+
+  <!-- Signature -->
+  <div style="padding:20px 32px; border-top:1px solid #e5e7eb; background:#f9fafb;">
+    <table cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="padding-right:16px; vertical-align:top;">
+          <div style="width:48px; height:48px; border-radius:50%; background:linear-gradient(135deg, #1e3a6e, #1e40af); display:flex; align-items:center; justify-content:center;">
+            <span style="color:#ffffff; font-size:16px; font-weight:700;">{sender_name[0] if sender_name else 'B'}</span>
+          </div>
+        </td>
+        <td style="vertical-align:top;">
+          <p style="margin:0 0 1px 0; font-weight:600; color:#1f2937; font-size:13px;">{sender_name}</p>
+          <p style="margin:0 0 1px 0; color:#6b7280; font-size:11px;">Better Choice Insurance Group</p>
+          <p style="margin:0; color:#6b7280; font-size:11px;">
+            <a href="tel:+18479085665" style="color:#1e40af; text-decoration:none;">(847) 908-5665</a>
+            &nbsp;·&nbsp;
+            <a href="mailto:{sender_email}" style="color:#1e40af; text-decoration:none;">{sender_email}</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:16px 32px; background:#f4f5f7; border-top:1px solid #e5e7eb; text-align:center;">
+    <p style="margin:0 0 4px 0; color:#9ca3af; font-size:10px;">
+      Better Choice Insurance Group · 225 E Dundee Rd, Palatine, IL 60074
+    </p>
+    <p style="margin:0; color:#9ca3af; font-size:10px;">
+      <a href="https://betterchoiceins.com" style="color:#6b7280; text-decoration:none;">betterchoiceins.com</a>
+    </p>
+  </div>
+
+</div>
+</body>
+</html>"""
+
 
 def _user_to_mailbox(user_obj) -> str:
     """Get mailbox name from user's email prefix (e.g. 'evan@betterchoiceins.com' → 'evan')."""
