@@ -945,6 +945,131 @@ async def callback_request(request: Request):
         }
 
 
+# ── 2b. LOOKUP CUSTOMER (mid-call tool) ───────────────────────────
+# MIA calls this when the initial webhook didn't find the customer
+# (e.g. NowCerts timeout). She asks the caller for their phone or
+# name and then fires this tool to look them up mid-call.
+#
+# Retell sends: {name, args: {phone?, name?}, call: {call_id, from_number, ...}}
+
+@router.post("/lookup-customer")
+async def lookup_customer(request: Request):
+    """Mid-call customer lookup. Mia uses this when initial lookup failed.
+
+    Accepts phone number and/or name, searches NowCerts, returns customer
+    info so Mia can personalize the rest of the call.
+    """
+    try:
+        body = await request.json()
+        args = body.get("args", {})
+        call_info = body.get("call", {})
+
+        search_phone = args.get("phone", "")
+        search_name = args.get("name", "")
+        from_number = call_info.get("from_number", "")
+
+        logger.info("lookup_customer called: phone=%s name=%s from=%s",
+                     search_phone, search_name, from_number)
+
+        # Determine which phone to search with
+        phone_digits = ""
+        if search_phone:
+            phone_digits = re.sub(r"\D", "", search_phone)
+            if len(phone_digits) > 10:
+                phone_digits = phone_digits[-10:]
+        if not phone_digits and from_number:
+            phone_digits = normalize_phone(from_number)
+
+        if not phone_digits and not search_name:
+            return JSONResponse({
+                "result": "I wasn't able to look that up. Could you give me "
+                          "your phone number or full name so I can find your account?"
+            })
+
+        # Try NowCerts lookup by phone
+        result = None
+        if phone_digits and len(phone_digits) >= 10:
+            # Check in-memory cache first
+            cached = _phone_cache.get(phone_digits)
+            if cached and (_time.time() - cached.get("cached_at", 0)) < _CACHE_TTL:
+                result = cached
+                logger.info("lookup_customer cache hit for %s", phone_digits)
+            else:
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
+                        timeout=10.0  # More generous timeout for mid-call
+                    )
+                    if result and result.get("customer"):
+                        result["cached_at"] = _time.time()
+                        _phone_cache[phone_digits] = result
+                        logger.info("lookup_customer cached result for %s", phone_digits)
+                except asyncio.TimeoutError:
+                    logger.warning("lookup_customer NowCerts timeout for %s", phone_digits)
+                except Exception as e:
+                    logger.error("lookup_customer NowCerts error: %s", e)
+
+        # TODO: If phone lookup fails and we have a name, could search by name
+        # NowCerts API supports: GET /Customers/GetCustomers?Name={name}
+
+        if result and result.get("customer"):
+            customer = result["customer"]
+            policies = result.get("policies", [])
+
+            first_name = customer.get("firstName") or customer.get("first_name") or ""
+            last_name = customer.get("lastName") or customer.get("last_name") or ""
+            commercial_name = customer.get("commercialName") or customer.get("commercial_name") or ""
+            customer_name = (
+                f"{first_name} {last_name}".strip()
+                if first_name else commercial_name or ""
+            )
+
+            # Build policy summary
+            carriers = []
+            policy_lines = []
+            for p in policies:
+                carrier = p.get("carrier") or p.get("carrierName") or "Unknown"
+                lob = p.get("lineOfBusiness") or p.get("line_of_business") or ""
+                if carrier not in carriers:
+                    carriers.append(carrier)
+                if lob:
+                    policy_lines.append(f"{lob} with {carrier}")
+                else:
+                    policy_lines.append(f"a policy with {carrier}")
+
+            policy_summary = ", ".join(policy_lines) if policy_lines else ""
+            carrier_list = ", ".join(carriers) if carriers else ""
+            insured_id = customer.get("databaseId") or customer.get("database_id") or ""
+
+            response_text = f"I found the account. Customer: {customer_name}."
+            if policy_summary:
+                response_text += f" They have {policy_summary}."
+
+            return JSONResponse({
+                "result": response_text,
+                "customer_name": customer_name,
+                "policy_summary": policy_summary,
+                "carrier_list": carrier_list,
+                "nowcerts_insured_id": insured_id,
+                "customer_found": "true",
+            })
+        else:
+            return JSONResponse({
+                "result": "I wasn't able to find an account with that information. "
+                          "No worries — I can still help! What can I do for you today?",
+                "customer_found": "false",
+            })
+
+    except Exception as e:
+        logger.error("lookup_customer error: %s", e, exc_info=True)
+        return JSONResponse({
+            "result": "I had a little trouble looking that up, but no worries — "
+                      "I can still help you. What do you need today?",
+            "customer_found": "false",
+        })
+
+
 # ── 3. POST-CALL WEBHOOK (call_ended / call_analyzed) ─────────────
 # Retell fires this after every call. We log to NowCerts and
 # optionally send a summary email.
