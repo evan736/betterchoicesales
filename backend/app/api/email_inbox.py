@@ -407,10 +407,12 @@ def reply_to_thread(
     html = _build_branded_email(html_body, current_user.full_name, from_email)
     
     # Save attachments
+    logger.info(f"📎 Reply: {len(attachments)} attachments received")
     att_info = []
     mg_files = []
     for att in attachments:
         content = att.file.read()
+        logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
         ext = os.path.splitext(att.filename)[1] if att.filename else ""
         saved_name = f"{uuid.uuid4().hex}{ext}"
         saved_path = os.path.join(ATTACHMENT_DIR, saved_name)
@@ -445,6 +447,7 @@ def reply_to_thread(
         files=mg_files if mg_files else None,
     )
     resp.raise_for_status()
+    logger.info(f"📤 Mailgun reply response: {resp.status_code} {resp.json()} (files: {len(mg_files)})")
     
     # Save outbound message
     msg = EmailMessage(
@@ -515,10 +518,12 @@ def compose_email(
     html = _build_branded_email(html_body, current_user.full_name, from_email)
 
     # Save attachments
+    logger.info(f"📎 Compose: {len(attachments)} attachments received")
     att_info = []
     mg_files = []
     for att in attachments:
         content = att.file.read()
+        logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
         ext = os.path.splitext(att.filename)[1] if att.filename else ""
         saved_name = f"{uuid.uuid4().hex}{ext}"
         saved_path = os.path.join(ATTACHMENT_DIR, saved_name)

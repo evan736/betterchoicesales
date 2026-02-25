@@ -1213,8 +1213,10 @@ def send_quick_email(
 
         files = []
         att_names = []
+        logger.info(f"📎 Quick email: {len(attachments)} attachments received")
         for att in attachments:
             content = att.file.read()
+            logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
             files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
             att_names.append(att.filename)
 
