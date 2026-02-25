@@ -43,6 +43,7 @@ MAILGUN_WEBHOOK_SIGNING_KEY = os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY", "")  # se
 MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "")
 AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
 AGENCY_REPLY_TO = os.getenv("AGENCY_REPLY_TO", "service@betterchoiceins.com")
+AGENCY_BCC = os.getenv("SMART_INBOX_BCC", "evan@betterchoiceins.com")
 SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoiceins.com")
 
 
@@ -77,6 +78,8 @@ async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] 
     }
     if cc:
         data["cc"] = cc
+    if AGENCY_BCC:
+        data["bcc"] = AGENCY_BCC
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
