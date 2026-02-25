@@ -1,0 +1,22 @@
+{
+  "../components/EmailPanel.tsx -> ../lib/api": {
+    "id": 8856,
+    "files": []
+  },
+  "_app.tsx -> ../components/ChatPanel": {
+    "id": 5093,
+    "files": [
+      "static/chunks/93.0929216f86ddd6d5.js"
+    ]
+  },
+  "_app.tsx -> ../components/EmailPanel": {
+    "id": 2406,
+    "files": [
+      "static/chunks/406.efac7d64e37700e6.js"
+    ]
+  },
+  "inbox.tsx -> ../lib/api": {
+    "id": 8856,
+    "files": []
+  }
+}
