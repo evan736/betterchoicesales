@@ -1,0 +1,690 @@
+"""
+Smart Inbox API — Mailgun inbound webhook receiver + management endpoints.
+
+Endpoints:
+  POST /api/smart-inbox/inbound          — Mailgun inbound webhook (receives forwarded emails)
+  GET  /api/smart-inbox/emails           — List all inbound emails (with filters)
+  GET  /api/smart-inbox/emails/{id}      — Get single email detail
+  GET  /api/smart-inbox/queue            — List outbound queue (pending approval)
+  POST /api/smart-inbox/queue/{id}/approve — Approve & send a queued message
+  POST /api/smart-inbox/queue/{id}/reject  — Reject a queued message
+  POST /api/smart-inbox/queue/{id}/edit    — Edit before approving
+  GET  /api/smart-inbox/stats            — Dashboard statistics
+  POST /api/smart-inbox/reprocess/{id}   — Reprocess a failed email
+"""
+import os
+import json
+import hmac
+import hashlib
+import logging
+from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func, and_
+
+from app.core.database import get_db
+from app.models.smart_inbox import (
+    InboundEmail, OutboundQueue,
+    EmailCategory, SensitivityLevel, ProcessingStatus, OutboundStatus,
+)
+from app.services.smart_inbox_ai import classify_email, draft_response, determine_auto_send
+from app.services.smart_inbox_nowcerts import (
+    lookup_customer, log_note_to_customer,
+    format_inbound_note, format_outbound_note,
+)
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
+
+MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")
+MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "")
+AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "noreply@betterchoiceins.com")
+SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoiceins.com")
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _verify_mailgun_signature(token: str, timestamp: str, signature: str) -> bool:
+    """Verify Mailgun webhook signature."""
+    if not MAILGUN_API_KEY:
+        return True  # Skip verification in dev
+    hmac_digest = hmac.new(
+        key=MAILGUN_API_KEY.encode("utf-8"),
+        msg=f"{timestamp}{token}".encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(str(signature), str(hmac_digest))
+
+
+async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] = None) -> Optional[str]:
+    """Send email via Mailgun. Returns message ID or None."""
+    import httpx
+    if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
+        logger.error("Mailgun not configured")
+        return None
+
+    data = {
+        "from": f"Better Choice Insurance <{AGENCY_FROM_EMAIL}>",
+        "to": to,
+        "subject": subject,
+        "html": html,
+    }
+    if cc:
+        data["cc"] = cc
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
+                auth=("api", MAILGUN_API_KEY),
+                data=data,
+            )
+            if resp.status_code == 200:
+                msg_id = resp.json().get("id")
+                logger.info(f"Email sent via Mailgun: {msg_id}")
+                return msg_id
+            else:
+                logger.error(f"Mailgun send failed: {resp.status_code} — {resp.text[:200]}")
+                return None
+    except Exception as e:
+        logger.error(f"Mailgun send error: {e}")
+        return None
+
+
+async def _send_evan_alert(inbound: InboundEmail, outbound: Optional[OutboundQueue] = None):
+    """Send alert to Evan for sensitive/critical items."""
+    import httpx
+    if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
+        return
+
+    alert_html = f"""
+    <div style="font-family: -apple-system, sans-serif; max-width: 600px;">
+        <div style="background: #0f172a; color: #22d3ee; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin:0;">🚨 Smart Inbox Alert</h2>
+        </div>
+        <div style="background: #1e293b; color: #e2e8f0; padding: 24px; border-radius: 0 0 8px 8px;">
+            <p><strong>Category:</strong> {(inbound.category or 'unknown').replace('_', ' ').title()}</p>
+            <p><strong>Sensitivity:</strong> <span style="color: #f87171;">{(inbound.sensitivity or 'unknown').upper()}</span></p>
+            <p><strong>From:</strong> {inbound.from_address}</p>
+            <p><strong>Subject:</strong> {inbound.subject}</p>
+            <p><strong>Customer:</strong> {inbound.customer_name or 'Not matched'}</p>
+            <p><strong>Policy:</strong> {inbound.extracted_policy_number or 'N/A'}</p>
+            <p><strong>AI Summary:</strong> {inbound.ai_summary or 'N/A'}</p>
+            <hr style="border-color: #334155;">
+            <p style="font-size: 13px; color: #94a3b8;">
+                {'A draft response is waiting for your approval in ORBIT Smart Inbox.' if outbound else 'This email requires your attention.'}
+            </p>
+            <a href="https://better-choice-web.onrender.com/smart-inbox"
+               style="display: inline-block; background: #22d3ee; color: #0f172a; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
+                Review in ORBIT →
+            </a>
+        </div>
+    </div>
+    """
+
+    data = {
+        "from": f"ORBIT Smart Inbox <{AGENCY_FROM_EMAIL}>",
+        "to": "evan@betterchoiceins.com",
+        "subject": f"🚨 Smart Inbox: {(inbound.category or 'email').replace('_', ' ').title()} — {inbound.extracted_insured_name or inbound.subject}",
+        "html": alert_html,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            await client.post(
+                f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
+                auth=("api", MAILGUN_API_KEY),
+                data=data,
+            )
+    except Exception as e:
+        logger.error(f"Failed to send Evan alert: {e}")
+
+
+# ── Background Processing Pipeline ──────────────────────────────────────────
+
+async def process_inbound_email(email_id: int, db_url: str):
+    """
+    Full async pipeline: classify → match customer → log note → draft response → send/queue.
+    Runs as a background task.
+    """
+    from app.core.database import SessionLocal
+    db = SessionLocal()
+
+    try:
+        email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+        if not email:
+            logger.error(f"InboundEmail {email_id} not found")
+            return
+
+        # ── Step 1: AI Classification ────────────────────────────────────
+        email.status = ProcessingStatus.PARSING
+        db.commit()
+
+        classification = await classify_email(
+            from_address=email.from_address,
+            subject=email.subject,
+            body=email.body_plain or email.body_html or "",
+        )
+
+        if "error" in classification:
+            email.error_message = classification["error"]
+            # Still use fallback values
+        
+        email.category = classification.get("category", "other")
+        email.sensitivity = classification.get("sensitivity", "sensitive")
+        email.ai_summary = classification.get("summary")
+        email.ai_analysis = classification
+        email.confidence_score = classification.get("confidence", 0.5)
+
+        extracted = classification.get("extracted", {})
+        email.extracted_policy_number = extracted.get("policy_number")
+        email.extracted_insured_name = extracted.get("insured_name")
+        email.extracted_carrier = extracted.get("carrier")
+        if extracted.get("due_date"):
+            try:
+                email.extracted_due_date = datetime.strptime(extracted["due_date"], "%Y-%m-%d")
+            except ValueError:
+                pass
+        email.extracted_amount = extracted.get("amount")
+
+        email.status = ProcessingStatus.PARSED
+        db.commit()
+
+        # ── Step 2: Customer Matching ────────────────────────────────────
+        customer, match_method, match_confidence = await lookup_customer(
+            policy_number=email.extracted_policy_number,
+            email=extracted.get("email"),
+            phone=extracted.get("phone"),
+            name=email.extracted_insured_name,
+        )
+
+        if customer:
+            email.nowcerts_insured_id = customer.get("databaseId") or customer.get("id")
+            email.customer_name = customer.get("commercialName") or customer.get("name")
+            email.customer_email = customer.get("email")
+            email.match_method = match_method
+            email.match_confidence = match_confidence
+            email.status = ProcessingStatus.CUSTOMER_MATCHED
+        else:
+            email.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+
+        db.commit()
+
+        # ── Step 3: Log Note to Customer File ────────────────────────────
+        if email.nowcerts_insured_id:
+            note_body = format_inbound_note(
+                subject=email.subject or "(no subject)",
+                from_address=email.from_address,
+                category=email.category or "other",
+                summary=email.ai_summary or "No summary",
+                body_preview=email.body_plain or "",
+            )
+            note_id = await log_note_to_customer(
+                insured_id=email.nowcerts_insured_id,
+                subject=f"Smart Inbox: {email.subject or 'Forwarded Email'}",
+                note_body=note_body,
+            )
+            if note_id:
+                email.nowcerts_note_logged = True
+                email.nowcerts_note_id = note_id
+                email.status = ProcessingStatus.LOGGED
+                db.commit()
+
+        # ── Step 4: Draft Client Communication ───────────────────────────
+        needs_comm = classification.get("needs_client_communication", False)
+        if needs_comm and email.customer_email:
+            draft = await draft_response(
+                summary=email.ai_summary or "",
+                category=email.category or "other",
+                carrier=email.extracted_carrier,
+                policy_number=email.extracted_policy_number,
+                customer_name=email.customer_name or "Valued Customer",
+                original_body=email.body_plain or "",
+            )
+
+            if "error" not in draft:
+                auto_send = determine_auto_send(
+                    category=email.category or "other",
+                    sensitivity=email.sensitivity or "sensitive",
+                )
+
+                outbound = OutboundQueue(
+                    inbound_email_id=email.id,
+                    to_email=email.customer_email,
+                    to_name=email.customer_name,
+                    subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
+                    body_html=draft.get("body_html", ""),
+                    body_plain=draft.get("body_plain", ""),
+                    ai_rationale=draft.get("rationale"),
+                    sensitivity=email.sensitivity,
+                    status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
+                )
+                db.add(outbound)
+                db.commit()
+
+                # Auto-send routine ones
+                if auto_send:
+                    msg_id = await _send_via_mailgun(
+                        to=outbound.to_email,
+                        subject=outbound.subject,
+                        html=outbound.body_html,
+                    )
+                    if msg_id:
+                        outbound.sent_at = datetime.utcnow()
+                        outbound.mailgun_message_id = msg_id
+                        email.status = ProcessingStatus.OUTBOUND_SENT
+
+                        # Log outbound to NowCerts too
+                        if email.nowcerts_insured_id:
+                            out_note = format_outbound_note(
+                                to_email=outbound.to_email,
+                                subject=outbound.subject,
+                                status="sent",
+                                body_preview=outbound.body_plain or "",
+                            )
+                            await log_note_to_customer(
+                                insured_id=email.nowcerts_insured_id,
+                                subject=f"Smart Inbox: Sent — {outbound.subject}",
+                                note_body=out_note,
+                            )
+                    else:
+                        outbound.send_error = "Mailgun send failed"
+                        outbound.status = OutboundStatus.PENDING_APPROVAL
+                else:
+                    email.status = ProcessingStatus.OUTBOUND_QUEUED
+                    # Alert Evan for sensitive items
+                    if email.sensitivity in ("sensitive", "critical"):
+                        await _send_evan_alert(email, outbound)
+
+                db.commit()
+            else:
+                email.processing_notes = f"Draft failed: {draft.get('error')}"
+                db.commit()
+        elif needs_comm and not email.customer_email:
+            email.processing_notes = "Client communication needed but no customer email found"
+            email.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+            db.commit()
+        else:
+            email.status = ProcessingStatus.COMPLETED
+            db.commit()
+
+    except Exception as e:
+        logger.exception(f"Processing pipeline failed for email {email_id}")
+        try:
+            email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+            if email:
+                email.status = ProcessingStatus.FAILED
+                email.error_message = str(e)[:500]
+                email.retry_count = (email.retry_count or 0) + 1
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+# ── Inbound Webhook ──────────────────────────────────────────────────────────
+
+@router.post("/inbound")
+async def receive_inbound_email(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Mailgun inbound webhook — receives forwarded emails.
+    Stores the raw email and kicks off background AI processing.
+    """
+    form = await request.form()
+
+    # Verify Mailgun signature (optional in dev)
+    token = form.get("token", "")
+    timestamp = form.get("timestamp", "")
+    signature = form.get("signature", "")
+    if MAILGUN_API_KEY and not _verify_mailgun_signature(token, timestamp, signature):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    # Parse email data
+    message_id = form.get("Message-Id") or form.get("message-id")
+    from_addr = form.get("from", "")
+    sender = form.get("sender", "")
+    to_addr = form.get("To") or form.get("recipient", "")
+    subject = form.get("subject", "")
+    body_plain = form.get("body-plain", "")
+    body_html = form.get("body-html", "")
+
+    # Count attachments
+    attachment_count = int(form.get("attachment-count", 0))
+    attachment_names = []
+    for i in range(1, attachment_count + 1):
+        att = form.get(f"attachment-{i}")
+        if att and hasattr(att, "filename"):
+            attachment_names.append(att.filename)
+
+    # Detect who forwarded it (the X-Forwarded-To or the actual sender)
+    forwarded_by = sender or from_addr
+
+    # Check for duplicate
+    if message_id:
+        existing = db.query(InboundEmail).filter(InboundEmail.message_id == message_id).first()
+        if existing:
+            return {"status": "duplicate", "id": existing.id}
+
+    # Store raw email
+    inbound = InboundEmail(
+        message_id=message_id,
+        from_address=from_addr,
+        to_address=to_addr,
+        subject=subject,
+        body_plain=body_plain,
+        body_html=body_html,
+        sender_name=sender,
+        forwarded_by=forwarded_by,
+        attachment_count=attachment_count,
+        attachment_names=attachment_names if attachment_names else None,
+        status=ProcessingStatus.RECEIVED,
+    )
+    db.add(inbound)
+    db.commit()
+    db.refresh(inbound)
+
+    # Kick off async processing
+    db_url = os.getenv("DATABASE_URL", "")
+    background_tasks.add_task(process_inbound_email, inbound.id, db_url)
+
+    return {"status": "received", "id": inbound.id}
+
+
+# ── Email List & Detail ──────────────────────────────────────────────────────
+
+@router.get("/emails")
+def list_inbound_emails(
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    sensitivity: Optional[str] = None,
+    search: Optional[str] = None,
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """List inbound emails with optional filters."""
+    q = db.query(InboundEmail).filter(
+        InboundEmail.created_at >= datetime.utcnow() - timedelta(days=days)
+    )
+
+    if status:
+        q = q.filter(InboundEmail.status == status)
+    if category:
+        q = q.filter(InboundEmail.category == category)
+    if sensitivity:
+        q = q.filter(InboundEmail.sensitivity == sensitivity)
+    if search:
+        pattern = f"%{search}%"
+        q = q.filter(
+            (InboundEmail.subject.ilike(pattern)) |
+            (InboundEmail.customer_name.ilike(pattern)) |
+            (InboundEmail.extracted_policy_number.ilike(pattern)) |
+            (InboundEmail.from_address.ilike(pattern))
+        )
+
+    total = q.count()
+    emails = q.order_by(desc(InboundEmail.created_at)).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "emails": [_serialize_inbound(e) for e in emails],
+    }
+
+
+@router.get("/emails/{email_id}")
+def get_inbound_email(email_id: int, db: Session = Depends(get_db)):
+    """Get full detail for a single inbound email."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    result = _serialize_inbound(email)
+    result["body_plain"] = email.body_plain
+    result["body_html"] = email.body_html
+    result["ai_analysis"] = email.ai_analysis
+    result["outbound_messages"] = [_serialize_outbound(o) for o in email.outbound_messages]
+    return result
+
+
+# ── Outbound Queue Management ───────────────────────────────────────────────
+
+@router.get("/queue")
+def list_outbound_queue(
+    status: Optional[str] = Query(default="pending_approval"),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """List outbound messages (default: pending approval)."""
+    q = db.query(OutboundQueue)
+    if status:
+        q = q.filter(OutboundQueue.status == status)
+
+    items = q.order_by(desc(OutboundQueue.created_at)).limit(limit).all()
+    return {"queue": [_serialize_outbound(o) for o in items]}
+
+
+@router.post("/queue/{item_id}/approve")
+async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
+    """Approve and send a queued outbound message."""
+    item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    if item.status not in (OutboundStatus.PENDING_APPROVAL, OutboundStatus.DRAFT):
+        raise HTTPException(status_code=400, detail=f"Cannot approve item in status: {item.status}")
+
+    # Send via Mailgun
+    msg_id = await _send_via_mailgun(
+        to=item.to_email,
+        subject=item.subject,
+        html=item.body_html,
+    )
+
+    if msg_id:
+        item.status = OutboundStatus.SENT
+        item.sent_at = datetime.utcnow()
+        item.mailgun_message_id = msg_id
+        item.approved_by = "evan"
+        item.approved_at = datetime.utcnow()
+
+        # Update parent email status
+        inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+        if inbound:
+            inbound.status = ProcessingStatus.OUTBOUND_SENT
+            # Log to NowCerts
+            if inbound.nowcerts_insured_id:
+                out_note = format_outbound_note(
+                    to_email=item.to_email,
+                    subject=item.subject,
+                    status="sent",
+                    body_preview=item.body_plain or "",
+                )
+                await log_note_to_customer(
+                    insured_id=inbound.nowcerts_insured_id,
+                    subject=f"Smart Inbox: Sent — {item.subject}",
+                    note_body=out_note,
+                )
+
+        db.commit()
+        return {"status": "sent", "mailgun_id": msg_id}
+    else:
+        item.send_error = "Mailgun send failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+
+@router.post("/queue/{item_id}/reject")
+def reject_outbound(
+    item_id: int,
+    reason: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Reject a queued outbound message."""
+    item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    item.status = OutboundStatus.REJECTED
+    item.rejected_reason = reason or "Rejected by admin"
+
+    inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+    if inbound:
+        inbound.status = ProcessingStatus.OUTBOUND_REJECTED
+
+    db.commit()
+    return {"status": "rejected"}
+
+
+@router.post("/queue/{item_id}/edit")
+async def edit_and_approve(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Edit an outbound message body/subject, then optionally send."""
+    item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    body = await request.json()
+    if "subject" in body:
+        item.subject = body["subject"]
+    if "body_html" in body:
+        item.body_html = body["body_html"]
+    if "body_plain" in body:
+        item.body_plain = body["body_plain"]
+
+    send_now = body.get("send", False)
+    if send_now:
+        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=item.body_html)
+        if msg_id:
+            item.status = OutboundStatus.SENT
+            item.sent_at = datetime.utcnow()
+            item.mailgun_message_id = msg_id
+            item.approved_by = "evan"
+            item.approved_at = datetime.utcnow()
+        else:
+            item.send_error = "Mailgun send failed"
+    else:
+        item.status = OutboundStatus.DRAFT
+
+    db.commit()
+    return {"status": item.status, "id": item.id}
+
+
+# ── Reprocess ────────────────────────────────────────────────────────────────
+
+@router.post("/reprocess/{email_id}")
+async def reprocess_email(
+    email_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Reprocess a failed email through the AI pipeline."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    email.status = ProcessingStatus.RECEIVED
+    email.error_message = None
+    db.commit()
+
+    db_url = os.getenv("DATABASE_URL", "")
+    background_tasks.add_task(process_inbound_email, email.id, db_url)
+    return {"status": "reprocessing", "id": email.id}
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+@router.get("/stats")
+def get_inbox_stats(db: Session = Depends(get_db)):
+    """Dashboard statistics for Smart Inbox."""
+    now = datetime.utcnow()
+    last_24h = now - timedelta(hours=24)
+    last_7d = now - timedelta(days=7)
+
+    total_24h = db.query(func.count(InboundEmail.id)).filter(InboundEmail.created_at >= last_24h).scalar()
+    total_7d = db.query(func.count(InboundEmail.id)).filter(InboundEmail.created_at >= last_7d).scalar()
+    pending_approval = db.query(func.count(OutboundQueue.id)).filter(OutboundQueue.status == OutboundStatus.PENDING_APPROVAL).scalar()
+    auto_sent_24h = db.query(func.count(OutboundQueue.id)).filter(
+        and_(OutboundQueue.status == OutboundStatus.AUTO_SENT, OutboundQueue.created_at >= last_24h)
+    ).scalar()
+    failed = db.query(func.count(InboundEmail.id)).filter(InboundEmail.status == ProcessingStatus.FAILED).scalar()
+    matched = db.query(func.count(InboundEmail.id)).filter(
+        and_(InboundEmail.nowcerts_insured_id.isnot(None), InboundEmail.created_at >= last_7d)
+    ).scalar()
+    unmatched = db.query(func.count(InboundEmail.id)).filter(
+        and_(InboundEmail.status == ProcessingStatus.CUSTOMER_NOT_FOUND, InboundEmail.created_at >= last_7d)
+    ).scalar()
+
+    # Category breakdown (last 7 days)
+    cat_breakdown = (
+        db.query(InboundEmail.category, func.count(InboundEmail.id))
+        .filter(InboundEmail.created_at >= last_7d)
+        .group_by(InboundEmail.category)
+        .all()
+    )
+
+    return {
+        "received_24h": total_24h or 0,
+        "received_7d": total_7d or 0,
+        "pending_approval": pending_approval or 0,
+        "auto_sent_24h": auto_sent_24h or 0,
+        "failed": failed or 0,
+        "matched_7d": matched or 0,
+        "unmatched_7d": unmatched or 0,
+        "category_breakdown": {cat: count for cat, count in cat_breakdown if cat},
+    }
+
+
+# ── Serializers ──────────────────────────────────────────────────────────────
+
+def _serialize_inbound(e: InboundEmail) -> dict:
+    return {
+        "id": e.id,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+        "from_address": e.from_address,
+        "subject": e.subject,
+        "category": e.category,
+        "sensitivity": e.sensitivity,
+        "ai_summary": e.ai_summary,
+        "confidence_score": e.confidence_score,
+        "extracted_policy_number": e.extracted_policy_number,
+        "extracted_insured_name": e.extracted_insured_name,
+        "extracted_carrier": e.extracted_carrier,
+        "customer_name": e.customer_name,
+        "customer_email": e.customer_email,
+        "match_method": e.match_method,
+        "match_confidence": e.match_confidence,
+        "status": e.status,
+        "nowcerts_note_logged": e.nowcerts_note_logged,
+        "error_message": e.error_message,
+        "attachment_count": e.attachment_count,
+        "has_outbound": len(e.outbound_messages) > 0 if e.outbound_messages else False,
+    }
+
+
+def _serialize_outbound(o: OutboundQueue) -> dict:
+    return {
+        "id": o.id,
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+        "to_email": o.to_email,
+        "to_name": o.to_name,
+        "subject": o.subject,
+        "body_html": o.body_html,
+        "body_plain": o.body_plain,
+        "ai_rationale": o.ai_rationale,
+        "status": o.status,
+        "sensitivity": o.sensitivity,
+        "sent_at": o.sent_at.isoformat() if o.sent_at else None,
+        "approved_by": o.approved_by,
+        "rejected_reason": o.rejected_reason,
+        "send_error": o.send_error,
+    }

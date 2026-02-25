@@ -789,6 +789,10 @@ async def lifespan(app: FastAPI):
 
     init_database()
 
+    # Smart Inbox tables
+    from app.migrations.smart_inbox_migration import migrate_smart_inbox
+    migrate_smart_inbox()
+
     # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
     try:
         from sqlalchemy import text as sa_text
@@ -1136,6 +1140,9 @@ app.include_router(email_inbox_api.router)
 
 from app.api import gmail_sync as gmail_sync_api
 app.include_router(gmail_sync_api.router)
+
+from app.api import smart_inbox as smart_inbox_api
+app.include_router(smart_inbox_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

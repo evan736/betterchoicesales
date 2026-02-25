@@ -44,6 +44,7 @@ const Navbar: React.FC = () => {
     { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
     { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
     { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
+    { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager },
     { href: '/admin', label: 'Admin', icon: <Shield size={16} />, show: isAdmin },
   ].filter((i) => i.show);
 
