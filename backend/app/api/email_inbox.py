@@ -170,7 +170,7 @@ def list_threads(
     # ── Role-based access control ──
     is_admin = current_user.role.lower() in ("admin",)
     is_service = current_user.role.lower() in ("retention_specialist", "manager")
-    user_mailbox = _username_to_mailbox(current_user.username)
+    user_mailbox = _user_to_mailbox(current_user)
     
     if mailbox:
         # Verify user can access this mailbox
@@ -603,7 +603,7 @@ def get_accessible_mailboxes(
 ):
     """Get mailboxes the current user can access, with unread counts."""
     is_admin = current_user.role.lower() in ("admin",)
-    user_mailbox = _username_to_mailbox(current_user.username)
+    user_mailbox = _user_to_mailbox(current_user)
     
     if is_admin:
         # Admin sees all mailboxes that have threads
@@ -624,7 +624,7 @@ def get_accessible_mailboxes(
         # Get all employees for admin to see their mailboxes
         all_users = db.query(User).filter(User.is_active == True).all()
         for u in all_users:
-            umbox = _username_to_mailbox(u.username)
+            umbox = _user_to_mailbox(u)
             if umbox and not any(m["mailbox"] == umbox for m in mailboxes):
                 mailboxes.append({"mailbox": umbox, "open_count": 0})
     else:
@@ -841,11 +841,15 @@ def create_mailgun_route(
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════
 
-def _username_to_mailbox(username: str) -> str:
-    """Convert username (e.g. 'evan.larson') to mailbox name."""
-    if not username:
+def _user_to_mailbox(user_obj) -> str:
+    """Get mailbox name from user's email prefix (e.g. 'evan@betterchoiceins.com' → 'evan')."""
+    if not user_obj:
         return ""
-    # Already a valid mailbox format
+    email = getattr(user_obj, 'email', '') or ''
+    if '@' in email:
+        return email.split('@')[0].lower().strip()
+    # Fallback to username
+    username = getattr(user_obj, 'username', '') or ''
     return username.lower().replace(" ", ".").strip()
 
 
@@ -870,15 +874,30 @@ def _parse_email_list(raw: str) -> list:
 
 
 def _determine_mailbox(recipients: list) -> str:
-    """Determine which mailbox based on recipient addresses."""
+    """Determine which mailbox based on recipient addresses.
+    
+    Matches emails to both mg.betterchoiceins.com (Mailgun subdomain)
+    and betterchoiceins.com (agent emails forwarded via Mailgun).
+    """
+    mg_domain = (settings.MAILGUN_DOMAIN or "mg.betterchoiceins.com").lower()
+    # Also match the root domain for agent emails
+    root_domain = mg_domain.replace("mg.", "") if mg_domain.startswith("mg.") else mg_domain
+    
     for email in recipients:
-        local = email.split("@")[0].lower()
+        email_lower = email.lower()
+        local = email_lower.split("@")[0]
+        domain = email_lower.split("@")[1] if "@" in email_lower else ""
+        
         if local == "service":
             return "service"
-        # Check if it matches a user's email prefix
-        domain = settings.MAILGUN_DOMAIN or "mg.betterchoiceins.com"
-        if f"@{domain}" in email.lower():
+        
+        # Match @mg.betterchoiceins.com OR @betterchoiceins.com
+        if domain in (mg_domain, root_domain):
+            # Skip known non-inbox addresses
+            if local in ("nonpay", "natgen", "inspection", "noreply", "no-reply"):
+                continue
             return local
+    
     return "service"  # Default
 
 
