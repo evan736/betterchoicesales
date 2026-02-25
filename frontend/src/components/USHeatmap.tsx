@@ -80,8 +80,8 @@ export default function USHeatmap() {
 
       {/* Map container */}
       <div
-        className="relative rounded-2xl border border-slate-700/40 overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, #080e1a 0%, #111827 50%, #0c1322 100%)' }}
+        className="relative rounded-2xl border border-slate-700/40 overflow-hidden map-container"
+        style={{ background: 'var(--map-bg, linear-gradient(160deg, #080e1a 0%, #111827 50%, #0c1322 100%))' }}
       >
         <svg
           ref={svgRef}

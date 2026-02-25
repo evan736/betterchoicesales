@@ -61,10 +61,10 @@ export default function Login() {
               <circle cx="20" cy="20" r="2" fill="url(#orbitGradLogin)" />
             </svg>
             <h1 className="font-display font-bold text-5xl mb-4">
-              Better Choice Insurance Group
+              <span className="tracking-[0.2em]">ORBIT</span>
             </h1>
             <p className="text-xl text-blue-100 font-light">
-              Your partner in protection and prosperity
+              Better Choice Insurance Group
             </p>
           </div>
 

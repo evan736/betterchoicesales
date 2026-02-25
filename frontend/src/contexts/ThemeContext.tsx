@@ -19,8 +19,8 @@ export const THEMES: ThemeOption[] = [
   {
     id: 'true-black',
     name: 'Black',
-    description: 'Pure OLED black',
-    preview: '#000000',
+    description: 'Dark charcoal, high contrast',
+    preview: '#0c0c0e',
   },
   {
     id: 'sakura-pink',
