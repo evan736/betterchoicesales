@@ -372,3 +372,25 @@ export const inspectionAPI = {
     issues_found?: string[];
   }) => api.patch(`/api/inspection/drafts/${id}`, payload),
 };
+
+// ── Chat API ──
+export const chatAPI = {
+  channels: () => api.get('/api/chat/channels'),
+  ensureOffice: () => api.post('/api/chat/channels/ensure-office'),
+  createDM: (userId: number) => api.post('/api/chat/channels/dm', { user_id: userId }),
+  messages: (channelId: number, before?: number) =>
+    api.get(`/api/chat/channels/${channelId}/messages`, { params: { before, limit: 50 } }),
+  send: (channelId: number, data: FormData) =>
+    api.post(`/api/chat/channels/${channelId}/messages`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  markRead: (channelId: number) => api.post(`/api/chat/channels/${channelId}/read`),
+  react: (messageId: number, emoji: string) =>
+    api.post(`/api/chat/messages/${messageId}/react`, { emoji }),
+  deleteMsg: (messageId: number) => api.delete(`/api/chat/messages/${messageId}`),
+  editMsg: (messageId: number, content: string) =>
+    api.patch(`/api/chat/messages/${messageId}`, { content }),
+  unread: () => api.get('/api/chat/unread'),
+  users: () => api.get('/api/chat/users'),
+  adminHistory: (params: any) => api.get('/api/chat/admin/history', { params }),
+};

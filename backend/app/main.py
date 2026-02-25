@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.api import auth, sales, commissions, statements, analytics
 from app.api import payroll as payroll_api
 from app.api import retention as retention_api
+from app.api import chat as chat_api
 from app.api import survey as survey_api
 from app.api import admin as admin_api
 from app.api import timeclock as timeclock_api
@@ -306,6 +307,56 @@ def init_database():
             logger.info("agency_snapshots table ready")
         except Exception as e:
             logger.warning(f"agency_snapshots migration: {e}")
+
+    # Ensure chat tables exist
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_channels (
+                    id SERIAL PRIMARY KEY,
+                    channel_type VARCHAR NOT NULL DEFAULT 'office',
+                    name VARCHAR,
+                    created_by INTEGER REFERENCES users(id),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_channel_members (
+                    id SERIAL PRIMARY KEY,
+                    channel_id INTEGER NOT NULL REFERENCES chat_channels(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    last_read_at TIMESTAMPTZ,
+                    joined_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    channel_id INTEGER NOT NULL REFERENCES chat_channels(id) ON DELETE CASCADE,
+                    sender_id INTEGER NOT NULL REFERENCES users(id),
+                    content TEXT,
+                    message_type VARCHAR DEFAULT 'text',
+                    file_name VARCHAR,
+                    file_path VARCHAR,
+                    file_type VARCHAR,
+                    file_size INTEGER,
+                    mentions JSONB,
+                    reactions JSONB,
+                    reply_to_id INTEGER REFERENCES chat_messages(id),
+                    is_edited BOOLEAN DEFAULT FALSE,
+                    is_deleted BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_messages_channel ON chat_messages(channel_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_members_channel ON chat_channel_members(channel_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_channel_members(user_id)"))
+            conn.commit()
+            logger.info("Chat tables ready")
+        except Exception as e:
+            logger.warning(f"Chat migration: {e}")
 
     # Ensure timeclock_entries table exists with ALL columns
     with engine.connect() as conn:
@@ -1058,6 +1109,7 @@ app.include_router(life_crosssell_api.router, prefix="/api")
 from app.api import tasks as tasks_api
 app.include_router(tasks_api.router)
 app.include_router(missive_api.router)
+app.include_router(chat_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

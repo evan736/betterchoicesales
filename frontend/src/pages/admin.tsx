@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
-import { adminAPI, surveyAPI } from '../lib/api';
+import { adminAPI, surveyAPI, chatAPI } from '../lib/api';
 
 const ROLES = ['admin', 'manager', 'producer', 'retention_specialist'];
 
@@ -34,6 +34,7 @@ const AdminPage = () => {
     { key: 'sources', label: 'Lead Sources' },
     { key: 'carriers', label: 'Carriers' },
     { key: 'templates', label: 'Email Templates' },
+    { key: 'chat', label: 'Chat History' },
   ];
 
   return (
@@ -62,6 +63,7 @@ const AdminPage = () => {
         {tab === 'sources' && <LeadSourcesTab />}
         {tab === 'carriers' && <CarriersTab />}
         {tab === 'templates' && <EmailTemplatesTab />}
+        {tab === 'chat' && <ChatHistoryTab />}
       </main>
     </div>
   );
@@ -725,5 +727,94 @@ const EmailTemplatesTab = () => {
     </div>
   );
 };
+
+// ── Chat History Tab (Admin) ──
+function ChatHistoryTab() {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const load = async (p = 1, s = search) => {
+    setLoading(true);
+    try {
+      const res = await chatAPI.adminHistory({ page: p, page_size: 50, search: s || undefined });
+      setMessages(res.data.messages);
+      setTotal(res.data.total);
+      setPage(p);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && load(1, search)}
+          placeholder="Search messages..."
+          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        />
+        <button onClick={() => load(1, search)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-semibold">Search</button>
+        <span className="text-xs text-slate-500">{total} messages</span>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Time</th>
+              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Channel</th>
+              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Sender</th>
+              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Message</th>
+              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>
+            ) : messages.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No messages found</td></tr>
+            ) : messages.map(m => (
+              <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50">
+                <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                  {new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{' '}
+                  {new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </td>
+                <td className="px-4 py-2 text-xs">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    m.channel_name === 'Office Chat' ? 'bg-cyan-100 text-cyan-700' : 'bg-purple-100 text-purple-700'
+                  }`}>{m.channel_name}</span>
+                </td>
+                <td className="px-4 py-2 text-xs font-medium text-slate-700">{m.sender_name}</td>
+                <td className="px-4 py-2 text-xs text-slate-600 max-w-xs truncate">
+                  {m.is_deleted ? <span className="text-red-400 italic">[Deleted]</span> : (
+                    m.message_type === 'gif' ? <span className="text-blue-400">[GIF]</span> : m.content
+                  )}
+                </td>
+                <td className="px-4 py-2 text-xs text-slate-400">{m.file_name || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {total > 50 && (
+        <div className="flex justify-center gap-2">
+          <button disabled={page <= 1} onClick={() => load(page - 1)} className="px-3 py-1 text-sm bg-slate-200 rounded disabled:opacity-40">Prev</button>
+          <span className="px-3 py-1 text-sm text-slate-600">Page {page} of {Math.ceil(total / 50)}</span>
+          <button disabled={page >= Math.ceil(total / 50)} onClick={() => load(page + 1)} className="px-3 py-1 text-sm bg-slate-200 rounded disabled:opacity-40">Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default AdminPage;
