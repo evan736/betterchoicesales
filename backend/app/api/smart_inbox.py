@@ -203,8 +203,8 @@ async def process_inbound_email(email_id: int, db_url: str):
         )
 
         if customer:
-            email.nowcerts_insured_id = customer.get("databaseId") or customer.get("id")
-            email.customer_name = customer.get("commercialName") or customer.get("name")
+            email.nowcerts_insured_id = str(customer.get("database_id") or customer.get("id") or "")
+            email.customer_name = customer.get("commercial_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
             email.customer_email = customer.get("email")
             email.match_method = match_method
             email.match_confidence = match_confidence
