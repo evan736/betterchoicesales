@@ -313,7 +313,7 @@ export default function EmailPanel() {
 
       {/* ─── THREAD VIEW ─── */}
       {view === 'thread' && activeThread && (
-        <>
+        <div className="flex flex-col flex-1 min-h-0">
           {/* Thread meta */}
           <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between">
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -432,7 +432,7 @@ export default function EmailPanel() {
           </div>
 
           {/* Reply area */}
-          <div className="border-t border-white/[0.08] bg-[#0d1f3c]/80">
+          <div className="border-t border-white/[0.08] bg-[#0d1f3c]/80 flex-shrink-0 max-h-[50%] overflow-y-auto">
             {!replyOpen ? (
               <div className="px-4 py-3 flex items-center gap-2">
                 <button onClick={() => setReplyOpen(true)}
@@ -505,7 +505,7 @@ export default function EmailPanel() {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
