@@ -9,6 +9,7 @@ import io
 import json
 import base64
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -81,6 +82,11 @@ async def test_extract(payload: dict = Body(...)):
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 # ── Extraction prompt for Claude ──────────────────────────────────────
+
+# Policy number patterns for carrier auto-detection
+_POLICY_NUM_PATTERNS = [
+    (re.compile(r'^\d{10,}\s*\d{0,2}$'), "national_general"),  # NatGen: "2027431477 00"
+]
 
 NONPAY_EXTRACTION_PROMPT = """You are an expert insurance document parser. This document is a non-pay / past-due / cancellation notice from an insurance carrier or agency management system.
 
@@ -193,6 +199,16 @@ async def upload_nonpay_b64(
             for p in policies:
                 if not p.get("carrier"):
                     p["carrier"] = carrier_override
+
+        # Detect carrier from policy number patterns
+        # NatGen: 10+ digit numbers, often with " 00" suffix (e.g. "2027431477 00")
+        for p in policies:
+            if not p.get("carrier"):
+                pn = (p.get("policy_number") or "").strip()
+                for pat, ckey in _POLICY_NUM_PATTERNS:
+                    if pat.match(pn):
+                        p["carrier"] = ckey
+                        break
 
         results = []
         matched = 0
@@ -350,6 +366,15 @@ async def upload_nonpay_file(
                     for p in policies:
                         p["carrier"] = carrier_key
                     break
+
+        # Detect carrier from policy number patterns (e.g. NatGen: 10+ digit "2027431477 00")
+        for p in policies:
+            if not p.get("carrier"):
+                pn = (p.get("policy_number") or "").strip()
+                for pat, ckey in _POLICY_NUM_PATTERNS:
+                    if pat.match(pn):
+                        p["carrier"] = ckey
+                        break
 
         # Process each policy
         results = []
