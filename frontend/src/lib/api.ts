@@ -393,6 +393,10 @@ export const chatAPI = {
   unread: () => api.get('/api/chat/unread'),
   users: () => api.get('/api/chat/users'),
   adminHistory: (params: any) => api.get('/api/chat/admin/history', { params }),
+  adminChannels: () => api.get('/api/chat/admin/channels'),
+  adminChannelMessages: (channelId: number, params?: any) =>
+    api.get(`/api/chat/admin/channels/${channelId}/messages`, { params }),
+  searchMessages: (q: string) => api.get('/api/chat/search', { params: { q } }),
 };
 
 // MIA AI Receptionist Bypass API

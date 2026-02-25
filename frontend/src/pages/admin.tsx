@@ -728,21 +728,41 @@ const EmailTemplatesTab = () => {
   );
 };
 
-// ── Chat History Tab (Admin) ──
+// ── Chat History Tab (Admin) — conversation-style viewer ──
 function ChatHistoryTab() {
+  const [channels, setChannels] = useState<any[]>([]);
+  const [activeChannel, setActiveChannel] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  const load = async (p = 1, s = search) => {
+  useEffect(() => {
+    loadChannels();
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const loadChannels = async () => {
+    try {
+      const res = await chatAPI.adminChannels();
+      setChannels(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const openChannel = async (ch: any) => {
+    setActiveChannel(ch);
+    setSearchResults(null);
     setLoading(true);
     try {
-      const res = await chatAPI.adminHistory({ page: p, page_size: 50, search: s || undefined });
-      setMessages(res.data.messages);
-      setTotal(res.data.total);
-      setPage(p);
+      const res = await chatAPI.adminChannelMessages(ch.id);
+      setMessages(res.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -750,69 +770,194 @@ function ChatHistoryTab() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const handleSearch = async () => {
+    if (!search.trim()) { setSearchResults(null); return; }
+    setSearching(true);
+    try {
+      if (activeChannel) {
+        const res = await chatAPI.adminChannelMessages(activeChannel.id, { search: search.trim() });
+        setSearchResults(res.data);
+      } else {
+        const res = await chatAPI.adminHistory({ search: search.trim(), page_size: 100 });
+        setSearchResults(res.data.messages);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const getInitials = (name: string) => name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+  const initColor = (name: string) => {
+    const colors = ['#06b6d4', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#6366f1', '#14b8a6'];
+    let hash = 0;
+    for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const formatTime = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const displayMessages = searchResults || messages;
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+
+  const renderMessage = (msg: any, i: number) => {
+    const showAvatar = i === 0 || displayMessages[i - 1]?.sender_name !== msg.sender_name ||
+      (new Date(msg.created_at).getTime() - new Date(displayMessages[i - 1]?.created_at).getTime()) > 300000;
+    const isGif = msg.message_type === 'gif';
+
+    return (
+      <div key={msg.id} className={showAvatar ? 'mt-4' : 'mt-0.5'}>
+        {showAvatar && (
+          <div className="flex items-center gap-2 mb-1">
+            <div className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
+              style={{ background: initColor(msg.sender_name) }}>
+              {getInitials(msg.sender_name)}
+            </div>
+            <span className="text-sm font-semibold text-slate-800">{msg.sender_name}</span>
+            <span className="text-[11px] text-slate-400">{formatTime(msg.created_at)}</span>
+            {msg.channel_name && !activeChannel && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{msg.channel_name}</span>
+            )}
+          </div>
+        )}
+        <div className={`ml-9 ${msg.is_deleted ? 'opacity-40 italic' : ''}`}>
+          {isGif ? (
+            <img src={msg.content || ''} alt="GIF" className="rounded-lg max-w-[200px] max-h-[150px]" loading="lazy" />
+          ) : msg.content ? (
+            <p className="text-sm text-slate-700 whitespace-pre-wrap break-words"
+              dangerouslySetInnerHTML={{
+                __html: (msg.is_deleted ? '[Deleted]' : msg.content).replace(
+                  /@(\w+)/g, '<span class="text-blue-600 font-semibold">@$1</span>'
+                )
+              }}
+            />
+          ) : null}
+          {msg.file_path && (
+            <a href={`${API_BASE}${msg.file_path}`} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-xs text-slate-600 transition-colors">
+              📎 {msg.file_name} {msg.file_size ? `(${(msg.file_size / 1024).toFixed(0)}KB)` : ''}
+            </a>
+          )}
+          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+            <div className="flex gap-1 mt-1">
+              {Object.entries(msg.reactions).map(([emoji, userIds]) => (
+                <span key={emoji} className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {emoji} {(userIds as number[]).length}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && load(1, search)}
-          placeholder="Search messages..."
-          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
-        />
-        <button onClick={() => load(1, search)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-semibold">Search</button>
-        <span className="text-xs text-slate-500">{total} messages</span>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Time</th>
-              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Channel</th>
-              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Sender</th>
-              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">Message</th>
-              <th className="px-4 py-2 text-left text-xs text-slate-500 font-semibold">File</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>
-            ) : messages.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">No messages found</td></tr>
-            ) : messages.map(m => (
-              <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
-                  {new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{' '}
-                  {new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </td>
-                <td className="px-4 py-2 text-xs">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    m.channel_name === 'Office Chat' ? 'bg-cyan-100 text-cyan-700' : 'bg-purple-100 text-purple-700'
-                  }`}>{m.channel_name}</span>
-                </td>
-                <td className="px-4 py-2 text-xs font-medium text-slate-700">{m.sender_name}</td>
-                <td className="px-4 py-2 text-xs text-slate-600 max-w-xs truncate">
-                  {m.is_deleted ? <span className="text-red-400 italic">[Deleted]</span> : (
-                    m.message_type === 'gif' ? <span className="text-blue-400">[GIF]</span> : m.content
-                  )}
-                </td>
-                <td className="px-4 py-2 text-xs text-slate-400">{m.file_name || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {total > 50 && (
-        <div className="flex justify-center gap-2">
-          <button disabled={page <= 1} onClick={() => load(page - 1)} className="px-3 py-1 text-sm bg-slate-200 rounded disabled:opacity-40">Prev</button>
-          <span className="px-3 py-1 text-sm text-slate-600">Page {page} of {Math.ceil(total / 50)}</span>
-          <button disabled={page >= Math.ceil(total / 50)} onClick={() => load(page + 1)} className="px-3 py-1 text-sm bg-slate-200 rounded disabled:opacity-40">Next</button>
+    <div className="flex gap-4" style={{ height: 'calc(100vh - 220px)' }}>
+      {/* Channel sidebar */}
+      <div className="w-64 flex-shrink-0 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Conversations</span>
         </div>
-      )}
+        <div className="flex-1 overflow-y-auto">
+          {channels.length === 0 ? (
+            <div className="px-3 py-8 text-center text-xs text-slate-400">No conversations yet</div>
+          ) : channels.map(ch => (
+            <button
+              key={ch.id}
+              onClick={() => openChannel(ch)}
+              className={`w-full text-left px-3 py-2.5 border-b border-slate-50 hover:bg-slate-50 transition-colors ${
+                activeChannel?.id === ch.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                  ch.channel_type === 'office' ? 'bg-cyan-100 text-cyan-700' : 'bg-purple-100 text-purple-700'
+                }`}>
+                  {ch.channel_type === 'office' ? '#' : 'DM'}
+                </span>
+                <span className="text-sm font-medium text-slate-800 truncate flex-1">{ch.name}</span>
+              </div>
+              {ch.last_message_preview && (
+                <div className="mt-1 ml-7 text-[11px] text-slate-400 truncate">
+                  {ch.last_sender && <span className="font-medium text-slate-500">{ch.last_sender}: </span>}
+                  {ch.last_message_preview}
+                </div>
+              )}
+              <div className="flex items-center justify-between mt-0.5 ml-7">
+                <span className="text-[10px] text-slate-300">{ch.message_count} msgs</span>
+                {ch.last_message_at && (
+                  <span className="text-[10px] text-slate-300">{formatTime(ch.last_message_at)}</span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Messages area */}
+      <div className="flex-1 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+        {/* Header + Search */}
+        <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
+          {activeChannel ? (
+            <>
+              <div className="flex-1">
+                <span className="text-sm font-semibold text-slate-800">{activeChannel.name}</span>
+                <span className="text-xs text-slate-400 ml-2">{activeChannel.message_count} messages</span>
+              </div>
+              <button onClick={() => { setActiveChannel(null); setMessages([]); setSearchResults(null); }}
+                className="text-xs text-slate-400 hover:text-slate-600">✕ Close</button>
+            </>
+          ) : (
+            <span className="text-sm text-slate-500 flex-1">Select a conversation or search all messages</span>
+          )}
+          <div className="flex items-center gap-1">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearch()}
+              placeholder={activeChannel ? "Search this chat..." : "Search all chats..."}
+              className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs w-48"
+            />
+            <button onClick={handleSearch} disabled={searching}
+              className="text-xs bg-slate-800 text-white px-2.5 py-1 rounded-lg hover:bg-slate-700 disabled:opacity-50">
+              {searching ? '...' : '🔍'}
+            </button>
+            {searchResults && (
+              <button onClick={() => { setSearchResults(null); setSearch(''); if (activeChannel) openChannel(activeChannel); }}
+                className="text-[10px] text-red-400 hover:text-red-600 ml-1">Clear</button>
+            )}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {loading ? (
+            <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading...</div>
+          ) : !activeChannel && !searchResults ? (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <span className="text-3xl mb-2">💬</span>
+              <span className="text-sm">Select a conversation from the left</span>
+              <span className="text-xs mt-1">Or search across all chats</span>
+            </div>
+          ) : displayMessages.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+              {searchResults ? 'No messages match your search' : 'No messages in this conversation'}
+            </div>
+          ) : (
+            <>
+              {searchResults && <div className="text-xs text-blue-600 font-semibold mb-3">🔍 {displayMessages.length} results for "{search}"</div>}
+              {displayMessages.map((msg, i) => renderMessage(msg, i))}
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

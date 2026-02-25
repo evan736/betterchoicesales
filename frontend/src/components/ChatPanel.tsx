@@ -75,6 +75,9 @@ export default function ChatPanel() {
   const [showNewDM, setShowNewDM] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [view, setView] = useState<'channels' | 'chat'>('channels');
+  const [chatSearch, setChatSearch] = useState('');
+  const [chatSearchResults, setChatSearchResults] = useState<any[] | null>(null);
+  const [chatSearching, setChatSearching] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -220,6 +223,21 @@ export default function ChatPanel() {
     }
   };
 
+  const handleChatSearch = async () => {
+    if (!chatSearch.trim()) { setChatSearchResults(null); return; }
+    setChatSearching(true);
+    try {
+      const res = await chatAPI.searchMessages(chatSearch.trim());
+      setChatSearchResults(res.data.results);
+    } catch (e) { console.error(e); }
+    finally { setChatSearching(false); }
+  };
+
+  const clearChatSearch = () => {
+    setChatSearch('');
+    setChatSearchResults(null);
+  };
+
   const searchGifs = async (query: string) => {
     if (!query.trim()) return;
     setGifLoading(true);
@@ -349,6 +367,50 @@ export default function ChatPanel() {
       {view === 'channels' ? (
         /* ── Channel List ── */
         <div className="flex-1 overflow-y-auto">
+          {/* Search bar */}
+          <div className="px-3 py-2 border-b border-white/[0.04]">
+            <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg px-2 py-1.5">
+              <Search size={13} className="text-slate-500 flex-shrink-0" />
+              <input
+                value={chatSearch}
+                onChange={e => { setChatSearch(e.target.value); if (!e.target.value) clearChatSearch(); }}
+                onKeyDown={e => e.key === 'Enter' && handleChatSearch()}
+                placeholder="Search messages..."
+                className="flex-1 bg-transparent text-xs text-slate-200 placeholder:text-slate-600 outline-none"
+              />
+              {chatSearch && (
+                <button onClick={clearChatSearch} className="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+              )}
+            </div>
+          </div>
+
+          {/* Search Results */}
+          {chatSearchResults ? (
+            <div>
+              <div className="px-3 py-1.5 text-[10px] text-cyan-400 font-semibold">
+                {chatSearching ? 'Searching...' : `${chatSearchResults.length} result${chatSearchResults.length !== 1 ? 's' : ''} for "${chatSearch}"`}
+              </div>
+              {chatSearchResults.map((msg: any) => (
+                <div key={msg.id} className="px-3 py-2 border-b border-white/[0.03] hover:bg-white/[0.03]">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <div className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ background: initColor(msg.sender_name) }}>
+                      {getInitials(msg.sender_name)}
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-300">{msg.sender_name}</span>
+                    <span className="text-[9px] text-slate-600 ml-auto">{msg.channel_name}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 ml-6 truncate">{msg.content}</p>
+                  <span className="text-[9px] text-slate-600 ml-6">
+                    {new Date(msg.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+              {chatSearchResults.length === 0 && !chatSearching && (
+                <div className="px-3 py-6 text-center text-xs text-slate-500">No messages found</div>
+              )}
+            </div>
+          ) : (
+          <>
           {/* Office Chat */}
           {channels.filter(c => c.channel_type === 'office').map(ch => (
             <button
@@ -420,6 +482,8 @@ export default function ChatPanel() {
               </button>
             );
           })}
+          </>
+          )}
         </div>
       ) : (
         /* ── Messages View ── */

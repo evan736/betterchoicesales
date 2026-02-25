@@ -487,6 +487,60 @@ def admin_chat_history(
     }
 
 
+# ── Search messages (user-facing) ──
+
+@router.get("/search")
+def search_messages(
+    q: str = Query("", min_length=1),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Search messages across all channels the user is a member of."""
+    my_channel_ids = [cid for (cid,) in db.query(ChatChannelMember.channel_id).filter(
+        ChatChannelMember.user_id == current_user.id
+    ).all()]
+
+    if not my_channel_ids:
+        return {"results": []}
+
+    messages = (
+        db.query(ChatMessage)
+        .options(joinedload(ChatMessage.sender))
+        .filter(
+            ChatMessage.channel_id.in_(my_channel_ids),
+            ChatMessage.is_deleted == False,
+            ChatMessage.content.ilike(f"%{q}%"),
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(30)
+        .all()
+    )
+
+    # Get channel names
+    channel_map = {}
+    for msg in messages:
+        if msg.channel_id not in channel_map:
+            ch = db.query(ChatChannel).filter(ChatChannel.id == msg.channel_id).first()
+            if ch:
+                if ch.channel_type == "office":
+                    channel_map[msg.channel_id] = ch.name or "Office Chat"
+                else:
+                    members = db.query(ChatChannelMember).filter(ChatChannelMember.channel_id == ch.id).all()
+                    names = []
+                    for m in members:
+                        u = db.query(User).filter(User.id == m.user_id).first()
+                        if u and u.id != current_user.id:
+                            names.append(u.full_name)
+                    channel_map[msg.channel_id] = " & ".join(names) if names else "DM"
+
+    return {
+        "results": [{
+            **_serialize_message(m, current_user.id),
+            "channel_name": channel_map.get(m.channel_id, "Unknown"),
+        } for m in messages]
+    }
+
+
 # ── Users list for DM ──
 
 @router.get("/users")
@@ -502,3 +556,75 @@ def list_chat_users(
         "full_name": u.full_name,
         "role": u.role,
     } for u in users]
+
+
+@router.get("/admin/channels")
+def admin_list_channels(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin: list ALL channels with member info and message counts."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    channels = db.query(ChatChannel).order_by(ChatChannel.channel_type, ChatChannel.id).all()
+    result = []
+    for ch in channels:
+        members = db.query(ChatChannelMember).filter(ChatChannelMember.channel_id == ch.id).all()
+        member_names = []
+        for m in members:
+            u = db.query(User).filter(User.id == m.user_id).first()
+            if u:
+                member_names.append({"user_id": u.id, "full_name": u.full_name, "username": u.username})
+
+        msg_count = db.query(func.count(ChatMessage.id)).filter(
+            ChatMessage.channel_id == ch.id
+        ).scalar() or 0
+
+        last_msg = db.query(ChatMessage).filter(
+            ChatMessage.channel_id == ch.id, ChatMessage.is_deleted == False
+        ).order_by(ChatMessage.created_at.desc()).first()
+
+        name = ch.name
+        if ch.channel_type == "dm" and not name:
+            name = " & ".join(m["full_name"] for m in member_names)
+
+        result.append({
+            "id": ch.id,
+            "channel_type": ch.channel_type,
+            "name": name,
+            "members": member_names,
+            "message_count": msg_count,
+            "last_message_at": last_msg.created_at.isoformat() if last_msg else None,
+            "last_message_preview": (last_msg.content or "")[:80] if last_msg else None,
+            "last_sender": last_msg.sender.full_name if last_msg and last_msg.sender else None,
+        })
+
+    return result
+
+
+@router.get("/admin/channels/{channel_id}/messages")
+def admin_channel_messages(
+    channel_id: int,
+    search: Optional[str] = None,
+    before: Optional[int] = None,
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin: get all messages for a specific channel (chat-style view)."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    q = db.query(ChatMessage).options(
+        joinedload(ChatMessage.sender)
+    ).filter(ChatMessage.channel_id == channel_id)
+
+    if search:
+        q = q.filter(ChatMessage.content.ilike(f"%{search}%"))
+    if before:
+        q = q.filter(ChatMessage.id < before)
+
+    messages = q.order_by(ChatMessage.id.desc()).limit(limit).all()
+
+    return [_serialize_message(m) for m in reversed(messages)]
