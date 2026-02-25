@@ -443,6 +443,137 @@ def reply_to_thread(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# COMPOSE NEW EMAIL
+# ══════════════════════════════════════════════════════════════════════
+
+@router.post("/compose")
+def compose_email(
+    to_email: str = Form(...),
+    to_name: str = Form(""),
+    cc_emails: str = Form(""),
+    subject: str = Form(...),
+    body: str = Form(...),
+    send_as: str = Form("service"),
+    attachments: list[UploadFile] = File(default=[]),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compose and send a new email, creating a thread in the inbox."""
+    import requests as http_requests
+
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+
+    if not to_email or not subject or not body:
+        raise HTTPException(status_code=400, detail="Recipient, subject, and body are required")
+
+    # Determine sender
+    if send_as == "personal" and current_user.email:
+        from_email = current_user.email
+    else:
+        from_email = f"service@{settings.MAILGUN_DOMAIN or 'mg.betterchoiceins.com'}"
+
+    from_str = f"{current_user.full_name} <{from_email}>"
+    cc_list = [e.strip() for e in cc_emails.split(",") if e.strip()] if cc_emails else []
+
+    # Build branded HTML
+    html_body = body.replace('\n', '<br>')
+    html = _build_branded_email(html_body, current_user.full_name, from_email)
+
+    # Save attachments
+    att_info = []
+    mg_files = []
+    for att in attachments:
+        content = att.file.read()
+        ext = os.path.splitext(att.filename)[1] if att.filename else ""
+        saved_name = f"{uuid.uuid4().hex}{ext}"
+        saved_path = os.path.join(ATTACHMENT_DIR, saved_name)
+        with open(saved_path, "wb") as f:
+            f.write(content)
+        att_info.append({
+            "filename": att.filename,
+            "path": f"/static/email-attachments/{saved_name}",
+            "size": len(content),
+            "content_type": att.content_type or "application/octet-stream",
+        })
+        mg_files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
+
+    # Send via Mailgun
+    data = {
+        "from": from_str,
+        "to": [f"{to_name} <{to_email}>" if to_name else to_email],
+        "subject": subject,
+        "html": html,
+        "h:Reply-To": from_email,
+    }
+    if cc_list:
+        data["cc"] = cc_list
+
+    resp = http_requests.post(
+        f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+        auth=("api", settings.MAILGUN_API_KEY),
+        data=data,
+        files=mg_files if mg_files else None,
+    )
+    resp.raise_for_status()
+    mg_id = resp.json().get("id", "")
+
+    # Determine mailbox for the thread (sender's mailbox)
+    mailbox = _user_to_mailbox(current_user)
+
+    # Try to link to a customer by recipient email
+    customer = None
+    try:
+        from app.models.customer import Customer
+        customer = db.query(Customer).filter(
+            func.lower(Customer.email) == to_email.lower()
+        ).first()
+    except Exception:
+        pass
+
+    # Create thread
+    thread = EmailThread(
+        subject=subject,
+        from_email=to_email,
+        from_name=to_name or to_email.split("@")[0],
+        mailbox=mailbox,
+        status="closed",  # outbound-initiated threads start closed
+        priority="normal",
+        participants=[to_email, from_email] + cc_list,
+        last_message_at=datetime.utcnow(),
+        customer_id=customer.id if customer else None,
+        customer_name=customer.display_name if customer else (to_name or None),
+    )
+    db.add(thread)
+    db.flush()
+
+    # Create outbound message
+    msg = EmailMessage(
+        thread_id=thread.id,
+        direction="outbound",
+        from_email=from_email,
+        from_name=current_user.full_name,
+        to_emails=[to_email] + cc_list,
+        cc_emails=cc_list,
+        subject=subject,
+        body_text=body,
+        body_html=html,
+        attachments=att_info,
+        mailgun_message_id=mg_id,
+        sent_by_id=current_user.id,
+        read_by={str(current_user.id): datetime.utcnow().isoformat()},
+    )
+    db.add(msg)
+    db.commit()
+
+    # Log to NowCerts
+    _log_outbound_to_nowcerts(db, thread, msg, current_user)
+
+    logger.info(f"📤 New email composed: {from_email} → {to_email} | {subject[:60]}")
+    return {"status": "sent", "thread_id": thread.id, "message_id": msg.id, "to": to_email, "subject": subject}
+
+
+# ══════════════════════════════════════════════════════════════════════
 # AI DRAFT
 # ══════════════════════════════════════════════════════════════════════
 

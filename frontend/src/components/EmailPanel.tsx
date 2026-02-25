@@ -7,6 +7,7 @@ import {
   Mail, Search, Inbox, Send, User, Clock, Loader2, X, CheckCircle2,
   Paperclip, Sparkles, Archive, RefreshCw, MailOpen, ChevronLeft,
   PanelRightClose, AlertCircle, AlertTriangle, ListChecks, Maximize2, Minimize2,
+  PenSquare,
 } from 'lucide-react';
 
 const TAGS = ['billing', 'claims', 'new-business', 'endorsement', 'renewal', 'general', 'urgent'];
@@ -59,9 +60,20 @@ export default function EmailPanel() {
   const [showAiPanel, setShowAiPanel] = useState(false);
 
   // View state
-  const [view, setView] = useState<'inbox' | 'thread'>('inbox');
+  const [view, setView] = useState<'inbox' | 'thread' | 'compose'>('inbox');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const panelWidth = expanded ? 680 : 380;
+
+  // Compose
+  const [composeTo, setComposeTo] = useState('');
+  const [composeToName, setComposeToName] = useState('');
+  const [composeCc, setComposeCc] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [composeSendAs, setComposeSendAs] = useState<'service' | 'personal'>('service');
+  const [composeFiles, setComposeFiles] = useState<File[]>([]);
+  const [composeSending, setComposeSending] = useState(false);
+  const composeFileRef = useRef<HTMLInputElement>(null);
 
   const loadMailboxes = async () => {
     try {
@@ -157,6 +169,34 @@ export default function EmailPanel() {
     } catch {}
   };
 
+  const handleCompose = async () => {
+    if (!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()) return;
+    setComposeSending(true);
+    try {
+      await emailAPI.compose({
+        to_email: composeTo.trim(),
+        to_name: composeToName.trim() || undefined,
+        cc_emails: composeCc.trim() || undefined,
+        subject: composeSubject.trim(),
+        body: composeBody,
+        send_as: composeSendAs,
+        attachments: composeFiles.length > 0 ? composeFiles : undefined,
+      });
+      // Reset compose form
+      setComposeTo(''); setComposeToName(''); setComposeCc('');
+      setComposeSubject(''); setComposeBody(''); setComposeFiles([]);
+      setView('inbox');
+      loadThreads(); refreshStats();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed to send'); }
+    finally { setComposeSending(false); }
+  };
+
+  const resetCompose = () => {
+    setComposeTo(''); setComposeToName(''); setComposeCc('');
+    setComposeSubject(''); setComposeBody(''); setComposeFiles([]);
+    setView('inbox');
+  };
+
   // Helpers
   const formatTime = (iso: string) => {
     if (!iso) return '';
@@ -188,7 +228,16 @@ export default function EmailPanel() {
 
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#0d1f3c] to-[#0a1628] border-b border-blue-900/20">
-        {view === 'thread' && activeThread ? (
+        {view === 'compose' ? (
+          <>
+            <button onClick={resetCompose} className="text-slate-400 hover:text-white mr-2">
+              <ChevronLeft size={18} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-white">New Email</h3>
+            </div>
+          </>
+        ) : view === 'thread' && activeThread ? (
           <>
             <button onClick={() => { setView('inbox'); setActiveThread(null); setShowAiPanel(false); }} className="text-slate-400 hover:text-white mr-2">
               <ChevronLeft size={18} />
@@ -205,6 +254,10 @@ export default function EmailPanel() {
               <h3 className="text-sm font-bold text-white">Inbox</h3>
               {unreadCount > 0 && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold">{unreadCount}</span>}
             </div>
+            <button onClick={() => setView('compose')}
+              className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold rounded-lg transition-colors">
+              <PenSquare size={12} /> Compose
+            </button>
           </>
         )}
         <div className="flex items-center gap-1">
@@ -309,6 +362,90 @@ export default function EmailPanel() {
             <span>{total} total</span>
           </div>
         </>
+      )}
+
+      {/* ─── COMPOSE VIEW ─── */}
+      {view === 'compose' && (
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {/* To */}
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">To</label>
+              <input value={composeTo} onChange={e => setComposeTo(e.target.value)} placeholder="recipient@example.com"
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-500/30" />
+            </div>
+
+            {/* Name + CC row */}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Name <span className="text-slate-700">(optional)</span></label>
+                <input value={composeToName} onChange={e => setComposeToName(e.target.value)} placeholder="John Smith"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-500/30" />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">CC <span className="text-slate-700">(optional)</span></label>
+                <input value={composeCc} onChange={e => setComposeCc(e.target.value)} placeholder="cc@example.com"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-500/30" />
+              </div>
+            </div>
+
+            {/* Subject */}
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Subject</label>
+              <input value={composeSubject} onChange={e => setComposeSubject(e.target.value)} placeholder="Email subject"
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-blue-500/30" />
+            </div>
+
+            {/* Send as */}
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">From</label>
+              <div className="flex gap-1.5">
+                <button onClick={() => setComposeSendAs('service')}
+                  className={`px-3 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                    composeSendAs === 'service' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                  }`}>service@</button>
+                <button onClick={() => setComposeSendAs('personal')}
+                  className={`px-3 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                    composeSendAs === 'personal' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                  }`}>My Email</button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Message</label>
+              <textarea value={composeBody} onChange={e => setComposeBody(e.target.value)} rows={expanded ? 14 : 10} autoFocus
+                placeholder="Write your message..."
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm leading-relaxed text-white placeholder:text-slate-600 resize-y outline-none focus:border-blue-500/30 min-h-[180px]" />
+            </div>
+          </div>
+
+          {/* Compose footer */}
+          <div className="border-t border-white/[0.08] bg-[#0d1f3c]/80 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <input ref={composeFileRef} type="file" multiple className="hidden"
+                  onChange={e => { if (e.target.files) setComposeFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
+                <button onClick={() => composeFileRef.current?.click()} className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-1 px-2 py-1 rounded hover:bg-white/[0.04]">
+                  <Paperclip size={12} /> Attach
+                </button>
+                {composeFiles.map((f, i) => (
+                  <span key={i} className="text-[9px] bg-white/[0.08] rounded px-1.5 py-0.5 text-slate-400 flex items-center gap-1">
+                    {f.name.slice(0, 18)} <button onClick={() => setComposeFiles(prev => prev.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-300">×</button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={resetCompose} className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5">Discard</button>
+                <button disabled={!composeTo.trim() || !composeSubject.trim() || !composeBody.trim() || composeSending} onClick={handleCompose}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg disabled:opacity-40 transition-colors">
+                  {composeSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── THREAD VIEW ─── */}

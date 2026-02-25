@@ -462,6 +462,17 @@ export const emailAPI = {
     return api.post(`/api/email/threads/${id}/reply`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
   aiDraft: (id: number) => api.post(`/api/email/threads/${id}/ai-draft`),
+  compose: (data: { to_email: string; to_name?: string; cc_emails?: string; subject: string; body: string; send_as?: string; attachments?: File[] }) => {
+    const fd = new FormData();
+    fd.append('to_email', data.to_email);
+    if (data.to_name) fd.append('to_name', data.to_name);
+    if (data.cc_emails) fd.append('cc_emails', data.cc_emails);
+    fd.append('subject', data.subject);
+    fd.append('body', data.body);
+    fd.append('send_as', data.send_as || 'service');
+    if (data.attachments) data.attachments.forEach(f => fd.append('attachments', f));
+    return api.post('/api/email/compose', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
   rules: () => api.get('/api/email/rules'),
   createRule: (data: any) => api.post('/api/email/rules', data),
 };
