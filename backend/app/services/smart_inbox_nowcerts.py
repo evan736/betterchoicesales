@@ -123,26 +123,43 @@ async def log_note_to_customer(
     subject: str,
     note_body: str,
     category: str = "Email",
+    customer_name: str = "",
+    customer_email: str = "",
 ) -> Optional[str]:
     """
     Create an activity note on the customer's NowCerts profile.
-    Uses NowCertsClient for the API call.
+    Uses the proven NowCertsClient.insert_note method (Zapier InsertNote API).
     """
     try:
         from app.services.nowcerts import NowCertsClient
         client = NowCertsClient()
-        result = client._post("/api/insured/note", data={
-            "insuredDatabaseId": insured_id,
+
+        # Split name for NowCerts fields
+        name_parts = (customer_name or "").strip().split(" ", 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        result = client.insert_note({
+            "insured_database_id": str(insured_id),
+            "insured_email": customer_email or "",
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "insured_commercial_name": customer_name or "",
             "subject": subject,
-            "noteBody": note_body,
-            "category": category,
-            "isImportant": False,
+            "text": note_body,
+            "type": category,
+            "creator_name": "ORBIT Smart Inbox",
         })
-        note_id = result.get("databaseId") or result.get("id") or "created"
-        logger.info(f"Note logged to NowCerts insured {insured_id}: {note_id}")
-        return str(note_id)
+
+        if result:
+            note_id = result.get("databaseId") or result.get("id") or "created"
+            logger.info(f"Note logged to NowCerts insured {insured_id}: {note_id}")
+            return str(note_id)
+        else:
+            logger.warning(f"NowCerts insert_note returned None for insured {insured_id}")
+            return None
     except Exception as e:
-        logger.error(f"NowCerts note logging error: {e}")
+        logger.error(f"NowCerts note logging error for insured {insured_id}: {e}")
         return None
 
 

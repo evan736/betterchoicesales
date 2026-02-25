@@ -233,6 +233,8 @@ async def process_inbound_email(email_id: int, db_url: str):
                 insured_id=email.nowcerts_insured_id,
                 subject=f"Smart Inbox: {email.subject or 'Forwarded Email'}",
                 note_body=note_body,
+                customer_name=email.customer_name or "",
+                customer_email=email.customer_email or "",
             )
             if note_id:
                 email.nowcerts_note_logged = True
@@ -296,6 +298,8 @@ async def process_inbound_email(email_id: int, db_url: str):
                                 insured_id=email.nowcerts_insured_id,
                                 subject=f"Smart Inbox: Sent — {outbound.subject}",
                                 note_body=out_note,
+                                customer_name=email.customer_name or "",
+                                customer_email=email.customer_email or "",
                             )
                     else:
                         outbound.send_error = "Mailgun send failed"
@@ -565,6 +569,8 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
                     insured_id=inbound.nowcerts_insured_id,
                     subject=f"Smart Inbox: Sent — {item.subject}",
                     note_body=out_note,
+                    customer_name=inbound.customer_name or "",
+                    customer_email=inbound.customer_email or "",
                 )
 
         db.commit()
