@@ -38,7 +38,6 @@ const Navbar: React.FC = () => {
     { href: '/sales', label: 'Sales', icon: <FileText size={16} />, show: true },
     { href: '/quotes', label: 'Quotes', icon: <FileText size={16} />, show: true },
     { href: '/customers', label: 'Customers', icon: <Users size={16} />, show: true },
-    { href: '/inbox', label: 'Inbox', icon: <Mail size={16} />, show: true },
     { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
     { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
     { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: true },

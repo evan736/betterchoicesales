@@ -2,6 +2,7 @@ import type { AppProps } from 'next/app';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { EmailProvider, useEmail } from '../contexts/EmailContext';
 import dynamic from 'next/dynamic';
 import '../styles/globals.css';
 import '../styles/mission-control.css';
@@ -11,26 +12,35 @@ import '../styles/blue-white.css';
 import '../styles/true-black.css';
 
 const ChatSidebar = dynamic(() => import('../components/ChatPanel'), { ssr: false });
+const EmailSidebar = dynamic(() => import('../components/EmailPanel'), { ssr: false });
 
 function AppLayout({ Component, pageProps }: { Component: any; pageProps: any }) {
   const { user } = useAuth();
-  const { sidebarOpen } = useChat();
+  const { sidebarOpen: chatOpen } = useChat();
+  const { sidebarOpen: emailOpen } = useEmail();
 
   if (!user) {
     return <Component {...pageProps} />;
   }
 
+  // Calculate right margin: chat bar (48 collapsed / 380 open) + email bar (48 collapsed / 380 open)
+  const chatWidth = chatOpen ? 380 : 48;
+  const emailWidth = emailOpen ? 380 : 48;
+  const totalRight = chatWidth + emailWidth;
+
   return (
     <div className="flex min-h-screen">
-      {/* Main content — shrinks when sidebar open */}
+      {/* Main content — shrinks when sidebars open */}
       <div
         className="flex-1 min-w-0 transition-all duration-300"
-        style={{ marginRight: sidebarOpen ? '380px' : '48px' }}
+        style={{ marginRight: `${totalRight}px` }}
       >
         <Component {...pageProps} />
       </div>
 
-      {/* Chat sidebar — fixed right */}
+      {/* Email sidebar — positioned to the left of chat */}
+      <EmailSidebar />
+      {/* Chat sidebar — fixed right edge */}
       <ChatSidebar />
     </div>
   );
@@ -41,7 +51,9 @@ function InnerApp({ Component, pageProps }: { Component: any; pageProps: any }) 
   return (
     <ThemeProvider userId={user?.id}>
       <ChatProvider>
-        <AppLayout Component={Component} pageProps={pageProps} />
+        <EmailProvider>
+          <AppLayout Component={Component} pageProps={pageProps} />
+        </EmailProvider>
       </ChatProvider>
     </ThemeProvider>
   );
