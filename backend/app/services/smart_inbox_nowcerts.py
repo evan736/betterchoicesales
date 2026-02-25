@@ -1,28 +1,86 @@
 """
-Smart Inbox — NowCerts integration for customer matching and note logging.
+Smart Inbox — Customer matching and NowCerts note logging.
 
-Uses the existing NowCertsClient which handles OAuth auth and has proven
-search methods including policy number lookup via PolicyDetailList.
+Primary lookup uses LOCAL database (customers + customer_policies tables)
+which are synced from NowCerts. Falls back to NowCerts API if needed.
 
-Lookup cascade: policy_number → email → phone → name
-Logging: Creates activity notes on matched customer profiles.
+Lookup cascade: policy_number -> email -> phone -> name
 """
+import re
 import logging
 from typing import Optional, Dict, Any, Tuple
 
-from app.services.nowcerts import NowCertsClient
+from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
+
+from app.models.customer import Customer, CustomerPolicy
 
 logger = logging.getLogger(__name__)
 
 
-def _get_client() -> Optional[NowCertsClient]:
-    """Get an authenticated NowCerts client, or None if not configured."""
-    try:
-        client = NowCertsClient()
-        return client
-    except Exception as e:
-        logger.error(f"Failed to create NowCerts client: {e}")
-        return None
+def _clean_phone(phone: str) -> str:
+    return re.sub(r"\D", "", phone or "")
+
+
+def lookup_customer_sync(
+    db: Session,
+    policy_number: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    name: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], str, float]:
+    """
+    Synchronous lookup using local DB.
+    Returns (customer_dict_or_None, match_method, confidence).
+    """
+
+    # 1. Policy number lookup (most reliable)
+    if policy_number and policy_number.strip():
+        policy = db.query(CustomerPolicy).filter(
+            CustomerPolicy.policy_number == policy_number.strip()
+        ).first()
+        if policy:
+            customer = db.query(Customer).filter(
+                Customer.id == policy.customer_id
+            ).first()
+            if customer:
+                logger.info(f"Customer matched by policy_number: {policy_number} -> {customer.full_name}")
+                return _customer_to_dict(customer), "policy_number", 0.95
+
+    # 2. Email lookup
+    if email and email.strip():
+        customer = db.query(Customer).filter(
+            func.lower(Customer.email) == email.strip().lower()
+        ).first()
+        if customer:
+            logger.info(f"Customer matched by email: {email}")
+            return _customer_to_dict(customer), "email", 0.90
+
+    # 3. Phone lookup
+    if phone:
+        cleaned = _clean_phone(phone)
+        if len(cleaned) >= 10:
+            customer = db.query(Customer).filter(
+                or_(
+                    Customer.phone.contains(cleaned[-10:]),
+                    Customer.mobile_phone.contains(cleaned[-10:]),
+                )
+            ).first()
+            if customer:
+                logger.info(f"Customer matched by phone: {cleaned}")
+                return _customer_to_dict(customer), "phone", 0.85
+
+    # 4. Name lookup
+    if name and len(name.strip()) > 2:
+        pattern = f"%{name.strip()}%"
+        customer = db.query(Customer).filter(
+            Customer.full_name.ilike(pattern)
+        ).first()
+        if customer:
+            logger.info(f"Customer matched by name: {name}")
+            return _customer_to_dict(customer), "name", 0.70
+
+    return None, "none", 0.0
 
 
 async def lookup_customer(
@@ -32,62 +90,30 @@ async def lookup_customer(
     name: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, Any]], str, float]:
     """
-    Cascade lookup: policy -> email -> phone -> name.
-    Returns (customer_dict_or_None, match_method, confidence).
+    Async wrapper that creates its own DB session for background task use.
     """
-    client = _get_client()
-    if not client:
-        return None, "none", 0.0
+    from app.core.database import SessionLocal
+    db = SessionLocal()
+    try:
+        return lookup_customer_sync(db, policy_number, email, phone, name)
+    finally:
+        db.close()
 
-    # 1. Policy number lookup (most reliable)
-    if policy_number:
-        try:
-            results = client.search_by_policy_number(policy_number.strip())
-            if results:
-                customer = results[0]
-                logger.info(f"Customer matched by policy_number: {policy_number} -> {customer.get('commercial_name')}")
-                return customer, "policy_number", 0.95
-        except Exception as e:
-            logger.error(f"Policy number lookup failed: {e}")
 
-    # 2. Email lookup
-    if email and email.strip():
-        try:
-            results = client.search_insureds(email.strip(), limit=5)
-            if results:
-                for r in results:
-                    if (r.get("email") or "").lower() == email.strip().lower():
-                        logger.info(f"Customer matched by email: {email}")
-                        return r, "email", 0.90
-                logger.info(f"Customer fuzzy-matched by email search: {email}")
-                return results[0], "email", 0.75
-        except Exception as e:
-            logger.error(f"Email lookup failed: {e}")
-
-    # 3. Phone lookup
-    if phone and len(phone.strip()) >= 7:
-        try:
-            import re
-            cleaned = re.sub(r"\D", "", phone)
-            if len(cleaned) >= 10:
-                results = client.search_insureds(cleaned, limit=5)
-                if results:
-                    logger.info(f"Customer matched by phone: {cleaned}")
-                    return results[0], "phone", 0.85
-        except Exception as e:
-            logger.error(f"Phone lookup failed: {e}")
-
-    # 4. Name lookup
-    if name and len(name.strip()) > 2:
-        try:
-            results = client.search_insureds(name.strip(), limit=5)
-            if results:
-                logger.info(f"Customer matched by name: {name}")
-                return results[0], "name", 0.70
-        except Exception as e:
-            logger.error(f"Name lookup failed: {e}")
-
-    return None, "none", 0.0
+def _customer_to_dict(c: Customer) -> Dict[str, Any]:
+    return {
+        "database_id": c.nowcerts_insured_id or str(c.id),
+        "commercial_name": c.full_name,
+        "first_name": c.first_name,
+        "last_name": c.last_name,
+        "email": c.email,
+        "phone": c.phone or c.mobile_phone,
+        "city": c.city,
+        "state": c.state,
+        "zip_code": c.zip_code,
+        "nowcerts_insured_id": c.nowcerts_insured_id,
+        "local_id": c.id,
+    }
 
 
 async def log_note_to_customer(
@@ -98,13 +124,11 @@ async def log_note_to_customer(
 ) -> Optional[str]:
     """
     Create an activity note on the customer's NowCerts profile.
-    Returns the note ID on success, None on failure.
+    Uses NowCertsClient for the API call.
     """
-    client = _get_client()
-    if not client:
-        return None
-
     try:
+        from app.services.nowcerts import NowCertsClient
+        client = NowCertsClient()
         result = client._post("/api/insured/note", data={
             "insuredDatabaseId": insured_id,
             "subject": subject,
@@ -127,7 +151,6 @@ def format_inbound_note(
     summary: str,
     body_preview: str,
 ) -> str:
-    """Format an inbound email as a NowCerts note body."""
     preview = (body_preview or "")[:500]
     return (
         f"SMART INBOX - Inbound Email Logged\n"
@@ -149,7 +172,6 @@ def format_outbound_note(
     status: str,
     body_preview: str,
 ) -> str:
-    """Format an outbound email as a NowCerts note body."""
     preview = (body_preview or "")[:500]
     return (
         f"SMART INBOX - Outbound Email {'Sent' if status == 'sent' else 'Queued'}\n"
