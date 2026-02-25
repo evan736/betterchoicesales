@@ -54,6 +54,13 @@ export default function CustomersPage() {
   const [nonpayCarrierOverride, setNonpayCarrierOverride] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // MIA Quick Temp Auth
+  const [quickAuthPhone, setQuickAuthPhone] = useState('');
+  const [quickAuthName, setQuickAuthName] = useState('');
+  const [quickAuthDuration, setQuickAuthDuration] = useState(60);
+  const [quickAuthSubmitting, setQuickAuthSubmitting] = useState(false);
+  const [quickAuthResult, setQuickAuthResult] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
   useEffect(() => {
     if (!authLoading && !user) router.push('/');
     else if (user) { loadStatus(); loadStats(); }
@@ -181,6 +188,27 @@ export default function CustomersPage() {
   const fmt = (n: number) => n?.toLocaleString('en-US') ?? '0';
   const fmtMoney = (n: number) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
+  const handleQuickAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const digits = quickAuthPhone.replace(/\D/g, '');
+    if (digits.length < 10) { setQuickAuthResult({ type: 'error', msg: 'Enter a valid 10-digit phone number' }); return; }
+    setQuickAuthSubmitting(true); setQuickAuthResult(null);
+    try {
+      const r = await miaAPI.createAuth({
+        phone: digits,
+        customer_name: quickAuthName.trim() || undefined,
+        duration_minutes: quickAuthDuration,
+      });
+      const label = quickAuthDuration >= 1440 ? `${quickAuthDuration / 1440}d` : quickAuthDuration >= 60 ? `${quickAuthDuration / 60}h` : `${quickAuthDuration}m`;
+      setQuickAuthResult({ type: 'success', msg: `Authorized ${digits.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')} for ${label}` });
+      setQuickAuthPhone(''); setQuickAuthName('');
+      setTimeout(() => setQuickAuthResult(null), 5000);
+    } catch (e: any) {
+      setQuickAuthResult({ type: 'error', msg: e.response?.data?.detail || 'Failed to authorize' });
+    }
+    setQuickAuthSubmitting(false);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navbar />
@@ -239,6 +267,57 @@ export default function CustomersPage() {
             </button>
           </div>
         </form>
+
+        {/* MIA Quick Temp Auth */}
+        <div className="card p-3 mb-6 border border-slate-200">
+          <form onSubmit={handleQuickAuth} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 shrink-0">
+              <Zap size={13} className="text-blue-500" />
+              <span>MIA Temp Auth</span>
+              <span className="text-[9px] bg-slate-100 text-slate-400 px-1 py-0.5 rounded">Framework</span>
+            </div>
+            <input
+              type="tel"
+              value={quickAuthPhone}
+              onChange={e => setQuickAuthPhone(e.target.value)}
+              placeholder="Phone number"
+              className="flex-1 min-w-0 px-3 py-1.5 rounded border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <input
+              type="text"
+              value={quickAuthName}
+              onChange={e => setQuickAuthName(e.target.value)}
+              placeholder="Name (optional)"
+              className="flex-1 min-w-0 px-3 py-1.5 rounded border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <select
+              value={quickAuthDuration}
+              onChange={e => setQuickAuthDuration(Number(e.target.value))}
+              className="px-2 py-1.5 rounded border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={30}>30 min</option>
+              <option value={60}>1 hr</option>
+              <option value={120}>2 hr</option>
+              <option value={480}>8 hr</option>
+              <option value={1440}>1 day</option>
+              <option value={2880}>2 days</option>
+              <option value={4320}>3 days</option>
+              <option value={7200}>5 days</option>
+            </select>
+            <button
+              type="submit"
+              disabled={quickAuthSubmitting || !quickAuthPhone.trim()}
+              className="px-4 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 shrink-0"
+            >
+              {quickAuthSubmitting ? 'Saving...' : 'Authorize'}
+            </button>
+            {quickAuthResult && (
+              <span className={`text-xs font-semibold shrink-0 ${quickAuthResult.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                {quickAuthResult.type === 'success' ? '✓' : '✗'} {quickAuthResult.msg}
+              </span>
+            )}
+          </form>
+        </div>
 
         {/* Results */}
         {loading ? (
