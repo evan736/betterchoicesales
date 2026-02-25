@@ -173,24 +173,48 @@ export default function CustomersPage() {
     setNonpayHistLoading(false);
   };
 
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [showCarrierPrompt, setShowCarrierPrompt] = useState(false);
+
   const handleNonpayUpload = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!['pdf', 'csv', 'tsv', 'txt', 'xlsx', 'xls'].includes(ext || '')) {
       alert('Please upload a PDF, CSV, or Excel file.'); return;
     }
-    setNonpayUploading(true); setNonpayResult(null);
+    setNonpayUploading(true); setNonpayResult(null); setShowCarrierPrompt(false);
     try {
-      const r = await nonpayAPI.upload(file, nonpayDryRun, nonpayCarrierOverride);
+      // Always do dry run first to preview results
+      const r = await nonpayAPI.upload(file, true, nonpayCarrierOverride);
       setNonpayResult(r.data);
+      setPendingFile(file);
       loadNonpayHistory();
+
+      // Check if any policies have no carrier detected
+      const details = r.data.details || [];
+      const noCarrier = details.filter((d: any) => !d.carrier || d.carrier === '' || d.carrier === 'unknown');
+      if (noCarrier.length > 0 && !nonpayCarrierOverride) {
+        setShowCarrierPrompt(true);
+      }
     } catch (e: any) {
       console.error('Upload error full:', e);
-      console.error('Response:', e.response);
-      console.error('Request:', e.request);
-      console.error('Config:', e.config);
       const msg = e.response?.data?.detail
         || e.response?.data?.message
         || (e.response ? `HTTP ${e.response.status}: ${JSON.stringify(e.response.data).slice(0,200)}` : `${e.message} — Open browser console (F12) for details`);
+      alert(msg);
+    }
+    setNonpayUploading(false);
+  };
+
+  const handleNonpaySendLive = async () => {
+    if (!pendingFile) return;
+    setNonpayUploading(true); setShowCarrierPrompt(false);
+    try {
+      const r = await nonpayAPI.upload(pendingFile, false, nonpayCarrierOverride);
+      setNonpayResult(r.data);
+      setPendingFile(null);
+      loadNonpayHistory();
+    } catch (e: any) {
+      const msg = e.response?.data?.detail || e.response?.data?.message || 'Send failed';
       alert(msg);
     }
     setNonpayUploading(false);
@@ -798,6 +822,9 @@ export default function CustomersPage() {
             setDryRun={setNonpayDryRun}
             carrierOverride={nonpayCarrierOverride}
             setCarrierOverride={setNonpayCarrierOverride}
+            showCarrierPrompt={showCarrierPrompt}
+            onSendLive={handleNonpaySendLive}
+            hasPendingFile={!!pendingFile}
           />
         )}
       </main>
@@ -1159,7 +1186,10 @@ const NonPayModal: React.FC<{
   setDryRun: (v: boolean) => void;
   carrierOverride: string;
   setCarrierOverride: (v: string) => void;
-}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef, dryRun, setDryRun, carrierOverride, setCarrierOverride }) => {
+  showCarrierPrompt: boolean;
+  onSendLive: () => void;
+  hasPendingFile: boolean;
+}> = ({ onClose, uploading, result, history, histLoading, dragOver, setDragOver, onDrop, onFileSelect, fileInputRef, dryRun, setDryRun, carrierOverride, setCarrierOverride, showCarrierPrompt, onSendLive, hasPendingFile }) => {
   const [tab, setTab] = useState<'upload' | 'preview'>('upload');
   const [carriers, setCarriers] = useState<any[]>([]);
   const [selectedCarrier, setSelectedCarrier] = useState('');
@@ -1339,6 +1369,55 @@ const NonPayModal: React.FC<{
                         </table>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Carrier Detection Warning + Send Confirmation */}
+              {result && result.dry_run && hasPendingFile && (
+                <div className="mt-4">
+                  {showCarrierPrompt && (
+                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl mb-3">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle size={20} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm text-orange-800">Carrier not detected for some policies</p>
+                          <p className="text-xs text-orange-600 mt-1">
+                            The system couldn't identify the carrier for {result.details?.filter((d: any) => !d.carrier || d.carrier === '' || d.carrier === 'unknown').length || 'some'} policies. 
+                            Select a carrier below so the correct email template is used.
+                          </p>
+                          <div className="mt-3">
+                            <select
+                              value={carrierOverride}
+                              onChange={(e) => setCarrierOverride(e.target.value)}
+                              className="px-3 py-2 rounded-lg border border-orange-300 bg-white text-sm text-slate-700 font-medium w-full max-w-xs"
+                            >
+                              <option value="">— Select carrier —</option>
+                              {carriers.map((c: any) => (
+                                <option key={c.key} value={c.key}>{c.display_name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-xl">
+                    <div>
+                      <p className="font-semibold text-sm text-green-800">Ready to send?</p>
+                      <p className="text-xs text-green-600 mt-0.5">
+                        {result.details?.filter((d: any) => d.would_send).length || 0} emails will be sent to customers
+                      </p>
+                    </div>
+                    <button
+                      onClick={onSendLive}
+                      disabled={uploading || (showCarrierPrompt && !carrierOverride)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    >
+                      {uploading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                      Send Emails Now
+                    </button>
                   </div>
                 </div>
               )}
