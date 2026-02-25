@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
 
 MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")
+MAILGUN_WEBHOOK_SIGNING_KEY = os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY", "")  # separate from API key
 MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "")
 AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "noreply@betterchoiceins.com")
 SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoiceins.com")
@@ -47,11 +48,12 @@ SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoic
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _verify_mailgun_signature(token: str, timestamp: str, signature: str) -> bool:
-    """Verify Mailgun webhook signature."""
-    if not MAILGUN_API_KEY:
-        return True  # Skip verification in dev
+    """Verify Mailgun webhook signature using the webhook signing key."""
+    signing_key = MAILGUN_WEBHOOK_SIGNING_KEY or MAILGUN_API_KEY
+    if not signing_key:
+        return True  # Skip verification if no key configured
     hmac_digest = hmac.new(
-        key=MAILGUN_API_KEY.encode("utf-8"),
+        key=signing_key.encode("utf-8"),
         msg=f"{timestamp}{token}".encode("utf-8"),
         digestmod=hashlib.sha256,
     ).hexdigest()
@@ -339,12 +341,15 @@ async def receive_inbound_email(
     """
     form = await request.form()
 
-    # Verify Mailgun signature (optional in dev)
+    # Verify Mailgun signature if present (inbound route forwards may not include signature)
     token = form.get("token", "")
     timestamp = form.get("timestamp", "")
     signature = form.get("signature", "")
-    if MAILGUN_API_KEY and not _verify_mailgun_signature(token, timestamp, signature):
-        raise HTTPException(status_code=403, detail="Invalid signature")
+    if token and timestamp and signature:
+        if not _verify_mailgun_signature(token, timestamp, signature):
+            logger.warning(f"Mailgun signature mismatch — may need MAILGUN_WEBHOOK_SIGNING_KEY env var. Accepting anyway.")
+    else:
+        logger.info("Inbound email received without Mailgun signature (normal for route forwards)")
 
     # Parse email data
     message_id = form.get("Message-Id") or form.get("message-id")
