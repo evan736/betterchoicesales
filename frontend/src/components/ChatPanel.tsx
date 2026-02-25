@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { chatAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useChat } from '../contexts/ChatContext';
 import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
   Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
-  Bell, Search, Loader2, Check, CheckCheck
+  Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen
 } from 'lucide-react';
 
 // Popular emoji palette
@@ -52,7 +53,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.o
 
 export default function ChatPanel() {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
+  const { sidebarOpen: open, toggleSidebar, openSidebar, closeSidebar } = useChat();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -89,7 +90,7 @@ export default function ChatPanel() {
     pollRef.current = setInterval(() => {
       loadUnread();
       if (activeChannel) loadMessages(activeChannel.id, true);
-    }, 8000);
+    }, 4000);
     return () => clearInterval(pollRef.current);
   }, [user]);
 
@@ -293,26 +294,30 @@ export default function ChatPanel() {
 
   if (!user) return null;
 
-  // Floating chat button
+  // Collapsed sidebar bar
   if (!open) {
     return (
-      <button
-        onClick={() => { setOpen(true); loadChannels(); loadUnread(); }}
-        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25 flex items-center justify-center hover:scale-105 transition-transform"
-        title="Team Chat"
+      <div className="fixed top-0 right-0 h-full w-12 z-40 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-4"
+        style={{ backdropFilter: 'blur(10px)' }}
       >
-        <MessageCircle size={24} />
-        {totalUnread > 0 && (
-          <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
-            {totalUnread > 99 ? '99+' : totalUnread}
-          </span>
-        )}
-      </button>
+        <button
+          onClick={() => { openSidebar(); loadChannels(); loadUnread(); }}
+          className="relative h-10 w-10 rounded-lg bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 flex items-center justify-center transition-colors"
+          title="Open Team Chat"
+        >
+          <MessageCircle size={20} />
+          {totalUnread > 0 && (
+            <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center animate-pulse">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="fixed bottom-0 right-0 z-50 w-[380px] h-[600px] max-h-[calc(100vh-80px)] flex flex-col bg-[#0a1628] border border-cyan-900/30 rounded-tl-2xl shadow-2xl shadow-black/50 overflow-hidden"
+    <div className="fixed top-0 right-0 h-full w-[380px] z-40 flex flex-col bg-[#0a1628] border-l border-cyan-900/30 shadow-2xl shadow-black/40"
       style={{ backdropFilter: 'blur(20px)' }}
     >
       {/* Header */}
@@ -336,8 +341,8 @@ export default function ChatPanel() {
             <span className="text-sm font-semibold text-white">Team Chat</span>
           </div>
         )}
-        <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-white transition-colors">
-          <X size={18} />
+        <button onClick={closeSidebar} className="text-slate-500 hover:text-white transition-colors">
+          <PanelRightClose size={18} />
         </button>
       </div>
 
