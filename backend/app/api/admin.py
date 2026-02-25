@@ -572,3 +572,38 @@ def get_dropdown_options(
         "lead_sources": sorted([{"value": k, "label": v} for k, v in source_map.items()], key=lambda x: x["label"]),
         "carriers": sorted([{"value": k, "label": v} for k, v in carrier_map.items()], key=lambda x: x["label"]),
     }
+
+
+@router.post("/bulk-mark-paid")
+def bulk_mark_paid(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin: mark sales as paid by producer_id or sale_ids."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from app.models.sale import Sale
+    from datetime import datetime
+    
+    producer_ids = request.get("producer_ids", [])
+    sale_ids = request.get("sale_ids", [])
+    
+    q = db.query(Sale).filter(Sale.commission_status != "paid")
+    
+    if producer_ids:
+        q = q.filter(Sale.producer_id.in_(producer_ids))
+    elif sale_ids:
+        q = q.filter(Sale.id.in_(sale_ids))
+    else:
+        raise HTTPException(status_code=400, detail="Provide producer_ids or sale_ids")
+    
+    sales = q.all()
+    for s in sales:
+        s.commission_status = "paid"
+        s.commission_paid_date = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"marked_paid": len(sales)}
