@@ -693,3 +693,44 @@ def _serialize_outbound(o: OutboundQueue) -> dict:
         "rejected_reason": o.rejected_reason,
         "send_error": o.send_error,
     }
+
+
+# ── Debug / Test Endpoint ────────────────────────────────────────────────────
+
+@router.get("/debug/lookup/{policy_number}")
+def debug_lookup(policy_number: str, db: Session = Depends(get_db)):
+    """Debug endpoint: test customer lookup by policy number."""
+    from app.models.customer import Customer, CustomerPolicy
+    from sqlalchemy import func as sqlfunc
+
+    # Direct query
+    pattern = f"%{policy_number.strip()}%"
+    policies = db.query(CustomerPolicy).filter(
+        CustomerPolicy.policy_number.ilike(pattern)
+    ).limit(5).all()
+
+    results = []
+    for p in policies:
+        customer = db.query(Customer).filter(Customer.id == p.customer_id).first()
+        results.append({
+            "policy_number": p.policy_number,
+            "customer_id": p.customer_id,
+            "customer_name": customer.full_name if customer else None,
+            "customer_email": customer.email if customer else None,
+            "nowcerts_id": customer.nowcerts_insured_id if customer else None,
+        })
+
+    # Also try the lookup_customer_sync function
+    from app.services.smart_inbox_nowcerts import lookup_customer_sync
+    match, method, conf = lookup_customer_sync(db, policy_number=policy_number)
+
+    return {
+        "query": policy_number,
+        "pattern": pattern,
+        "direct_policy_matches": results,
+        "lookup_result": {
+            "customer": match,
+            "method": method,
+            "confidence": conf,
+        },
+    }
