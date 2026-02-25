@@ -8,6 +8,7 @@ import '../styles/mission-control.css';
 import '../styles/sakura-pink.css';
 import '../styles/apple-clean.css';
 import '../styles/blue-white.css';
+import '../styles/true-black.css';
 
 const ChatSidebar = dynamic(() => import('../components/ChatPanel'), { ssr: false });
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-export type ThemeId = 'mission-control' | 'sakura-pink' | 'apple-clean' | 'blue-white';
+export type ThemeId = 'mission-control' | 'sakura-pink' | 'apple-clean' | 'blue-white' | 'true-black';
 
 export interface ThemeOption {
   id: ThemeId;
@@ -15,6 +15,12 @@ export const THEMES: ThemeOption[] = [
     name: 'Mission Control',
     description: 'Dark navy with cyan accents',
     preview: '#0a0e1a',
+  },
+  {
+    id: 'true-black',
+    name: 'Black',
+    description: 'Pure OLED black',
+    preview: '#000000',
   },
   {
     id: 'sakura-pink',

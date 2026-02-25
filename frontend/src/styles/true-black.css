@@ -1,0 +1,264 @@
+/*
+ * ╔══════════════════════════════════════════════════════════════════════╗
+ * ║  TRUE BLACK / OLED — Better Choice Insurance                       ║
+ * ║  Pure black backgrounds, high contrast, minimal accents            ║
+ * ║  Scoped under body.true-black                                      ║
+ * ╚══════════════════════════════════════════════════════════════════════╝
+ */
+
+body.true-black {
+  --mc-bg-primary: #000000;
+  --mc-bg-secondary: #050505;
+  --mc-bg-elevated: #0a0a0a;
+  --mc-bg-surface: #111111;
+
+  --mc-glass: rgba(255, 255, 255, 0.03);
+  --mc-glass-border: rgba(255, 255, 255, 0.08);
+  --mc-glass-strong: rgba(255, 255, 255, 0.06);
+  --mc-glass-hover: rgba(255, 255, 255, 0.1);
+
+  --mc-text-primary: #f5f5f5;
+  --mc-text-secondary: #a0a0a0;
+  --mc-text-tertiary: #707070;
+  --mc-text-muted: #454545;
+
+  --mc-accent: #ffffff;
+  --mc-accent-glow: rgba(255, 255, 255, 0.08);
+  --mc-accent-subtle: rgba(255, 255, 255, 0.04);
+  --mc-accent-bright: #ffffff;
+
+  --mc-cyan: #06b6d4;
+  --mc-green: #22c55e;
+  --mc-green-glow: rgba(34, 197, 94, 0.1);
+  --mc-amber: #eab308;
+  --mc-amber-glow: rgba(234, 179, 8, 0.1);
+  --mc-red: #ef4444;
+  --mc-red-glow: rgba(239, 68, 68, 0.1);
+  --mc-purple: #a855f7;
+  --mc-purple-glow: rgba(168, 85, 247, 0.1);
+
+  background-color: #000000 !important;
+  color: #f5f5f5;
+}
+
+/* ── Base overrides ────────────────────────────────────────────────── */
+body.true-black .min-h-screen,
+body.true-black main {
+  background-color: #000000 !important;
+}
+
+/* ── Navbar ─────────────────────────────────────────────────────────── */
+body.true-black nav,
+body.true-black .navbar,
+body.true-black header {
+  background: #000000 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: none !important;
+}
+
+/* ── Cards / Panels ─────────────────────────────────────────────────── */
+body.true-black .card,
+body.true-black [class*="rounded-xl"][class*="bg-"],
+body.true-black [class*="rounded-lg"][class*="bg-white"],
+body.true-black [class*="bg-white"] {
+  background: #0a0a0a !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+body.true-black .bg-slate-50,
+body.true-black .bg-slate-100,
+body.true-black .bg-gray-50,
+body.true-black .bg-gray-100 {
+  background-color: #050505 !important;
+}
+
+body.true-black .bg-white {
+  background-color: #0a0a0a !important;
+}
+
+/* ── Frosted glass panels ───────────────────────────────────────────── */
+body.true-black [class*="bg-white/"],
+body.true-black [class*="bg-slate"] {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+body.true-black .bg-\[rgb\(15\,20\,35\)\],
+body.true-black .bg-\[\#0a0e1a\],
+body.true-black .bg-\[\#0f1424\],
+body.true-black .bg-\[\#050b18\],
+body.true-black [style*="background"] {
+  background-color: #000000 !important;
+}
+
+/* ── Text colors ────────────────────────────────────────────────────── */
+body.true-black .text-slate-900,
+body.true-black .text-slate-800,
+body.true-black .text-gray-900,
+body.true-black .text-gray-800 {
+  color: #f0f0f0 !important;
+}
+
+body.true-black .text-slate-700,
+body.true-black .text-slate-600,
+body.true-black .text-gray-700,
+body.true-black .text-gray-600 {
+  color: #b0b0b0 !important;
+}
+
+body.true-black .text-slate-500,
+body.true-black .text-slate-400,
+body.true-black .text-gray-500 {
+  color: #808080 !important;
+}
+
+/* ── Inputs ─────────────────────────────────────────────────────────── */
+body.true-black input,
+body.true-black select,
+body.true-black textarea {
+  background-color: #0a0a0a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #f0f0f0 !important;
+}
+
+body.true-black input::placeholder,
+body.true-black textarea::placeholder {
+  color: #505050 !important;
+}
+
+body.true-black input:focus,
+body.true-black select:focus,
+body.true-black textarea:focus {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05) !important;
+}
+
+body.true-black .input-field {
+  background-color: #0a0a0a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #f0f0f0 !important;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+body.true-black .btn-primary {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+body.true-black .btn-primary:hover {
+  background: #e0e0e0 !important;
+}
+
+body.true-black button[class*="bg-slate-900"],
+body.true-black button[class*="bg-gray-900"] {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* ── Borders ────────────────────────────────────────────────────────── */
+body.true-black [class*="border-slate"],
+body.true-black [class*="border-gray"],
+body.true-black [class*="border-white"] {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+body.true-black .border-b,
+body.true-black .border-t {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────── */
+body.true-black table thead {
+  background-color: #050505 !important;
+}
+
+body.true-black table tbody tr {
+  border-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+body.true-black table tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* ── Badges / Tags ──────────────────────────────────────────────────── */
+body.true-black .badge,
+body.true-black [class*="badge-"] {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+body.true-black ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body.true-black ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body.true-black ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+body.true-black ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Shadows (remove colored shadows, use pure black) ───────────────── */
+body.true-black [class*="shadow"] {
+  --tw-shadow-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ── Charts / Recharts ──────────────────────────────────────────────── */
+body.true-black .recharts-cartesian-grid line {
+  stroke: rgba(255, 255, 255, 0.04) !important;
+}
+
+body.true-black .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #0a0a0a !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── Modals / Dialogs ───────────────────────────────────────────────── */
+body.true-black [class*="bg-black/"],
+body.true-black .fixed.inset-0[class*="bg-"] {
+  background-color: rgba(0, 0, 0, 0.85) !important;
+}
+
+/* ── Chat panel in black theme ──────────────────────────────────────── */
+body.true-black .bg-\[\#0a1628\],
+body.true-black .bg-\[\#0d1f3c\] {
+  background-color: #000000 !important;
+}
+
+/* ── Dropdown menus ─────────────────────────────────────────────────── */
+body.true-black [class*="dropdown"],
+body.true-black [role="menu"],
+body.true-black [role="listbox"] {
+  background-color: #0a0a0a !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── Gradient overrides ─────────────────────────────────────────────── */
+body.true-black .gradient-bg,
+body.true-black [class*="gradient-"] {
+  background: #000000 !important;
+}
+
+/* ── Progress bars ──────────────────────────────────────────────────── */
+body.true-black .bg-slate-200,
+body.true-black .bg-gray-200 {
+  background-color: #1a1a1a !important;
+}
+
+/* ── Hover states ───────────────────────────────────────────────────── */
+body.true-black .hover\:bg-slate-50:hover,
+body.true-black .hover\:bg-gray-50:hover,
+body.true-black .hover\:bg-white:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ── Login page override ────────────────────────────────────────────── */
+body.true-black .lg\:w-1\/2.gradient-bg {
+  background: #000000 !important;
+}
