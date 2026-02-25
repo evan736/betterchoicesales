@@ -23,6 +23,7 @@ from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
 from app.api import retell as retell_api
 from app.api import mia_bypass as mia_bypass_api
+from app.api import sms as sms_api
 from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
@@ -1117,6 +1118,7 @@ app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
 app.include_router(retell_api.router)
 app.include_router(mia_bypass_api.router)
+app.include_router(sms_api.router)
 app.include_router(cancellation_api.router)
 app.include_router(nowcerts_poll_api.router)
 app.include_router(inspection_api.router)

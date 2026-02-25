@@ -924,6 +924,17 @@ async def callback_request(request: Request):
                 cancel_html
             )
 
+            # Also send SMS alert to staff (if configured)
+            try:
+                from app.api.sms import send_cancellation_alert_sms
+                send_cancellation_alert_sms(
+                    caller_name=caller_name,
+                    caller_phone=caller_phone,
+                    carrier=carrier,
+                )
+            except Exception as e:
+                logger.error("Cancellation SMS alert failed: %s", e)
+
         # Return success message that MIA will read to caller
         return {
             "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} as soon as possible."
@@ -1139,6 +1150,21 @@ async def post_call_webhook(request: Request):
             else:
                 subject = f"📊 MIA Call — {customer_name} — {resolution_badge}"
             send_mailgun_email("service@betterchoiceins.com", subject, html)
+
+            # Send SMS confirmation to caller if a request was taken
+            if has_request and from_number:
+                try:
+                    from app.api.sms import send_post_call_sms
+                    first_req = pending_reqs[0]
+                    sms_result = send_post_call_sms(
+                        caller_phone=from_number,
+                        caller_name=customer_name,
+                        request_type=first_req.get("request_type", "callback"),
+                        carrier=first_req.get("carrier", ""),
+                    )
+                    logger.info("Post-call SMS: %s", sms_result)
+                except Exception as e:
+                    logger.error("Post-call SMS failed: %s", e)
 
         return {"status": "ok"}
 
