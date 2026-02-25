@@ -45,6 +45,7 @@ export default function CustomersPage() {
   const [emailSent, setEmailSent] = useState(false);
   const [emailSendAs, setEmailSendAs] = useState<'service' | 'personal'>('service');
   const [emailFiles, setEmailFiles] = useState<File[]>([]);
+  const [emailCc, setEmailCc] = useState('');
   const emailFileRef = useRef<HTMLInputElement>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
@@ -510,7 +511,7 @@ export default function CustomersPage() {
                               <div className="mt-4 border-t border-slate-200 pt-4">
                                 {!emailOpen ? (
                                   <button
-                                    onClick={() => { setEmailOpen(true); setEmailSent(false); setEmailSubject(''); setEmailBody(''); setEmailFiles([]); setEmailSendAs('service'); }}
+                                    onClick={() => { setEmailOpen(true); setEmailSent(false); setEmailSubject(''); setEmailBody(''); setEmailFiles([]); setEmailSendAs('service'); setEmailCc(''); }}
                                     className="flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
                                   >
                                     <Mail size={15} />
@@ -574,6 +575,15 @@ export default function CustomersPage() {
                                           />
                                         </div>
                                         <div>
+                                          <label className="block text-xs font-semibold text-slate-500 mb-1">CC <span className="font-normal text-slate-400">(optional, comma-separated)</span></label>
+                                          <input
+                                            value={emailCc}
+                                            onChange={e => setEmailCc(e.target.value)}
+                                            placeholder="e.g. agent@email.com, manager@email.com"
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+                                          />
+                                        </div>
+                                        <div>
                                           <label className="block text-xs font-semibold text-slate-500 mb-1">Message</label>
                                           <textarea
                                             value={emailBody}
@@ -627,9 +637,11 @@ export default function CustomersPage() {
                                                   await customersAPI.quickEmail({
                                                     to_email: detail.customer.email,
                                                     to_name: detail.customer.full_name || '',
+                                                    cc_emails: emailCc || undefined,
                                                     subject: emailSubject,
                                                     body: emailBody,
                                                     send_as: emailSendAs,
+                                                    customer_id: detail.customer.id || undefined,
                                                     attachments: emailFiles.length > 0 ? emailFiles : undefined,
                                                   });
                                                   setEmailSent(true);

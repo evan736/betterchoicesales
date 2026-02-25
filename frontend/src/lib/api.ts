@@ -233,13 +233,15 @@ export const customersAPI = {
   stateDistribution: () => api.get('/api/customers/state-distribution'),
   growthData: () => api.get('/api/customers/growth-data'),
   captureSnapshot: () => api.post('/api/customers/capture-snapshot'),
-  quickEmail: (data: { to_email: string; to_name?: string; subject: string; body: string; send_as?: string; attachments?: File[] }) => {
+  quickEmail: (data: { to_email: string; to_name?: string; cc_emails?: string; subject: string; body: string; send_as?: string; customer_id?: number; attachments?: File[] }) => {
     const fd = new FormData();
     fd.append('to_email', data.to_email);
     if (data.to_name) fd.append('to_name', data.to_name);
+    if (data.cc_emails) fd.append('cc_emails', data.cc_emails);
     fd.append('subject', data.subject);
     fd.append('body', data.body);
     fd.append('send_as', data.send_as || 'service');
+    if (data.customer_id) fd.append('customer_id', String(data.customer_id));
     if (data.attachments) {
       data.attachments.forEach(f => fd.append('attachments', f));
     }

@@ -1164,9 +1164,11 @@ from app.core.config import settings
 def send_quick_email(
     to_email: str = Form(...),
     to_name: str = Form(""),
+    cc_emails: str = Form(""),  # comma-separated additional emails
     subject: str = Form(...),
     body: str = Form(...),
     send_as: str = Form("service"),  # "personal" or "service"
+    customer_id: Optional[int] = Form(None),  # for NowCerts note
     attachments: list[UploadFile] = File(default=[]),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1177,6 +1179,10 @@ def send_quick_email(
 
     if not to_email or not subject or not body:
         raise HTTPException(status_code=400, detail="Email, subject, and body are required")
+
+    # Build recipient list
+    all_to = [f"{to_name} <{to_email}>" if to_name else to_email]
+    cc_list = [e.strip() for e in cc_emails.split(",") if e.strip()] if cc_emails else []
 
     # Determine sender identity
     if send_as == "personal" and current_user.email:
@@ -1212,16 +1218,20 @@ def send_quick_email(
         # Build multipart form data for Mailgun
         data = {
             "from": from_str,
-            "to": [f"{to_name} <{to_email}>" if to_name else to_email],
+            "to": all_to,
             "subject": subject,
             "html": html,
             "h:Reply-To": reply_to,
         }
+        if cc_list:
+            data["cc"] = cc_list
 
         files = []
+        att_names = []
         for att in attachments:
             content = att.file.read()
             files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
+            att_names.append(att.filename)
 
         resp = http_requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
@@ -1231,8 +1241,102 @@ def send_quick_email(
         )
         resp.raise_for_status()
         att_count = len(files)
-        logger.info(f"Quick email sent to {to_email} by {current_user.username} as {from_email}: {subject} ({att_count} attachments)")
-        return {"status": "sent", "to": to_email, "subject": subject, "attachments": att_count}
+        all_recipients = [to_email] + cc_list
+        logger.info(f"Quick email sent to {', '.join(all_recipients)} by {current_user.username} as {from_email}: {subject} ({att_count} attachments)")
+
+        # Push note to NowCerts for this customer
+        _log_email_to_nowcerts(
+            db=db,
+            customer_id=customer_id,
+            customer_email=to_email,
+            customer_name=to_name,
+            direction="outbound",
+            subject=subject,
+            body_summary=body[:500],
+            sender=current_user.full_name,
+            cc_list=cc_list,
+            att_names=att_names,
+        )
+
+        return {"status": "sent", "to": to_email, "cc": cc_list, "subject": subject, "attachments": att_count}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Quick email failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")
+
+
+def _log_email_to_nowcerts(
+    db: Session,
+    customer_id: Optional[int],
+    customer_email: str,
+    customer_name: str,
+    direction: str,  # "outbound" or "inbound"
+    subject: str,
+    body_summary: str,
+    sender: str,
+    cc_list: list = None,
+    att_names: list = None,
+):
+    """Push an email summary note to NowCerts for the customer profile."""
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        if not nc or not nc.is_configured:
+            logger.warning("NowCerts not configured — skipping email note")
+            return
+
+        # Look up customer for NowCerts insured ID
+        customer = None
+        if customer_id:
+            customer = db.query(Customer).filter(Customer.id == customer_id).first()
+
+        # Build note subject
+        arrow = "📤 Sent" if direction == "outbound" else "📥 Received"
+        note_subject = f"{arrow}: {subject}"
+
+        # Build note body
+        lines = [f"Subject: {subject}"]
+        if direction == "outbound":
+            lines.append(f"From: {sender}")
+            lines.append(f"To: {customer_email}")
+        else:
+            lines.append(f"From: {customer_email}")
+            lines.append(f"To: {sender}")
+        if cc_list:
+            lines.append(f"CC: {', '.join(cc_list)}")
+        if att_names:
+            lines.append(f"Attachments: {', '.join(att_names)}")
+        lines.append("")
+        # Truncate body for note
+        summary = body_summary.replace('<br>', '\n').replace('<br/>', '\n')
+        if len(summary) > 300:
+            summary = summary[:300] + "..."
+        lines.append(summary)
+
+        note_text = "\n".join(lines)
+
+        # Parse name
+        name_parts = (customer_name or "").strip().split()
+        first_name = name_parts[0] if name_parts else ""
+        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
+        note_data = {
+            "subject": note_subject[:200],
+            "insured_email": customer_email,
+            "insured_first_name": first_name,
+            "insured_last_name": last_name,
+            "insured_commercial_name": customer_name,
+            "type": "Email",
+            "description": note_text,
+            "creator_name": f"ORBIT ({sender})",
+        }
+
+        if customer and customer.nowcerts_insured_id:
+            note_data["insured_database_id"] = str(customer.nowcerts_insured_id)
+
+        nc.insert_note(note_data)
+        logger.info(f"NowCerts note logged for {customer_email}: {direction} email - {subject[:60]}")
+    except Exception as e:
+        # Don't fail the email send if note logging fails
+        logger.error(f"Failed to log email to NowCerts: {e}")
