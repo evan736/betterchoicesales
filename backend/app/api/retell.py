@@ -186,6 +186,11 @@ _REPEAT_WINDOW_LONG = 86400   # 24 hours — same day repeat
 _REPEAT_CLEANUP_INTERVAL = 3600  # Clean old entries every hour
 _last_repeat_cleanup = 0.0
 
+# Mid-call request store — holds request data until post-call email combines it
+# Format: {call_id: [request_dict, ...]}  (a call can have multiple requests)
+_pending_requests: dict = {}
+_PENDING_REQUEST_TTL = 1800  # Clean up after 30 min (calls shouldn't last that long)
+
 
 def _check_repeat_caller(phone_digits: str) -> dict:
     """Check if this phone number has called recently. Returns repeat info."""
@@ -555,7 +560,11 @@ async def inbound_call_webhook(request: Request):
 
 @router.post("/callback-request")
 async def callback_request(request: Request):
-    """Handle callback/message requests from MIA — sends email to service team."""
+    """Handle callback/message requests from MIA mid-call.
+
+    Instead of sending a separate email, stores the request data so the
+    post-call webhook can include it in a single combined email.
+    """
     try:
         body = await request.json()
         args = body.get("args", {})
@@ -569,60 +578,42 @@ async def callback_request(request: Request):
         policy_number = args.get("policy_number", "")
         carrier = args.get("carrier", "")
         request_type = args.get("request_type", "callback")  # callback, message, policy_change
+        staff_requested = args.get("staff_requested", "")
 
         call_id = call_info.get("call_id", "")
         timestamp = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p CT")
 
         logger.info(
-            "MIA %s request: name=%s phone=%s reason=%s",
-            request_type, caller_name, caller_phone, reason[:80]
+            "MIA %s request (stored for post-call): name=%s phone=%s reason=%s call_id=%s",
+            request_type, caller_name, caller_phone, reason[:80], call_id
         )
 
-        # Build email
-        urgency_badge = {
-            "urgent": "🔴 URGENT",
-            "high": "🟠 High Priority",
-            "normal": "🟢 Normal",
-            "low": "🔵 Low Priority",
-        }.get(urgency.lower(), "🟢 Normal")
+        # Store request data — will be included in the post-call summary email
+        request_data = {
+            "caller_name": caller_name,
+            "caller_phone": caller_phone,
+            "reason": reason,
+            "urgency": urgency,
+            "preferred_time": preferred_time,
+            "policy_number": policy_number,
+            "carrier": carrier,
+            "request_type": request_type,
+            "staff_requested": staff_requested,
+            "timestamp": timestamp,
+            "stored_at": _time.time(),
+        }
 
-        type_label = {
-            "callback": "📞 Callback Request",
-            "message": "💬 Message",
-            "policy_change": "📝 Policy Change Request",
-        }.get(request_type, "📞 Request")
+        if call_id:
+            if call_id not in _pending_requests:
+                _pending_requests[call_id] = []
+            _pending_requests[call_id].append(request_data)
 
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: #1a5276; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
-                <h2 style="margin: 0;">{type_label}</h2>
-                <p style="margin: 4px 0 0; opacity: 0.9;">From MIA AI Receptionist</p>
-            </div>
-            <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
-                <p style="margin-top: 0;"><strong>Priority:</strong> {urgency_badge}</p>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 8px 0; font-weight: bold; width: 140px;">Caller Name:</td>
-                        <td style="padding: 8px 0;">{caller_name}</td></tr>
-                    <tr><td style="padding: 8px 0; font-weight: bold;">Phone:</td>
-                        <td style="padding: 8px 0;">{caller_phone}</td></tr>
-                    {"<tr><td style='padding: 8px 0; font-weight: bold;'>Carrier:</td><td style='padding: 8px 0;'>" + carrier + "</td></tr>" if carrier else ""}
-                    {"<tr><td style='padding: 8px 0; font-weight: bold;'>Policy #:</td><td style='padding: 8px 0;'>" + policy_number + "</td></tr>" if policy_number else ""}
-                    <tr><td style="padding: 8px 0; font-weight: bold;">Preferred Time:</td>
-                        <td style="padding: 8px 0;">{preferred_time}</td></tr>
-                </table>
-                <div style="background: #f8f9fa; padding: 16px; border-radius: 6px; margin-top: 16px;">
-                    <p style="margin: 0; font-weight: bold;">Reason / Message:</p>
-                    <p style="margin: 8px 0 0;">{reason}</p>
-                </div>
-                <p style="color: #888; font-size: 12px; margin-top: 16px;">
-                    Received: {timestamp} · Call ID: {call_id}
-                </p>
-            </div>
-        </div>
-        """
-
-        subject = f"{type_label} — {caller_name} ({caller_phone})"
-        send_mailgun_email("service@betterchoiceins.com", subject, html)
+        # Cleanup old entries (shouldn't accumulate but just in case)
+        now = _time.time()
+        stale_ids = [k for k, v in _pending_requests.items()
+                     if v and (now - v[0].get("stored_at", 0)) > _PENDING_REQUEST_TTL]
+        for k in stale_ids:
+            del _pending_requests[k]
 
         # Return success message that MIA will read to caller
         return {
@@ -745,6 +736,59 @@ async def post_call_webhook(request: Request):
 
             follow_up_badge = "🔴 Yes" if follow_up == "true" else "🟢 No"
 
+            # Check for any mid-call requests stored for this call
+            pending_reqs = _pending_requests.pop(call_id, [])
+            request_html = ""
+            if pending_reqs:
+                for req in pending_reqs:
+                    req_urgency_badge = {
+                        "urgent": "🔴 URGENT",
+                        "high": "🟠 High Priority",
+                        "normal": "🟢 Normal",
+                        "low": "🔵 Low Priority",
+                    }.get((req.get("urgency", "normal")).lower(), "🟢 Normal")
+
+                    req_type_label = {
+                        "callback": "📞 Callback Request",
+                        "message": "💬 Message",
+                        "policy_change": "📝 Policy Change Request",
+                        "document_request": "📄 Document Request",
+                    }.get(req.get("request_type", "callback"), "📞 Request")
+
+                    staff_line = ""
+                    if req.get("staff_requested"):
+                        staff_line = f"<tr><td style='padding: 4px 0; font-weight: bold;'>Staff Requested:</td><td style='padding: 4px 0;'>⭐ {req['staff_requested']}</td></tr>"
+
+                    request_html += f"""
+                    <div style="background: #fff8e1; padding: 16px; border-radius: 6px; margin-top: 16px; border-left: 4px solid #f59e0b;">
+                        <p style="margin: 0; font-weight: bold;">{req_type_label} · {req_urgency_badge}</p>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px;">
+                            <tr><td style="padding: 4px 0; font-weight: bold; width: 130px;">Phone:</td>
+                                <td style="padding: 4px 0;">{req.get('caller_phone', '')}</td></tr>
+                            {staff_line}
+                            {"<tr><td style='padding: 4px 0; font-weight: bold;'>Carrier:</td><td style='padding: 4px 0;'>" + req['carrier'] + "</td></tr>" if req.get('carrier') else ""}
+                            {"<tr><td style='padding: 4px 0; font-weight: bold;'>Policy #:</td><td style='padding: 4px 0;'>" + req['policy_number'] + "</td></tr>" if req.get('policy_number') else ""}
+                            <tr><td style="padding: 4px 0; font-weight: bold;">Preferred Time:</td>
+                                <td style="padding: 4px 0;">{req.get('preferred_time', 'Any time')}</td></tr>
+                        </table>
+                        <div style="background: #fffbeb; padding: 10px; border-radius: 4px; margin-top: 8px;">
+                            <p style="margin: 0; font-size: 13px;"><strong>Reason:</strong> {req.get('reason', 'N/A')}</p>
+                        </div>
+                    </div>
+                    """
+
+            # Adjust subject line if there's a request
+            has_request = len(pending_reqs) > 0
+            req_type_for_subject = ""
+            if has_request:
+                first_req = pending_reqs[0]
+                req_type_for_subject = {
+                    "callback": "📞 Callback",
+                    "message": "💬 Message",
+                    "policy_change": "📝 Policy Change",
+                    "document_request": "📄 Document",
+                }.get(first_req.get("request_type", ""), "📞 Request")
+
             html = f"""
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <div style="background: #2c3e50; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
@@ -769,6 +813,7 @@ async def post_call_webhook(request: Request):
                             <td>{follow_up_badge}</td></tr>
                     </table>
                     {"<div style='background: #f0f7ff; padding: 16px; border-radius: 6px; margin-top: 16px; border-left: 4px solid #1a5276;'><p style='margin: 0; font-weight: bold;'>Summary</p><p style='margin: 8px 0 0;'>" + call_summary + "</p></div>" if call_summary else ""}
+                    {request_html}
                     <details style="margin-top: 16px;">
                         <summary style="cursor: pointer; font-weight: bold; color: #1a5276;">View Full Transcript</summary>
                         <pre style="white-space: pre-wrap; font-size: 13px; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 8px; max-height: 400px; overflow-y: auto;">{transcript[:5000] if transcript else "No transcript"}</pre>
@@ -780,7 +825,10 @@ async def post_call_webhook(request: Request):
             </div>
             """
 
-            subject = f"📊 MIA Call — {customer_name} — {resolution_badge}"
+            if has_request:
+                subject = f"📊 MIA Call — {customer_name} — {req_type_for_subject} — {resolution_badge}"
+            else:
+                subject = f"📊 MIA Call — {customer_name} — {resolution_badge}"
             send_mailgun_email("service@betterchoiceins.com", subject, html)
 
         return {"status": "ok"}
