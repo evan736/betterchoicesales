@@ -272,8 +272,20 @@ export default function SmartInboxPage() {
               <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: '#f1f5f9' }}>
                 Smart Inbox
               </h1>
-              <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>
-                AI-Powered Email Processing • process@mail.betterchoiceins.com
+              <p style={{ fontSize: 12, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                AI-Powered Email Processing • 
+                <span 
+                  onClick={() => { navigator.clipboard.writeText('process@mail.betterchoiceins.com'); }}
+                  style={{ color: '#22d3ee', cursor: 'pointer', borderBottom: '1px dashed rgba(34,211,238,0.4)' }}
+                  title="Click to copy"
+                >
+                  process@mail.betterchoiceins.com
+                </span>
+                <span 
+                  onClick={() => { navigator.clipboard.writeText('process@mail.betterchoiceins.com'); alert('Copied!'); }}
+                  style={{ cursor: 'pointer', fontSize: 11, color: '#64748b' }}
+                  title="Copy to clipboard"
+                >📋</span>
               </p>
             </div>
           </div>
