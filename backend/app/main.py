@@ -680,6 +680,22 @@ async def lifespan(app: FastAPI):
     """Run database init on startup + start background scheduler."""
     init_database()
 
+    # Mark pre-Feb 2026 sales as premium paid
+    try:
+        from sqlalchemy import text as sa_text
+        from app.core.database import engine
+        with engine.connect() as conn:
+            r = conn.execute(sa_text(
+                "UPDATE sales SET commission_status = 'paid' "
+                "WHERE commission_status != 'paid' "
+                "AND (sale_date < '2026-02-01' OR effective_date < '2026-02-01')"
+            ))
+            conn.commit()
+            if r.rowcount > 0:
+                logger.info(f"Marked {r.rowcount} pre-Feb-2026 sales as premium paid")
+    except Exception as e:
+        logger.warning(f"Pre-Feb paid update: {e}")
+
     # Start background follow-up checker (runs every 6 hours)
     import asyncio
     import threading
@@ -874,6 +890,20 @@ def force_migrate():
             results.append(f"OK: {col_sql}")
         except Exception as e:
             results.append(f"SKIP: {str(e)[:80]}")
+
+    # Mark all sales before Feb 1 2026 as premium paid
+    try:
+        with engine.connect() as conn:
+            r = conn.execute(sa_text(
+                "UPDATE sales SET commission_status = 'paid' "
+                "WHERE commission_status != 'paid' "
+                "AND (sale_date < '2026-02-01' OR effective_date < '2026-02-01')"
+            ))
+            conn.commit()
+            results.append(f"OK: Marked {r.rowcount} pre-Feb-2026 sales as premium paid")
+    except Exception as e:
+        results.append(f"SKIP pre-Feb paid: {str(e)[:80]}")
+
     return {"results": results}
 
 

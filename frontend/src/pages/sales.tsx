@@ -279,24 +279,24 @@ export default function Sales() {
             <div className="text-2xl font-bold text-green-700">
               ${sales.filter((s: any) => s.commission_status === 'paid').reduce((sum: number, s: any) => sum + parseFloat(s.written_premium || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}
             </div>
-            <div className="text-xs text-green-600">Commission Paid</div>
+            <div className="text-xs text-green-600">Premium Paid</div>
           </div>
           <div className="bg-white rounded-lg border border-amber-200 p-3 text-center">
             <div className="text-2xl font-bold text-amber-600">
               ${sales.filter((s: any) => s.commission_status !== 'paid').reduce((sum: number, s: any) => sum + parseFloat(s.written_premium || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}
             </div>
-            <div className="text-xs text-amber-600">Commission Pending</div>
+            <div className="text-xs text-amber-600">Premium Pending</div>
           </div>
         </div>
 
-        {/* Commission Paid Progress Bar */}
+        {/* Premium Paid Progress Bar */}
         {totalSales > 0 && (() => {
           const paidCount = sales.filter((s: any) => s.commission_status === 'paid').length;
           const paidPct = Math.round((paidCount / totalSales) * 100);
           return (
             <div className="mb-6 bg-white rounded-lg border border-slate-200 p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-slate-700">Commission Payment Progress</span>
+                <span className="text-sm font-semibold text-slate-700">Premium Payment Progress</span>
                 <span className="text-sm text-slate-500">{paidCount} of {totalSales} policies paid ({paidPct}%)</span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-3">
@@ -484,9 +484,9 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
               {sale.status}
             </span>
             {sale.commission_status === 'paid' ? (
-              <span className="badge bg-green-100 text-green-700">💰 Comm Paid</span>
+              <span className="badge bg-green-100 text-green-700">💰 Premium Paid</span>
             ) : (
-              <span className="badge bg-amber-100 text-amber-700">⏳ Comm Pending</span>
+              <span className="badge bg-amber-100 text-amber-700">⏳ Premium Pending</span>
             )}
             {sale.welcome_email_sent && (
               <span className="badge bg-purple-100 text-purple-700">📧 Welcome Sent</span>

@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn, Shield, TrendingUp, Users } from 'lucide-react';
+import axios from 'axios';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState('');
   const { login } = useAuth();
   const router = useRouter();
 
@@ -39,7 +43,23 @@ export default function Login() {
         
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
           <div className="mb-8">
-            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-16 w-auto mb-6 brightness-0 invert" />
+            {/* ORBIT Logo */}
+            <svg viewBox="0 0 40 40" className="h-16 w-16 mb-6" fill="none">
+              <defs>
+                <linearGradient id="orbitGradLogin" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#06b6d4" />
+                  <stop offset="60%" stopColor="#0ea5e9" />
+                  <stop offset="100%" stopColor="#6366f1" />
+                </linearGradient>
+              </defs>
+              <ellipse cx="20" cy="20" rx="17" ry="10" stroke="url(#orbitGradLogin)" strokeWidth="1.2" opacity="0.5" transform="rotate(-25 20 20)" />
+              <ellipse cx="20" cy="20" rx="14" ry="7" stroke="url(#orbitGradLogin)" strokeWidth="0.8" opacity="0.3" transform="rotate(30 20 20)" />
+              <circle cx="20" cy="20" r="7" fill="url(#orbitGradLogin)" opacity="0.15" />
+              <circle cx="20" cy="20" r="7" stroke="url(#orbitGradLogin)" strokeWidth="1.5" fill="none" />
+              <circle cx="35" cy="14" r="2.5" fill="#06b6d4" />
+              <circle cx="35" cy="14" r="1.5" fill="#fff" />
+              <circle cx="20" cy="20" r="2" fill="url(#orbitGradLogin)" />
+            </svg>
             <h1 className="font-display font-bold text-5xl mb-4">
               Better Choice Insurance Group
             </h1>
@@ -125,11 +145,60 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-900 font-semibold mb-2">Demo Credentials:</p>
-              <p className="text-xs text-blue-700">Admin: admin / admin123</p>
-              <p className="text-xs text-blue-700">Producer: producer1 / producer123</p>
+            <div className="mt-6 text-center">
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(true)}
+                className="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+              >
+                Forgot your password?
+              </button>
             </div>
+
+            {/* Forgot Password Modal */}
+            {showForgotPassword && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowForgotPassword(false); setForgotEmail(''); setForgotStatus(''); }}>
+                <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-slate-900 mb-2">Reset Password</h3>
+                  <p className="text-sm text-slate-600 mb-4">Enter your email address and we'll send you a password reset link.</p>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="input-field mb-4"
+                    placeholder="Enter your email"
+                  />
+                  {forgotStatus && (
+                    <div className={`mb-4 p-3 rounded-lg text-sm ${forgotStatus.includes('error') ? 'bg-red-50 text-red-800' : 'bg-green-50 text-green-800'}`}>
+                      {forgotStatus}
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={async () => {
+                        if (!forgotEmail) return;
+                        setForgotStatus('');
+                        try {
+                          await axios.post(`${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}/api/auth/forgot-password`, { email: forgotEmail });
+                          setForgotStatus('If an account with that email exists, a password reset link has been sent.');
+                        } catch {
+                          setForgotStatus('If an account with that email exists, a password reset link has been sent.');
+                        }
+                      }}
+                      className="flex-1 btn-primary text-sm py-2"
+                    >
+                      Send Reset Link
+                    </button>
+                    <button
+                      onClick={() => { setShowForgotPassword(false); setForgotEmail(''); setForgotStatus(''); }}
+                      className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 border border-slate-300 rounded-lg"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

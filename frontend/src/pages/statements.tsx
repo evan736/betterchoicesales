@@ -1059,7 +1059,7 @@ const PayrollActions: React.FC<{
     setLoading(true);
     try {
       await payrollAPI.markPaid(period);
-      alert('Payroll marked as paid! Sales updated to Commission Paid.');
+      alert('Payroll marked as paid! Sales updated to Premium Paid.');
       loadPayrollStatus();
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to mark paid');
