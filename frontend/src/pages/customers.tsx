@@ -399,14 +399,42 @@ export default function CustomersPage() {
                                 )}
                               </div>
                             </div>
-                            {detail.policies?.length > 0 ? (
+                            {(() => {
+                              // Filter policies: only show last 1 year + deduplicate active renewals
+                              const now = new Date();
+                              const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+                              // Find active policy numbers to deduplicate renewals
+                              const activePolicyNums = new Set(
+                                (detail.policies || [])
+                                  .filter((p: any) => p.status?.toLowerCase() === 'active')
+                                  .map((p: any) => p.policy_number)
+                              );
+
+                              const filteredPolicies = (detail.policies || []).filter((p: any) => {
+                                // Always show active policies
+                                if (p.status?.toLowerCase() === 'active') return true;
+
+                                // Check if within 1 year
+                                const effDate = p.effective_date ? new Date(p.effective_date) : null;
+                                const expDate = p.expiration_date ? new Date(p.expiration_date) : null;
+                                const refDate = expDate || effDate;
+                                if (refDate && refDate < oneYearAgo) return false;
+
+                                // Skip if same policy number as an active policy (it's just the prior term)
+                                if (p.policy_number && activePolicyNums.has(p.policy_number)) return false;
+
+                                return true;
+                              });
+
+                              return filteredPolicies.length > 0 ? (
                               <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                   <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
                                     <th className="pb-2 font-semibold">Policy #</th><th className="pb-2 font-semibold">Carrier</th><th className="pb-2 font-semibold">Type</th><th className="pb-2 font-semibold">Status</th><th className="pb-2 font-semibold">Effective</th><th className="pb-2 font-semibold">Expires</th><th className="pb-2 font-semibold text-right">Premium</th>
                                   </tr></thead>
                                   <tbody>
-                                    {detail.policies.map((p: any, i: number) => (
+                                    {filteredPolicies.map((p: any, i: number) => (
                                       <tr key={p.id || i} className="border-b border-slate-100">
                                         <td className="py-2.5 font-semibold text-slate-900">
                                           <button
@@ -463,7 +491,8 @@ export default function CustomersPage() {
                                   </tbody>
                                 </table>
                               </div>
-                            ) : <p className="text-sm text-slate-500 py-4 text-center">No policies found. Try refreshing from NowCerts.</p>}
+                            ) : <p className="text-sm text-slate-500 py-4 text-center">No policies found. Try refreshing from NowCerts.</p>;
+                            })()}
 
                             {/* MIA Bypass Controls */}
                             {detail.customer?.phone && (
