@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { emailAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useEmail } from '../contexts/EmailContext';
+import { useChat } from '../contexts/ChatContext';
 import {
   Mail, Search, Inbox, Send, User, Clock, Loader2, X, CheckCircle2,
   Paperclip, Sparkles, Archive, RefreshCw, MailOpen, ChevronLeft,
@@ -13,6 +14,12 @@ const TAGS = ['billing', 'claims', 'new-business', 'endorsement', 'renewal', 'ge
 export default function EmailPanel() {
   const { user } = useAuth();
   const { sidebarOpen: open, openSidebar, closeSidebar, unreadCount, openCount, unassignedCount, refreshStats, expanded, setExpanded } = useEmail();
+  const { sidebarOpen: chatOpen } = useChat();
+
+  // Email panel sits to the left of chat panel + collapsed bar
+  const chatWidth = chatOpen ? 380 : 0; // chat panel width (0 if closed)
+  const barWidth = 48; // always-visible icon bar
+  const emailRight = barWidth + chatWidth;
 
   // Mailboxes
   const [mailboxes, setMailboxes] = useState<any[]>([]);
@@ -176,8 +183,8 @@ export default function EmailPanel() {
 
   // ═══ EXPANDED STATE ═══
   return (
-    <div className="fixed top-0 right-0 h-full z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40 transition-all duration-300"
-      style={{ width: `${panelWidth}px`, backdropFilter: 'blur(20px)' }}>
+    <div className="fixed top-0 h-full z-40 flex flex-col bg-[#0a1628] border-l border-blue-900/30 shadow-2xl shadow-black/40 transition-all duration-300"
+      style={{ width: `${panelWidth}px`, right: `${emailRight}px`, backdropFilter: 'blur(20px)' }}>
 
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-gradient-to-r from-[#0d1f3c] to-[#0a1628] border-b border-blue-900/20">

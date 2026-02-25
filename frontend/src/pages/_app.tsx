@@ -23,9 +23,11 @@ function AppLayout({ Component, pageProps }: { Component: any; pageProps: any })
     return <Component {...pageProps} />;
   }
 
-  // Calculate right margin: collapsed bar (48px) or expanded panel
-  const emailWidth = emailExpanded ? 680 : 380;
-  const rightMargin = chatOpen ? 380 : emailOpen ? emailWidth : 48;
+  // Calculate right margin: collapsed bar (48px) + any open panels
+  const chatWidth = chatOpen ? 380 : 0;
+  const emailWidth = emailOpen ? (emailExpanded ? 680 : 380) : 0;
+  const barWidth = 48; // always-visible icon bar
+  const rightMargin = barWidth + chatWidth + emailWidth;
 
   return (
     <div className="flex min-h-screen">
