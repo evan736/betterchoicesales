@@ -81,12 +81,12 @@ class ReshopNote(BaseModel):
 
 def _can_access(user: User) -> bool:
     """Check if user can access the reshop pipeline."""
-    return user.role in ("admin", "retention_specialist", "manager", "producer")
+    return user.role.lower() in ("admin", "retention_specialist", "manager", "producer")
 
 
 def _can_manage(user: User) -> bool:
     """Check if user can manage reshops (full CRUD, assign, stage changes)."""
-    return user.role in ("admin", "retention_specialist", "manager")
+    return user.role.lower() in ("admin", "retention_specialist", "manager")
 
 
 def _reshop_to_dict(r: Reshop) -> dict:
@@ -178,7 +178,7 @@ def list_reshops(
     query = db.query(Reshop)
 
     # Producers only see reshops they referred
-    if current_user.role == "producer":
+    if current_user.role.lower() == "producer":
         query = query.filter(
             or_(
                 Reshop.referred_by == current_user.full_name,
@@ -337,7 +337,7 @@ def create_reshop(
         reason_detail=data.reason_detail,
         notes=data.notes,
         is_proactive=(data.stage == "proactive"),
-        referred_by=current_user.full_name or current_user.username if current_user.role == "producer" else None,
+        referred_by=current_user.full_name or current_user.username if current_user.role.lower() == "producer" else None,
     )
     db.add(reshop)
     db.flush()
@@ -495,7 +495,7 @@ def move_reshop_stage(
         raise HTTPException(status_code=400, detail=f"Invalid stage: {stage}")
 
     # Producers can only refer (move to new_request)
-    if current_user.role == "producer" and stage != "new_request":
+    if current_user.role.lower() == "producer" and stage != "new_request":
         raise HTTPException(status_code=403, detail="Producers can only refer reshops")
 
     reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
@@ -648,7 +648,7 @@ def create_reshop_from_customer(
         source=source,
         reason=reason,
         notes=notes,
-        referred_by=current_user.full_name if current_user.role == "producer" else None,
+        referred_by=current_user.full_name if current_user.role.lower() == "producer" else None,
     )
     db.add(reshop)
     db.flush()
