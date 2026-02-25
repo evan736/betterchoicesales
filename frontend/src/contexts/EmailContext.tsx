@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { emailAPI } from '../lib/api';
+import { useAuth } from './AuthContext';
 
 interface EmailContextType {
   sidebarOpen: boolean;
@@ -24,6 +25,7 @@ const EmailContext = createContext<EmailContextType>({
 });
 
 export function EmailProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [openCount, setOpenCount] = useState(0);
@@ -35,19 +37,21 @@ export function EmailProvider({ children }: { children: React.ReactNode }) {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const refreshStats = useCallback(async () => {
+    if (!user) return; // Don't fetch if not logged in
     try {
       const res = await emailAPI.stats();
       setUnreadCount(res.data.unread || 0);
       setOpenCount(res.data.open || 0);
       setUnassignedCount(res.data.unassigned || 0);
     } catch {}
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     refreshStats();
-    intervalRef.current = setInterval(refreshStats, 30000); // Poll every 30s
+    intervalRef.current = setInterval(refreshStats, 30000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [refreshStats]);
+  }, [refreshStats, user]);
 
   return (
     <EmailContext.Provider value={{
