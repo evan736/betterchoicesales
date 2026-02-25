@@ -36,8 +36,10 @@ def lookup_customer_sync(
 
     # 1. Policy number lookup (most reliable)
     if policy_number and policy_number.strip():
+        clean_pn = policy_number.strip()
+        pattern = f"%{clean_pn}%"
         policy = db.query(CustomerPolicy).filter(
-            CustomerPolicy.policy_number == policy_number.strip()
+            CustomerPolicy.policy_number.ilike(pattern)
         ).first()
         if policy:
             customer = db.query(Customer).filter(
