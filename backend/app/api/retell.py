@@ -624,7 +624,11 @@ async def frontend_inbound_webhook(request: Request):
                     "agent_override": {
                         "retell_llm": {
                             "begin_message": spoken_greeting,
-                        }
+                        },
+                        # Short reminder so if user is silent after greeting,
+                        # the LLM gets prompted again quickly and can transfer
+                        "reminder_trigger_ms": 2000,
+                        "reminder_max_count": 1,
                     },
                     "metadata": {
                         "source": "bypass",
