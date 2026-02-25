@@ -612,6 +612,103 @@ def create_rule(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# MAILGUN ROUTE SETUP — create/check inbound routes
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/check-routes")
+def check_mailgun_routes(
+    current_user: User = Depends(get_current_user),
+):
+    """Check existing Mailgun inbound routes."""
+    import requests as http_requests
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not settings.MAILGUN_API_KEY:
+        raise HTTPException(status_code=500, detail="MAILGUN_API_KEY not configured")
+    
+    try:
+        resp = http_requests.get(
+            "https://api.mailgun.net/v3/routes",
+            auth=("api", settings.MAILGUN_API_KEY),
+            params={"limit": 50},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        routes = data.get("items", [])
+        
+        orbit_routes = []
+        other_routes = []
+        for r in routes:
+            info = {
+                "id": r.get("id"),
+                "priority": r.get("priority"),
+                "description": r.get("description", ""),
+                "expression": r.get("expression", ""),
+                "actions": r.get("actions", []),
+                "created_at": r.get("created_at"),
+            }
+            if "orbit" in (r.get("description") or "").lower() or "/api/email/inbound" in str(r.get("actions", [])):
+                orbit_routes.append(info)
+            else:
+                other_routes.append(info)
+        
+        return {
+            "total_routes": len(routes),
+            "orbit_routes": orbit_routes,
+            "other_routes": other_routes,
+            "mailgun_domain": settings.MAILGUN_DOMAIN,
+            "webhook_url": "https://better-choice-api.onrender.com/api/email/inbound",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check routes: {str(e)}")
+
+
+@router.post("/setup/create-route")
+def create_mailgun_route(
+    current_user: User = Depends(get_current_user),
+):
+    """Create the catch-all inbound route in Mailgun for ORBIT inbox."""
+    import requests as http_requests
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+    
+    domain = settings.MAILGUN_DOMAIN
+    webhook_url = "https://better-choice-api.onrender.com/api/email/inbound"
+    
+    # Create catch-all route for @betterchoiceins.com
+    try:
+        resp = http_requests.post(
+            "https://api.mailgun.net/v3/routes",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "priority": 10,
+                "description": "ORBIT Inbox — catch-all for betterchoiceins.com",
+                "expression": f'match_recipient(".*@{domain}")',
+                "action": [
+                    f'forward("{webhook_url}")',
+                    "stop()",
+                ],
+            },
+        )
+        resp.raise_for_status()
+        route_data = resp.json()
+        
+        logger.info(f"Mailgun inbound route created: {route_data}")
+        return {
+            "status": "created",
+            "route": route_data.get("route", {}),
+            "domain": domain,
+            "webhook_url": webhook_url,
+            "expression": f'match_recipient(".*@{domain}")',
+            "note": "All emails to *@" + domain + " will now be forwarded to ORBIT inbox.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════
 
