@@ -794,6 +794,23 @@ async def lifespan(app: FastAPI):
     from app.migrations.smart_inbox_migration import migrate_smart_inbox
     migrate_smart_inbox()
 
+    # Self-healing: add PDF storage columns to sales table if missing
+    try:
+        from sqlalchemy import text as sa_text, inspect as sa_inspect
+        from app.core.database import engine
+        inspector = sa_inspect(engine)
+        if "sales" in inspector.get_table_names():
+            existing = [c["name"] for c in inspector.get_columns("sales")]
+            with engine.begin() as conn:
+                if "application_pdf_data" not in existing:
+                    conn.execute(sa_text("ALTER TABLE sales ADD COLUMN application_pdf_data BYTEA"))
+                    logger.info("✓ Added application_pdf_data column to sales")
+                if "application_pdf_name" not in existing:
+                    conn.execute(sa_text("ALTER TABLE sales ADD COLUMN application_pdf_name VARCHAR"))
+                    logger.info("✓ Added application_pdf_name column to sales")
+    except Exception as e:
+        logger.warning(f"Sales PDF column migration: {e}")
+
     # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
     try:
         from sqlalchemy import text as sa_text

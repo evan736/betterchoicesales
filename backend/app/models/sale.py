@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, Text, Boolean
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, Text, Boolean, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -83,6 +83,8 @@ class Sale(Base):
     
     # Application document
     application_pdf_path = Column(String, nullable=True)
+    application_pdf_data = Column(LargeBinary, nullable=True)  # PDF bytes stored in DB (survives deploys)
+    application_pdf_name = Column(String, nullable=True)  # Original filename
     signature_request_id = Column(String, nullable=True)
     signature_status = Column(String, default="not_sent")
     

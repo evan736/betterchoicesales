@@ -523,18 +523,20 @@ async def upload_application(
             detail="Only PDF files are allowed"
         )
     
-    # Create upload directory if it doesn't exist
+    # Read file bytes
+    pdf_bytes = await file.read()
+    
+    # Save to filesystem (best-effort, may not survive deploys)
     upload_dir = Path(settings.UPLOAD_DIR) / "applications"
     upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save file
     file_path = upload_dir / f"sale_{sale_id}_{file.filename}"
-    
     with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(pdf_bytes)
     
-    # Update sale record
+    # Save to database (survives deploys)
     sale.application_pdf_path = str(file_path)
+    sale.application_pdf_data = pdf_bytes
+    sale.application_pdf_name = file.filename
     db.commit()
     
     return {
@@ -598,17 +600,27 @@ async def send_for_signature_endpoint(
     if not sale.client_email:
         raise HTTPException(status_code=400, detail="Client email is required to send for signature")
 
-    # Get PDF bytes — from upload or saved path
+    # Get PDF bytes — from upload, saved path, or database blob
     pdf_bytes = None
     if file and file.filename:
         logger.info(f"Reading uploaded file: {file.filename}, size={file.size}")
         pdf_bytes = await file.read()
         logger.info(f"Read {len(pdf_bytes)} bytes from upload")
+        # Also save to DB for future use
+        sale.application_pdf_data = pdf_bytes
+        sale.application_pdf_name = file.filename
+        sale.application_pdf_path = file.filename
+        db.commit()
     elif sale.application_pdf_path:
         pdf_path = Path(sale.application_pdf_path)
         logger.info(f"Trying saved path: {pdf_path}, exists={pdf_path.exists()}")
         if pdf_path.exists():
             pdf_bytes = pdf_path.read_bytes()
+    
+    # Fall back to database-stored PDF (survives Render deploys)
+    if not pdf_bytes and sale.application_pdf_data:
+        logger.info(f"Using DB-stored PDF ({len(sale.application_pdf_data)} bytes)")
+        pdf_bytes = sale.application_pdf_data
 
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF when clicking Send for Signature.")
