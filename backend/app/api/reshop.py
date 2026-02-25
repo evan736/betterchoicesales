@@ -16,7 +16,7 @@ from sqlalchemy import or_, func, desc, case
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.auth import get_current_user
+from app.core.security import get_current_user
 from app.models.user import User
 from app.models.customer import Customer, CustomerPolicy
 from app.models.reshop import Reshop, ReshopActivity
