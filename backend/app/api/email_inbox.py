@@ -34,6 +34,21 @@ async def inbound_email(request: Request):
     try:
         form = await request.form()
         
+        # Check for duplicate by Message-Id
+        message_id = form.get("Message-Id", "")
+        if message_id:
+            from app.core.database import SessionLocal
+            _check_db = SessionLocal()
+            try:
+                existing = _check_db.query(EmailMessage).filter(
+                    EmailMessage.mailgun_message_id == message_id
+                ).first()
+                if existing:
+                    logger.info(f"Duplicate inbound ignored: {message_id}")
+                    return {"status": "duplicate", "message_id": message_id}
+            finally:
+                _check_db.close()
+        
         from_raw = form.get("from", "")
         sender = form.get("sender", "")
         to_raw = form.get("To", form.get("to", ""))
@@ -319,7 +334,7 @@ def reply_to_thread(
     if send_as == "personal" and current_user.email:
         from_email = current_user.email
     else:
-        from_email = "service@betterchoiceins.com"
+        from_email = f"service@{settings.MAILGUN_DOMAIN or 'mg.betterchoiceins.com'}"
     
     from_str = f"{current_user.full_name} <{from_email}>"
     
@@ -677,7 +692,7 @@ def create_mailgun_route(
     domain = settings.MAILGUN_DOMAIN
     webhook_url = "https://better-choice-api.onrender.com/api/email/inbound"
     
-    # Create catch-all route for @betterchoiceins.com
+    # Create catch-all route for @mg.betterchoiceins.com (or configured domain)
     try:
         resp = http_requests.post(
             "https://api.mailgun.net/v3/routes",
@@ -739,7 +754,8 @@ def _determine_mailbox(recipients: list) -> str:
         if local == "service":
             return "service"
         # Check if it matches a user's email prefix
-        if "@betterchoiceins.com" in email.lower():
+        domain = settings.MAILGUN_DOMAIN or "mg.betterchoiceins.com"
+        if f"@{domain}" in email.lower():
             return local
     return "service"  # Default
 
