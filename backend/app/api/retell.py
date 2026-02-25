@@ -880,6 +880,50 @@ async def callback_request(request: Request):
         for k in stale_ids:
             del _pending_requests[k]
 
+        # ── URGENT MID-CALL EMAIL for cancellations ──────────
+        # Cancellation requests get an IMMEDIATE email so agents
+        # can prepare or intercept. Also still stored for post-call.
+        is_cancellation = (
+            urgency.lower() == "urgent"
+            and "CANCELLATION" in reason.upper()
+        )
+
+        if is_cancellation:
+            logger.info("🔴 URGENT cancellation request — sending mid-call email NOW")
+            cancel_html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #dc2626; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+                    <h2 style="margin: 0;">🔴 CANCELLATION — Transferring to Office</h2>
+                    <p style="margin: 4px 0 0; opacity: 0.9;">MIA AI Receptionist — URGENT Mid-Call Alert</p>
+                </div>
+                <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+                    <p style="margin-top: 0; font-size: 16px; font-weight: bold; color: #dc2626;">
+                        A customer is requesting to cancel and is being transferred to the office NOW.
+                    </p>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
+                        <tr><td style="padding: 8px 0; font-weight: bold; width: 140px;">Caller:</td>
+                            <td style="padding: 8px 0;">{caller_name}</td></tr>
+                        <tr><td style="padding: 8px 0; font-weight: bold;">Phone:</td>
+                            <td style="padding: 8px 0;">{caller_phone}</td></tr>
+                        {"<tr><td style='padding: 8px 0; font-weight: bold;'>Carrier:</td><td style='padding: 8px 0;'>" + carrier + "</td></tr>" if carrier else ""}
+                        {"<tr><td style='padding: 8px 0; font-weight: bold;'>Policy #:</td><td style='padding: 8px 0;'>" + policy_number + "</td></tr>" if policy_number else ""}
+                    </table>
+                    <div style="background: #fef2f2; padding: 16px; border-radius: 6px; margin-top: 16px; border-left: 4px solid #dc2626;">
+                        <p style="margin: 0; font-weight: bold;">Reason:</p>
+                        <p style="margin: 8px 0 0;">{reason}</p>
+                    </div>
+                    <p style="color: #888; font-size: 12px; margin-top: 16px;">
+                        Sent: {timestamp} · Call ID: {call_id} · This is a mid-call alert — call summary will follow.
+                    </p>
+                </div>
+            </div>
+            """
+            send_mailgun_email(
+                "service@betterchoiceins.com",
+                f"🔴 CANCELLATION — {caller_name} ({caller_phone}) — Transferring NOW",
+                cancel_html
+            )
+
         # Return success message that MIA will read to caller
         return {
             "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} as soon as possible."
