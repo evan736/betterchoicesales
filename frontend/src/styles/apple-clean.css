@@ -476,3 +476,47 @@ body.mission-control.apple-clean .link-dropdown-trigger:hover {
 body.mission-control.apple-clean .link-dropdown-label {
   color: #1d1d1f !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAP / HEATMAP — Clean light gray background
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.apple-clean {
+  --map-bg: linear-gradient(160deg, #f5f5f7 0%, #e8e8ed 50%, #f0f0f5 100%);
+}
+
+body.mission-control.apple-clean .map-container {
+  background: var(--map-bg) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   LOGIN PAGE — Clean Apple branding
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.apple-clean .gradient-bg {
+  background: linear-gradient(160deg, #f5f5f7 0%, #e8e8ed 50%, #f5f5f7 100%) !important;
+}
+
+body.mission-control.apple-clean .gradient-bg h1,
+body.mission-control.apple-clean .gradient-bg p {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .gradient-bg .text-blue-100 {
+  color: #6e6e73 !important;
+}
+
+body.mission-control.apple-clean .gradient-bg svg stop {
+  stop-color: #0071e3 !important;
+}
+
+body.mission-control.apple-clean .gradient-bg .text-white {
+  color: #1d1d1f !important;
+}
+
+body.mission-control.apple-clean .gradient-bg .text-blue-200 {
+  color: #86868b !important;
+}
+
+body.mission-control.apple-clean .pattern-bg {
+  background: #f5f5f7 !important;
+}

@@ -491,3 +491,47 @@ body.mission-control.sakura-pink .text-brand-800 {
 body.mission-control.sakura-pink .border-brand-200 {
   border-color: rgba(236, 72, 153, 0.18) !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAP / HEATMAP — Pink-toned background
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.sakura-pink {
+  --map-bg: linear-gradient(160deg, #fdf2f8 0%, #fce7f3 50%, #fbcfe8 100%);
+}
+
+body.mission-control.sakura-pink .map-container {
+  background: var(--map-bg) !important;
+  border-color: rgba(236, 72, 153, 0.15) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   LOGIN PAGE — Pink branding
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.sakura-pink .gradient-bg {
+  background: linear-gradient(160deg, #fdf2f8 0%, #fce7f3 40%, #fbcfe8 100%) !important;
+}
+
+body.mission-control.sakura-pink .gradient-bg h1,
+body.mission-control.sakura-pink .gradient-bg p {
+  color: #831843 !important;
+}
+
+body.mission-control.sakura-pink .gradient-bg .text-blue-100 {
+  color: #9d174d !important;
+}
+
+body.mission-control.sakura-pink .gradient-bg svg stop {
+  stop-color: #ec4899 !important;
+}
+
+body.mission-control.sakura-pink .gradient-bg .text-white {
+  color: #831843 !important;
+}
+
+body.mission-control.sakura-pink .gradient-bg .text-blue-200 {
+  color: #be185d !important;
+}
+
+body.mission-control.sakura-pink .pattern-bg {
+  background: #fff5f7 !important;
+}

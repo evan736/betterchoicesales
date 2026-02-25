@@ -431,3 +431,30 @@ body.mission-control.blue-white .link-dropdown-trigger:hover {
 body.mission-control.blue-white .link-dropdown-label {
   color: #1e293b !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MAP / HEATMAP — Light blue background
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.blue-white {
+  --map-bg: linear-gradient(160deg, #eef2ff 0%, #dbeafe 50%, #e0e7ff 100%);
+}
+
+body.mission-control.blue-white .map-container {
+  background: var(--map-bg) !important;
+  border-color: rgba(30, 64, 175, 0.1) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   LOGIN PAGE — Blue branding
+   ══════════════════════════════════════════════════════════════════════ */
+body.mission-control.blue-white .gradient-bg {
+  background: linear-gradient(160deg, #1e3a8a 0%, #1e40af 50%, #1e3a8a 100%) !important;
+}
+
+body.mission-control.blue-white .gradient-bg .text-blue-100 {
+  color: #bfdbfe !important;
+}
+
+body.mission-control.blue-white .pattern-bg {
+  background: #eef2ff !important;
+}
