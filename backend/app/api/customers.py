@@ -760,6 +760,122 @@ def get_customer(
 
 # ── Sync from NowCerts ────────────────────────────────────────────
 
+@router.get("/{customer_id}/drivers")
+def get_customer_drivers(
+    customer_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get drivers and contacts for a customer from NowCerts.
+    
+    Fetches from two NowCerts endpoints:
+    1. Policy/PolicyDrivers - drivers linked to the customer's policies
+    2. Insured/InsuredContacts - contacts on the insured record (with isDriver flag, DL info)
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    client = get_nowcerts_client()
+    if not client.is_configured:
+        raise HTTPException(status_code=400, detail="NowCerts not configured")
+
+    drivers = []
+    contacts = []
+
+    # Get policy database IDs for this customer
+    policies = (
+        db.query(CustomerPolicy)
+        .filter(CustomerPolicy.customer_id == customer_id)
+        .all()
+    )
+    policy_db_ids = [
+        p.nowcerts_policy_id for p in policies
+        if p.nowcerts_policy_id
+    ]
+
+    # Fetch drivers from policies
+    if policy_db_ids:
+        try:
+            drivers = client.get_policy_drivers(policy_db_ids)
+        except Exception as e:
+            logger.warning("Failed to fetch policy drivers: %s", e)
+
+    # Fetch contacts from insured record
+    if customer.nowcerts_insured_id:
+        try:
+            contacts = client.get_insured_contacts([customer.nowcerts_insured_id])
+        except Exception as e:
+            logger.warning("Failed to fetch insured contacts: %s", e)
+
+    # Deduplicate: merge contacts that are also drivers by matching name
+    # Build a combined list with all available info
+    seen = set()
+    combined = []
+
+    # Contacts first (they have more complete info like DL#)
+    for c in contacts:
+        key = f"{(c.get('first_name') or '').lower()}_{(c.get('last_name') or '').lower()}"
+        if key and key != "_" and key not in seen:
+            seen.add(key)
+            combined.append({
+                "first_name": c.get("first_name", ""),
+                "middle_name": c.get("middle_name", ""),
+                "last_name": c.get("last_name", ""),
+                "birthday": c.get("birthday"),
+                "gender": c.get("gender"),
+                "is_driver": c.get("is_driver", False),
+                "license_number": c.get("dl_number", ""),
+                "license_state": c.get("dl_state", ""),
+                "license_year": c.get("dl_year"),
+                "phone": c.get("cell_phone") or c.get("home_phone") or c.get("office_phone") or "",
+                "email": c.get("personal_email") or c.get("business_email") or "",
+                "primary_contact": c.get("primary_contact", False),
+                "source": "contact",
+            })
+
+    # Then add drivers that weren't already in contacts
+    for d in drivers:
+        key = f"{(d.get('first_name') or '').lower()}_{(d.get('last_name') or '').lower()}"
+        if key and key != "_" and key not in seen:
+            seen.add(key)
+            combined.append({
+                "first_name": d.get("first_name", ""),
+                "middle_name": "",
+                "last_name": d.get("last_name", ""),
+                "birthday": d.get("birthday"),
+                "gender": d.get("gender"),
+                "is_driver": True,
+                "license_number": d.get("license_number", ""),
+                "license_state": d.get("license_state", ""),
+                "license_year": d.get("license_year"),
+                "phone": "",
+                "email": "",
+                "primary_contact": False,
+                "source": "policy_driver",
+            })
+        elif key in seen:
+            # Merge: fill in missing driver fields from policy driver data
+            for existing in combined:
+                ekey = f"{(existing.get('first_name') or '').lower()}_{(existing.get('last_name') or '').lower()}"
+                if ekey == key:
+                    if not existing.get("license_number") and d.get("license_number"):
+                        existing["license_number"] = d["license_number"]
+                    if not existing.get("license_state") and d.get("license_state"):
+                        existing["license_state"] = d["license_state"]
+                    if not existing.get("birthday") and d.get("birthday"):
+                        existing["birthday"] = d["birthday"]
+                    existing["is_driver"] = True
+                    break
+
+    return {
+        "customer_id": customer_id,
+        "people": combined,
+        "raw_drivers": drivers,
+        "raw_contacts": contacts,
+    }
+
+
 @router.post("/{customer_id}/sync")
 def sync_customer(
     customer_id: int,

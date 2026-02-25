@@ -361,6 +361,75 @@ class NowCertsClient:
             except Exception:
                 return None
 
+    def get_policy_drivers(self, policy_database_ids: list[str]) -> list[dict]:
+        """Get drivers for given policy database IDs via POST /api/Policy/PolicyDrivers."""
+        if not policy_database_ids:
+            return []
+        try:
+            data = self._post("/api/Policy/PolicyDrivers", {
+                "policyDataBaseId": policy_database_ids
+            })
+            drivers = data if isinstance(data, list) else data.get("data", data.get("drivers", []))
+            if not isinstance(drivers, list):
+                drivers = []
+            return [
+                {
+                    "database_id": d.get("databaseId", ""),
+                    "first_name": d.get("firstName", ""),
+                    "last_name": d.get("lastName", ""),
+                    "birthday": d.get("birthday"),
+                    "gender": d.get("gender"),
+                    "marital_status": d.get("maritalStatusCode"),
+                    "license_number": d.get("licenseNumber", ""),
+                    "license_state": d.get("licenseState", ""),
+                    "license_year": d.get("licenseYear"),
+                    "policy_database_id": d.get("policyDatabaseId", ""),
+                }
+                for d in drivers
+            ]
+        except Exception as e:
+            logger.error("NowCerts get policy drivers failed: %s", e)
+            return []
+
+    def get_insured_contacts(self, insured_database_ids: list[str]) -> list[dict]:
+        """Get contacts for given insured database IDs via POST /api/Insured/InsuredContacts."""
+        if not insured_database_ids:
+            return []
+        try:
+            data = self._post("/api/Insured/InsuredContacts", {
+                "insuredDatabaseId": insured_database_ids
+            })
+            contacts = data if isinstance(data, list) else data.get("data", data.get("contacts", []))
+            if not isinstance(contacts, list):
+                contacts = []
+            return [
+                {
+                    "database_id": c.get("databaseId", ""),
+                    "first_name": c.get("firstName", ""),
+                    "middle_name": c.get("middleName", ""),
+                    "last_name": c.get("lastName", ""),
+                    "birthday": c.get("birthday"),
+                    "gender": c.get("gender"),
+                    "marital_status": c.get("maritalStatus"),
+                    "is_driver": c.get("isDriver", False),
+                    "dl_number": c.get("dlNumber", ""),
+                    "dl_state": c.get("dlStateName", ""),
+                    "dl_year": c.get("dlYear"),
+                    "home_phone": c.get("homePhone", ""),
+                    "cell_phone": c.get("cellPhone", ""),
+                    "office_phone": c.get("officePhone", ""),
+                    "personal_email": c.get("personalEMail", ""),
+                    "business_email": c.get("businessEMail", ""),
+                    "primary_contact": c.get("primaryContact", False),
+                    "insured_database_id": c.get("insuredDatabaseId", ""),
+                    "active": c.get("active", True),
+                }
+                for c in contacts
+            ]
+        except Exception as e:
+            logger.error("NowCerts get insured contacts failed: %s", e)
+            return []
+
     def get_insured_policies(self, insured_database_id: str) -> list[dict]:
         """Get policies for a specific insured."""
         try:

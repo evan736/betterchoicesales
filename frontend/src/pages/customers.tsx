@@ -8,7 +8,7 @@ import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
   FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp,
-  Shield, ShieldCheck, ShieldOff, Zap, Paperclip
+  Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -38,6 +38,9 @@ export default function CustomersPage() {
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedPolicy, setCopiedPolicy] = useState<string | null>(null);
+  const [driversData, setDriversData] = useState<any>(null);
+  const [driversLoading, setDriversLoading] = useState(false);
+  const [driversOpen, setDriversOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
@@ -102,13 +105,26 @@ export default function CustomersPage() {
 
   const handleExpand = async (customer: any) => {
     const key = customer.id || customer.nowcerts_insured_id;
-    if (expandedId === key) { setExpandedId(null); setDetail(null); return; }
+    if (expandedId === key) { setExpandedId(null); setDetail(null); setDriversData(null); setDriversOpen(false); return; }
     setExpandedId(key);
+    setDriversData(null); setDriversOpen(false);
     if (customer.id) {
       setDetailLoading(true);
       try { const r = await customersAPI.get(customer.id); setDetail(r.data); } catch {}
       setDetailLoading(false);
     }
+  };
+
+  const loadDrivers = async (customerId: number) => {
+    setDriversLoading(true);
+    try {
+      const r = await customersAPI.drivers(customerId);
+      setDriversData(r.data);
+    } catch (e: any) {
+      console.error('Failed to load drivers:', e);
+      setDriversData({ people: [], error: e.response?.data?.detail || 'Failed to load' });
+    }
+    setDriversLoading(false);
   };
 
   const handleSync = async (id: number) => {
@@ -498,6 +514,48 @@ export default function CustomersPage() {
                             ) : <p className="text-sm text-slate-500 py-4 text-center">No policies found. Try refreshing from NowCerts.</p>;
                             })()}
 
+                            {/* Drivers & Contacts from NowCerts */}
+                            {detail.customer?.id && (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                <button
+                                  onClick={() => {
+                                    if (!driversOpen) {
+                                      setDriversOpen(true);
+                                      if (!driversData) loadDrivers(detail.customer.id);
+                                    } else {
+                                      setDriversOpen(false);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900 transition-colors"
+                                >
+                                  <Users size={15} />
+                                  Drivers & Contacts
+                                  <ChevronRight size={14} className={`transition-transform ${driversOpen ? 'rotate-90' : ''}`} />
+                                </button>
+                                {driversOpen && (
+                                  <div className="mt-3">
+                                    {driversLoading ? (
+                                      <div className="flex items-center gap-2 text-sm text-slate-500 py-3">
+                                        <Loader2 size={14} className="animate-spin" />Fetching from NowCerts...
+                                      </div>
+                                    ) : driversData?.error ? (
+                                      <div className="flex items-center gap-2 text-sm text-red-600 py-2">
+                                        <AlertCircle size={14} />{driversData.error}
+                                      </div>
+                                    ) : driversData?.people?.length === 0 ? (
+                                      <p className="text-sm text-slate-500 py-2">No drivers or contacts found in NowCerts.</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {driversData?.people?.map((person: any, idx: number) => (
+                                          <DriverCard key={idx} person={person} />
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             {/* MIA Bypass Controls */}
                             {detail.customer?.phone && (
                               <MiaBypassPanel
@@ -735,6 +793,106 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
 const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
   <div><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800">{value || '—'}</p></div>
 );
+
+// ── Driver / Contact Card ─────────────────────────────────────────
+const DriverCard: React.FC<{ person: any }> = ({ person }) => {
+  const [copied, setCopied] = useState<string | null>(null);
+  const [showDL, setShowDL] = useState(false);
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  const formatDOB = (val: string | null) => {
+    if (!val) return null;
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return null;
+      return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+    } catch { return null; }
+  };
+
+  const dob = formatDOB(person.birthday);
+  const dl = person.license_number;
+  const dlState = person.license_state;
+  const fullName = [person.first_name, person.middle_name, person.last_name].filter(Boolean).join(' ');
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${person.is_driver ? 'bg-blue-500' : 'bg-slate-400'}`}>
+            {(person.first_name || '?')[0]}{(person.last_name || '?')[0]}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-800">{fullName || '—'}</span>
+              {person.is_driver && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">DRIVER</span>}
+              {person.primary_contact && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">PRIMARY</span>}
+            </div>
+            {(person.phone || person.email) && (
+              <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                {person.phone && <span>{person.phone}</span>}
+                {person.email && <span>{person.email}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {(dob || dl) && (
+        <div className="flex items-center gap-4 mt-2.5 pl-10">
+          {dob && (
+            <button
+              onClick={() => copyToClipboard(dob, 'dob')}
+              className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 transition-colors group"
+              title="Copy date of birth"
+            >
+              <Calendar size={12} className="text-slate-400" />
+              <span className="font-medium">DOB:</span>
+              <span>{dob}</span>
+              {copied === 'dob' ? (
+                <CheckCircle2 size={11} className="text-emerald-500" />
+              ) : (
+                <Copy size={11} className="text-slate-300 group-hover:text-slate-500" />
+              )}
+            </button>
+          )}
+          {dl && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Shield size={12} className="text-slate-400" />
+              <span className="font-medium">DL:</span>
+              {showDL ? (
+                <button
+                  onClick={() => copyToClipboard(dl, 'dl')}
+                  className="flex items-center gap-1 hover:text-slate-900 transition-colors group"
+                  title="Copy license number"
+                >
+                  <span>{dl}{dlState ? ` (${dlState})` : ''}</span>
+                  {copied === 'dl' ? (
+                    <CheckCircle2 size={11} className="text-emerald-500" />
+                  ) : (
+                    <Copy size={11} className="text-slate-300 group-hover:text-slate-500" />
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowDL(true)}
+                  className="flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  <span>••••••{dl.slice(-4)}{dlState ? ` (${dlState})` : ''}</span>
+                  <Eye size={11} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── MIA Bypass Panel ──────────────────────────────────────────────
 const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ phone, customerName }) => {
