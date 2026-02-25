@@ -12,6 +12,7 @@ from app.models.timeclock import TimeClockEntry
 from app.models.customer import Customer, CustomerPolicy
 from app.models.agency_snapshot import AgencySnapshot
 from app.models.mia_bypass import VipBypass, TempAuthorization
+from app.models.email import EmailThread, EmailMessage, EmailRule
 
 __all__ = [
     "User",

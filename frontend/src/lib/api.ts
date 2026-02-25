@@ -432,3 +432,35 @@ export const miaAPI = {
   // Bypass status (for customer card)
   bypassStatus: (phone: string) => api.get(`/api/mia/bypass-status/${phone}`),
 };
+
+// ── Email Inbox API ──
+export const emailAPI = {
+  threads: (params?: any) => api.get('/api/email/threads', { params }),
+  thread: (id: number) => api.get(`/api/email/threads/${id}`),
+  stats: () => api.get('/api/email/stats'),
+  assign: (id: number, userId: number | null) => api.post(`/api/email/threads/${id}/assign`, null, { params: { user_id: userId } }),
+  setStatus: (id: number, status: string, snoozeUntil?: string) => {
+    const fd = new FormData();
+    fd.append('status', status);
+    if (snoozeUntil) fd.append('snooze_until', snoozeUntil);
+    return api.post(`/api/email/threads/${id}/status`, fd);
+  },
+  tag: (id: number, tag: string, action: 'add' | 'remove' = 'add') => {
+    const fd = new FormData();
+    fd.append('tag', tag);
+    fd.append('action', action);
+    return api.post(`/api/email/threads/${id}/tag`, fd);
+  },
+  reply: (id: number, data: { body: string; cc_emails?: string; send_as?: string; close_after?: boolean; attachments?: File[] }) => {
+    const fd = new FormData();
+    fd.append('body', data.body);
+    if (data.cc_emails) fd.append('cc_emails', data.cc_emails);
+    fd.append('send_as', data.send_as || 'service');
+    if (data.close_after) fd.append('close_after', 'true');
+    if (data.attachments) data.attachments.forEach(f => fd.append('attachments', f));
+    return api.post(`/api/email/threads/${id}/reply`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  aiDraft: (id: number) => api.post(`/api/email/threads/${id}/ai-draft`),
+  rules: () => api.get('/api/email/rules'),
+  createRule: (data: any) => api.post('/api/email/rules', data),
+};
