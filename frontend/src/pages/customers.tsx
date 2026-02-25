@@ -38,6 +38,11 @@ export default function CustomersPage() {
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedPolicy, setCopiedPolicy] = useState<string | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
@@ -466,6 +471,91 @@ export default function CustomersPage() {
                                 phone={detail.customer.phone}
                                 customerName={detail.customer.full_name}
                               />
+                            )}
+
+                            {/* Quick Email Composer */}
+                            {detail.customer?.email && (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                {!emailOpen ? (
+                                  <button
+                                    onClick={() => { setEmailOpen(true); setEmailSent(false); setEmailSubject(''); setEmailBody(''); }}
+                                    className="flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+                                  >
+                                    <Mail size={15} />
+                                    Send Email to {detail.customer.full_name?.split(' ')[0] || 'Customer'}
+                                  </button>
+                                ) : (
+                                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                    <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                                      <div className="flex items-center gap-2">
+                                        <Mail size={14} className="text-brand-600" />
+                                        <span className="text-sm font-semibold text-slate-800">Quick Email</span>
+                                        <span className="text-xs text-slate-400">→ {detail.customer.email}</span>
+                                      </div>
+                                      <button onClick={() => setEmailOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                                    </div>
+                                    {emailSent ? (
+                                      <div className="px-4 py-6 text-center">
+                                        <CheckCircle2 size={28} className="text-green-500 mx-auto mb-2" />
+                                        <p className="text-sm font-semibold text-green-700">Email sent!</p>
+                                        <p className="text-xs text-slate-500 mt-1">Delivered to {detail.customer.email}</p>
+                                        <button onClick={() => setEmailOpen(false)} className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-semibold">Close</button>
+                                      </div>
+                                    ) : (
+                                      <div className="p-4 space-y-3">
+                                        <div>
+                                          <label className="block text-xs font-semibold text-slate-500 mb-1">Subject</label>
+                                          <input
+                                            value={emailSubject}
+                                            onChange={e => setEmailSubject(e.target.value)}
+                                            placeholder="e.g. Your Policy Update"
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs font-semibold text-slate-500 mb-1">Message</label>
+                                          <textarea
+                                            value={emailBody}
+                                            onChange={e => setEmailBody(e.target.value)}
+                                            placeholder={`Hi ${detail.customer.full_name?.split(' ')[0] || ''},\n\n`}
+                                            rows={5}
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none"
+                                          />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] text-slate-400">Sends from Better Choice Insurance via Mailgun</span>
+                                          <div className="flex items-center gap-2">
+                                            <button onClick={() => setEmailOpen(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+                                            <button
+                                              disabled={!emailSubject.trim() || !emailBody.trim() || emailSending}
+                                              onClick={async () => {
+                                                setEmailSending(true);
+                                                try {
+                                                  await customersAPI.quickEmail({
+                                                    to_email: detail.customer.email,
+                                                    to_name: detail.customer.full_name || '',
+                                                    subject: emailSubject,
+                                                    body: emailBody,
+                                                  });
+                                                  setEmailSent(true);
+                                                } catch (e: any) {
+                                                  alert(e.response?.data?.detail || 'Failed to send email');
+                                                } finally {
+                                                  setEmailSending(false);
+                                                }
+                                              }}
+                                              className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                              {emailSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                                              {emailSending ? 'Sending...' : 'Send'}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </>
                         ) : null}

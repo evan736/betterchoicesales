@@ -233,6 +233,8 @@ export const customersAPI = {
   stateDistribution: () => api.get('/api/customers/state-distribution'),
   growthData: () => api.get('/api/customers/growth-data'),
   captureSnapshot: () => api.post('/api/customers/capture-snapshot'),
+  quickEmail: (data: { to_email: string; to_name?: string; subject: string; body: string }) =>
+    api.post('/api/customers/quick-email', data),
 };
 
 export const nonpayAPI = {

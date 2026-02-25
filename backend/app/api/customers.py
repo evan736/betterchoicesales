@@ -1153,3 +1153,70 @@ def _policy_to_dict(p: CustomerPolicy) -> dict:
 
 
 # ── Debug / Diagnostic (route defined above, near top) ─────────────
+
+
+# ── Quick Email from Customer Card ─────────────────────────────────
+import requests as http_requests
+from pydantic import BaseModel, EmailStr
+from app.core.config import settings
+
+
+class QuickEmailRequest(BaseModel):
+    to_email: str
+    to_name: str = ""
+    subject: str
+    body: str
+    reply_to: Optional[str] = None
+
+
+@router.post("/quick-email")
+def send_quick_email(
+    req: QuickEmailRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a quick freeform email to a customer via Mailgun."""
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+
+    if not req.to_email or not req.subject or not req.body:
+        raise HTTPException(status_code=400, detail="Email, subject, and body are required")
+
+    # Build branded HTML
+    html = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+      <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px 32px; border-radius: 12px 12px 0 0;">
+        <h2 style="margin: 0; color: #ffffff; font-size: 18px; font-weight: 600;">Better Choice Insurance Group</h2>
+      </div>
+      <div style="padding: 28px 32px; color: #334155; font-size: 14px; line-height: 1.7;">
+        {req.body.replace(chr(10), '<br>')}
+      </div>
+      <div style="padding: 20px 32px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 12px;">
+        <p style="margin: 0 0 4px 0; font-weight: 600; color: #334155;">{current_user.full_name}</p>
+        <p style="margin: 0;">Better Choice Insurance Group</p>
+        <p style="margin: 0;">(847) 744-8484 · evan@betterchoiceins.com</p>
+      </div>
+    </div>
+    """
+
+    from_str = f"{current_user.full_name} <{settings.MAILGUN_FROM_EMAIL}>"
+    reply = req.reply_to or "evan@betterchoiceins.com"
+
+    try:
+        resp = http_requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": from_str,
+                "to": [f"{req.to_name} <{req.to_email}>" if req.to_name else req.to_email],
+                "subject": req.subject,
+                "html": html,
+                "h:Reply-To": reply,
+            },
+        )
+        resp.raise_for_status()
+        logger.info(f"Quick email sent to {req.to_email} by {current_user.username}: {req.subject}")
+        return {"status": "sent", "to": req.to_email, "subject": req.subject}
+    except Exception as e:
+        logger.error(f"Quick email failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")
