@@ -89,6 +89,7 @@ class InboundEmail(Base):
     # Attachments metadata
     attachment_count = Column(Integer, default=0)
     attachment_names = Column(JSON, nullable=True)  # list of filenames
+    attachment_data = Column(JSON, nullable=True)   # list of {filename, content_type, base64_data} for PDFs/images
 
     # AI Classification
     category = Column(SAEnum(EmailCategory), nullable=True)
@@ -120,6 +121,10 @@ class InboundEmail(Base):
     # Error tracking
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
+
+    # Inbox management
+    is_read = Column(Boolean, default=False, index=True)
+    is_archived = Column(Boolean, default=False, index=True)
 
     # Relationships
     outbound_messages = relationship("OutboundQueue", back_populates="inbound_email")

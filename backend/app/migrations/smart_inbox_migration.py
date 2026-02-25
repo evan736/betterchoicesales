@@ -93,3 +93,20 @@ def migrate_smart_inbox():
             logger.info("✓ outbound_queue table created")
         else:
             logger.info("outbound_queue table already exists")
+
+        # ── Self-healing: add new columns if missing ──
+        try:
+            existing_cols = [c["name"] for c in inspector.get_columns("inbound_emails")]
+            if "is_read" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN is_read BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("CREATE INDEX idx_inbound_emails_is_read ON inbound_emails (is_read)"))
+                logger.info("✓ Added is_read column to inbound_emails")
+            if "is_archived" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN is_archived BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("CREATE INDEX idx_inbound_emails_is_archived ON inbound_emails (is_archived)"))
+                logger.info("✓ Added is_archived column to inbound_emails")
+            if "attachment_data" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN attachment_data JSONB"))
+                logger.info("✓ Added attachment_data column to inbound_emails")
+        except Exception as e:
+            logger.warning(f"Column migration check: {e}")

@@ -152,9 +152,11 @@ async def classify_email(
     subject: str,
     body: str,
     date: Optional[str] = None,
+    attachments: Optional[list] = None,
 ) -> Dict[str, Any]:
     """
     Send email content to Claude for classification and data extraction.
+    Supports PDF and image attachments via Claude's vision API.
     Returns parsed classification dict or error dict.
     """
     if not ANTHROPIC_API_KEY:
@@ -168,8 +170,55 @@ async def classify_email(
         body=(body or "")[:8000],  # Truncate very long emails
     )
 
+    # Build message content with attachments
+    content = []
+
+    # Add PDF/image attachments as vision content
+    if attachments:
+        for att in attachments:
+            try:
+                ct = att.get("content_type", "")
+                b64 = att.get("base64_data", "")
+                fname = att.get("filename", "unknown")
+                if not b64:
+                    continue
+
+                if ct == "application/pdf":
+                    content.append({
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": b64,
+                        },
+                    })
+                    content.append({
+                        "type": "text",
+                        "text": f"[The above is an attached PDF document: {fname}. Include information from this PDF in your analysis.]",
+                    })
+                    logger.info(f"Including PDF attachment in AI analysis: {fname}")
+                elif ct.startswith("image/"):
+                    content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": ct,
+                            "data": b64,
+                        },
+                    })
+                    content.append({
+                        "type": "text",
+                        "text": f"[The above is an attached image: {fname}. Include information from this image in your analysis.]",
+                    })
+                    logger.info(f"Including image attachment in AI analysis: {fname}")
+            except Exception as e:
+                logger.warning(f"Failed to include attachment in AI call: {e}")
+
+    # Add the classification prompt text
+    content.append({"type": "text", "text": prompt})
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -180,7 +229,7 @@ async def classify_email(
                 json={
                     "model": ANTHROPIC_MODEL,
                     "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": content}],
                 },
             )
             resp.raise_for_status()

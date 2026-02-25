@@ -173,6 +173,7 @@ async def process_inbound_email(email_id: int, db_url: str):
             from_address=email.from_address,
             subject=email.subject,
             body=email.body_plain or email.body_html or "",
+            attachments=email.attachment_data,
         )
 
         if "error" in classification:
@@ -365,13 +366,32 @@ async def receive_inbound_email(
     body_plain = form.get("body-plain", "")
     body_html = form.get("body-html", "")
 
-    # Count attachments
+    # Count attachments and save PDF/image content for AI analysis
     attachment_count = int(form.get("attachment-count", 0))
     attachment_names = []
+    attachment_data = []  # list of {filename, content_type, base64_data}
     for i in range(1, attachment_count + 1):
         att = form.get(f"attachment-{i}")
         if att and hasattr(att, "filename"):
             attachment_names.append(att.filename)
+            content_type = getattr(att, "content_type", "") or ""
+            # Save PDFs and images for AI vision analysis
+            if content_type in ("application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp"):
+                try:
+                    import base64
+                    raw = await att.read()
+                    if len(raw) <= 10_000_000:  # 10MB limit
+                        b64 = base64.b64encode(raw).decode("utf-8")
+                        attachment_data.append({
+                            "filename": att.filename,
+                            "content_type": content_type,
+                            "base64_data": b64,
+                        })
+                        logger.info(f"Saved attachment for AI: {att.filename} ({content_type}, {len(raw)} bytes)")
+                    else:
+                        logger.warning(f"Attachment too large for AI: {att.filename} ({len(raw)} bytes)")
+                except Exception as e:
+                    logger.warning(f"Failed to read attachment {att.filename}: {e}")
 
     # Detect who forwarded it (the X-Forwarded-To or the actual sender)
     forwarded_by = sender or from_addr
@@ -394,6 +414,7 @@ async def receive_inbound_email(
         forwarded_by=forwarded_by,
         attachment_count=attachment_count,
         attachment_names=attachment_names if attachment_names else None,
+        attachment_data=attachment_data if attachment_data else None,
         status=ProcessingStatus.RECEIVED,
     )
     db.add(inbound)
@@ -415,6 +436,9 @@ def list_inbound_emails(
     category: Optional[str] = None,
     sensitivity: Optional[str] = None,
     search: Optional[str] = None,
+    archived: Optional[bool] = Query(default=None),
+    is_read: Optional[bool] = Query(default=None),
+    view: Optional[str] = Query(default=None),  # "needs_attention", "completed", "all"
     days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -424,6 +448,25 @@ def list_inbound_emails(
     q = db.query(InboundEmail).filter(
         InboundEmail.created_at >= datetime.utcnow() - timedelta(days=days)
     )
+
+    # By default, hide archived
+    if archived is not None:
+        q = q.filter(InboundEmail.is_archived == archived)
+    else:
+        q = q.filter(InboundEmail.is_archived == False)
+
+    if is_read is not None:
+        q = q.filter(InboundEmail.is_read == is_read)
+
+    # View presets
+    if view == "needs_attention":
+        q = q.filter(InboundEmail.status.in_([
+            "received", "parsing", "outbound_queued", "failed", "customer_not_found"
+        ]))
+    elif view == "completed":
+        q = q.filter(InboundEmail.status.in_([
+            "completed", "outbound_sent", "outbound_approved", "outbound_rejected", "skipped"
+        ]))
 
     if status:
         q = q.filter(InboundEmail.status == status)
@@ -441,10 +484,12 @@ def list_inbound_emails(
         )
 
     total = q.count()
+    unread_count = q.filter(InboundEmail.is_read == False).count() if is_read is None else 0
     emails = q.order_by(desc(InboundEmail.created_at)).offset(offset).limit(limit).all()
 
     return {
         "total": total,
+        "unread_count": unread_count,
         "emails": [_serialize_inbound(e) for e in emails],
     }
 
@@ -589,6 +634,136 @@ async def edit_and_approve(
     return {"status": item.status, "id": item.id}
 
 
+# ── Batch Actions ─────────────────────────────────────────────────────────
+
+@router.post("/emails/{email_id}/read")
+def mark_email_read(email_id: int, db: Session = Depends(get_db)):
+    """Mark a single email as read."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email.is_read = True
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/emails/{email_id}/unread")
+def mark_email_unread(email_id: int, db: Session = Depends(get_db)):
+    """Mark a single email as unread."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email.is_read = False
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/emails/{email_id}/archive")
+def archive_email(email_id: int, db: Session = Depends(get_db)):
+    """Archive a single email."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email.is_archived = True
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/emails/{email_id}/unarchive")
+def unarchive_email(email_id: int, db: Session = Depends(get_db)):
+    """Unarchive a single email."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email.is_archived = False
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/batch")
+async def batch_action(request: Request, db: Session = Depends(get_db)):
+    """
+    Batch actions on multiple emails.
+    Body: { "ids": [1,2,3], "action": "read"|"unread"|"archive"|"unarchive" }
+    """
+    body = await request.json()
+    ids = body.get("ids", [])
+    action = body.get("action", "")
+
+    if not ids or action not in ("read", "unread", "archive", "unarchive"):
+        raise HTTPException(status_code=400, detail="Provide ids[] and action (read/unread/archive/unarchive)")
+
+    emails = db.query(InboundEmail).filter(InboundEmail.id.in_(ids)).all()
+    count = 0
+    for email in emails:
+        if action == "read":
+            email.is_read = True
+        elif action == "unread":
+            email.is_read = False
+        elif action == "archive":
+            email.is_archived = True
+        elif action == "unarchive":
+            email.is_archived = False
+        count += 1
+    db.commit()
+    return {"status": "ok", "affected": count}
+
+
+@router.post("/batch/approve")
+async def batch_approve(request: Request, db: Session = Depends(get_db)):
+    """
+    Batch approve multiple outbound queue items.
+    Body: { "ids": [1,2,3] }
+    """
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="Provide ids[]")
+
+    results = []
+    for item_id in ids:
+        item = db.query(OutboundQueue).filter(
+            OutboundQueue.id == item_id,
+            OutboundQueue.status.in_([OutboundStatus.PENDING_APPROVAL, OutboundStatus.DRAFT]),
+        ).first()
+        if not item:
+            results.append({"id": item_id, "status": "not_found"})
+            continue
+
+        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=item.body_html)
+        if msg_id:
+            item.status = OutboundStatus.SENT
+            item.sent_at = datetime.utcnow()
+            item.mailgun_message_id = msg_id
+            item.approved_by = "evan"
+            item.approved_at = datetime.utcnow()
+
+            inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+            if inbound:
+                inbound.status = ProcessingStatus.OUTBOUND_SENT
+
+                if inbound.nowcerts_insured_id:
+                    out_note = format_outbound_note(
+                        to_email=item.to_email,
+                        subject=item.subject,
+                        status="sent",
+                        body_preview=item.body_plain or "",
+                    )
+                    await log_note_to_customer(
+                        insured_id=inbound.nowcerts_insured_id,
+                        subject=f"Smart Inbox: Sent — {item.subject}",
+                        note_body=out_note,
+                    )
+
+            results.append({"id": item_id, "status": "sent"})
+        else:
+            item.send_error = "Mailgun send failed"
+            results.append({"id": item_id, "status": "send_failed"})
+
+    db.commit()
+    return {"results": results}
+
+
 # ── Reprocess ────────────────────────────────────────────────────────────────
 
 @router.post("/reprocess/{email_id}")
@@ -678,6 +853,8 @@ def _serialize_inbound(e: InboundEmail) -> dict:
         "error_message": e.error_message,
         "attachment_count": e.attachment_count,
         "has_outbound": len(e.outbound_messages) > 0 if e.outbound_messages else False,
+        "is_read": getattr(e, "is_read", False) or False,
+        "is_archived": getattr(e, "is_archived", False) or False,
     }
 
 
