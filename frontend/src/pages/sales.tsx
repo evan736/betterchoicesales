@@ -708,11 +708,15 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       const res = await salesAPI.extractPDF(file);
       const data = res.data.data;
       setExtractedData(data);
+      // Auto-correct known carrier aliases
+      let carrier = data.carrier || '';
+      const natgenAliases = ['imperial', 'integon', 'encompass', 'nat gen', 'natgen', 'national general insurance', 'ngic', 'imperial fire'];
+      if (natgenAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'National General';
       setClientInfo({
         client_name: data.client_name || '',
         client_email: data.client_email || '',
         client_phone: data.client_phone || '',
-        carrier: data.carrier || '',
+        carrier,
         state: data.state || '',
       });
       // Build policies array for review
@@ -978,7 +982,30 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Carrier</label>
-                    <input value={clientInfo.carrier} onChange={(e) => setClientInfo({ ...clientInfo, carrier: e.target.value })} className="input-field" />
+                    <div className="relative">
+                      <input
+                        list="carrier-options-review"
+                        value={clientInfo.carrier}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          // NatGen alias matching
+                          const natgenAliases = ['imperial', 'integon', 'encompass', 'nat gen', 'natgen', 'national general insurance', 'ngic', 'imperial fire'];
+                          const lower = val.toLowerCase().trim();
+                          if (natgenAliases.some(a => lower === a || lower.includes(a))) {
+                            setClientInfo({ ...clientInfo, carrier: 'National General' });
+                          } else {
+                            setClientInfo({ ...clientInfo, carrier: val });
+                          }
+                        }}
+                        placeholder="Type or select carrier..."
+                        className="input-field"
+                      />
+                      <datalist id="carrier-options-review">
+                        {(dropdownOptions?.carriers || []).map((c: any) => (
+                          <option key={c.value} value={c.label} />
+                        ))}
+                      </datalist>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
@@ -1178,12 +1205,29 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Carrier</label>
-                  <select value={manualData.carrier} onChange={(e) => setManualData({ ...manualData, carrier: e.target.value })} className="input-field">
-                    <option value="">Select carrier...</option>
-                    {(dropdownOptions?.carriers || []).map((c: any) => (
-                      <option key={c.value} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      list="carrier-options-manual"
+                      value={manualData.carrier}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const natgenAliases = ['imperial', 'integon', 'encompass', 'nat gen', 'natgen', 'national general insurance', 'ngic', 'imperial fire'];
+                        const lower = val.toLowerCase().trim();
+                        if (natgenAliases.some(a => lower === a || lower.includes(a))) {
+                          setManualData({ ...manualData, carrier: 'National General' });
+                        } else {
+                          setManualData({ ...manualData, carrier: val });
+                        }
+                      }}
+                      placeholder="Type or select carrier..."
+                      className="input-field"
+                    />
+                    <datalist id="carrier-options-manual">
+                      {(dropdownOptions?.carriers || []).map((c: any) => (
+                        <option key={c.value} value={c.label} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">State</label>
