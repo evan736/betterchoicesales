@@ -27,6 +27,7 @@ from app.api import sms as sms_api
 from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
+from app.api import reshop as reshop_api
 from app.models.inspection import InspectionDraft
 
 logger = logging.getLogger(__name__)
@@ -1072,6 +1073,61 @@ def force_migrate():
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITH TIME ZONE
         )""",
+        """CREATE TABLE IF NOT EXISTS reshops (
+            id SERIAL PRIMARY KEY,
+            customer_id INTEGER REFERENCES customers(id),
+            customer_name VARCHAR NOT NULL,
+            customer_phone VARCHAR,
+            customer_email VARCHAR,
+            policy_number VARCHAR,
+            carrier VARCHAR,
+            line_of_business VARCHAR,
+            current_premium NUMERIC(10,2),
+            expiration_date TIMESTAMP,
+            stage VARCHAR NOT NULL DEFAULT 'new_request',
+            priority VARCHAR DEFAULT 'normal',
+            source VARCHAR,
+            source_detail TEXT,
+            referred_by VARCHAR,
+            assigned_to INTEGER REFERENCES users(id),
+            quoter VARCHAR,
+            presenter VARCHAR,
+            quoted_carrier VARCHAR,
+            quoted_premium NUMERIC(10,2),
+            premium_savings NUMERIC(10,2),
+            quote_notes TEXT,
+            outcome VARCHAR,
+            outcome_notes TEXT,
+            bound_carrier VARCHAR,
+            bound_premium NUMERIC(10,2),
+            bound_date TIMESTAMP,
+            reason VARCHAR,
+            reason_detail TEXT,
+            notes TEXT,
+            is_proactive BOOLEAN DEFAULT FALSE,
+            renewal_premium NUMERIC(10,2),
+            premium_change_pct NUMERIC(5,2),
+            requested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            stage_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            completed_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_reshops_stage ON reshops(stage)",
+        "CREATE INDEX IF NOT EXISTS idx_reshops_customer ON reshops(customer_id)",
+        "CREATE INDEX IF NOT EXISTS idx_reshops_assigned ON reshops(assigned_to)",
+        """CREATE TABLE IF NOT EXISTS reshop_activities (
+            id SERIAL PRIMARY KEY,
+            reshop_id INTEGER NOT NULL REFERENCES reshops(id),
+            user_id INTEGER REFERENCES users(id),
+            user_name VARCHAR,
+            action VARCHAR NOT NULL,
+            detail TEXT,
+            old_value VARCHAR,
+            new_value VARCHAR,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_reshop_activities_reshop ON reshop_activities(reshop_id)",
     ]:
         try:
             with engine.connect() as conn:
@@ -1143,6 +1199,7 @@ app.include_router(gmail_sync_api.router)
 
 from app.api import smart_inbox as smart_inbox_api
 app.include_router(smart_inbox_api.router)
+app.include_router(reshop_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

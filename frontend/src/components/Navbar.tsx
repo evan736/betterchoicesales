@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
-  Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail,
+  Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
 } from 'lucide-react';
 
 const Navbar: React.FC = () => {
@@ -43,6 +43,7 @@ const Navbar: React.FC = () => {
     { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: true },
     { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
     { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
+    { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: true },
     { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
     { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager },
     { href: '/admin', label: 'Admin', icon: <Shield size={16} />, show: isAdmin },

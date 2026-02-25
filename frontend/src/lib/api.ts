@@ -151,6 +151,23 @@ export const retentionAPI = {
     api.get('/api/retention/early-cancellations', { params: { days: days || 90, ...(period ? { period } : {}) } }),
 };
 
+// Reshop Pipeline API
+export const reshopAPI = {
+  list: (params?: { stage?: string; assigned_to?: number; priority?: string; search?: string; show_closed?: boolean }) =>
+    api.get('/api/reshops', { params }),
+  stats: () => api.get('/api/reshops/stats'),
+  get: (id: number) => api.get(`/api/reshops/${id}`),
+  create: (data: any) => api.post('/api/reshops', data),
+  update: (id: number, data: any) => api.patch(`/api/reshops/${id}`, data),
+  addNote: (id: number, text: string) => api.post(`/api/reshops/${id}/note`, { text }),
+  moveStage: (id: number, stage: string) => api.post(`/api/reshops/${id}/move`, null, { params: { stage } }),
+  fromCustomer: (customerId: number, params?: { policy_id?: number; source?: string; reason?: string; notes?: string }) =>
+    api.post(`/api/reshops/from-customer/${customerId}`, null, { params }),
+  detectProactive: (daysOut?: number, threshold?: number) =>
+    api.post('/api/reshops/detect-proactive', null, { params: { days_out: daysOut || 60, increase_threshold: threshold || 10 } }),
+  teamMembers: () => api.get('/api/reshops/team/members'),
+};
+
 // Survey / Welcome Email API
 export const surveyAPI = {
   sendWelcome: (saleId: number, opts?: { file?: File; attachSavedPdf?: boolean }) => {

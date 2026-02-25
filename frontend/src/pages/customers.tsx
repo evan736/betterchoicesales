@@ -3,12 +3,12 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import USHeatmap from '../components/USHeatmap';
-import { customersAPI, nonpayAPI, miaAPI } from '../lib/api';
+import { customersAPI, nonpayAPI, miaAPI, reshopAPI } from '../lib/api';
 import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
   FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp,
-  Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff
+  Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff, Target
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -553,6 +553,26 @@ export default function CustomersPage() {
                                     )}
                                   </div>
                                 )}
+                              </div>
+                            )}
+
+                            {/* Quick Reshop Refer */}
+                            {detail.customer?.id && (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await reshopAPI.fromCustomer(detail.customer.id, { source: 'producer_referral' });
+                                      alert('Customer added to Reshop Pipeline!');
+                                    } catch (e: any) {
+                                      alert(e.response?.data?.detail || 'Failed to create reshop');
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 text-sm font-semibold text-amber-600 hover:text-amber-700 transition-colors"
+                                >
+                                  <Target size={15} />
+                                  Refer for Reshop
+                                </button>
                               </div>
                             )}
 
