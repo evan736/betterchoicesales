@@ -41,7 +41,8 @@ router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
 MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")
 MAILGUN_WEBHOOK_SIGNING_KEY = os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY", "")  # separate from API key
 MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "")
-AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "noreply@betterchoiceins.com")
+AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+AGENCY_REPLY_TO = os.getenv("AGENCY_REPLY_TO", "service@betterchoiceins.com")
 SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoiceins.com")
 
 
@@ -69,6 +70,7 @@ async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] 
 
     data = {
         "from": f"Better Choice Insurance <{AGENCY_FROM_EMAIL}>",
+        "h:Reply-To": AGENCY_REPLY_TO,
         "to": to,
         "subject": subject,
         "html": html,
