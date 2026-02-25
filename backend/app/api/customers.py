@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, distinct
 
@@ -1157,66 +1157,82 @@ def _policy_to_dict(p: CustomerPolicy) -> dict:
 
 # ── Quick Email from Customer Card ─────────────────────────────────
 import requests as http_requests
-from pydantic import BaseModel, EmailStr
 from app.core.config import settings
-
-
-class QuickEmailRequest(BaseModel):
-    to_email: str
-    to_name: str = ""
-    subject: str
-    body: str
-    reply_to: Optional[str] = None
 
 
 @router.post("/quick-email")
 def send_quick_email(
-    req: QuickEmailRequest,
+    to_email: str = Form(...),
+    to_name: str = Form(""),
+    subject: str = Form(...),
+    body: str = Form(...),
+    send_as: str = Form("service"),  # "personal" or "service"
+    attachments: list[UploadFile] = File(default=[]),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a quick freeform email to a customer via Mailgun."""
+    """Send a quick freeform email to a customer via Mailgun with optional attachments."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         raise HTTPException(status_code=500, detail="Mailgun not configured")
 
-    if not req.to_email or not req.subject or not req.body:
+    if not to_email or not subject or not body:
         raise HTTPException(status_code=400, detail="Email, subject, and body are required")
 
-    # Build branded HTML
+    # Determine sender identity
+    if send_as == "personal" and current_user.email:
+        from_email = current_user.email
+        reply_to = current_user.email
+    else:
+        from_email = "service@betterchoiceins.com"
+        reply_to = "service@betterchoiceins.com"
+
+    from_str = f"{current_user.full_name} <{from_email}>"
+
+    # Build clean, light branded HTML
+    html_body = body.replace('\n', '<br>')
     html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
-      <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px 32px; border-radius: 12px 12px 0 0;">
-        <h2 style="margin: 0; color: #ffffff; font-size: 18px; font-weight: 600;">Better Choice Insurance Group</h2>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
+      <div style="background: #1e40af; padding: 20px 28px;">
+        <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+          <td style="color: #ffffff; font-size: 17px; font-weight: 700; letter-spacing: 0.3px;">Better Choice Insurance Group</td>
+        </tr></table>
       </div>
-      <div style="padding: 28px 32px; color: #334155; font-size: 14px; line-height: 1.7;">
-        {req.body.replace(chr(10), '<br>')}
+      <div style="padding: 28px; color: #1f2937; font-size: 14px; line-height: 1.75; background: #ffffff;">
+        {html_body}
       </div>
-      <div style="padding: 20px 32px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 12px;">
-        <p style="margin: 0 0 4px 0; font-weight: 600; color: #334155;">{current_user.full_name}</p>
-        <p style="margin: 0;">Better Choice Insurance Group</p>
-        <p style="margin: 0;">(847) 744-8484 · evan@betterchoiceins.com</p>
+      <div style="padding: 18px 28px; border-top: 1px solid #e5e7eb; background: #f9fafb;">
+        <p style="margin: 0 0 2px 0; font-weight: 600; color: #1f2937; font-size: 13px;">{current_user.full_name}</p>
+        <p style="margin: 0; color: #6b7280; font-size: 12px;">Better Choice Insurance Group</p>
+        <p style="margin: 0; color: #6b7280; font-size: 12px;">(847) 908-5665 · {from_email}</p>
       </div>
     </div>
     """
 
-    from_str = f"{current_user.full_name} <{settings.MAILGUN_FROM_EMAIL}>"
-    reply = req.reply_to or "evan@betterchoiceins.com"
-
     try:
+        # Build multipart form data for Mailgun
+        data = {
+            "from": from_str,
+            "to": [f"{to_name} <{to_email}>" if to_name else to_email],
+            "subject": subject,
+            "html": html,
+            "h:Reply-To": reply_to,
+        }
+
+        files = []
+        for att in attachments:
+            content = att.file.read()
+            files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
+
         resp = http_requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
-            data={
-                "from": from_str,
-                "to": [f"{req.to_name} <{req.to_email}>" if req.to_name else req.to_email],
-                "subject": req.subject,
-                "html": html,
-                "h:Reply-To": reply,
-            },
+            data=data,
+            files=files if files else None,
         )
         resp.raise_for_status()
-        logger.info(f"Quick email sent to {req.to_email} by {current_user.username}: {req.subject}")
-        return {"status": "sent", "to": req.to_email, "subject": req.subject}
+        att_count = len(files)
+        logger.info(f"Quick email sent to {to_email} by {current_user.username} as {from_email}: {subject} ({att_count} attachments)")
+        return {"status": "sent", "to": to_email, "subject": subject, "attachments": att_count}
     except Exception as e:
         logger.error(f"Quick email failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")

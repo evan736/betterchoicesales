@@ -8,7 +8,7 @@ import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
   FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp,
-  Shield, ShieldCheck, ShieldOff, Zap
+  Shield, ShieldCheck, ShieldOff, Zap, Paperclip
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -43,6 +43,9 @@ export default function CustomersPage() {
   const [emailBody, setEmailBody] = useState('');
   const [emailSending, setEmailSending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [emailSendAs, setEmailSendAs] = useState<'service' | 'personal'>('service');
+  const [emailFiles, setEmailFiles] = useState<File[]>([]);
+  const emailFileRef = useRef<HTMLInputElement>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
@@ -507,7 +510,7 @@ export default function CustomersPage() {
                               <div className="mt-4 border-t border-slate-200 pt-4">
                                 {!emailOpen ? (
                                   <button
-                                    onClick={() => { setEmailOpen(true); setEmailSent(false); setEmailSubject(''); setEmailBody(''); }}
+                                    onClick={() => { setEmailOpen(true); setEmailSent(false); setEmailSubject(''); setEmailBody(''); setEmailFiles([]); setEmailSendAs('service'); }}
                                     className="flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
                                   >
                                     <Mail size={15} />
@@ -532,6 +535,35 @@ export default function CustomersPage() {
                                       </div>
                                     ) : (
                                       <div className="p-4 space-y-3">
+                                        {/* Send As Toggle */}
+                                        <div>
+                                          <label className="block text-xs font-semibold text-slate-500 mb-1.5">Send As</label>
+                                          <div className="flex gap-2">
+                                            <button
+                                              onClick={() => setEmailSendAs('service')}
+                                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                                                emailSendAs === 'service'
+                                                  ? 'bg-brand-50 border-brand-300 text-brand-700'
+                                                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                                              }`}
+                                            >
+                                              service@betterchoiceins.com
+                                            </button>
+                                            <button
+                                              onClick={() => setEmailSendAs('personal')}
+                                              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                                                emailSendAs === 'personal'
+                                                  ? 'bg-brand-50 border-brand-300 text-brand-700'
+                                                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                                              }`}
+                                            >
+                                              My Email
+                                            </button>
+                                          </div>
+                                          <p className="text-[10px] text-slate-400 mt-1">
+                                            Replies go to {emailSendAs === 'service' ? 'service@betterchoiceins.com' : 'your email'}
+                                          </p>
+                                        </div>
                                         <div>
                                           <label className="block text-xs font-semibold text-slate-500 mb-1">Subject</label>
                                           <input
@@ -551,8 +583,40 @@ export default function CustomersPage() {
                                             className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none resize-none"
                                           />
                                         </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-[10px] text-slate-400">Sends from Better Choice Insurance via Mailgun</span>
+                                        {/* Attachments */}
+                                        <div>
+                                          <input
+                                            ref={emailFileRef}
+                                            type="file"
+                                            multiple
+                                            className="hidden"
+                                            onChange={e => {
+                                              if (e.target.files) setEmailFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                                              e.target.value = '';
+                                            }}
+                                          />
+                                          <button
+                                            onClick={() => emailFileRef.current?.click()}
+                                            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors"
+                                          >
+                                            <Paperclip size={13} />
+                                            Attach Files
+                                          </button>
+                                          {emailFiles.length > 0 && (
+                                            <div className="mt-2 space-y-1">
+                                              {emailFiles.map((f, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 rounded px-2 py-1">
+                                                  <FileText size={12} className="text-slate-400" />
+                                                  <span className="flex-1 truncate">{f.name}</span>
+                                                  <span className="text-slate-400">{(f.size / 1024).toFixed(0)}KB</span>
+                                                  <button onClick={() => setEmailFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center justify-between pt-1">
+                                          <span className="text-[10px] text-slate-400">Better Choice Insurance · (847) 908-5665</span>
                                           <div className="flex items-center gap-2">
                                             <button onClick={() => setEmailOpen(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
                                             <button
@@ -565,6 +629,8 @@ export default function CustomersPage() {
                                                     to_name: detail.customer.full_name || '',
                                                     subject: emailSubject,
                                                     body: emailBody,
+                                                    send_as: emailSendAs,
+                                                    attachments: emailFiles.length > 0 ? emailFiles : undefined,
                                                   });
                                                   setEmailSent(true);
                                                 } catch (e: any) {

@@ -233,8 +233,18 @@ export const customersAPI = {
   stateDistribution: () => api.get('/api/customers/state-distribution'),
   growthData: () => api.get('/api/customers/growth-data'),
   captureSnapshot: () => api.post('/api/customers/capture-snapshot'),
-  quickEmail: (data: { to_email: string; to_name?: string; subject: string; body: string }) =>
-    api.post('/api/customers/quick-email', data),
+  quickEmail: (data: { to_email: string; to_name?: string; subject: string; body: string; send_as?: string; attachments?: File[] }) => {
+    const fd = new FormData();
+    fd.append('to_email', data.to_email);
+    if (data.to_name) fd.append('to_name', data.to_name);
+    fd.append('subject', data.subject);
+    fd.append('body', data.body);
+    fd.append('send_as', data.send_as || 'service');
+    if (data.attachments) {
+      data.attachments.forEach(f => fd.append('attachments', f));
+    }
+    return api.post('/api/customers/quick-email', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
 };
 
 export const nonpayAPI = {
