@@ -552,6 +552,271 @@ async def inbound_call_webhook(request: Request):
         return {"call_inbound": {}}
 
 
+# ── 1b. FRONT-END INBOUND WEBHOOK ────────────────────────────────
+# Used by the MIA - FRONT END agent. Same as overflow webhook but
+# checks VIP/temp auth bypass FIRST. If bypass found, tells MIA to
+# transfer directly to BCI office (skipping the normal conversation).
+#
+# NOT connected to the live overflow agent — only the front-end agent.
+
+@router.post("/frontend-inbound")
+async def frontend_inbound_webhook(request: Request):
+    """Front-end receptionist inbound webhook.
+
+    Checks VIP/temp auth bypass before NowCerts lookup. If the caller
+    has an active bypass, returns a dynamic variable telling MIA to
+    transfer them to the BCI office immediately.
+    """
+    try:
+        body = await request.json()
+
+        call_data = body.get("call_inbound", {})
+        from_number = call_data.get("from_number", "") or body.get("from_number", "")
+        to_number = call_data.get("to_number", "") or body.get("to_number", "")
+        agent_id = call_data.get("agent_id", "") or body.get("agent_id", "")
+
+        logger.info(
+            "MIA Front-End inbound: from=%s to=%s agent=%s",
+            from_number, to_number, agent_id
+        )
+
+        phone_digits = normalize_phone(from_number)
+
+        # ── BYPASS CHECK ──────────────────────────────────────
+        # Check VIP list and temp authorizations BEFORE doing any lookup
+        bypass_result = _check_bypass(phone_digits)
+
+        if bypass_result["bypass"]:
+            bypass_name = bypass_result.get("customer_name", "")
+            logger.info(
+                "BYPASS MATCH: %s → %s (%s)",
+                phone_digits, bypass_result["reason"], bypass_name
+            )
+
+            greeting = (
+                f"One moment please, {bypass_name.split()[0] if bypass_name else 'caller'}, "
+                f"I'm connecting you now."
+                if bypass_name else
+                "One moment please, I'm connecting you to the office now."
+            )
+
+            return {
+                "call_inbound": {
+                    "dynamic_variables": {
+                        "customer_name": bypass_name,
+                        "customer_phone": from_number,
+                        "customer_found": "true" if bypass_name else "false",
+                        "bypass_active": "true",
+                        "bypass_reason": bypass_result["reason"],
+                        "policy_summary": "",
+                        "carrier_list": "",
+                        "nowcerts_insured_id": "",
+                        "customer_email": "",
+                        "is_repeat_caller": "false",
+                        "repeat_call_count": "1",
+                        "greeting_message": greeting,
+                    },
+                    "agent_override": {
+                        "retell_llm": {
+                            "begin_message": greeting,
+                        }
+                    },
+                    "metadata": {
+                        "source": "bypass",
+                        "bypass_reason": bypass_result["reason"],
+                    }
+                }
+            }
+
+        # ── NO BYPASS — proceed with normal NowCerts lookup ───
+        # (Same logic as the overflow webhook)
+        dynamic_variables = {
+            "customer_name": "",
+            "policy_summary": "",
+            "carrier_list": "",
+            "customer_phone": from_number,
+            "nowcerts_insured_id": "",
+            "customer_found": "false",
+            "bypass_active": "false",
+            "bypass_reason": "",
+            "is_repeat_caller": "false",
+            "repeat_call_count": "1",
+            "customer_email": "",
+        }
+
+        repeat_info = {"is_repeat": False, "is_repeat_30min": False, "calls_30min": 1, "calls_24hr": 1}
+        if phone_digits and len(phone_digits) >= 10:
+            repeat_info = _check_repeat_caller(phone_digits)
+            dynamic_variables["is_repeat_caller"] = "true" if repeat_info["is_repeat"] else "false"
+            dynamic_variables["repeat_call_count"] = str(repeat_info["calls_24hr"])
+
+        result = None
+        if phone_digits and len(phone_digits) >= 10:
+            # Layer 1: In-memory cache
+            cached = _phone_cache.get(phone_digits)
+            if cached and (_time.time() - cached.get("cached_at", 0)) < _CACHE_TTL:
+                result = cached
+
+            # Layer 2: NowCerts API
+            if not result:
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(_executor, _nowcerts_phone_lookup, phone_digits),
+                        timeout=7.0
+                    )
+                    if result and result.get("customer"):
+                        result["cached_at"] = _time.time()
+                        _phone_cache[phone_digits] = result
+                except asyncio.TimeoutError:
+                    logger.warning("NowCerts lookup timed out (7s) for phone: %s", phone_digits)
+                except Exception as e:
+                    logger.error("NowCerts lookup failed: %s", e)
+
+            if result and result.get("customer"):
+                customer = result["customer"]
+                policies = result.get("policies", [])
+
+                first_name = customer.get("firstName") or customer.get("first_name") or ""
+                last_name = customer.get("lastName") or customer.get("last_name") or ""
+                commercial_name = customer.get("commercialName") or customer.get("commercial_name") or ""
+                customer_name = (
+                    f"{first_name} {last_name}".strip()
+                    if first_name else commercial_name or ""
+                )
+                insured_id = customer.get("databaseId") or customer.get("database_id") or ""
+
+                dynamic_variables["customer_name"] = customer_name
+                dynamic_variables["nowcerts_insured_id"] = str(insured_id)
+                dynamic_variables["customer_found"] = "true"
+
+                customer_email = customer.get("email") or customer.get("eMail") or ""
+                dynamic_variables["customer_email"] = customer_email
+
+                if policies:
+                    dynamic_variables["policy_summary"] = build_policy_summary(policies)
+                    dynamic_variables["carrier_list"] = build_carrier_list(policies)
+
+        # Build greeting
+        is_repeat = repeat_info["is_repeat"]
+        is_repeat_30min = repeat_info.get("is_repeat_30min", False)
+        call_count = repeat_info["calls_24hr"]
+
+        if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
+            name = dynamic_variables["customer_name"].split()[0]
+
+            if is_repeat_30min:
+                begin_msg = (
+                    f"Hi {name}, welcome back! I see you just called a little while ago. "
+                    f"I want to make sure we get this taken care of for you. "
+                    f"How can I help?"
+                )
+            elif is_repeat and call_count >= 3:
+                begin_msg = (
+                    f"Hi {name}, I can see you've called a few times today and I want to make sure "
+                    f"you get the help you need. Let me take down your information and have someone "
+                    f"from our team call you back as a priority. What can I help you with?"
+                )
+            elif dynamic_variables["policy_summary"]:
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
+                    f"How can I help you today?"
+                )
+            else:
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}! How can I help you today?"
+                )
+        else:
+            if is_repeat_30min:
+                begin_msg = (
+                    "Welcome back to Better Choice Insurance Group! "
+                    "I see you just called — let's make sure we get this handled. "
+                    "How can I help?"
+                )
+            else:
+                begin_msg = (
+                    "Thank you for calling Better Choice Insurance Group! "
+                    "My name is Mia. How can I help you today?"
+                )
+
+        dynamic_variables["greeting_message"] = begin_msg
+
+        return {
+            "call_inbound": {
+                "dynamic_variables": dynamic_variables,
+                "agent_override": {
+                    "retell_llm": {
+                        "begin_message": begin_msg,
+                    }
+                },
+                "metadata": {
+                    "source": "bci_crm",
+                    "lookup_phone": phone_digits,
+                }
+            }
+        }
+
+    except Exception as e:
+        logger.error("Frontend inbound webhook error: %s", e)
+        return {"call_inbound": {}}
+
+
+def _check_bypass(phone_digits: str) -> dict:
+    """Check if a phone number has an active VIP or temp auth bypass.
+
+    Queries the database directly (fast — single indexed lookup).
+    Returns: {bypass: bool, reason: str, customer_name: str|None}
+    """
+    if not phone_digits or len(phone_digits) < 10:
+        return {"bypass": False, "reason": "none", "customer_name": None}
+
+    try:
+        from app.core.database import SessionLocal
+        from app.models.mia_bypass import VipBypass, TempAuthorization
+        from datetime import datetime, timezone
+
+        db = SessionLocal()
+        try:
+            # Check permanent VIP list
+            vip = (
+                db.query(VipBypass)
+                .filter(VipBypass.phone == phone_digits, VipBypass.is_active == True)
+                .first()
+            )
+            if vip:
+                return {
+                    "bypass": True,
+                    "reason": "vip",
+                    "customer_name": vip.customer_name,
+                }
+
+            # Check active temp authorizations
+            now = datetime.now(timezone.utc)
+            temp = (
+                db.query(TempAuthorization)
+                .filter(
+                    TempAuthorization.phone == phone_digits,
+                    TempAuthorization.is_active == True,
+                    TempAuthorization.expires_at > now,
+                )
+                .first()
+            )
+            if temp:
+                return {
+                    "bypass": True,
+                    "reason": "temp_auth",
+                    "customer_name": temp.customer_name,
+                }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Bypass check failed: %s", e)
+
+    return {"bypass": False, "reason": "none", "customer_name": None}
+
+
 # ── 2. CUSTOM FUNCTION: CALLBACK / MESSAGE REQUEST ────────────────
 # MIA calls this when a caller wants a callback or leaves a message.
 # Sends an email to service@betterchoiceins.com with the details.
