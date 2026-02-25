@@ -1007,8 +1007,9 @@ def merge_duplicate_policies(
         if len(group_sales) < 2:
             continue
 
-        # Check they already don't have line items
-        group_sales.sort(key=lambda s: s.id)
+        # Pick the sale whose policy_number IS the base as primary (avoids unique constraint)
+        base_pn = key[0]  # the base policy number from grouping key
+        group_sales.sort(key=lambda s: (0 if s.policy_number.upper().strip() == base_pn else 1, s.id))
         primary = group_sales[0]
 
         # Skip if primary already has line items (already merged)
@@ -1036,7 +1037,12 @@ def merge_duplicate_policies(
         primary.written_premium = total_premium
         primary.recognized_premium = total_premium
         primary.item_count = total_items
-        primary.policy_number = _base_policy(primary.policy_number)
+        # Only rename if it's not already the base
+        if primary.policy_number.upper().strip() != base_pn:
+            # Check no other sale has this base number
+            conflict = db.query(Sale).filter(Sale.policy_number == base_pn, Sale.id != primary.id).first()
+            if not conflict:
+                primary.policy_number = base_pn
 
         deleted_ids = []
         for s in group_sales[1:]:
