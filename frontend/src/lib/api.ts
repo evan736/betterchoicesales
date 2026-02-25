@@ -166,6 +166,7 @@ export const reshopAPI = {
   detectProactive: (daysOut?: number, threshold?: number) =>
     api.post('/api/reshops/detect-proactive', null, { params: { days_out: daysOut || 60, increase_threshold: threshold || 10 } }),
   teamMembers: () => api.get('/api/reshops/team/members'),
+  badgeCount: () => api.get('/api/reshops/badge-count'),
 };
 
 // Survey / Welcome Email API

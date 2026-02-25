@@ -7,6 +7,7 @@ Role-based access:
 - Producer (Joseph, Giulian): can create/refer reshops, view own referrals
 """
 import logging
+import requests as http_requests
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.customer import Customer, CustomerPolicy
 from app.models.reshop import Reshop, ReshopActivity
@@ -32,6 +34,113 @@ CLOSED_STAGES = ["bound", "lost", "cancelled"]
 SOURCES = ["inbound_call", "inbound_email", "producer_referral", "proactive_renewal", "walk_in", "nonpay_escalation", "other"]
 REASONS = ["price_increase", "service_issue", "coverage_change", "shopping", "nonpay", "renewal_increase", "other"]
 PRIORITIES = ["low", "normal", "high", "urgent"]
+
+# Retention team members to notify on new reshop requests
+RETENTION_NOTIFY_EMAILS = [
+    "salma@betterchoiceins.com",
+    "michelle@betterchoiceins.com",
+    "evan@betterchoiceins.com",
+]
+
+
+def _notify_retention_team(reshop: "Reshop", created_by: str):
+    """Send email notification to retention team about a new reshop request."""
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        logger.warning("Mailgun not configured — skipping reshop notification")
+        return
+
+    source_label = {
+        "inbound_call": "Inbound Call",
+        "inbound_email": "Inbound Email",
+        "producer_referral": "Producer Referral",
+        "proactive_renewal": "Proactive (Renewal)",
+        "nonpay_escalation": "Non-Pay Escalation",
+        "walk_in": "Walk-in",
+    }.get(reshop.source or "", reshop.source or "Manual Entry")
+
+    priority_color = {
+        "urgent": "#dc2626", "high": "#ea580c",
+        "normal": "#2563eb", "low": "#64748b",
+    }.get(reshop.priority or "normal", "#2563eb")
+
+    premium_str = f"${float(reshop.current_premium):,.0f}" if reshop.current_premium else "N/A"
+    exp_str = reshop.expiration_date.strftime("%m/%d/%Y") if reshop.expiration_date else "N/A"
+
+    html = f"""
+    <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0f2440 100%); padding: 20px 24px; border-radius: 12px 12px 0 0;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 18px;">🔄 New Reshop Request</h2>
+        <p style="color: #94a3b8; margin: 6px 0 0; font-size: 13px;">Created by {created_by} via {source_label}</p>
+      </div>
+      <div style="background: #ffffff; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">
+        <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px 0; color: #64748b; width: 120px;">Customer</td>
+            <td style="padding: 8px 0; font-weight: 600; color: #1e293b;">{reshop.customer_name}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Phone</td>
+            <td style="padding: 8px 0; color: #1e293b;">{reshop.customer_phone or '—'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Email</td>
+            <td style="padding: 8px 0; color: #1e293b;">{reshop.customer_email or '—'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Policy</td>
+            <td style="padding: 8px 0; color: #1e293b;">{reshop.policy_number or '—'} ({reshop.carrier or 'Unknown carrier'})</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Premium</td>
+            <td style="padding: 8px 0; color: #1e293b;">{premium_str}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Expires</td>
+            <td style="padding: 8px 0; color: #1e293b;">{exp_str}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #64748b;">Priority</td>
+            <td style="padding: 8px 0;">
+              <span style="background: {priority_color}; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">{(reshop.priority or 'normal').upper()}</span>
+            </td>
+          </tr>
+          {"<tr><td style='padding: 8px 0; color: #64748b;'>Referred by</td><td style='padding: 8px 0; color: #1e293b;'>" + (reshop.referred_by or '') + "</td></tr>" if reshop.referred_by else ""}
+          {"<tr><td style='padding: 8px 0; color: #64748b;'>Notes</td><td style='padding: 8px 0; color: #1e293b;'>" + (reshop.notes or '') + "</td></tr>" if reshop.notes else ""}
+        </table>
+        <div style="margin-top: 20px; text-align: center;">
+          <a href="https://better-choice-web.onrender.com/reshop" 
+             style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px;">
+            Open Reshop Pipeline
+          </a>
+        </div>
+      </div>
+      <div style="padding: 12px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="color: #94a3b8; font-size: 11px; margin: 0;">Better Choice Insurance — ORBIT Reshop Pipeline</p>
+      </div>
+    </div>
+    """
+
+    subject = f"🔄 New Reshop: {reshop.customer_name}"
+    if reshop.priority in ("urgent", "high"):
+        subject = f"🚨 {reshop.priority.upper()} Reshop: {reshop.customer_name}"
+    if reshop.referred_by:
+        subject += f" (via {reshop.referred_by})"
+
+    try:
+        resp = http_requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": f"ORBIT Reshop <service@{settings.MAILGUN_DOMAIN}>",
+                "to": RETENTION_NOTIFY_EMAILS,
+                "subject": subject,
+                "html": html,
+            },
+            timeout=10,
+        )
+        logger.info("Reshop notification sent to %s: %s", RETENTION_NOTIFY_EMAILS, resp.status_code)
+    except Exception as e:
+        logger.error("Failed to send reshop notification: %s", e)
 
 
 # ── Schemas ───────────────────────────────────────────────────────
@@ -275,6 +384,28 @@ def reshop_stats(
     }
 
 
+@router.get("/badge-count")
+def reshop_badge_count(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lightweight count of active reshops for nav badge."""
+    if not _can_access(current_user):
+        return {"count": 0}
+    
+    count = db.query(func.count(Reshop.id)).filter(
+        Reshop.stage.in_(ACTIVE_STAGES)
+    ).scalar() or 0
+    
+    # New = created in last 24h
+    new_count = db.query(func.count(Reshop.id)).filter(
+        Reshop.stage.in_(ACTIVE_STAGES),
+        Reshop.created_at >= datetime.utcnow() - timedelta(hours=24),
+    ).scalar() or 0
+    
+    return {"count": count, "new": new_count}
+
+
 @router.get("/team/members")
 def get_team_members(
     current_user: User = Depends(get_current_user),
@@ -347,9 +478,14 @@ def create_reshop(
 
     db.commit()
     db.refresh(reshop)
+
+    # Notify retention team
+    try:
+        _notify_retention_team(reshop, current_user.full_name or current_user.username)
+    except Exception as e:
+        logger.error("Reshop notification error: %s", e)
+
     return _reshop_to_dict(reshop)
-
-
 @router.get("/{reshop_id}")
 def get_reshop(
     reshop_id: int,
@@ -657,4 +793,11 @@ def create_reshop_from_customer(
                   f"Created from customer card by {current_user.full_name or current_user.username}")
     db.commit()
     db.refresh(reshop)
+
+    # Notify retention team
+    try:
+        _notify_retention_team(reshop, current_user.full_name or current_user.username)
+    except Exception as e:
+        logger.error("Reshop notification error: %s", e)
+
     return _reshop_to_dict(reshop)

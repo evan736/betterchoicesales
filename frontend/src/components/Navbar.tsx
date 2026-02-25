@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
+import { reshopAPI } from '../lib/api';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
@@ -14,8 +15,23 @@ const Navbar: React.FC = () => {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [reshopBadge, setReshopBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Poll reshop badge count
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      try {
+        const r = await reshopAPI.badgeCount();
+        setReshopBadge(r.data.new || 0);
+      } catch {}
+    };
+    load();
+    const interval = setInterval(load, 60000); // every minute
+    return () => clearInterval(interval);
+  }, [user]);
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
@@ -127,6 +143,11 @@ const Navbar: React.FC = () => {
                         >
                           <span className="nav-menu-icon">{item.icon}</span>
                           <span className="theme-picker-name">{item.label}</span>
+                          {item.href === '/reshop' && reshopBadge > 0 && (
+                            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">
+                              {reshopBadge > 9 ? '9+' : reshopBadge}
+                            </span>
+                          )}
                           {active && <Check size={14} className="ml-auto text-green-500" />}
                         </Link>
                       );
