@@ -438,6 +438,7 @@ export const emailAPI = {
   threads: (params?: any) => api.get('/api/email/threads', { params }),
   thread: (id: number) => api.get(`/api/email/threads/${id}`),
   stats: () => api.get('/api/email/stats'),
+  mailboxes: () => api.get('/api/email/mailboxes'),
   assign: (id: number, userId: number | null) => api.post(`/api/email/threads/${id}/assign`, null, { params: { user_id: userId } }),
   setStatus: (id: number, status: string, snoozeUntil?: string) => {
     const fd = new FormData();

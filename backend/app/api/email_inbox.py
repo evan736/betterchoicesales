@@ -164,11 +164,31 @@ def list_threads(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List email threads with filters."""
+    """List email threads with filters. Enforces role-based mailbox access."""
     q = db.query(EmailThread)
     
+    # ── Role-based access control ──
+    is_admin = current_user.role.lower() in ("admin",)
+    is_service = current_user.role.lower() in ("retention_specialist", "manager")
+    user_mailbox = _username_to_mailbox(current_user.username)
+    
     if mailbox:
+        # Verify user can access this mailbox
+        if not is_admin:
+            if mailbox != "service" and mailbox != user_mailbox:
+                raise HTTPException(status_code=403, detail="You don't have access to this mailbox")
         q = q.filter(EmailThread.mailbox == mailbox)
+    else:
+        # No mailbox filter → show only accessible mailboxes
+        if is_admin:
+            pass  # Admin sees everything
+        else:
+            # Producers/retention see service + their own mailbox
+            q = q.filter(or_(
+                EmailThread.mailbox == "service",
+                EmailThread.mailbox == user_mailbox,
+            ))
+    
     if status:
         q = q.filter(EmailThread.status == status)
     else:
@@ -448,8 +468,9 @@ def generate_ai_draft(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Generate an AI-suggested reply for a thread."""
+    """Generate an AI-suggested reply + action items for a thread."""
     import requests as http_requests
+    import json as json_module
     
     thread = db.query(EmailThread).filter(EmailThread.id == thread_id).first()
     if not thread:
@@ -482,19 +503,26 @@ def generate_ai_draft(
     if not api_key:
         raise HTTPException(status_code=500, detail="AI not configured")
     
-    prompt = f"""You are a helpful insurance agency assistant at Better Choice Insurance Group. 
-Draft a professional, friendly reply to the customer's latest email.
+    prompt = f"""You are an insurance agency assistant at Better Choice Insurance Group.
+Analyze this email thread and provide TWO things:
 
-Keep it concise (2-4 paragraphs max). Be warm but professional. 
-If you need information you don't have, note what you'd need to look up.
-Don't include a subject line — just the body text.
-Sign off as the agent's name will be added automatically.
+1. A professional, friendly draft reply to the customer's latest email.
+   - Keep it concise (2-4 paragraphs max). Be warm but professional.
+   - If you need information you don't have, note what you'd need to look up.
+   - Don't include a subject line — just the body text.
+   - Don't include a sign-off — the agent's signature is added automatically.
+
+2. A list of action items / next steps the agent should take based on this email.
+   - Be specific: "Pull up policy #XYZ to check coverage", "Call customer to discuss renewal", etc.
+   - Include any follow-ups, internal tasks, or things to verify.
+   - Flag anything time-sensitive or urgent.
 {customer_context}
 
 Email thread:
 {conversation_text}
 
-Draft a reply:"""
+Respond in this EXACT JSON format (no markdown, no backticks, just raw JSON):
+{{"draft": "your draft reply text here", "action_items": ["action 1", "action 2", "action 3"], "urgency": "low|normal|high|urgent", "summary": "one-sentence summary of what the customer needs"}}"""
 
     try:
         resp = http_requests.post(
@@ -506,14 +534,38 @@ Draft a reply:"""
             },
             json={
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 600,
+                "max_tokens": 800,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()
-        draft = data["content"][0]["text"] if data.get("content") else ""
+        raw_text = data["content"][0]["text"] if data.get("content") else ""
+        
+        # Parse JSON response
+        try:
+            # Strip any markdown fences if present
+            clean = raw_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
+                if clean.endswith("```"):
+                    clean = clean[:-3]
+                clean = clean.strip()
+            ai_result = json_module.loads(clean)
+        except json_module.JSONDecodeError:
+            # Fallback: treat entire response as draft
+            ai_result = {
+                "draft": raw_text,
+                "action_items": [],
+                "urgency": "normal",
+                "summary": "",
+            }
+        
+        draft = ai_result.get("draft", raw_text)
+        action_items = ai_result.get("action_items", [])
+        urgency = ai_result.get("urgency", "normal")
+        summary = ai_result.get("summary", "")
         
         # Save draft to the latest inbound message
         last_inbound = None
@@ -524,9 +576,17 @@ Draft a reply:"""
         if last_inbound:
             last_inbound.ai_draft = draft
             last_inbound.ai_draft_generated_at = datetime.utcnow()
-            db.commit()
         
-        return {"draft": draft}
+        # Save summary to thread
+        thread.ai_summary = summary
+        db.commit()
+        
+        return {
+            "draft": draft,
+            "action_items": action_items,
+            "urgency": urgency,
+            "summary": summary,
+        }
     except Exception as e:
         logger.error(f"AI draft generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"AI draft failed: {str(e)}")
@@ -535,6 +595,60 @@ Draft a reply:"""
 # ══════════════════════════════════════════════════════════════════════
 # INBOX STATS
 # ══════════════════════════════════════════════════════════════════════
+
+@router.get("/mailboxes")
+def get_accessible_mailboxes(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get mailboxes the current user can access, with unread counts."""
+    is_admin = current_user.role.lower() in ("admin",)
+    user_mailbox = _username_to_mailbox(current_user.username)
+    
+    if is_admin:
+        # Admin sees all mailboxes that have threads
+        mailbox_rows = db.query(
+            EmailThread.mailbox, func.count(EmailThread.id)
+        ).filter(
+            EmailThread.status != "closed"
+        ).group_by(EmailThread.mailbox).all()
+        
+        mailboxes = []
+        for mb, count in mailbox_rows:
+            mailboxes.append({"mailbox": mb, "open_count": count})
+        
+        # Always include service even if empty
+        if not any(m["mailbox"] == "service" for m in mailboxes):
+            mailboxes.insert(0, {"mailbox": "service", "open_count": 0})
+        
+        # Get all employees for admin to see their mailboxes
+        all_users = db.query(User).filter(User.is_active == True).all()
+        for u in all_users:
+            umbox = _username_to_mailbox(u.username)
+            if umbox and not any(m["mailbox"] == umbox for m in mailboxes):
+                mailboxes.append({"mailbox": umbox, "open_count": 0})
+    else:
+        # Regular users see service + their own
+        mailboxes = []
+        for mb in ["service", user_mailbox]:
+            if not mb:
+                continue
+            count = db.query(func.count(EmailThread.id)).filter(
+                EmailThread.mailbox == mb,
+                EmailThread.status != "closed",
+            ).scalar() or 0
+            mailboxes.append({"mailbox": mb, "open_count": count})
+    
+    # Sort: service first, then alphabetical
+    mailboxes.sort(key=lambda m: (0 if m["mailbox"] == "service" else 1, m["mailbox"]))
+    
+    return {
+        "mailboxes": mailboxes,
+        "is_admin": is_admin,
+        "user_mailbox": user_mailbox,
+        "can_assign_anyone": is_admin or current_user.role.lower() in ("retention_specialist", "manager"),
+    }
+
 
 @router.get("/stats")
 def inbox_stats(
@@ -726,6 +840,14 @@ def create_mailgun_route(
 # ══════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════
+
+def _username_to_mailbox(username: str) -> str:
+    """Convert username (e.g. 'evan.larson') to mailbox name."""
+    if not username:
+        return ""
+    # Already a valid mailbox format
+    return username.lower().replace(" ", ".").strip()
+
 
 def _parse_email_address(raw: str) -> tuple:
     """Parse 'Name <email@example.com>' → (name, email)."""

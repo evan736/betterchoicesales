@@ -6,10 +6,10 @@ import {
   Mail, Search, Inbox, Send, User, Clock, Tag, ChevronDown, ChevronRight,
   Loader2, X, CheckCircle2, AlertCircle, Paperclip, FileText, Sparkles,
   Archive, RefreshCw, ArrowLeft, MailOpen, Star, Users, Filter,
+  Zap, ListChecks, AlertTriangle, ArrowRight, MailPlus,
 } from 'lucide-react';
 
 const TAGS = ['billing', 'claims', 'new-business', 'endorsement', 'renewal', 'general', 'urgent'];
-const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 
 export default function InboxPage() {
   const { user } = useAuth();
@@ -22,10 +22,15 @@ export default function InboxPage() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [employees, setEmployees] = useState<any[]>([]);
 
+  // Mailboxes
+  const [mailboxes, setMailboxes] = useState<any[]>([]);
+  const [activeMailbox, setActiveMailbox] = useState('service');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [canAssignAnyone, setCanAssignAnyone] = useState(false);
+  const [userMailbox, setUserMailbox] = useState('');
+
   // Filters
-  const [filterMailbox, setFilterMailbox] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [filterAssigned, setFilterAssigned] = useState<number | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
 
@@ -39,26 +44,37 @@ export default function InboxPage() {
   const [closeAfterReply, setCloseAfterReply] = useState(false);
   const replyFileRef = useRef<HTMLInputElement>(null);
 
-  // AI Draft
+  // AI Draft + Action Items
   const [aiDraft, setAiDraft] = useState('');
+  const [aiActionItems, setAiActionItems] = useState<string[]>([]);
+  const [aiUrgency, setAiUrgency] = useState('normal');
+  const [aiSummary, setAiSummary] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const loadMailboxes = async () => {
+    try {
+      const res = await emailAPI.mailboxes();
+      setMailboxes(res.data.mailboxes);
+      setIsAdmin(res.data.is_admin);
+      setCanAssignAnyone(res.data.can_assign_anyone);
+      setUserMailbox(res.data.user_mailbox);
+    } catch (e) { console.error(e); }
+  };
+
   const loadThreads = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = { page, page_size: 30 };
-      if (filterMailbox) params.mailbox = filterMailbox;
+      const params: any = { page, page_size: 30, mailbox: activeMailbox };
       if (filterStatus) params.status = filterStatus;
-      if (filterAssigned !== undefined) params.assigned_to = filterAssigned;
       if (searchQuery) params.search = searchQuery;
       const res = await emailAPI.threads(params);
       setThreads(res.data.threads);
       setTotal(res.data.total);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [page, filterMailbox, filterStatus, filterAssigned, searchQuery]);
+  }, [page, activeMailbox, filterStatus, searchQuery]);
 
   const loadStats = async () => {
     try { const res = await emailAPI.stats(); setStats(res.data); } catch {}
@@ -72,18 +88,25 @@ export default function InboxPage() {
     } catch {}
   };
 
-  useEffect(() => { loadThreads(); loadStats(); loadEmployees(); }, [loadThreads]);
+  useEffect(() => { loadMailboxes(); loadEmployees(); }, []);
+  useEffect(() => { loadThreads(); loadStats(); }, [loadThreads]);
+
+  const switchMailbox = (mb: string) => {
+    setActiveMailbox(mb);
+    setActiveThread(null);
+    setPage(1);
+    setAiDraft(''); setAiActionItems([]); setAiSummary('');
+  };
 
   const openThread = async (thread: any) => {
     setActiveThread(thread);
     setReplyOpen(false);
-    setAiDraft('');
+    setAiDraft(''); setAiActionItems([]); setAiSummary(''); setAiUrgency('normal');
     setThreadLoading(true);
     try {
       const res = await emailAPI.thread(thread.id);
       setActiveThread(res.data.thread);
       setMessages(res.data.messages);
-      // Mark as read in list
       setThreads(prev => prev.map(t => t.id === thread.id ? { ...t, is_unread: false } : t));
     } catch (e) { console.error(e); }
     finally { setThreadLoading(false); }
@@ -100,20 +123,12 @@ export default function InboxPage() {
         close_after: closeAfterReply,
         attachments: replyFiles.length > 0 ? replyFiles : undefined,
       });
-      setReplyBody('');
-      setReplyCc('');
-      setReplyFiles([]);
-      setReplyOpen(false);
-      if (closeAfterReply) {
-        setActiveThread(null);
-        loadThreads();
-      } else {
-        openThread(activeThread);
-      }
-      loadStats();
-    } catch (e: any) {
-      alert(e.response?.data?.detail || 'Failed to send');
-    } finally { setReplySending(false); }
+      setReplyBody(''); setReplyCc(''); setReplyFiles([]); setReplyOpen(false);
+      if (closeAfterReply) { setActiveThread(null); loadThreads(); }
+      else { openThread(activeThread); }
+      loadStats(); loadMailboxes();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed to send'); }
+    finally { setReplySending(false); }
   };
 
   const handleAiDraft = async () => {
@@ -122,11 +137,13 @@ export default function InboxPage() {
     try {
       const res = await emailAPI.aiDraft(activeThread.id);
       setAiDraft(res.data.draft);
+      setAiActionItems(res.data.action_items || []);
+      setAiUrgency(res.data.urgency || 'normal');
+      setAiSummary(res.data.summary || '');
       setReplyBody(res.data.draft);
       setReplyOpen(true);
-    } catch (e: any) {
-      alert(e.response?.data?.detail || 'AI draft failed');
-    } finally { setAiLoading(false); }
+    } catch (e: any) { alert(e.response?.data?.detail || 'AI draft failed'); }
+    finally { setAiLoading(false); }
   };
 
   const handleAssign = async (threadId: number, userId: number | null) => {
@@ -141,7 +158,7 @@ export default function InboxPage() {
     try {
       await emailAPI.setStatus(threadId, status);
       if (status === 'closed') { setActiveThread(null); }
-      loadThreads(); loadStats();
+      loadThreads(); loadStats(); loadMailboxes();
     } catch (e) { console.error(e); }
   };
 
@@ -164,6 +181,15 @@ export default function InboxPage() {
     return colors[Math.abs(h) % colors.length];
   };
 
+  const mailboxLabel = (mb: string) => {
+    if (mb === 'service') return 'Service Inbox';
+    return mb.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  const urgencyColor: Record<string, string> = {
+    low: 'text-slate-400', normal: 'text-blue-500', high: 'text-amber-500', urgent: 'text-red-500',
+  };
+
   if (!user) return null;
 
   return (
@@ -171,41 +197,64 @@ export default function InboxPage() {
       <Navbar />
       <div className="flex" style={{ height: 'calc(100vh - 64px)' }}>
 
-        {/* Left: Thread List */}
-        <div className="w-96 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
-          {/* Stats bar */}
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1 font-semibold text-blue-600"><Inbox size={13} />{stats.open || 0} Open</span>
-              <span className="flex items-center gap-1 text-amber-600"><Clock size={13} />{stats.unassigned || 0} Unassigned</span>
-              <span className="flex items-center gap-1 text-green-600"><CheckCircle2 size={13} />{stats.closed_today || 0} Closed</span>
-              <span className="flex items-center gap-1 text-purple-600"><User size={13} />{stats.my_assigned || 0} Mine</span>
+        {/* ═══ LEFT: Mailbox Sidebar ═══ */}
+        <div className="w-52 flex-shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col">
+          <div className="px-3 py-3 border-b border-slate-200">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Mailboxes</h3>
+            {mailboxes.map(mb => (
+              <button key={mb.mailbox} onClick={() => switchMailbox(mb.mailbox)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-sm transition-colors mb-0.5 ${
+                  activeMailbox === mb.mailbox
+                    ? 'bg-blue-100 text-blue-700 font-semibold'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}>
+                <span className="flex items-center gap-2 truncate">
+                  {mb.mailbox === 'service' ? <Inbox size={14} /> : <User size={14} />}
+                  <span className="truncate">{mailboxLabel(mb.mailbox)}</span>
+                </span>
+                {mb.open_count > 0 && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    activeMailbox === mb.mailbox ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'
+                  }`}>{mb.open_count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Quick stats */}
+          <div className="px-3 py-3 space-y-1.5 text-[11px]">
+            <div className="flex justify-between text-slate-500"><span>Open</span><span className="font-bold text-blue-600">{stats.open || 0}</span></div>
+            <div className="flex justify-between text-slate-500"><span>Unassigned</span><span className="font-bold text-amber-600">{stats.unassigned || 0}</span></div>
+            <div className="flex justify-between text-slate-500"><span>My Assigned</span><span className="font-bold text-purple-600">{stats.my_assigned || 0}</span></div>
+            <div className="flex justify-between text-slate-500"><span>Closed Today</span><span className="font-bold text-green-600">{stats.closed_today || 0}</span></div>
+          </div>
+        </div>
+
+        {/* ═══ MIDDLE: Thread List ═══ */}
+        <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
+          {/* Mailbox header */}
+          <div className="px-3 py-2.5 border-b border-slate-100 bg-white">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-slate-800">{mailboxLabel(activeMailbox)}</h2>
+              <button onClick={() => { loadThreads(); loadStats(); loadMailboxes(); }} className="text-slate-400 hover:text-slate-600"><RefreshCw size={14} /></button>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-100 rounded-lg px-2 py-1">
+              <Search size={13} className="text-slate-400" />
+              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && loadThreads()}
+                placeholder="Search..." className="flex-1 bg-transparent text-xs outline-none text-slate-700 placeholder:text-slate-400" />
+              {searchQuery && <button onClick={() => { setSearchQuery(''); }} className="text-slate-400"><X size={12} /></button>}
             </div>
           </div>
 
-          {/* Search + Filters */}
-          <div className="px-3 py-2 border-b border-slate-100 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-1.5 bg-slate-100 rounded-lg px-2.5 py-1.5">
-                <Search size={14} className="text-slate-400" />
-                <input
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && loadThreads()}
-                  placeholder="Search emails..."
-                  className="flex-1 bg-transparent text-sm outline-none text-slate-700 placeholder:text-slate-400"
-                />
-              </div>
-              <button onClick={() => loadThreads()} className="text-slate-400 hover:text-slate-600"><RefreshCw size={16} /></button>
-            </div>
-            <div className="flex gap-1.5 flex-wrap">
-              {['', 'open', 'assigned', 'snoozed', 'closed'].map(s => (
-                <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }}
-                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
-                    filterStatus === s ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                  }`}>{s || 'All'}</button>
-              ))}
-            </div>
+          {/* Status filters */}
+          <div className="px-3 py-1.5 border-b border-slate-100 flex gap-1 flex-wrap">
+            {['', 'open', 'assigned', 'snoozed', 'closed'].map(s => (
+              <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                  filterStatus === s ? 'bg-blue-100 text-blue-700' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                }`}>{s || 'All'}</button>
+            ))}
           </div>
 
           {/* Thread list */}
@@ -215,44 +264,40 @@ export default function InboxPage() {
             ) : threads.length === 0 ? (
               <div className="text-center py-12 text-slate-400 text-sm">
                 <Mail size={28} className="mx-auto mb-2 opacity-40" />
-                No emails found
+                No emails in {mailboxLabel(activeMailbox)}
               </div>
             ) : threads.map(t => (
-              <button
-                key={t.id}
-                onClick={() => openThread(t)}
-                className={`w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors ${
+              <button key={t.id} onClick={() => openThread(t)}
+                className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition-colors ${
                   activeThread?.id === t.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
-                } ${t.is_unread ? 'bg-white' : 'bg-slate-50/50'}`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5"
+                } ${t.is_unread ? 'bg-white' : 'bg-slate-50/50'}`}>
+                <div className="flex items-start gap-2.5">
+                  <div className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0 mt-0.5"
                     style={{ background: initColor(t.from_name || t.from_email) }}>
                     {getInitials(t.from_name || t.from_email)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm truncate ${t.is_unread ? 'font-bold text-slate-900' : 'font-medium text-slate-700'}`}>
+                      <span className={`text-xs truncate ${t.is_unread ? 'font-bold text-slate-900' : 'font-medium text-slate-700'}`}>
                         {t.from_name || t.from_email}
                       </span>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0 ml-2">{formatTime(t.last_message_at)}</span>
+                      <span className="text-[9px] text-slate-400 flex-shrink-0 ml-1">{formatTime(t.last_message_at)}</span>
                     </div>
-                    <div className={`text-xs truncate mt-0.5 ${t.is_unread ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
+                    <div className={`text-[11px] truncate mt-0.5 ${t.is_unread ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
                       {t.subject}
                     </div>
-                    <div className="text-[11px] text-slate-400 truncate mt-0.5">{t.preview}</div>
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <div className="text-[10px] text-slate-400 truncate mt-0.5">{t.preview}</div>
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
                       {t.tags?.map((tag: string) => (
-                        <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold">{tag}</span>
+                        <span key={tag} className="text-[8px] px-1 py-0 rounded bg-slate-100 text-slate-500 font-semibold">{tag}</span>
                       ))}
                       {t.assigned_to_name && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-semibold">→ {t.assigned_to_name.split(' ')[0]}</span>
+                        <span className="text-[8px] px-1 py-0 rounded bg-purple-50 text-purple-600 font-semibold">→ {t.assigned_to_name.split(' ')[0]}</span>
                       )}
                       {t.customer_name && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 font-semibold">🔗 {t.customer_name.split(' ')[0]}</span>
+                        <span className="text-[8px] px-1 py-0 rounded bg-green-50 text-green-600 font-semibold">🔗 {t.customer_name.split(' ')[0]}</span>
                       )}
-                      {t.priority === 'urgent' && <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 font-bold">🔴 URGENT</span>}
-                      {t.message_count > 1 && <span className="text-[9px] text-slate-400">{t.message_count} msgs</span>}
+                      {t.priority === 'urgent' && <span className="text-[8px] px-1 py-0 rounded bg-red-100 text-red-600 font-bold">URGENT</span>}
                     </div>
                   </div>
                 </div>
@@ -260,74 +305,70 @@ export default function InboxPage() {
             ))}
           </div>
           {total > 30 && (
-            <div className="px-4 py-2 border-t border-slate-100 flex justify-between items-center">
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="text-xs text-slate-500 disabled:opacity-30">← Prev</button>
-              <span className="text-[10px] text-slate-400">Page {page}</span>
-              <button disabled={threads.length < 30} onClick={() => setPage(p => p + 1)} className="text-xs text-slate-500 disabled:opacity-30">Next →</button>
+            <div className="px-3 py-1.5 border-t border-slate-100 flex justify-between items-center text-[10px] text-slate-400">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="disabled:opacity-30">← Prev</button>
+              <span>Page {page}</span>
+              <button disabled={threads.length < 30} onClick={() => setPage(p => p + 1)} className="disabled:opacity-30">Next →</button>
             </div>
           )}
         </div>
 
-        {/* Right: Thread Detail / Message View */}
-        <div className="flex-1 flex flex-col bg-white">
+        {/* ═══ RIGHT: Thread Detail ═══ */}
+        <div className="flex-1 flex flex-col bg-white min-w-0">
           {!activeThread ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
               <Mail size={48} className="opacity-20 mb-3" />
               <span className="text-lg font-medium">Select a conversation</span>
-              <span className="text-sm mt-1">Choose an email thread from the left</span>
+              <span className="text-sm mt-1">Choose an email thread from the list</span>
             </div>
           ) : (
             <>
               {/* Thread header */}
-              <div className="px-6 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button onClick={() => setActiveThread(null)} className="text-slate-400 hover:text-slate-600 lg:hidden"><ArrowLeft size={18} /></button>
                     <div className="min-w-0">
-                      <h2 className="text-base font-bold text-slate-900 truncate">{activeThread.subject}</h2>
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <h2 className="text-sm font-bold text-slate-900 truncate">{activeThread.subject}</h2>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500">
                         <span>{activeThread.from_name || activeThread.from_email}</span>
                         <span>·</span>
-                        <span>{activeThread.message_count} messages</span>
+                        <span>{activeThread.message_count} msgs</span>
                         {activeThread.customer_name && <><span>·</span><span className="text-green-600">🔗 {activeThread.customer_name}</span></>}
+                        <span>·</span>
+                        <span className="bg-slate-200 px-1.5 py-0 rounded text-[9px] font-semibold">{activeThread.mailbox}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* Assign dropdown */}
-                    <select
-                      value={activeThread.assigned_to_id || ''}
-                      onChange={e => handleAssign(activeThread.id, e.target.value ? parseInt(e.target.value) : null)}
-                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
-                    >
-                      <option value="">Unassigned</option>
-                      {employees.map((e: any) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-                    </select>
-                    {/* Status actions */}
-                    {activeThread.status !== 'closed' && (
-                      <button onClick={() => handleStatus(activeThread.id, 'closed')}
-                        className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-semibold px-2 py-1 rounded hover:bg-green-50">
-                        <Archive size={13} /> Close
-                      </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {(canAssignAnyone || isAdmin) && (
+                      <select value={activeThread.assigned_to_id || ''} onChange={e => handleAssign(activeThread.id, e.target.value ? parseInt(e.target.value) : null)}
+                        className="text-[11px] border border-slate-200 rounded-lg px-2 py-1 bg-white max-w-32">
+                        <option value="">Unassigned</option>
+                        {employees.map((e: any) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                      </select>
                     )}
-                    {activeThread.status === 'closed' && (
+                    {activeThread.status !== 'closed' ? (
+                      <button onClick={() => handleStatus(activeThread.id, 'closed')}
+                        className="flex items-center gap-1 text-[11px] text-green-600 hover:text-green-700 font-semibold px-2 py-1 rounded hover:bg-green-50">
+                        <Archive size={12} /> Close
+                      </button>
+                    ) : (
                       <button onClick={() => handleStatus(activeThread.id, 'open')}
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50">
-                        <MailOpen size={13} /> Reopen
+                        className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-semibold px-2 py-1 rounded hover:bg-blue-50">
+                        <MailOpen size={12} /> Reopen
                       </button>
                     )}
                   </div>
                 </div>
                 {/* Tags */}
-                <div className="flex items-center gap-1.5 mt-2">
+                <div className="flex items-center gap-1 mt-1.5">
                   {(activeThread.tags || []).map((tag: string) => (
-                    <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-semibold cursor-pointer hover:bg-red-100 hover:text-red-600"
-                      onClick={() => emailAPI.tag(activeThread.id, tag, 'remove').then(() => openThread(activeThread))}
-                      title="Click to remove">
+                    <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600 font-semibold cursor-pointer hover:bg-red-100 hover:text-red-600"
+                      onClick={() => emailAPI.tag(activeThread.id, tag, 'remove').then(() => openThread(activeThread))} title="Click to remove">
                       {tag} ×
                     </span>
                   ))}
-                  <select className="text-[10px] border border-dashed border-slate-300 rounded px-1 py-0.5 text-slate-400 bg-transparent"
+                  <select className="text-[9px] border border-dashed border-slate-300 rounded px-1 py-0.5 text-slate-400 bg-transparent"
                     value="" onChange={e => { if (e.target.value) emailAPI.tag(activeThread.id, e.target.value).then(() => openThread(activeThread)); }}>
                     <option value="">+ Tag</option>
                     {TAGS.filter(t => !(activeThread.tags || []).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
@@ -335,122 +376,193 @@ export default function InboxPage() {
                 </div>
               </div>
 
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-                {threadLoading ? (
-                  <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-slate-400" /></div>
-                ) : messages.map((msg, i) => (
-                  <div key={msg.id} className={`rounded-xl border p-4 ${
-                    msg.direction === 'inbound'
-                      ? 'bg-white border-slate-200'
-                      : 'bg-blue-50 border-blue-200 ml-8'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                          style={{ background: initColor(msg.from_name || msg.from_email) }}>
-                          {getInitials(msg.from_name || msg.from_email)}
+              {/* Main content area — messages + AI panel */}
+              <div className="flex-1 flex min-h-0">
+                {/* Messages column */}
+                <div className="flex-1 flex flex-col min-w-0">
+                  <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+                    {threadLoading ? (
+                      <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-slate-400" /></div>
+                    ) : messages.map((msg) => (
+                      <div key={msg.id} className={`rounded-xl border p-3 ${
+                        msg.direction === 'inbound' ? 'bg-white border-slate-200' : 'bg-blue-50 border-blue-200 ml-6'
+                      }`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="h-6 w-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
+                              style={{ background: initColor(msg.from_name || msg.from_email) }}>
+                              {getInitials(msg.from_name || msg.from_email)}
+                            </div>
+                            <div>
+                              <span className="text-xs font-semibold text-slate-800">{msg.from_name || msg.from_email}</span>
+                              <span className="text-[9px] text-slate-400 ml-1.5">&lt;{msg.from_email}&gt;</span>
+                            </div>
+                          </div>
+                          <span className="text-[9px] text-slate-400">{formatTime(msg.created_at)}</span>
                         </div>
-                        <div>
-                          <span className="text-sm font-semibold text-slate-800">{msg.from_name || msg.from_email}</span>
-                          <span className="text-[10px] text-slate-400 ml-2">&lt;{msg.from_email}&gt;</span>
+                        {msg.to_emails?.length > 0 && (
+                          <div className="text-[9px] text-slate-400 mb-1.5">
+                            To: {msg.to_emails.join(', ')}
+                            {msg.cc_emails?.length > 0 && <> · CC: {msg.cc_emails.join(', ')}</>}
+                          </div>
+                        )}
+                        <div className="text-[13px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                          {msg.body_text || '(No text content)'}
                         </div>
+                        {msg.attachments?.length > 0 && (
+                          <div className="mt-2 flex gap-1.5 flex-wrap">
+                            {msg.attachments.map((att: any, ai: number) => (
+                              <a key={ai} href={`${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}${att.path}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[10px] text-slate-600">
+                                <Paperclip size={10} /> {att.filename}
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-[10px] text-slate-400">{formatTime(msg.created_at)}</span>
-                    </div>
-                    {msg.to_emails?.length > 0 && (
-                      <div className="text-[10px] text-slate-400 mb-2">
-                        To: {msg.to_emails.join(', ')}
-                        {msg.cc_emails?.length > 0 && <> · CC: {msg.cc_emails.join(', ')}</>}
-                      </div>
-                    )}
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {msg.body_text || '(No text content)'}
-                    </div>
-                    {msg.attachments?.length > 0 && (
-                      <div className="mt-2 flex gap-2 flex-wrap">
-                        {msg.attachments.map((att: any, ai: number) => (
-                          <a key={ai} href={`${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}${att.path}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-xs text-slate-600 transition-colors">
-                            <Paperclip size={11} /> {att.filename} <span className="text-slate-400">({(att.size / 1024).toFixed(0)}KB)</span>
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                    {msg.nowcerts_logged && <span className="text-[9px] text-green-500 mt-1 inline-block">✓ Logged to NowCerts</span>}
+                    ))}
+                    <div ref={messagesEndRef} />
                   </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
 
-              {/* Reply bar */}
-              <div className="border-t border-slate-200 bg-slate-50">
-                {!replyOpen ? (
-                  <div className="px-6 py-3 flex items-center gap-3">
-                    <button onClick={() => setReplyOpen(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors">
-                      <Send size={14} /> Reply
-                    </button>
-                    <button onClick={handleAiDraft} disabled={aiLoading}
-                      className="flex items-center gap-2 px-4 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-sm font-semibold rounded-lg border border-purple-200 transition-colors disabled:opacity-50">
-                      {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                      {aiLoading ? 'Drafting...' : 'AI Draft'}
-                    </button>
-                    {activeThread.status !== 'closed' && (
-                      <button onClick={() => handleStatus(activeThread.id, 'closed')}
-                        className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-green-600 ml-auto">
-                        <Archive size={13} /> Close without reply
-                      </button>
+                  {/* Reply bar */}
+                  <div className="border-t border-slate-200 bg-slate-50 flex-shrink-0">
+                    {!replyOpen ? (
+                      <div className="px-5 py-2.5 flex items-center gap-2">
+                        <button onClick={() => setReplyOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors">
+                          <Send size={12} /> Reply
+                        </button>
+                        <button onClick={handleAiDraft} disabled={aiLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold rounded-lg border border-purple-200 transition-colors disabled:opacity-50">
+                          {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                          {aiLoading ? 'Analyzing...' : 'AI Assist'}
+                        </button>
+                        {activeThread.status !== 'closed' && (
+                          <button onClick={() => handleStatus(activeThread.id, 'closed')}
+                            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-green-600 ml-auto">
+                            <Archive size={12} /> Close
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="px-5 py-2.5 space-y-2">
+                        {aiDraft && (
+                          <div className="text-[10px] text-purple-600 font-semibold flex items-center gap-1">
+                            <Sparkles size={10} /> AI-generated draft — edit before sending
+                          </div>
+                        )}
+                        <div className="flex gap-2 mb-1">
+                          <button onClick={() => setReplySendAs('service')}
+                            className={`px-2.5 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                              replySendAs === 'service' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'
+                            }`}>service@</button>
+                          <button onClick={() => setReplySendAs('personal')}
+                            className={`px-2.5 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                              replySendAs === 'personal' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'
+                            }`}>My Email</button>
+                        </div>
+                        <input value={replyCc} onChange={e => setReplyCc(e.target.value)} placeholder="CC (comma-separated)"
+                          className="w-full border border-slate-200 rounded-lg px-2.5 py-1 text-[11px]" />
+                        <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={4} autoFocus
+                          placeholder="Type your reply..."
+                          className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs resize-none focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <input ref={replyFileRef} type="file" multiple className="hidden"
+                              onChange={e => { if (e.target.files) setReplyFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
+                            <button onClick={() => replyFileRef.current?.click()} className="text-[10px] text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                              <Paperclip size={11} /> Attach
+                            </button>
+                            {replyFiles.map((f, i) => (
+                              <span key={i} className="text-[9px] bg-slate-100 rounded px-1 py-0.5 text-slate-500">
+                                {f.name} <button onClick={() => setReplyFiles(prev => prev.filter((_, j) => j !== i))} className="text-red-400 ml-0.5">×</button>
+                              </span>
+                            ))}
+                            <label className="flex items-center gap-1 text-[9px] text-slate-400 cursor-pointer">
+                              <input type="checkbox" checked={closeAfterReply} onChange={e => setCloseAfterReply(e.target.checked)} className="rounded" />
+                              Close after
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => { setReplyOpen(false); }} className="text-[10px] text-slate-500">Cancel</button>
+                            <button disabled={!replyBody.trim() || replySending} onClick={handleReply}
+                              className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold rounded-lg disabled:opacity-40 transition-colors">
+                              {replySending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                              {replySending ? 'Sending...' : 'Send'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="px-6 py-3 space-y-2">
-                    {aiDraft && (
-                      <div className="text-[10px] text-purple-600 font-semibold flex items-center gap-1 mb-1">
-                        <Sparkles size={11} /> AI-generated draft — edit as needed
+                </div>
+
+                {/* ═══ AI PANEL (right side) ═══ */}
+                {(aiActionItems.length > 0 || aiSummary || aiLoading) && (
+                  <div className="w-72 flex-shrink-0 border-l border-slate-200 bg-slate-50 overflow-y-auto">
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles size={14} className="text-purple-500" />
+                          <h3 className="text-xs font-bold text-slate-700">AI Analysis</h3>
+                        </div>
+                        <button onClick={() => { setAiActionItems([]); setAiSummary(''); setAiUrgency('normal'); }}
+                          className="text-slate-400 hover:text-slate-600"><X size={12} /></button>
                       </div>
-                    )}
-                    <div className="flex gap-2 mb-2">
-                      <button onClick={() => setReplySendAs('service')}
-                        className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
-                          replySendAs === 'service' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'
-                        }`}>service@</button>
-                      <button onClick={() => setReplySendAs('personal')}
-                        className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
-                          replySendAs === 'personal' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-500'
-                        }`}>My Email</button>
-                    </div>
-                    <input value={replyCc} onChange={e => setReplyCc(e.target.value)} placeholder="CC (comma-separated)"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs" />
-                    <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={5} autoFocus
-                      placeholder="Type your reply..."
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none" />
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <input ref={replyFileRef} type="file" multiple className="hidden"
-                          onChange={e => { if (e.target.files) setReplyFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
-                        <button onClick={() => replyFileRef.current?.click()} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
-                          <Paperclip size={13} /> Attach
-                        </button>
-                        {replyFiles.map((f, i) => (
-                          <span key={i} className="text-[10px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-500">
-                            {f.name} <button onClick={() => setReplyFiles(prev => prev.filter((_, j) => j !== i))} className="text-red-400 ml-1">×</button>
-                          </span>
-                        ))}
-                        <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer">
-                          <input type="checkbox" checked={closeAfterReply} onChange={e => setCloseAfterReply(e.target.checked)} className="rounded" />
-                          Close after send
-                        </label>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => { setReplyOpen(false); setAiDraft(''); }} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
-                        <button disabled={!replyBody.trim() || replySending} onClick={handleReply}
-                          className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg disabled:opacity-40 transition-colors">
-                          {replySending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                          {replySending ? 'Sending...' : 'Send'}
-                        </button>
-                      </div>
+
+                      {aiLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-slate-400 py-6 justify-center">
+                          <Loader2 size={14} className="animate-spin" /> Analyzing email...
+                        </div>
+                      ) : (
+                        <>
+                          {/* Summary */}
+                          {aiSummary && (
+                            <div className="mb-4">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Summary</div>
+                              <p className="text-xs text-slate-700 bg-white rounded-lg p-2.5 border border-slate-200 leading-relaxed">{aiSummary}</p>
+                            </div>
+                          )}
+
+                          {/* Urgency */}
+                          {aiUrgency && aiUrgency !== 'normal' && (
+                            <div className="mb-4">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Urgency</div>
+                              <div className={`flex items-center gap-1.5 text-xs font-semibold ${urgencyColor[aiUrgency] || 'text-slate-500'}`}>
+                                {aiUrgency === 'urgent' && <AlertTriangle size={13} />}
+                                {aiUrgency === 'high' && <AlertCircle size={13} />}
+                                <span className="capitalize">{aiUrgency}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Items */}
+                          {aiActionItems.length > 0 && (
+                            <div className="mb-4">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                                <ListChecks size={11} /> Next Steps
+                              </div>
+                              <div className="space-y-1.5">
+                                {aiActionItems.map((item, i) => (
+                                  <div key={i} className="flex items-start gap-2 bg-white rounded-lg p-2 border border-slate-200">
+                                    <div className="w-4 h-4 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                      <span className="text-[8px] font-bold text-purple-600">{i + 1}</span>
+                                    </div>
+                                    <span className="text-[11px] text-slate-700 leading-relaxed">{item}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Regenerate */}
+                          <button onClick={handleAiDraft} disabled={aiLoading}
+                            className="w-full text-center text-[10px] text-purple-500 hover:text-purple-700 py-1">
+                            <RefreshCw size={10} className="inline mr-1" /> Regenerate analysis
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
