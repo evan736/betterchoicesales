@@ -1453,17 +1453,22 @@ def _parse_generic_email_html(html_body: str, carrier: str = "") -> list[dict]:
 async def inbound_email_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Mailgun inbound webhook. Receives parsed email data and processes non-pay notices.
-
-    Mailgun POSTs form data with fields: sender, from, subject, body-html, body-plain,
-    attachment-count, attachment-1, etc.
-
-    No auth required — Mailgun calls this directly. We validate by checking sender domain.
     """
     try:
         form = await request.form()
     except Exception as e:
         logger.error("Inbound email: failed to parse form data: %s", e)
         return {"status": "error", "message": str(e)}
+
+    # ── Verify Mailgun signature ──
+    from app.api.email_inbox import _verify_mailgun_signature
+    mg_timestamp = form.get("timestamp", "")
+    mg_token = form.get("token", "")
+    mg_signature = form.get("signature", "")
+    if mg_timestamp and mg_token and mg_signature:
+        if not _verify_mailgun_signature(mg_token, mg_timestamp, mg_signature):
+            logger.warning("⚠️ Nonpay webhook: Mailgun signature verification FAILED")
+            raise HTTPException(status_code=403, detail="Invalid signature")
 
     sender = form.get("sender", "") or form.get("from", "")
     subject = form.get("subject", "")

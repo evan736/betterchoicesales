@@ -3,6 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.api import auth, sales, commissions, statements, analytics
 from app.api import payroll as payroll_api
@@ -776,6 +778,14 @@ def init_database():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Run database init on startup + start background scheduler."""
+    # ── Security check: refuse to run with default secret key ──
+    if settings.SECRET_KEY == "your-secret-key-change-in-production":
+        logger.critical("🚨 SECURITY: SECRET_KEY is set to the default value! Set a unique SECRET_KEY env var.")
+        import secrets
+        settings.SECRET_KEY = secrets.token_urlsafe(64)
+        logger.warning(f"⚠️  Generated a temporary random SECRET_KEY for this session. All existing tokens are now invalid.")
+        logger.warning(f"⚠️  Set SECRET_KEY in Render environment variables to fix this permanently.")
+
     init_database()
 
     # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
@@ -960,6 +970,11 @@ app = FastAPI(
     docs_url=docs_url,
     redoc_url=redoc_url,
 )
+
+# Rate limiting — handle 429 Too Many Requests
+from app.api.auth import limiter as auth_limiter
+app.state.limiter = auth_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # Global exception handler - always return JSON (never plain text)

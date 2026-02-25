@@ -1,4 +1,6 @@
 """Email Inbox API — shared inbox, inbound routing, AI drafts, thread management."""
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -24,6 +26,25 @@ ATTACHMENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__
 os.makedirs(ATTACHMENT_DIR, exist_ok=True)
 
 
+def _verify_mailgun_signature(token: str, timestamp: str, signature: str) -> bool:
+    """Verify Mailgun webhook signature using HMAC-SHA256.
+    See: https://documentation.mailgun.com/en/latest/user_manual.html#webhooks
+    """
+    if not settings.MAILGUN_API_KEY:
+        logger.warning("No MAILGUN_API_KEY set — skipping signature verification")
+        return True  # Can't verify without the key
+
+    # Mailgun signs with the API key
+    signing_key = settings.MAILGUN_API_KEY
+    hmac_digest = hmac.new(
+        key=signing_key.encode("utf-8"),
+        msg=f"{timestamp}{token}".encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(signature, hmac_digest)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # MAILGUN INBOUND WEBHOOK — receives all incoming email
 # ══════════════════════════════════════════════════════════════════════
@@ -33,6 +54,19 @@ async def inbound_email(request: Request):
     """Mailgun inbound webhook — receives parsed emails."""
     try:
         form = await request.form()
+
+        # ── Verify Mailgun signature ──
+        mg_timestamp = form.get("timestamp", "")
+        mg_token = form.get("token", "")
+        mg_signature = form.get("signature", "")
+        if mg_timestamp and mg_token and mg_signature:
+            if not _verify_mailgun_signature(mg_token, mg_timestamp, mg_signature):
+                logger.warning(f"⚠️ Mailgun signature verification FAILED — rejecting webhook")
+                raise HTTPException(status_code=403, detail="Invalid signature")
+        elif settings.MAILGUN_API_KEY:
+            # Signature fields missing but we have an API key — log warning but allow
+            # (some Mailgun route types don't include signature in form data)
+            logger.warning("Mailgun webhook missing signature fields — allowing but this should be investigated")
         
         # Check for duplicate by Message-Id
         message_id = form.get("Message-Id", "")
