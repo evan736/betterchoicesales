@@ -3,11 +3,12 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import USHeatmap from '../components/USHeatmap';
-import { customersAPI, nonpayAPI } from '../lib/api';
+import { customersAPI, nonpayAPI, miaAPI } from '../lib/api';
 import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
-  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp
+  FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp,
+  Shield, ShieldCheck, ShieldOff, Zap
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -379,6 +380,14 @@ export default function CustomersPage() {
                                 </table>
                               </div>
                             ) : <p className="text-sm text-slate-500 py-4 text-center">No policies found. Try refreshing from NowCerts.</p>}
+
+                            {/* MIA Bypass Controls */}
+                            {detail.customer?.phone && (
+                              <MiaBypassPanel
+                                phone={detail.customer.phone}
+                                customerName={detail.customer.full_name}
+                              />
+                            )}
                           </>
                         ) : null}
                       </div>
@@ -450,6 +459,189 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
 const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
   <div><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800">{value || '—'}</p></div>
 );
+
+// ── MIA Bypass Panel ──────────────────────────────────────────────
+const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ phone, customerName }) => {
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+  const [showAuthForm, setShowAuthForm] = useState(false);
+  const [authDuration, setAuthDuration] = useState(60);
+  const [authReason, setAuthReason] = useState('');
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const r = await miaAPI.bypassStatus(phone);
+      setStatus(r.data);
+    } catch { setStatus(null); }
+    setLoading(false);
+  }, [phone]);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const handleToggleVip = async () => {
+    setActing(true);
+    try {
+      if (status?.vip) {
+        await miaAPI.toggleVip(status.vip.id);
+      } else {
+        await miaAPI.addVip({ phone, customer_name: customerName, reason: 'Added from customer card' });
+      }
+      await loadStatus();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    setActing(false);
+  };
+
+  const handleRemoveVip = async () => {
+    if (!status?.vip || !confirm('Remove from VIP list permanently?')) return;
+    setActing(true);
+    try {
+      await miaAPI.removeVip(status.vip.id);
+      await loadStatus();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    setActing(false);
+  };
+
+  const handleCreateAuth = async () => {
+    setActing(true);
+    try {
+      await miaAPI.createAuth({ phone, customer_name: customerName, reason: authReason || undefined, duration_minutes: authDuration });
+      setShowAuthForm(false);
+      setAuthReason('');
+      await loadStatus();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    setActing(false);
+  };
+
+  const handleRevokeAuth = async () => {
+    if (!status?.temp_auth) return;
+    setActing(true);
+    try {
+      await miaAPI.revokeAuth(status.temp_auth.id);
+      await loadStatus();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    setActing(false);
+  };
+
+  if (loading) return null;
+
+  const isVipActive = status?.vip?.is_active;
+  const hasTempAuth = !!status?.temp_auth;
+  const isBypassing = isVipActive || hasTempAuth;
+
+  return (
+    <div className="mt-5 pt-4 border-t border-slate-200">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Shield size={15} className={isBypassing ? 'text-amber-600' : 'text-slate-400'} />
+          <h3 className="font-bold text-slate-900 text-sm">MIA Direct Line</h3>
+          {isBypassing && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">
+              {isVipActive ? 'VIP' : 'Temp Auth'}
+            </span>
+          )}
+          <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Framework — not live</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* VIP Toggle */}
+        <div className={`rounded-lg border p-3 ${isVipActive ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-white'}`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <ShieldCheck size={13} />Permanent VIP
+            </span>
+            {status?.vip && (
+              <button onClick={handleRemoveVip} disabled={acting} className="text-[10px] text-red-500 hover:text-red-700">Remove</button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mb-2">Calls always bypass MIA and ring office directly.</p>
+          <button
+            onClick={handleToggleVip}
+            disabled={acting}
+            className={`w-full text-xs font-semibold py-1.5 px-3 rounded-md transition-colors ${
+              isVipActive
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            {acting ? 'Saving...' : isVipActive ? '✓ VIP Active — Click to Deactivate' : 'Add to VIP List'}
+          </button>
+        </div>
+
+        {/* Temp Authorization */}
+        <div className={`rounded-lg border p-3 ${hasTempAuth ? 'border-blue-200 bg-blue-50/50' : 'border-slate-200 bg-white'}`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Zap size={13} />Temp Direct Line
+            </span>
+            {hasTempAuth && (
+              <button onClick={handleRevokeAuth} disabled={acting} className="text-[10px] text-red-500 hover:text-red-700">Revoke</button>
+            )}
+          </div>
+
+          {hasTempAuth ? (
+            <div>
+              <p className="text-[11px] text-blue-700 mb-1">
+                <Clock size={10} className="inline mr-1" />
+                {status.temp_auth.minutes_remaining} min remaining
+              </p>
+              <p className="text-[10px] text-slate-500">
+                By {status.temp_auth.authorized_by}
+                {status.temp_auth.reason ? ` — ${status.temp_auth.reason}` : ''}
+              </p>
+            </div>
+          ) : showAuthForm ? (
+            <div className="space-y-2">
+              <select
+                value={authDuration}
+                onChange={e => setAuthDuration(Number(e.target.value))}
+                className="w-full text-xs border border-slate-200 rounded px-2 py-1.5"
+              >
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 hour</option>
+                <option value={120}>2 hours</option>
+                <option value={480}>Rest of day (~8hr)</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Reason (optional)"
+                value={authReason}
+                onChange={e => setAuthReason(e.target.value)}
+                className="w-full text-xs border border-slate-200 rounded px-2 py-1.5"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateAuth}
+                  disabled={acting}
+                  className="flex-1 text-xs font-semibold py-1.5 px-3 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  {acting ? 'Authorizing...' : 'Authorize'}
+                </button>
+                <button
+                  onClick={() => setShowAuthForm(false)}
+                  className="text-xs py-1.5 px-3 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] text-slate-500 mb-2">Grant temporary bypass while working with this customer.</p>
+              <button
+                onClick={() => setShowAuthForm(true)}
+                className="w-full text-xs font-semibold py-1.5 px-3 rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                Authorize Direct Line
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const DupGroup: React.FC<{ group: any; onMerge: (k: number, m: number[]) => void; merging: boolean }> = ({ group, onMerge, merging }) => {
   const [keepId, setKeepId] = useState<number | null>(null);

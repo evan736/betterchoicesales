@@ -394,3 +394,23 @@ export const chatAPI = {
   users: () => api.get('/api/chat/users'),
   adminHistory: (params: any) => api.get('/api/chat/admin/history', { params }),
 };
+
+// MIA AI Receptionist Bypass API
+export const miaAPI = {
+  // VIP Bypass
+  listVip: () => api.get('/api/mia/vip'),
+  addVip: (data: { phone: string; customer_name?: string; reason?: string }) =>
+    api.post('/api/mia/vip', data),
+  toggleVip: (id: number) => api.patch(`/api/mia/vip/${id}`),
+  removeVip: (id: number) => api.delete(`/api/mia/vip/${id}`),
+
+  // Temp Authorization
+  listAuth: (activeOnly: boolean = true) =>
+    api.get('/api/mia/auth', { params: { active_only: activeOnly } }),
+  createAuth: (data: { phone: string; customer_name?: string; reason?: string; duration_minutes: number }) =>
+    api.post('/api/mia/auth', data),
+  revokeAuth: (id: number) => api.delete(`/api/mia/auth/${id}`),
+
+  // Bypass status (for customer card)
+  bypassStatus: (phone: string) => api.get(`/api/mia/bypass-status/${phone}`),
+};

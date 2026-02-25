@@ -11,6 +11,7 @@ from app.models.agency_config import AgencyConfig
 from app.models.timeclock import TimeClockEntry
 from app.models.customer import Customer, CustomerPolicy
 from app.models.agency_snapshot import AgencySnapshot
+from app.models.mia_bypass import VipBypass, TempAuthorization
 
 __all__ = [
     "User",
@@ -33,4 +34,6 @@ __all__ = [
     "TimeClockEntry",
     "Customer",
     "CustomerPolicy",
+    "VipBypass",
+    "TempAuthorization",
 ]

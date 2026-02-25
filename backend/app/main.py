@@ -20,6 +20,7 @@ from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
 from app.api import non_renewal as non_renewal_api
 from app.api import retell as retell_api
+from app.api import mia_bypass as mia_bypass_api
 from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
@@ -43,6 +44,7 @@ def init_database():
         Quote, OnboardingCampaign, GHLWebhookLog
     )
     from app.models.cancellation import CancellationRequest, CancellationCarrier  # ensure tables
+    from app.models.mia_bypass import VipBypass, TempAuthorization  # ensure MIA bypass tables
     from decimal import Decimal
 
     logger.info("Creating database tables...")
@@ -1099,6 +1101,7 @@ app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
 app.include_router(retell_api.router)
+app.include_router(mia_bypass_api.router)
 app.include_router(cancellation_api.router)
 app.include_router(nowcerts_poll_api.router)
 app.include_router(inspection_api.router)
