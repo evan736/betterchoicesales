@@ -67,7 +67,7 @@ export default function Quotes() {
     if (user) {
       loadQuotes();
       adminAPI.dropdownOptions().then((r: any) => {
-        setCarriers((r.data.carriers || []).filter((c: any) => typeof c === 'string' && c));
+        setCarriers((r.data.carriers || []).map((c: any) => typeof c === 'string' ? c : (c.value || c.label || '')).filter((c: string) => c));
       }).catch(() => {});
     }
   }, [user, loadQuotes]);
@@ -401,6 +401,17 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         effective_date: d.effective_date || '',
         premium_term: d.premium_term || '6 months',
       });
+      // Try to fuzzy-match extracted carrier to a dropdown value
+      if (d.carrier && carriers.length > 0) {
+        const extracted = (d.carrier || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const match = carriers.find(c => {
+          const normalized = c.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return normalized === extracted || normalized.includes(extracted) || extracted.includes(normalized);
+        });
+        if (match) {
+          setForm(prev => ({ ...prev, carrier: match }));
+        }
+      }
       // Build policy lines from extraction
       const allPolicies = d.all_policies || [];
       if (allPolicies.length > 0) {
