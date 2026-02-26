@@ -551,17 +551,53 @@ export default function SmartInboxPage() {
                 </div>
               ):queue.map(msg=>{
                 const needsEmail = msg.to_email === 'NEEDS_EMAIL' || msg.delivery_method === 'pending';
+                const isEditing = editId === msg.id;
                 return (
                 <div key={msg.id} className="card rounded-lg border border-amber-200 bg-white p-4 mb-3" style={{borderLeft:`4px solid ${needsEmail?'#f97316':'#fbbf24'}`}}>
                   <div className="flex justify-between mb-1.5">
-                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||'Unknown'} {needsEmail ? <span className="text-orange-500 font-semibold">• ⚠ No Email On File</span> : msg.delivery_method==='thanksio'?'• 📬 Thanks.io Letter':'• 📧 Email'} • {timeAgo(msg.created_at)}</p></div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded self-start ${needsEmail?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>{needsEmail?'NEEDS EMAIL':msg.delivery_method==='thanksio'?'LETTER':'PENDING'}</span>
+                    <div className="flex-1 min-w-0">
+                      {isEditing ? (
+                        <input value={editSubj} onChange={e=>setEditSubj(e.target.value)}
+                          className="w-full text-sm font-semibold text-slate-900 px-2 py-1 rounded border border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-400 bg-cyan-50" />
+                      ) : (
+                        <span className="text-sm font-semibold text-slate-900">{msg.subject}</span>
+                      )}
+                      <p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||'Unknown'} {needsEmail ? <span className="text-orange-500 font-semibold">• ⚠ No Email On File</span> : msg.delivery_method==='thanksio'?'• 📬 Thanks.io Letter':`• 📧 ${msg.to_email}`} • {timeAgo(msg.created_at)}</p>
+                    </div>
+                    <div className="flex items-start gap-1.5 ml-2">
+                      <button onClick={()=>{
+                        if (isEditing) { setEditId(null); }
+                        else { setEditId(msg.id); setEditSubj(msg.subject||''); setEditBody(msg.body_plain || msg.body_html?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim() || ''); }
+                      }} className={`text-[10px] font-medium px-2 py-0.5 rounded border ${isEditing?'bg-slate-100 border-slate-300 text-slate-600':'bg-slate-50 border-slate-200 text-slate-400 hover:text-cyan-600 hover:border-cyan-300'}`}>
+                        {isEditing ? '✕ Cancel' : '✎ Edit'}
+                      </button>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${needsEmail?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>{needsEmail?'NEEDS EMAIL':msg.delivery_method==='thanksio'?'LETTER':'PENDING'}</span>
+                    </div>
                   </div>
-                  {msg.ai_rationale && <p className="text-[11px] text-slate-400 italic mb-2">💡 {msg.ai_rationale}</p>}
-                  <div className="rounded bg-slate-50 border border-slate-200 p-3 mb-3 text-xs text-slate-600 leading-relaxed max-h-[200px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
+                  {msg.ai_rationale && !isEditing && <p className="text-[11px] text-slate-400 italic mb-2">💡 {msg.ai_rationale}</p>}
+                  
+                  {isEditing ? (
+                    <textarea value={editBody} onChange={e=>setEditBody(e.target.value)} rows={8}
+                      className="w-full rounded border border-cyan-300 bg-cyan-50 p-3 mb-3 text-xs text-slate-700 leading-relaxed focus:outline-none focus:ring-2 focus:ring-cyan-400 resize-y font-mono" />
+                  ) : (
+                    <div className="rounded bg-slate-50 border border-slate-200 p-3 mb-3 text-xs text-slate-600 leading-relaxed max-h-[200px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
+                  )}
                   
                   {needsEmail ? (
-                    <NeedsEmailActions msgId={msg.id} toName={msg.to_name||'Customer'} onDone={()=>{fetchQueue();fetchEmails(true);}} hdr={hdr} />
+                    isEditing ? (
+                      <div className="flex gap-2 mb-2">
+                        <button onClick={async ()=>{ await axios.post(`${API}/api/smart-inbox/queue/${msg.id}/edit`,{subject:editSubj,body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`,body_plain:editBody,send:false},{headers:hdr}); setEditId(null); fetchQueue(); }}
+                          className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">💾 Save Changes</button>
+                      </div>
+                    ) : (
+                      <NeedsEmailActions msgId={msg.id} toName={msg.to_name||'Customer'} onDone={()=>{fetchQueue();fetchEmails(true);}} hdr={hdr} />
+                    )
+                  ) : isEditing ? (
+                    <div className="flex gap-2">
+                      <button onClick={()=>editSend(msg.id)} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">💾 Save & Send</button>
+                      <button onClick={async ()=>{ await axios.post(`${API}/api/smart-inbox/queue/${msg.id}/edit`,{subject:editSubj,body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`,body_plain:editBody,send:false},{headers:hdr}); setEditId(null); fetchQueue(); }}
+                        className="py-2 px-4 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 text-sm hover:bg-slate-200">💾 Save Draft</button>
+                    </div>
                   ) : (
                     <div className="flex gap-2">
                       <button onClick={()=>approve(msg.id)} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">✓ Approve & Send</button>
