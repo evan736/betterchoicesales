@@ -1,6 +1,7 @@
 """Chat API — internal agency messaging + BEACON AI bot."""
 import logging
 import os
+import re
 import uuid
 import threading
 from datetime import datetime
@@ -243,8 +244,31 @@ def _beacon_respond_async(channel_id: int, user_message: str, sender_name: str):
                         "content": m.content or "",
                     })
                 
-                # Get AI response
-                response_text, model_used = get_beacon_response(user_message, history)
+                # Get AI response (with knowledge base context)
+                response_text, model_used = get_beacon_response(user_message, history, db_session=db)
+                
+                # Detect corrections: if user said "actually...", "that's wrong", "correction:" etc.
+                correction_patterns = [
+                    r"(?:actually|correction|that'?s (?:wrong|incorrect|not right)|you'?re wrong|no,?\s+it'?s|fyi|update:)",
+                ]
+                is_correction = any(re.search(p, user_message, re.IGNORECASE) for p in correction_patterns)
+                if is_correction and len(user_message) > 20:
+                    try:
+                        from app.api.beacon_kb import BeaconKnowledge
+                        # Auto-save correction as pending knowledge
+                        correction = BeaconKnowledge(
+                            source_type="correction",
+                            title=f"Correction: {user_message[:80]}...",
+                            content=f"Agent correction from {sender_name}:\n\n{user_message}",
+                            summary=user_message[:200],
+                            status="pending",
+                            submitted_by_name=sender_name,
+                        )
+                        db.add(correction)
+                        db.commit()
+                        logger.info(f"Auto-saved correction from {sender_name}")
+                    except Exception as ce:
+                        logger.warning(f"Failed to save correction: {ce}")
                 
                 # Post response as BEACON
                 bot_msg = ChatMessage(

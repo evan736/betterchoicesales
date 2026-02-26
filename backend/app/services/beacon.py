@@ -163,12 +163,13 @@ def _is_complex_query(text: str) -> bool:
     return False
 
 
-def get_beacon_response(user_message: str, conversation_history: list = None) -> Tuple[str, str]:
+def get_beacon_response(user_message: str, conversation_history: list = None, db_session=None) -> Tuple[str, str]:
     """Get BEACON's response to a user message.
     
     Args:
         user_message: The user's question
         conversation_history: Optional list of prior messages for context
+        db_session: Optional database session for knowledge base lookup
         
     Returns:
         Tuple of (response_text, model_used)
@@ -179,6 +180,17 @@ def get_beacon_response(user_message: str, conversation_history: list = None) ->
     # Smart routing
     use_complex = _is_complex_query(user_message)
     model = SONNET_MODEL if use_complex else HAIKU_MODEL
+    
+    # Build system prompt with knowledge base context
+    system = SYSTEM_PROMPT
+    if db_session:
+        try:
+            from app.api.beacon_kb import get_relevant_knowledge
+            kb_context = get_relevant_knowledge(user_message, db_session)
+            if kb_context:
+                system = system + "\n\n" + kb_context + "\n\nIMPORTANT: The knowledge base entries above come from your team and may contain corrections to your built-in knowledge. Prioritize knowledge base entries over your defaults when they conflict."
+        except Exception as e:
+            logger.warning(f"Knowledge base lookup failed: {e}")
     
     # Build messages
     messages = []
@@ -205,7 +217,7 @@ def get_beacon_response(user_message: str, conversation_history: list = None) ->
                 json={
                     "model": model,
                     "max_tokens": 2048,
-                    "system": SYSTEM_PROMPT,
+                    "system": system,
                     "messages": messages,
                 },
             )

@@ -1179,6 +1179,29 @@ def force_migrate():
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )""",
+        # BEACON Knowledge Base
+        """CREATE TABLE IF NOT EXISTS beacon_knowledge (
+            id SERIAL PRIMARY KEY,
+            source_type VARCHAR NOT NULL,
+            title VARCHAR NOT NULL,
+            content TEXT NOT NULL,
+            summary TEXT,
+            tags VARCHAR,
+            carrier VARCHAR,
+            status VARCHAR DEFAULT 'pending',
+            submitted_by INTEGER,
+            submitted_by_name VARCHAR,
+            reviewed_by INTEGER,
+            reviewed_by_name VARCHAR,
+            reviewed_at TIMESTAMP WITH TIME ZONE,
+            review_note TEXT,
+            original_filename VARCHAR,
+            file_hash VARCHAR,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_beacon_kb_status ON beacon_knowledge(status)",
+        "CREATE INDEX IF NOT EXISTS idx_beacon_kb_type ON beacon_knowledge(source_type)",
     ]:
         try:
             with engine.connect() as conn:
@@ -1262,6 +1285,9 @@ app.include_router(reshop_api.router)
 
 from app.api import lead_providers as lead_providers_api
 app.include_router(lead_providers_api.router)
+
+from app.api import beacon_kb as beacon_kb_api
+app.include_router(beacon_kb_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
