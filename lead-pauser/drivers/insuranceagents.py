@@ -71,16 +71,14 @@ async def _get_campaign_rows(page: Page):
     await page.wait_for_load_state("domcontentloaded", timeout=30000)
     await page.wait_for_timeout(3000)
 
-    # The campaigns table has rows with: checkbox, Status dot, Name, Product, Type, etc.
-    # Each row has a "..." options menu in the last column
-    rows = page.locator('table tbody tr, [class*="campaign-row"], [class*="MuiTableRow"]')
+    rows = page.locator('#campaigns-table tbody tr, table tbody tr')
     count = await rows.count()
     logger.info(f"InsuranceAgents.ai: Found {count} campaign rows")
     return rows, count
 
 
 async def pause(page: Page, email: str, password: str) -> dict:
-    """Pause all campaigns on InsuranceAgents.ai."""
+    """Pause all campaigns on InsuranceAgents.ai by clicking status dots."""
     try:
         if not await login(page, email, password):
             return {"success": False, "error": "Login failed"}
@@ -98,56 +96,40 @@ async def pause(page: Page, email: str, password: str) -> dict:
             try:
                 row_text = (await row.inner_text()).strip()[:60]
 
-                # Find the "..." button — it's typically a small button with three dots
-                # Avoid matching hidden dropdown-menu divs by checking visibility
-                options_btn = None
-                for selector in [
-                    'button:has-text("⋮")',
-                    'button:has-text("...")',
-                    'button:has-text("⋯")',
-                    '[class*="dropdown-toggle"]',
-                    'button[data-toggle="dropdown"]',
-                    'a[data-toggle="dropdown"]',
-                ]:
-                    el = row.locator(selector).first
-                    if await el.count() > 0 and await el.is_visible():
-                        options_btn = el
-                        break
+                # Find the status dot — it's an <i> with class "mil-circle" and color class
+                # Green = sfgreen (active), Red = sfred (paused)
+                status_dot = row.locator('i.mil-circle, [class*="mil-circle"]').first
 
-                if not options_btn:
-                    # Try the last visible button in the row
-                    all_btns = row.locator('button:visible, a.btn:visible')
-                    btn_count = await all_btns.count()
-                    if btn_count > 0:
-                        options_btn = all_btns.nth(btn_count - 1)
+                if await status_dot.count() > 0:
+                    # Check if already paused (has sfred class)
+                    dot_class = await status_dot.get_attribute("class") or ""
+                    if "sfred" in dot_class:
+                        already_paused += 1
+                        continue
 
-                if options_btn and await options_btn.is_visible():
-                    await options_btn.click()
-                    await page.wait_for_timeout(1500)
+                    # Click the green dot to open dropdown
+                    await status_dot.click()
+                    await page.wait_for_timeout(1000)
 
-                    # Look for Pause option in the now-visible dropdown
-                    pause_option = page.locator('[role="menuitem"]:has-text("Pause"):visible, li:has-text("Pause"):visible, a:has-text("Pause"):visible, button:has-text("Pause"):visible').first
-                    if await pause_option.count() > 0:
-                        await pause_option.click()
-                        await page.wait_for_timeout(2000)
+                    # Click "Paused" option in the dropdown
+                    paused_option = page.locator('li:has-text("Paused"):visible, a:has-text("Paused"):visible').first
+                    if await paused_option.count() > 0:
+                        await paused_option.click()
+                        await page.wait_for_timeout(1500)
                         paused_count += 1
                         logger.info(f"  Paused: {row_text}")
                     else:
-                        # Check if Resume/Activate is showing (meaning already paused)
-                        resume_opt = page.locator('[role="menuitem"]:has-text("Resume"):visible, [role="menuitem"]:has-text("Activate"):visible, li:has-text("Resume"):visible, li:has-text("Activate"):visible').first
-                        if await resume_opt.count() > 0:
-                            await page.keyboard.press("Escape")
-                            already_paused += 1
-                        else:
-                            await page.keyboard.press("Escape")
-                            errors += 1
+                        await page.keyboard.press("Escape")
+                        errors += 1
                 else:
-                    logger.warning(f"  No visible options button for row {i}")
                     errors += 1
 
             except Exception as row_err:
                 logger.warning(f"  Error on row {i}: {row_err}")
-                await page.keyboard.press("Escape")
+                try:
+                    await page.keyboard.press("Escape")
+                except:
+                    pass
                 errors += 1
 
         logger.info(f"InsuranceAgents.ai: {paused_count} paused, {already_paused} already paused, {errors} errors")
@@ -166,7 +148,7 @@ async def pause(page: Page, email: str, password: str) -> dict:
 
 
 async def unpause(page: Page, email: str, password: str) -> dict:
-    """Activate all campaigns on InsuranceAgents.ai."""
+    """Activate all campaigns on InsuranceAgents.ai by clicking status dots."""
     try:
         if not await login(page, email, password):
             return {"success": False, "error": "Login failed"}
@@ -184,50 +166,38 @@ async def unpause(page: Page, email: str, password: str) -> dict:
             try:
                 row_text = (await row.inner_text()).strip()[:60]
 
-                options_btn = None
-                for selector in [
-                    'button:has-text("⋮")',
-                    'button:has-text("...")',
-                    'button:has-text("⋯")',
-                    '[class*="dropdown-toggle"]',
-                    'button[data-toggle="dropdown"]',
-                    'a[data-toggle="dropdown"]',
-                ]:
-                    el = row.locator(selector).first
-                    if await el.count() > 0 and await el.is_visible():
-                        options_btn = el
-                        break
+                # Find the status dot
+                status_dot = row.locator('i.mil-circle, [class*="mil-circle"]').first
 
-                if not options_btn:
-                    all_btns = row.locator('button:visible, a.btn:visible')
-                    btn_count = await all_btns.count()
-                    if btn_count > 0:
-                        options_btn = all_btns.nth(btn_count - 1)
+                if await status_dot.count() > 0:
+                    dot_class = await status_dot.get_attribute("class") or ""
+                    if "sfgreen" in dot_class:
+                        already_active += 1
+                        continue
 
-                if options_btn and await options_btn.is_visible():
-                    await options_btn.click()
-                    await page.wait_for_timeout(1500)
+                    # Click the red dot to open dropdown
+                    await status_dot.click()
+                    await page.wait_for_timeout(1000)
 
-                    resume_opt = page.locator('[role="menuitem"]:has-text("Resume"):visible, [role="menuitem"]:has-text("Activate"):visible, li:has-text("Resume"):visible, li:has-text("Activate"):visible, a:has-text("Resume"):visible, a:has-text("Activate"):visible').first
-                    if await resume_opt.count() > 0:
-                        await resume_opt.click()
-                        await page.wait_for_timeout(2000)
+                    # Click "Active" option in the dropdown
+                    active_option = page.locator('li:has-text("Active"):visible, a:has-text("Active"):visible').first
+                    if await active_option.count() > 0:
+                        await active_option.click()
+                        await page.wait_for_timeout(1500)
                         activated_count += 1
                         logger.info(f"  Activated: {row_text}")
                     else:
-                        pause_opt = page.locator('[role="menuitem"]:has-text("Pause"):visible, li:has-text("Pause"):visible').first
-                        if await pause_opt.count() > 0:
-                            await page.keyboard.press("Escape")
-                            already_active += 1
-                        else:
-                            await page.keyboard.press("Escape")
-                            errors += 1
+                        await page.keyboard.press("Escape")
+                        errors += 1
                 else:
                     errors += 1
 
             except Exception as row_err:
                 logger.warning(f"  Error on row {i}: {row_err}")
-                await page.keyboard.press("Escape")
+                try:
+                    await page.keyboard.press("Escape")
+                except:
+                    pass
                 errors += 1
 
         logger.info(f"InsuranceAgents.ai: {activated_count} activated, {already_active} already active, {errors} errors")
