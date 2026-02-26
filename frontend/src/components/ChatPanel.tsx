@@ -135,13 +135,7 @@ export default function ChatPanel() {
       if (!ch) return;
       try {
         const res = await chatAPI.messages(ch.id);
-        let freshMsgs = res.data || [];
-
-        // BEACON channel: filter out messages older than 10 minutes
-        if (ch.channel_type === 'beacon') {
-          const cutoff = Date.now() - 10 * 60 * 1000;
-          freshMsgs = freshMsgs.filter((m: any) => new Date(m.created_at).getTime() > cutoff);
-        }
+        const freshMsgs = res.data || [];
 
         setMessages(prev => {
           // Only update if message count changed (avoid unnecessary rerenders)
@@ -263,18 +257,7 @@ export default function ChatPanel() {
     if (!silent) setLoading(true);
     try {
       const res = await chatAPI.messages(channelId);
-      let msgs = res.data || [];
-
-      // BEACON channel: filter out messages older than 10 minutes
-      const ch = channels.find(c => c.id === channelId);
-      if (ch?.channel_type === 'beacon') {
-        const cutoff = Date.now() - 10 * 60 * 1000; // 10 minutes
-        msgs = msgs.filter((m: any) => {
-          const ts = new Date(m.created_at).getTime();
-          return ts > cutoff;
-        });
-      }
-
+      const msgs = res.data || [];
       setMessages(msgs);
       if (!silent) {
         await chatAPI.markRead(channelId);
@@ -290,6 +273,32 @@ export default function ChatPanel() {
   const openChannel = async (ch: Channel) => {
     setActiveChannel(ch);
     setView('chat');
+
+    // BEACON: auto-clear if last message is >10 min old (conversation ended)
+    if (ch.channel_type === 'beacon') {
+      try {
+        const res = await chatAPI.messages(ch.id);
+        const msgs = res.data || [];
+        // Find last non-welcome message
+        const nonWelcome = msgs.filter((m: any) => msgs.indexOf(m) > 0);
+        if (nonWelcome.length > 0) {
+          const lastMsg = nonWelcome[nonWelcome.length - 1];
+          const lastTs = new Date(lastMsg.created_at).getTime();
+          const idleMs = Date.now() - lastTs;
+          if (idleMs > 10 * 60 * 1000) {
+            // Conversation ended — clear history on backend
+            try {
+              const token = localStorage.getItem('token');
+              await fetch(`${API_BASE}/api/chat/channels/beacon/clear`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
     await loadMessages(ch.id);
     await chatAPI.markRead(ch.id);
     loadUnread();
@@ -530,7 +539,7 @@ export default function ChatPanel() {
                 ) : (
                   <Users size={14} className="text-purple-400" />
                 )}
-                {activeChannel.name}
+                {activeChannel.channel_type === 'beacon' ? 'BEACON' : activeChannel.name}
               </div>
               <div className="text-[10px] text-slate-500">
                 {activeChannel.channel_type === 'beacon'
@@ -630,7 +639,7 @@ export default function ChatPanel() {
                 <Zap size={16} className="text-amber-400" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-amber-300">{ch.name}</div>
+                <div className="text-sm font-medium text-amber-300">BEACON</div>
                 <div className="text-[10px] text-slate-500">AI Insurance Expert</div>
               </div>
               {(unreadMap[ch.id] || 0) > 0 && (

@@ -203,8 +203,15 @@ def _get_or_create_beacon_user(db: Session) -> User:
     return bot
 
 
-def _get_beacon_channel(db: Session) -> Optional[ChatChannel]:
-    """Get the BEACON channel if it exists."""
+def _get_beacon_channel(db: Session, user_id: int = None) -> Optional[ChatChannel]:
+    """Get the BEACON channel for a specific user (private), or the legacy shared one."""
+    if user_id:
+        # Per-user private BEACON channel: name = "BEACON:<user_id>"
+        return db.query(ChatChannel).filter(
+            ChatChannel.name == f"BEACON:{user_id}",
+            ChatChannel.channel_type == "beacon",
+        ).first()
+    # Legacy fallback
     return db.query(ChatChannel).filter(
         ChatChannel.name == BEACON_CHANNEL_NAME,
         ChatChannel.channel_type == "beacon",
@@ -276,22 +283,25 @@ def ensure_beacon_channel(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Ensure the BEACON AI channel exists and all active users + bot are members."""
-    beacon = _get_beacon_channel(db)
-    
+    """Ensure a private BEACON AI channel exists for this user."""
+    bot_user = _get_or_create_beacon_user(db)
+
+    # Look for this user's private BEACON channel
+    beacon = _get_beacon_channel(db, user_id=current_user.id)
+
     if not beacon:
-        bot_user = _get_or_create_beacon_user(db)
         beacon = ChatChannel(
             channel_type="beacon",
-            name=BEACON_CHANNEL_NAME,
+            name=f"BEACON:{current_user.id}",
             created_by=bot_user.id,
         )
         db.add(beacon)
         db.flush()
-        
-        # Add bot as member
+
+        # Add bot + this user as members
         db.add(ChatChannelMember(channel_id=beacon.id, user_id=bot_user.id))
-        
+        db.add(ChatChannelMember(channel_id=beacon.id, user_id=current_user.id))
+
         # Post welcome message
         welcome = ChatMessage(
             channel_id=beacon.id,
@@ -301,21 +311,38 @@ def ensure_beacon_channel(
         )
         db.add(welcome)
 
-    # Add all active non-bot users
-    all_users = db.query(User).filter(
-        User.is_active == True,
-        User.username != BEACON_BOT_USERNAME,
-    ).all()
-    existing_members = {m.user_id for m in db.query(ChatChannelMember).filter(
-        ChatChannelMember.channel_id == beacon.id
-    ).all()}
-
-    for u in all_users:
-        if u.id not in existing_members:
-            db.add(ChatChannelMember(channel_id=beacon.id, user_id=u.id))
-
     db.commit()
     return _serialize_channel(beacon, current_user.id, db)
+
+
+@router.post("/channels/beacon/clear")
+def clear_beacon_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Clear all messages in this user's BEACON channel (except welcome)."""
+    beacon = _get_beacon_channel(db, user_id=current_user.id)
+    if not beacon:
+        return {"cleared": 0}
+
+    bot_user = _get_or_create_beacon_user(db)
+
+    # Delete all messages except the first one (welcome)
+    first_msg = db.query(ChatMessage).filter(
+        ChatMessage.channel_id == beacon.id,
+    ).order_by(ChatMessage.id.asc()).first()
+
+    if first_msg:
+        deleted = db.query(ChatMessage).filter(
+            ChatMessage.channel_id == beacon.id,
+            ChatMessage.id != first_msg.id,
+        ).delete(synchronize_session=False)
+    else:
+        deleted = 0
+
+    db.commit()
+    logger.info(f"Cleared {deleted} BEACON messages for user {current_user.username}")
+    return {"cleared": deleted}
 
 
 # ── Messages ──
