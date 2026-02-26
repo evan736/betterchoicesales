@@ -132,90 +132,57 @@ export default function LeadControlCenter() {
         </div>
 
         {/* Master Controls */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-          {/* PAUSE ALL */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          {/* SINGLE TOGGLE: Pause All / Unpause All */}
           <div className="relative">
-            {confirmAction === 'pause' ? (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-center">
-                <p className="text-sm text-red-300 mb-3">Pause ALL {summary.total} providers?</p>
+            {confirmAction ? (
+              <div className={`${allPaused ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'} border rounded-xl p-4 text-center`}>
+                <p className={`text-sm ${allPaused ? 'text-emerald-300' : 'text-red-300'} mb-3`}>
+                  {allPaused ? `Activate ALL ${summary.total} providers?` : `Pause ALL ${summary.total} providers?`}
+                </p>
                 <div className="flex gap-2 justify-center">
                   <button
-                    onClick={pauseAll}
-                    disabled={actionLoading === 'pause-all'}
-                    className="px-4 py-2 bg-red-500 hover:bg-red-400 rounded-lg text-sm font-semibold text-white transition disabled:opacity-50"
+                    onClick={allPaused ? unpauseAll : pauseAll}
+                    disabled={!!actionLoading}
+                    className={`px-4 py-2 ${allPaused ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-red-500 hover:bg-red-400'} rounded-lg text-sm font-semibold text-white transition disabled:opacity-50`}
                   >
-                    {actionLoading === 'pause-all' ? 'Pausing...' : 'Confirm Pause All'}
+                    {actionLoading ? (allPaused ? 'Activating...' : 'Pausing...') : 'Confirm'}
                   </button>
-                  <button
-                    onClick={() => setConfirmAction(null)}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-slate-300 transition"
-                  >
+                  <button onClick={() => setConfirmAction(null)} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-slate-300 transition">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <button
-                onClick={() => setConfirmAction('pause')}
-                disabled={allPaused}
-                className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 rounded-xl text-red-300 font-semibold transition disabled:opacity-30 disabled:cursor-not-allowed"
+                onClick={() => setConfirmAction(allPaused ? 'unpause' : 'pause')}
+                className={`w-full flex items-center justify-center gap-3 px-4 py-5 rounded-xl font-bold text-lg transition ${
+                  allPaused
+                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-2 border-emerald-500/30 hover:border-emerald-500/50 text-emerald-300'
+                    : 'bg-red-500/15 hover:bg-red-500/25 border-2 border-red-500/30 hover:border-red-500/50 text-red-300'
+                }`}
               >
-                <Pause size={18} />
-                Pause All Leads
+                {allPaused ? <><Play size={22} /> Unpause All Leads</> : <><Pause size={22} /> Pause All Leads</>}
               </button>
             )}
           </div>
 
-          {/* UNPAUSE ALL */}
-          <div className="relative">
-            {confirmAction === 'unpause' ? (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center">
-                <p className="text-sm text-emerald-300 mb-3">Activate ALL {summary.total} providers?</p>
-                <div className="flex gap-2 justify-center">
-                  <button
-                    onClick={unpauseAll}
-                    disabled={actionLoading === 'unpause-all'}
-                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 rounded-lg text-sm font-semibold text-white transition disabled:opacity-50"
-                  >
-                    {actionLoading === 'unpause-all' ? 'Activating...' : 'Confirm Unpause All'}
-                  </button>
-                  <button
-                    onClick={() => setConfirmAction(null)}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-slate-300 transition"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmAction('unpause')}
-                disabled={allActive}
-                className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40 rounded-xl text-emerald-300 font-semibold transition disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <Play size={18} />
-                Unpause All Leads
-              </button>
-            )}
-          </div>
-
-          {/* OPEN ALL PORTALS */}
+          {/* OPEN ALL PORTALS — primary action for manual pause */}
           <button
             onClick={openAllPortals}
-            className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 hover:border-cyan-500/40 rounded-xl text-cyan-300 font-semibold transition"
+            className="w-full flex flex-col items-center justify-center gap-1 px-4 py-5 bg-cyan-500/10 hover:bg-cyan-500/20 border-2 border-cyan-500/20 hover:border-cyan-500/40 rounded-xl text-cyan-300 font-bold text-lg transition"
           >
-            <ExternalLink size={18} />
-            Open All Portals
+            <div className="flex items-center gap-2"><ExternalLink size={22} /> Open All Portals</div>
+            <span className="text-[11px] font-normal text-cyan-400/60">Opens {providers.length} tabs — pause/unpause in each</span>
           </button>
         </div>
 
-        {/* Provider notice */}
         <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 mb-6 flex items-start gap-3">
           <Shield size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-300/80 leading-relaxed">
-            <strong>Phase 1:</strong> Status tracking is manual — update here after pausing/unpausing on each provider's site.
-            <strong> Phase 2</strong> will automate this with direct API calls.
-            Click "Open All Portals" to open all dashboards simultaneously.
+            <strong>Workflow:</strong> Click "Open All Portals" to launch all {providers.length} provider dashboards at once.
+            Pause or unpause in each tab, then click the toggle buttons here to update ORBIT's tracking.
+            <strong> Tip:</strong> Click individual portal links to open just one provider.
           </p>
         </div>
 

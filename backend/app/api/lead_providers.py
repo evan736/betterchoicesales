@@ -78,11 +78,20 @@ DEFAULT_PROVIDERS = [
     {
         "name": "All Web Leads",
         "slug": "allwebleads",
-        "portal_url": "https://secure.allwebleads.com/",
-        "pause_url": "https://secure.allwebleads.com/",
+        "portal_url": "https://secure.allwebleads.com/Login",
+        "pause_url": "https://secure.allwebleads.com/Login",
         "logo_emoji": "🌐",
         "notes": "Login → Campaign settings → Pause lead flow.",
         "sort_order": 5,
+    },
+    {
+        "name": "AvengeHub",
+        "slug": "avengehub",
+        "portal_url": "https://avengehub.com/Login",
+        "pause_url": "https://avengehub.com/Login",
+        "logo_emoji": "⚡",
+        "notes": "Login → Dashboard → Pause campaigns.",
+        "sort_order": 6,
     },
 ]
 
@@ -111,13 +120,24 @@ def _is_admin_or_manager(user: User) -> bool:
 
 
 def seed_defaults(db: Session):
-    """Insert default providers if table is empty."""
+    """Insert default providers if table is empty, and add any new ones."""
     count = db.query(LeadProvider).count()
     if count == 0:
         for p in DEFAULT_PROVIDERS:
             db.add(LeadProvider(**p))
         db.commit()
         logger.info(f"Seeded {len(DEFAULT_PROVIDERS)} default lead providers")
+    else:
+        # Add any new providers that don't exist yet
+        existing_slugs = {p.slug for p in db.query(LeadProvider.slug).all()}
+        added = 0
+        for p in DEFAULT_PROVIDERS:
+            if p["slug"] not in existing_slugs:
+                db.add(LeadProvider(**p))
+                added += 1
+        if added:
+            db.commit()
+            logger.info(f"Added {added} new default lead providers")
 
 
 # ── Endpoints ────────────────────────────────────────────────────
