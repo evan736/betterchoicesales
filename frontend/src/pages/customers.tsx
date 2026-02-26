@@ -517,7 +517,7 @@ export default function CustomersPage() {
                                             'integon national': 'https://natgenagency.com',
                                             'openly': 'https://portal.openly.com',
                                             'progressive': 'https://www.foragentsonly.com',
-                                            'travelers': 'https://www.mserviceportal.com',
+                                            'travelers': 'https://foragents.travelers.com/Personal',
                                             'branch': 'https://app.ourbranch.com',
                                             'hippo': 'https://agent.hippo.com',
                                             'bristol west': 'https://www.bristolwest.com',
