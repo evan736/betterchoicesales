@@ -112,17 +112,57 @@ async def unpause(page: Page, username: str, password: str) -> dict:
         content = await page.content()
 
         if "paused" in content.lower():
-            resume_btn = page.locator('button:has-text("Resume"), input[value="Resume"]').first
-            if await resume_btn.count() == 0:
-                resume_btn = page.locator('a:has-text("Resume")').first
+            # The page has multiple resume buttons (Lead, Call) — some are hidden
+            # Need to find one that's actually visible (not class="hidden")
+            # Try visible resume buttons only
+            resume_btn = page.locator('button.resume-button:visible').first
             if await resume_btn.count() > 0:
                 await resume_btn.click()
                 await page.wait_for_timeout(3000)
-                logger.info("AWL: Resumed successfully")
+                logger.info("AWL: Resumed via visible resume-button")
+                
+                # Check if there's a second resume button (Leads vs Calls are separate)
+                resume_btn2 = page.locator('button.resume-button:visible').first
+                if await resume_btn2.count() > 0:
+                    await resume_btn2.click()
+                    await page.wait_for_timeout(3000)
+                    logger.info("AWL: Resumed second category")
+                
                 return {"success": True, "action": "resumed"}
-            return {"success": False, "error": "Resume button not found"}
 
-        elif "Leads are active" in content:
+            # Fallback: try any visible button with text Resume
+            resume_btn = page.locator('button:has-text("Resume"):visible, input[value="Resume"]:visible, a:has-text("Resume"):visible').first
+            if await resume_btn.count() > 0:
+                await resume_btn.click()
+                await page.wait_for_timeout(3000)
+                logger.info("AWL: Resumed via fallback selector")
+                return {"success": True, "action": "resumed"}
+
+            # Last resort: use JavaScript to click the first non-hidden resume button
+            clicked = await page.evaluate("""() => {
+                const btns = document.querySelectorAll('.resume-button');
+                for (const btn of btns) {
+                    if (!btn.classList.contains('hidden') && btn.offsetParent !== null) {
+                        btn.click();
+                        return true;
+                    }
+                }
+                // If all resume buttons are hidden, try unhiding and clicking
+                for (const btn of btns) {
+                    btn.classList.remove('hidden');
+                    btn.click();
+                    return true;
+                }
+                return false;
+            }""")
+            if clicked:
+                await page.wait_for_timeout(3000)
+                logger.info("AWL: Resumed via JavaScript click")
+                return {"success": True, "action": "resumed"}
+
+            return {"success": False, "error": "Resume button not found or all hidden"}
+
+        elif "Leads are active" in content or "active" in content.lower():
             logger.info("AWL: Already active")
             return {"success": True, "action": "already_active"}
         else:
