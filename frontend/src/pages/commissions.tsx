@@ -22,6 +22,20 @@ export default function Commissions() {
     }
   }, [user, loading]);
 
+  // SSE live refresh
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('commission:updated', () => loadData());
+      es.addEventListener('sales:new', () => loadData());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user]);
+
   const loadData = async () => {
     try {
       const [commissionsRes, tiersRes, tierInfoRes] = await Promise.all([

@@ -948,6 +948,20 @@ export default function RetentionPage() {
     fetchData();
   }, [user, authLoading]);
 
+  // SSE live refresh
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('customers:updated', () => fetchData());
+      es.addEventListener('dashboard:refresh', () => fetchData());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user]);
+
   const fetchData = async () => {
     setLoading(true);
     try {

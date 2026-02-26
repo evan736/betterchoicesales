@@ -72,6 +72,20 @@ export default function Quotes() {
     }
   }, [user, loadQuotes]);
 
+  // SSE live refresh
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('sales:new', () => loadQuotes());
+      es.addEventListener('sales:updated', () => loadQuotes());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user]);
+
   // Search is now server-side — quotes are already filtered
   const filtered = quotes;
 

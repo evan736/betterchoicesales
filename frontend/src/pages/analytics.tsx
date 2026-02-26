@@ -57,6 +57,21 @@ export default function Analytics() {
     }
   }, [user, loading]);
 
+  // SSE live refresh
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('sales:new', () => loadData());
+      es.addEventListener('sales:updated', () => loadData());
+      es.addEventListener('dashboard:refresh', () => loadData());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user]);
+
   useEffect(() => {
     if (user) loadData();
   }, [period, groupBy, tableFilters, sortBy, sortOrder]);
