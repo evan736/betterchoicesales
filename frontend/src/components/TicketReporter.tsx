@@ -7,7 +7,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || '';
 interface TicketReporterProps {}
 
 const TicketReporter: React.FC<TicketReporterProps> = () => {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'critical'>('normal');
@@ -93,11 +93,12 @@ const TicketReporter: React.FC<TicketReporterProps> = () => {
     setSubmitting(true);
     setError('');
     try {
+      const authToken = localStorage.getItem('token');
       const resp = await fetch(`${API}/api/tickets`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           description: description.trim(),
