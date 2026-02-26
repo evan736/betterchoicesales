@@ -75,6 +75,12 @@ async def create_ticket(
 
     logger.info(f"Ticket #{ticket.id} created by {current_user.username}: {title[:60]}")
 
+    # ── Email notification to Evan ──────────────────────────────────
+    try:
+        _send_ticket_notification(ticket, current_user)
+    except Exception as e:
+        logger.warning(f"Ticket notification email failed: {e}")
+
     return {
         "id": ticket.id,
         "status": "created",
@@ -222,3 +228,85 @@ def _ticket_to_dict(t: Ticket, include_screenshot: bool = False) -> dict:
     if include_screenshot and t.screenshot_data:
         d["screenshot_data"] = t.screenshot_data
     return d
+
+
+# ── Email notification ───────────────────────────────────────────────────
+
+def _send_ticket_notification(ticket: Ticket, reporter: User):
+    """Send email to Evan when a new ticket is submitted."""
+    import os
+    import httpx
+
+    api_key = os.getenv("MAILGUN_API_KEY")
+    domain = os.getenv("MAILGUN_DOMAIN", "mg.betterchoiceins.com")
+    notify_email = os.getenv("TICKET_NOTIFY_EMAIL", "evan@betterchoiceins.com")
+
+    if not api_key:
+        logger.warning("No MAILGUN_API_KEY — skipping ticket notification")
+        return
+
+    priority_colors = {
+        "critical": "#dc2626",
+        "high": "#f59e0b",
+        "normal": "#3b82f6",
+        "low": "#64748b",
+    }
+    color = priority_colors.get(ticket.priority, "#3b82f6")
+
+    screenshot_html = ""
+    if ticket.screenshot_data:
+        # Inline the screenshot as a base64 image
+        data = ticket.screenshot_data
+        if not data.startswith("data:"):
+            data = f"data:image/png;base64,{data}"
+        screenshot_html = f'''
+        <div style="margin-top:16px;">
+            <p style="font-weight:600; color:#334155; margin-bottom:8px;">Screenshot:</p>
+            <img src="{data}" style="max-width:100%; border:1px solid #e2e8f0; border-radius:8px;" />
+        </div>
+        '''
+
+    html = f"""
+    <div style="max-width:600px; margin:0 auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+        <div style="background:linear-gradient(135deg, #1a2b5f 0%, #0c4a6e 100%); padding:24px 32px; border-radius:12px 12px 0 0;">
+            <h1 style="color:#fff; margin:0; font-size:20px;">🎫 New Support Ticket #{ticket.id}</h1>
+            <p style="color:#94a3b8; margin:4px 0 0; font-size:14px;">Submitted by {ticket.reporter_name or ticket.reporter_username}</p>
+        </div>
+        <div style="background:#fff; padding:24px 32px; border:1px solid #e2e8f0; border-top:none;">
+            <div style="display:inline-block; background:{color}22; color:{color}; font-weight:700; font-size:12px; padding:4px 12px; border-radius:99px; text-transform:uppercase; margin-bottom:16px;">
+                {ticket.priority} priority
+            </div>
+            <h2 style="margin:0 0 12px; font-size:18px; color:#1e293b;">{ticket.title}</h2>
+            <p style="color:#475569; line-height:1.6; white-space:pre-wrap;">{ticket.description}</p>
+            <div style="margin-top:16px; padding:12px; background:#f8fafc; border-radius:8px; font-size:13px; color:#64748b;">
+                <strong>Page:</strong> {ticket.page_url or 'N/A'}<br>
+                <strong>Reporter:</strong> {ticket.reporter_name or ticket.reporter_username}<br>
+                <strong>Time:</strong> {ticket.created_at.strftime('%b %d, %Y %I:%M %p') if ticket.created_at else 'just now'}
+            </div>
+            {screenshot_html}
+            <div style="margin-top:20px;">
+                <a href="https://better-choice-web.onrender.com/tickets"
+                   style="display:inline-block; background:#1d4ed8; color:#fff; padding:10px 24px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px;">
+                    View in ORBIT →
+                </a>
+            </div>
+        </div>
+        <div style="background:#f8fafc; padding:16px 32px; border:1px solid #e2e8f0; border-top:none; border-radius:0 0 12px 12px; text-align:center;">
+            <p style="margin:0; font-size:12px; color:#94a3b8;">ORBIT Support Tickets · Better Choice Insurance</p>
+        </div>
+    </div>
+    """
+
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.post(
+            f"https://api.mailgun.net/v3/{domain}/messages",
+            auth=("api", api_key),
+            data={
+                "from": f"ORBIT Tickets <tickets@{domain}>",
+                "to": notify_email,
+                "subject": f"🎫 Ticket #{ticket.id}: {ticket.title[:80]} [{ticket.priority.upper()}]",
+                "html": html,
+            },
+        )
+        resp.raise_for_status()
+        logger.info(f"Ticket notification sent for #{ticket.id} to {notify_email}")

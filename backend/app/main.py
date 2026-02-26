@@ -504,7 +504,7 @@ def init_database():
         admin = db.query(User).filter(User.username == "admin").first()
         if not admin:
             admin = User(
-                email="admin@insurance.com",
+                email="admin@betterchoiceins.com",
                 username="admin",
                 full_name="System Administrator",
                 hashed_password=get_password_hash("admin123"),
