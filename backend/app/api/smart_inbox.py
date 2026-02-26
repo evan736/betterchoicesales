@@ -209,7 +209,7 @@ async def process_inbound_email(email_id: int, db_url: str):
         )
 
         if customer:
-            email.nowcerts_insured_id = str(customer.get("database_id") or customer.get("id") or "")
+            email.nowcerts_insured_id = str(customer.get("database_id") or "") or None
             email.customer_name = customer.get("commercial_name") or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
             email.customer_email = customer.get("email")
             email.match_method = match_method
@@ -221,7 +221,9 @@ async def process_inbound_email(email_id: int, db_url: str):
         db.commit()
 
         # ── Step 3: Log Note to Customer File ────────────────────────────
-        if email.nowcerts_insured_id:
+        # Attempt note logging if we have a customer match (even without NowCerts ID)
+        # insert_note() will search NowCerts by name/email when insured_database_id is empty
+        if customer:
             note_body = format_inbound_note(
                 subject=email.subject or "(no subject)",
                 from_address=email.from_address,
@@ -230,7 +232,7 @@ async def process_inbound_email(email_id: int, db_url: str):
                 body_preview=email.body_plain or "",
             )
             note_id = await log_note_to_customer(
-                insured_id=email.nowcerts_insured_id,
+                insured_id=email.nowcerts_insured_id or "",
                 subject=f"Smart Inbox: {email.subject or 'Forwarded Email'}",
                 note_body=note_body,
                 customer_name=email.customer_name or "",
@@ -241,6 +243,10 @@ async def process_inbound_email(email_id: int, db_url: str):
                 email.nowcerts_note_id = note_id
                 email.status = ProcessingStatus.LOGGED
                 db.commit()
+            else:
+                email.nowcerts_note_logged = False
+                db.commit()
+                logger.warning(f"NowCerts note logging failed for {email.customer_name} (email #{email.id})")
 
         # ── Step 4: Draft Client Communication ───────────────────────────
         needs_comm = classification.get("needs_client_communication", False)
@@ -287,7 +293,7 @@ async def process_inbound_email(email_id: int, db_url: str):
                         email.status = ProcessingStatus.OUTBOUND_SENT
 
                         # Log outbound to NowCerts too
-                        if email.nowcerts_insured_id:
+                        if email.customer_name:
                             out_note = format_outbound_note(
                                 to_email=outbound.to_email,
                                 subject=outbound.subject,
@@ -295,7 +301,7 @@ async def process_inbound_email(email_id: int, db_url: str):
                                 body_preview=outbound.body_plain or "",
                             )
                             await log_note_to_customer(
-                                insured_id=email.nowcerts_insured_id,
+                                insured_id=email.nowcerts_insured_id or "",
                                 subject=f"Smart Inbox: Sent — {outbound.subject}",
                                 note_body=out_note,
                                 customer_name=email.customer_name or "",
@@ -558,7 +564,7 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
         if inbound:
             inbound.status = ProcessingStatus.OUTBOUND_SENT
             # Log to NowCerts
-            if inbound.nowcerts_insured_id:
+            if inbound.customer_name:
                 out_note = format_outbound_note(
                     to_email=item.to_email,
                     subject=item.subject,
@@ -566,7 +572,7 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
                     body_preview=item.body_plain or "",
                 )
                 await log_note_to_customer(
-                    insured_id=inbound.nowcerts_insured_id,
+                    insured_id=inbound.nowcerts_insured_id or "",
                     subject=f"Smart Inbox: Sent — {item.subject}",
                     note_body=out_note,
                     customer_name=inbound.customer_name or "",
@@ -748,7 +754,7 @@ async def batch_approve(request: Request, db: Session = Depends(get_db)):
             if inbound:
                 inbound.status = ProcessingStatus.OUTBOUND_SENT
 
-                if inbound.nowcerts_insured_id:
+                if inbound.customer_name:
                     out_note = format_outbound_note(
                         to_email=item.to_email,
                         subject=item.subject,
@@ -756,9 +762,11 @@ async def batch_approve(request: Request, db: Session = Depends(get_db)):
                         body_preview=item.body_plain or "",
                     )
                     await log_note_to_customer(
-                        insured_id=inbound.nowcerts_insured_id,
+                        insured_id=inbound.nowcerts_insured_id or "",
                         subject=f"Smart Inbox: Sent — {item.subject}",
                         note_body=out_note,
+                        customer_name=inbound.customer_name or "",
+                        customer_email=inbound.customer_email or "",
                     )
 
             results.append({"id": item_id, "status": "sent"})

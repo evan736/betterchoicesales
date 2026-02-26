@@ -104,7 +104,7 @@ async def lookup_customer(
 
 def _customer_to_dict(c: Customer) -> Dict[str, Any]:
     return {
-        "database_id": c.nowcerts_insured_id or str(c.id),
+        "database_id": c.nowcerts_insured_id or None,  # Only real NowCerts IDs, never local DB IDs
         "commercial_name": c.full_name,
         "first_name": c.first_name,
         "last_name": c.last_name,
