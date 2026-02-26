@@ -126,16 +126,33 @@ export default function ChatPanel() {
     if (!user) return;
     loadChannels();
     loadUnread();
-    // Poll for new messages every 4 seconds
-    pollRef.current = setInterval(() => {
+
+    // Poll for new messages — direct fetch to avoid stale closures
+    pollRef.current = setInterval(async () => {
       loadUnread();
-      if (activeChannelRef.current) {
-        loadMessages(activeChannelRef.current.id, true).then(() => {
-          // Clear beacon typing if we see a BEACON message in the latest batch
-          // (fallback in case SSE missed it)
+      const ch = activeChannelRef.current;
+      if (!ch) return;
+      try {
+        const res = await chatAPI.messages(ch.id);
+        const freshMsgs = res.data || [];
+        setMessages(prev => {
+          // Only update if message count changed (avoid unnecessary rerenders)
+          if (freshMsgs.length !== prev.length || 
+              (freshMsgs.length > 0 && prev.length > 0 && freshMsgs[freshMsgs.length - 1]?.id !== prev[prev.length - 1]?.id)) {
+            // Check for new BEACON message to clear typing
+            if (ch.channel_type === 'beacon') {
+              const prevIds = new Set(prev.map((m: any) => m.id));
+              const hasNewBeacon = freshMsgs.some((m: any) =>
+                !prevIds.has(m.id) && (m.sender_username === 'beacon.ai' || m.sender_name === 'BEACON')
+              );
+              if (hasNewBeacon) setBeaconTyping(false);
+            }
+            return freshMsgs;
+          }
+          return prev;
         });
-      }
-    }, 4000);
+      } catch {}
+    }, 3000);
 
     // SSE for live chat messages with auto-reconnect
     let es: EventSource | null = null;
@@ -168,7 +185,6 @@ export default function ChatPanel() {
         es.onerror = () => {
           es?.close();
           es = null;
-          // Auto-reconnect after 5s
           reconnectTimer = setTimeout(connectSSE, 5000);
         };
       } catch {}
@@ -234,18 +250,7 @@ export default function ChatPanel() {
     if (!silent) setLoading(true);
     try {
       const res = await chatAPI.messages(channelId);
-      const newMsgs = res.data;
-      setMessages(prev => {
-        // If new messages include a BEACON response that wasn't in prev, clear typing
-        if (activeChannelRef.current?.channel_type === 'beacon') {
-          const prevIds = new Set(prev.map((m: any) => m.id));
-          const hasNewBeacon = newMsgs.some((m: any) => 
-            !prevIds.has(m.id) && (m.sender_username === 'beacon.ai' || m.sender_name === 'BEACON')
-          );
-          if (hasNewBeacon) setBeaconTyping(false);
-        }
-        return newMsgs;
-      });
+      setMessages(res.data || []);
       if (!silent) {
         await chatAPI.markRead(channelId);
         loadUnread();
