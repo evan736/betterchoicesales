@@ -33,6 +33,8 @@ interface OutboundMessage {
   ai_rationale: string | null; status: string; sensitivity: string;
   sent_at: string | null; approved_by: string | null;
   rejected_reason: string | null; send_error: string | null;
+  delivery_method?: string; thanksio_order_id?: string | null;
+  inbound_email_id?: number;
 }
 
 interface InboxStats {
@@ -91,9 +93,10 @@ function needsAttn(e: InboundEmail) { return e.status==='failed'||e.status==='ou
 
 export default function SmartInboxPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'inbox'|'queue'|'stats'>('inbox');
+  const [tab, setTab] = useState<'inbox'|'queue'|'sent'|'stats'>('inbox');
   const [emails, setEmails] = useState<InboundEmail[]>([]);
   const [queue, setQueue] = useState<OutboundMessage[]>([]);
+  const [sentItems, setSentItems] = useState<OutboundMessage[]>([]);
   const [stats, setStats] = useState<InboxStats|null>(null);
   const [sel, setSel] = useState<InboundEmail|null>(null);
   const [search, setSearch] = useState('');
@@ -128,6 +131,9 @@ export default function SmartInboxPage() {
   const fetchQueue = async () => {
     try { const r = await axios.get(`${API}/api/smart-inbox/queue`, { params:{status:'pending_approval'}, headers:hdr }); setQueue(r.data.queue||[]); } catch{}
   };
+  const fetchSent = async () => {
+    try { const r = await axios.get(`${API}/api/smart-inbox/queue`, { params:{status:'sent',limit:100}, headers:hdr }); setSentItems(r.data.queue||[]); } catch{}
+  };
   const fetchStats = async () => {
     try { const r = await axios.get(`${API}/api/smart-inbox/stats`, { headers:hdr }); setStats(r.data); } catch{}
   };
@@ -138,7 +144,7 @@ export default function SmartInboxPage() {
       setEmails(p => p.map(e => e.id===id ? {...e, is_read:true} : e));
     } catch(e) { console.error(e); }
   };
-  const refreshAll = (q=false) => { fetchEmails(q); fetchQueue(); fetchStats(); };
+  const refreshAll = (q=false) => { fetchEmails(q); fetchQueue(); fetchSent(); fetchStats(); };
 
   useEffect(() => { refreshAll(); }, []);
   useEffect(() => { fetchEmails(); }, [search, fCat, fSens, vf]);
@@ -191,7 +197,7 @@ export default function SmartInboxPage() {
   };
   const reprocess = async (id:number) => { try { await axios.post(`${API}/api/smart-inbox/reprocess/${id}`, {}, { headers:hdr }); } catch{} fetchEmails(); };
 
-  const filtered = vf==='attention' ? emails.filter(e=>needsAttn(e)) : emails;
+  const filtered = vf==='attention' ? emails.filter(e=>needsAttn(e)) : emails.filter(e=>e.status!=='outbound_queued' || vf==='attention');
   const grouped = (() => {
     const gs: {label:string;items:InboundEmail[]}[] = []; const m = new Map<string,InboundEmail[]>(); const o: string[] = [];
     for (const e of filtered) { const g=dateGroup(e.created_at); if(!m.has(g)){m.set(g,[]);o.push(g);} m.get(g)!.push(e); }
@@ -237,7 +243,7 @@ export default function SmartInboxPage() {
 
           {/* Tabs */}
           <div className="flex gap-0 border-b border-slate-200 mb-4">
-            {([{key:'inbox' as const,label:'Inbox',icon:Inbox,badge:unread},{key:'queue' as const,label:'Approval Queue',icon:Clock,badge:queue.length},{key:'stats' as const,label:'Analytics',icon:Activity,badge:0}]).map(t=>(
+            {([{key:'inbox' as const,label:'Inbox',icon:Inbox,badge:unread},{key:'queue' as const,label:'Approval Queue',icon:Clock,badge:queue.length},{key:'sent' as const,label:'Sent',icon:Send,badge:0},{key:'stats' as const,label:'Analytics',icon:Activity,badge:0}]).map(t=>(
               <button key={t.key} onClick={()=>setTab(t.key)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 ${tab===t.key?'border-cyan-500 text-cyan-600':'border-transparent text-slate-500 hover:text-slate-700'}`}>
                 <t.icon size={15}/>{t.label}
@@ -294,6 +300,8 @@ export default function SmartInboxPage() {
                           <button onClick={()=>batch(vf==='archived'?'unarchive':'archive')} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">
                             {vf==='archived'?<><MailOpen size={12}/> Unarchive</>:<><Archive size={12}/> Archive</>}
                           </button>
+                          <hr className="my-1 border-slate-100"/>
+                          <button onClick={()=>{if(confirm(`Delete ${checked.size} email(s)? This cannot be undone.`))batch('delete');}} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"><XCircle size={12}/> Delete</button>
                         </div>
                       )}
                     </div>
@@ -336,7 +344,7 @@ export default function SmartInboxPage() {
                             <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${email.is_read?'':'bg-cyan-500 shadow-sm shadow-cyan-300'}`}/>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between mb-0.5">
-                                <span className={`text-xs truncate ${email.is_read?'font-medium text-slate-600':'font-bold text-slate-900'}`}>{email.subject||'(no subject)'}</span>
+                                <span className={`text-xs truncate ${email.is_read?'font-medium text-slate-700':'font-bold text-slate-900'}`}>{email.subject||'(no subject)'}</span>
                                 <span className="text-[10px] text-slate-400 ml-2 flex-shrink-0">{timeAgo(email.created_at)}</span>
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -348,7 +356,7 @@ export default function SmartInboxPage() {
                                 {email.attachment_count>0 && <span className="text-[9px] text-slate-400 flex items-center gap-0.5"><Paperclip size={9}/>{email.attachment_count}</span>}
                                 {att && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">ACTION</span>}
                               </div>
-                              {!compact && email.ai_summary && <p className={`text-[11px] mt-1 truncate ${email.is_read?'text-slate-400':'text-slate-500'}`}>{email.ai_summary}</p>}
+                              {!compact && email.ai_summary && <p className={`text-[11px] mt-1 truncate ${email.is_read?'text-slate-500':'text-slate-600'}`}>{email.ai_summary}</p>}
                             </div>
                           </div>
                         );
@@ -454,8 +462,8 @@ export default function SmartInboxPage() {
               ):queue.map(msg=>(
                 <div key={msg.id} className="card rounded-lg border border-amber-200 bg-white p-4 mb-3" style={{borderLeft:'4px solid #fbbf24'}}>
                   <div className="flex justify-between mb-1.5">
-                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||msg.to_email} • {timeAgo(msg.created_at)}</p></div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 self-start">PENDING</span>
+                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||msg.to_email} • {msg.delivery_method==='thanksio'?'📬 Thanks.io Letter':'📧 Email'} • {timeAgo(msg.created_at)}</p></div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 self-start">{msg.delivery_method==='thanksio'?'LETTER':'PENDING'}</span>
                   </div>
                   {msg.ai_rationale && <p className="text-[11px] text-slate-400 italic mb-2">💡 {msg.ai_rationale}</p>}
                   <div className="rounded bg-slate-50 border border-slate-200 p-3 mb-3 text-xs text-slate-600 leading-relaxed max-h-[200px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
@@ -463,6 +471,30 @@ export default function SmartInboxPage() {
                     <button onClick={()=>approve(msg.id)} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">✓ Approve & Send</button>
                     <button onClick={()=>reject(msg.id)} className="py-2 px-4 rounded-lg bg-red-50 border border-red-200 text-red-500 text-sm hover:bg-red-100">✕ Reject</button>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* SENT */}
+          {tab==='sent' && (
+            <div className="max-w-3xl">
+              {sentItems.length===0?(
+                <div className="text-center py-16 rounded-lg border border-slate-200 bg-white card">
+                  <Send size={36} className="mx-auto text-slate-300 mb-2"/><p className="text-slate-400 font-semibold">No sent messages yet</p>
+                </div>
+              ):sentItems.map(msg=>(
+                <div key={msg.id} className="card rounded-lg border border-slate-200 bg-white p-4 mb-3" style={{borderLeft:'4px solid #34d399'}}>
+                  <div className="flex justify-between mb-1.5">
+                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||msg.to_email} • {msg.delivery_method==='thanksio'?'📬 Thanks.io Letter':'📧 Email'}</p></div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">SENT</span>
+                      {msg.sent_at && <p className="text-[10px] text-slate-400 mt-0.5">{timeAgo(msg.sent_at)}</p>}
+                    </div>
+                  </div>
+                  {msg.ai_rationale && <p className="text-[11px] text-slate-400 italic mb-2">💡 {msg.ai_rationale}</p>}
+                  <div className="rounded bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 leading-relaxed max-h-[160px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
+                  {msg.approved_by && <p className="text-[10px] text-slate-400 mt-1.5">Approved by {msg.approved_by}{msg.sent_at&&` • ${new Date(msg.sent_at).toLocaleString()}`}</p>}
                 </div>
               ))}
             </div>

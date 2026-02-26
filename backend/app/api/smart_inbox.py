@@ -65,6 +65,71 @@ def _verify_mailgun_signature(token: str, timestamp: str, signature: str) -> boo
     return hmac.compare_digest(str(signature), str(hmac_digest))
 
 
+async def _get_customer_address(nowcerts_id: str, customer_name: str) -> Optional[dict]:
+    """Try to get mailing address from NowCerts customer record."""
+    try:
+        from app.services.smart_inbox_nowcerts import _get_nowcerts_token, NOWCERTS_BASE
+        import httpx
+        token = await _get_nowcerts_token()
+        if not token:
+            return None
+        
+        # Search by name if no ID
+        search = nowcerts_id or customer_name
+        if not search:
+            return None
+            
+        async with httpx.AsyncClient(timeout=15) as client:
+            if nowcerts_id:
+                resp = await client.get(
+                    f"{NOWCERTS_BASE}/api/Insureds({nowcerts_id})",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            else:
+                resp = await client.get(
+                    f"{NOWCERTS_BASE}/api/Insureds",
+                    params={"$filter": f"contains(commercial_name, '{customer_name}')"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                record = data if nowcerts_id else (data.get("value", [{}])[0] if data.get("value") else {})
+                addr = record.get("address_line_1") or record.get("mailing_address_line_1", "")
+                if addr:
+                    return {
+                        "address": addr,
+                        "city": record.get("city") or record.get("mailing_city", ""),
+                        "state": record.get("state") or record.get("mailing_state", ""),
+                        "zip": record.get("zip") or record.get("mailing_zip", ""),
+                    }
+    except Exception as e:
+        logger.warning(f"Address lookup failed: {e}")
+    return None
+
+
+async def _send_via_thanksio(
+    client_name: str, address: str, city: str, state: str, zip_code: str,
+    policy_number: str, carrier: str, message: str, subject: str,
+) -> Optional[str]:
+    """Send a letter via Thanks.io. Returns order ID or None."""
+    try:
+        from app.services.thanksio_letter import send_thanksio_letter
+        result = send_thanksio_letter(
+            client_name=client_name, address=address, city=city,
+            state=state, zip_code=zip_code, policy_number=policy_number,
+            carrier=carrier, custom_message=message, letter_subject=subject,
+        )
+        if result.get("success"):
+            return result.get("order_id", "sent")
+        else:
+            logger.error(f"Thanks.io send failed: {result.get('error')}")
+            return None
+    except Exception as e:
+        logger.error(f"Thanks.io error: {e}")
+        return None
+
+
 async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] = None) -> Optional[str]:
     """Send email via Mailgun. Returns message ID or None."""
     import httpx
@@ -581,10 +646,45 @@ async def _process_batch_child(child_id: int, db):
 
                 db.commit()
         elif needs_response and not child.customer_email:
-            # Actionable item but no customer email — flag for manual attention
-            child.processing_notes = "Customer email not on file — manual follow-up needed"
-            child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
-            db.commit()
+            # No email — try Thanks.io letter via mailing address
+            child.processing_notes = "No email on file — queuing Thanks.io letter if address available"
+            
+            # Look up mailing address from customer data
+            address_info = await _get_customer_address(child.nowcerts_insured_id, child.customer_name or "")
+            if address_info and address_info.get("address"):
+                # Draft the letter content via AI
+                draft = await draft_response(
+                    summary=child.ai_summary or "",
+                    category=category,
+                    carrier=child.extracted_carrier,
+                    policy_number=child.extracted_policy_number,
+                    customer_name=child.customer_name or "Valued Customer",
+                    original_body=child.body_plain or "",
+                )
+                if "error" not in draft:
+                    outbound = OutboundQueue(
+                        inbound_email_id=child.id,
+                        to_email=f"MAIL: {address_info.get('address', '')}, {address_info.get('city', '')} {address_info.get('state', '')} {address_info.get('zip', '')}",
+                        to_name=child.customer_name,
+                        subject=draft.get("subject", f"Update on your policy — {child.extracted_policy_number or ''}"),
+                        body_html=draft.get("body_html", ""),
+                        body_plain=draft.get("body_plain", ""),
+                        ai_rationale=f"No email on file — Thanks.io letter to {address_info.get('address', '')}. {draft.get('rationale', '')}",
+                        sensitivity=sensitivity,
+                        status=OutboundStatus.PENDING_APPROVAL,
+                        delivery_method="thanksio",
+                    )
+                    db.add(outbound)
+                    child.status = ProcessingStatus.OUTBOUND_QUEUED
+                    db.commit()
+                else:
+                    child.processing_notes = f"No email, draft failed: {draft.get('error')}"
+                    child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+                    db.commit()
+            else:
+                child.processing_notes = "No email and no mailing address on file — manual follow-up needed"
+                child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+                db.commit()
         else:
             child.status = ProcessingStatus.COMPLETED
             db.commit()
@@ -817,9 +917,11 @@ def list_outbound_queue(
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    """List outbound messages (default: pending approval)."""
+    """List outbound messages. Use status=sent for sent folder, status=pending_approval for queue."""
     q = db.query(OutboundQueue)
-    if status:
+    if status == "sent":
+        q = q.filter(OutboundQueue.status.in_(["sent", "auto_sent"]))
+    elif status:
         q = q.filter(OutboundQueue.status == status)
 
     items = q.order_by(desc(OutboundQueue.created_at)).limit(limit).all()
@@ -828,19 +930,45 @@ def list_outbound_queue(
 
 @router.post("/queue/{item_id}/approve")
 async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
-    """Approve and send a queued outbound message."""
+    """Approve and send a queued outbound message (email or Thanks.io letter)."""
     item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Queue item not found")
     if item.status not in (OutboundStatus.PENDING_APPROVAL, OutboundStatus.DRAFT):
         raise HTTPException(status_code=400, detail=f"Cannot approve item in status: {item.status}")
 
-    # Send via Mailgun
-    msg_id = await _send_via_mailgun(
-        to=item.to_email,
-        subject=item.subject,
-        html=item.body_html,
-    )
+    delivery = getattr(item, "delivery_method", "email") or "email"
+    msg_id = None
+
+    if delivery == "thanksio":
+        # Parse address from to_email field (format: "MAIL: addr, city state zip")
+        addr_str = (item.to_email or "").replace("MAIL: ", "")
+        parts = [p.strip() for p in addr_str.rsplit(",", 1)]
+        address = parts[0] if parts else ""
+        csz = parts[1] if len(parts) > 1 else ""
+        csz_parts = csz.rsplit(" ", 1)
+        city_state = csz_parts[0] if csz_parts else ""
+        zip_code = csz_parts[1] if len(csz_parts) > 1 else ""
+        cs_parts = city_state.rsplit(" ", 1)
+        city = cs_parts[0] if cs_parts else ""
+        state = cs_parts[1] if len(cs_parts) > 1 else ""
+
+        inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+        msg_id = await _send_via_thanksio(
+            client_name=item.to_name or "Customer",
+            address=address, city=city, state=state, zip_code=zip_code,
+            policy_number=inbound.extracted_policy_number or "" if inbound else "",
+            carrier=inbound.extracted_carrier or "" if inbound else "",
+            message=item.body_plain or "",
+            subject=item.subject or "Policy Update",
+        )
+    else:
+        # Standard email via Mailgun
+        msg_id = await _send_via_mailgun(
+            to=item.to_email,
+            subject=item.subject,
+            html=item.body_html,
+        )
 
     if msg_id:
         item.status = OutboundStatus.SENT
@@ -855,32 +983,32 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
             inbound.status = ProcessingStatus.OUTBOUND_SENT
             # Log to NowCerts
             if inbound.customer_name:
+                method_label = "Thanks.io letter" if delivery == "thanksio" else "email"
                 out_note = format_outbound_note(
                     to_email=item.to_email,
                     subject=item.subject,
-                    status="sent",
+                    status=f"sent via {method_label}",
                     body_preview=item.body_plain or "",
                 )
                 await log_note_to_customer(
                     insured_id=inbound.nowcerts_insured_id or "",
-                    subject=f"Smart Inbox: Sent — {item.subject}",
+                    subject=f"Smart Inbox: Sent ({method_label}) — {item.subject}",
                     note_body=out_note,
                     customer_name=inbound.customer_name or "",
                     customer_email=inbound.customer_email or "",
                 )
 
         db.commit()
-        # Broadcast SSE event
         try:
             from app.api.events import event_bus
             event_bus.publish_sync("smart_inbox:updated", {"id": item_id, "action": "approved"})
         except Exception:
             pass
-        return {"status": "sent", "mailgun_id": msg_id}
+        return {"status": "sent", "delivery_method": delivery, "id": msg_id}
     else:
-        item.send_error = "Mailgun send failed"
+        item.send_error = f"{'Thanks.io' if delivery == 'thanksio' else 'Mailgun'} send failed"
         db.commit()
-        raise HTTPException(status_code=500, detail="Failed to send email")
+        raise HTTPException(status_code=500, detail=f"Failed to send via {delivery}")
 
 
 @router.post("/queue/{item_id}/reject")
@@ -998,14 +1126,14 @@ def unarchive_email(email_id: int, db: Session = Depends(get_db)):
 async def batch_action(request: Request, db: Session = Depends(get_db)):
     """
     Batch actions on multiple emails.
-    Body: { "ids": [1,2,3], "action": "read"|"unread"|"archive"|"unarchive" }
+    Body: { "ids": [1,2,3], "action": "read"|"unread"|"archive"|"unarchive"|"delete" }
     """
     body = await request.json()
     ids = body.get("ids", [])
     action = body.get("action", "")
 
-    if not ids or action not in ("read", "unread", "archive", "unarchive"):
-        raise HTTPException(status_code=400, detail="Provide ids[] and action (read/unread/archive/unarchive)")
+    if not ids or action not in ("read", "unread", "archive", "unarchive", "delete"):
+        raise HTTPException(status_code=400, detail="Provide ids[] and action (read/unread/archive/unarchive/delete)")
 
     emails = db.query(InboundEmail).filter(InboundEmail.id.in_(ids)).all()
     count = 0
@@ -1018,9 +1146,46 @@ async def batch_action(request: Request, db: Session = Depends(get_db)):
             email.is_archived = True
         elif action == "unarchive":
             email.is_archived = False
+        elif action == "delete":
+            # Delete outbound messages first
+            db.query(OutboundQueue).filter(OutboundQueue.inbound_email_id == email.id).delete()
+            # Delete child items if batch parent
+            db.query(InboundEmail).filter(InboundEmail.parent_email_id == email.id).delete()
+            db.delete(email)
         count += 1
     db.commit()
     return {"status": "ok", "affected": count}
+
+
+@router.post("/emails/{email_id}/delete")
+def delete_email(email_id: int, db: Session = Depends(get_db)):
+    """Delete a single email and its outbound messages."""
+    email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    db.query(OutboundQueue).filter(OutboundQueue.inbound_email_id == email.id).delete()
+    db.query(InboundEmail).filter(InboundEmail.parent_email_id == email.id).delete()
+    db.delete(email)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/sent")
+def list_sent_messages(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """List all sent outbound messages (email + Thanks.io)."""
+    q = db.query(OutboundQueue).filter(
+        OutboundQueue.status.in_([OutboundStatus.SENT, OutboundStatus.AUTO_SENT])
+    )
+    total = q.count()
+    items = q.order_by(desc(OutboundQueue.sent_at)).offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "items": [_serialize_outbound(o) for o in items],
+    }
 
 
 @router.post("/batch/approve")
@@ -1207,6 +1372,9 @@ def _serialize_outbound(o: OutboundQueue) -> dict:
         "approved_by": o.approved_by,
         "rejected_reason": o.rejected_reason,
         "send_error": o.send_error,
+        "delivery_method": getattr(o, "delivery_method", "email") or "email",
+        "thanksio_order_id": getattr(o, "thanksio_order_id", None),
+        "inbound_email_id": o.inbound_email_id,
     }
 
 

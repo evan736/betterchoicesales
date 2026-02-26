@@ -119,3 +119,24 @@ def migrate_smart_inbox():
                 logger.info("✓ Added parent_email_id column to inbound_emails")
         except Exception as e:
             logger.warning(f"Column migration check: {e}")
+
+        # Outbound queue columns
+        try:
+            outbound_cols = [c["name"] for c in inspector.get_columns("outbound_queue")]
+            if "delivery_method" not in outbound_cols:
+                conn.execute(text("ALTER TABLE outbound_queue ADD COLUMN delivery_method VARCHAR DEFAULT 'email'"))
+                logger.info("✓ Added delivery_method column to outbound_queue")
+            if "thanksio_order_id" not in outbound_cols:
+                conn.execute(text("ALTER TABLE outbound_queue ADD COLUMN thanksio_order_id VARCHAR"))
+                logger.info("✓ Added thanksio_order_id column to outbound_queue")
+        except Exception as e:
+            logger.warning(f"Outbound queue migration check: {e}")
+
+        # Outbound queue columns
+        try:
+            outbound_cols = [c["name"] for c in inspector.get_columns("outbound_queue")]
+            if "delivery_method" not in outbound_cols:
+                conn.execute(text("ALTER TABLE outbound_queue ADD COLUMN delivery_method VARCHAR DEFAULT 'email'"))
+                logger.info("✓ Added delivery_method column to outbound_queue")
+        except Exception as e:
+            logger.warning(f"Outbound column migration: {e}")

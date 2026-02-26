@@ -174,3 +174,8 @@ class OutboundQueue(Base):
     sent_at = Column(DateTime, nullable=True)
     mailgun_message_id = Column(String, nullable=True)
     send_error = Column(Text, nullable=True)
+
+    # Delivery method: 'email' (default) or 'letter' (Thanks.io)
+    delivery_method = Column(String, default="email")  # 'email' or 'letter'
+    thanksio_order_id = Column(String, nullable=True)
+    delivery_method = Column(String, default="email")  # "email" or "thanksio"
