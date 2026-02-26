@@ -108,5 +108,14 @@ def migrate_smart_inbox():
             if "attachment_data" not in existing_cols:
                 conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN attachment_data JSONB"))
                 logger.info("✓ Added attachment_data column to inbound_emails")
+            if "is_batch_report" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN is_batch_report BOOLEAN DEFAULT FALSE"))
+                logger.info("✓ Added is_batch_report column to inbound_emails")
+            if "batch_item_count" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN batch_item_count INTEGER"))
+                logger.info("✓ Added batch_item_count column to inbound_emails")
+            if "parent_email_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE inbound_emails ADD COLUMN parent_email_id INTEGER REFERENCES inbound_emails(id)"))
+                logger.info("✓ Added parent_email_id column to inbound_emails")
         except Exception as e:
             logger.warning(f"Column migration check: {e}")

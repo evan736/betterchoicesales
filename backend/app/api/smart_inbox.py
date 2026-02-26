@@ -34,6 +34,9 @@ from app.services.smart_inbox_nowcerts import (
     lookup_customer, log_note_to_customer,
     format_inbound_note, format_outbound_note,
 )
+from app.services.smart_inbox_batch import (
+    detect_batch_report, parse_batch_report, build_child_email_data,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
@@ -363,6 +366,231 @@ async def process_inbound_email(email_id: int, db_url: str):
 
 # ── Inbound Webhook ──────────────────────────────────────────────────────────
 
+
+async def process_batch_report(email_id: int, db_url: str, batch_info: dict):
+    """
+    Process a batch report email: parse table rows → create child InboundEmail
+    per customer → process each child through the normal pipeline.
+    """
+    from app.core.database import SessionLocal
+    db = SessionLocal()
+
+    try:
+        email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+        if not email:
+            logger.error(f"Batch report InboundEmail {email_id} not found")
+            return
+
+        # Mark parent as batch report
+        email.is_batch_report = True
+        email.status = ProcessingStatus.PARSING
+        email.extracted_carrier = batch_info.get("carrier")
+        email.category = "other"
+        email.sensitivity = "routine"
+        db.commit()
+
+        # Parse the report table
+        items = parse_batch_report(
+            body_html=email.body_html or "",
+            body_plain=email.body_plain or "",
+            report_type=batch_info["report_type"],
+            carrier=batch_info.get("carrier", "Unknown"),
+        )
+
+        if not items:
+            email.ai_summary = f"Batch report detected ({batch_info['name']}) but no items parsed"
+            email.status = ProcessingStatus.COMPLETED
+            email.batch_item_count = 0
+            db.commit()
+            logger.warning(f"Batch report {email_id} had no parseable items")
+            return
+
+        email.batch_item_count = len(items)
+        email.ai_summary = f"Batch report: {len(items)} items from {batch_info.get('carrier', 'carrier')} {batch_info['report_type'].replace('_', ' ')} report"
+        email.status = ProcessingStatus.COMPLETED
+        db.commit()
+
+        # Create child InboundEmail records
+        child_ids = []
+        for item in items:
+            child_data = build_child_email_data(
+                parent_id=email.id,
+                item=item,
+                original_from=email.from_address,
+                original_subject=email.subject or "",
+            )
+
+            child = InboundEmail(
+                message_id=f"{email.message_id or email.id}_child_{len(child_ids)}",
+                to_address=email.to_address,
+                status=ProcessingStatus.PARSED,  # skip AI classification — we already parsed it
+                is_read=False,
+                is_archived=False,
+                **child_data,
+            )
+            db.add(child)
+            db.flush()
+            child_ids.append(child.id)
+
+        db.commit()
+        logger.info(f"Batch report {email_id}: created {len(child_ids)} child records")
+
+        # Process each child through the pipeline (customer matching + drafting)
+        for child_id in child_ids:
+            await _process_batch_child(child_id, db)
+
+        # Broadcast SSE
+        try:
+            from app.api.events import event_bus
+            event_bus.publish_sync("smart_inbox:batch", {
+                "parent_id": email.id,
+                "child_count": len(child_ids),
+                "report_type": batch_info["report_type"],
+            })
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.exception(f"Batch report processing failed for email {email_id}")
+        try:
+            email = db.query(InboundEmail).filter(InboundEmail.id == email_id).first()
+            if email:
+                email.status = ProcessingStatus.FAILED
+                email.error_message = f"Batch parsing failed: {str(e)[:400]}"
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+async def _process_batch_child(child_id: int, db):
+    """
+    Process a single child item from a batch report:
+    customer match → NowCerts note → draft response if needed.
+    Skips AI classification (already done by the parser).
+    """
+    try:
+        child = db.query(InboundEmail).filter(InboundEmail.id == child_id).first()
+        if not child:
+            return
+
+        # ── Customer Matching ────────────────────────────────────────────
+        customer, match_method, match_confidence = await lookup_customer(
+            policy_number=child.extracted_policy_number,
+            name=child.extracted_insured_name,
+        )
+
+        if customer:
+            child.nowcerts_insured_id = str(customer.get("database_id") or "") or None
+            child.customer_name = (
+                customer.get("commercial_name")
+                or f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
+            )
+            child.customer_email = customer.get("email")
+            child.match_method = match_method
+            child.match_confidence = match_confidence
+            child.status = ProcessingStatus.CUSTOMER_MATCHED
+        else:
+            child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+
+        db.commit()
+
+        # ── Log Note to NowCerts ─────────────────────────────────────────
+        if customer:
+            note_body = format_inbound_note(
+                subject=child.subject or "(batch item)",
+                from_address=child.from_address,
+                category=child.category or "other",
+                summary=child.ai_summary or "Batch report item",
+                body_preview=child.body_plain or "",
+                carrier=child.extracted_carrier or "",
+                policy_number=child.extracted_policy_number or "",
+                due_date=child.extracted_due_date or "",
+                amount=str(child.extracted_amount) if child.extracted_amount else "",
+            )
+            note_subject = f"{(child.category or 'other').replace('_', ' ').title()}: {child.ai_summary or 'Batch Report Item'}"
+            note_id = await log_note_to_customer(
+                insured_id=child.nowcerts_insured_id or "",
+                subject=note_subject[:200],
+                note_body=note_body,
+                customer_name=child.customer_name or "",
+                customer_email=child.customer_email or "",
+            )
+            if note_id:
+                child.nowcerts_note_logged = True
+                child.nowcerts_note_id = note_id
+                child.status = ProcessingStatus.LOGGED
+                db.commit()
+
+        # ── Draft Response (for sensitive items like non-pay cancellations) ──
+        sensitivity = child.sensitivity or "routine"
+        category = child.category or "other"
+
+        # Only draft responses for items that need client action
+        needs_response = category in (
+            "non_payment", "cancellation", "non_renewal",
+        ) or sensitivity in ("sensitive", "critical")
+
+        if needs_response and child.customer_email:
+            draft = await draft_response(
+                summary=child.ai_summary or "",
+                category=category,
+                carrier=child.extracted_carrier,
+                policy_number=child.extracted_policy_number,
+                customer_name=child.customer_name or "Valued Customer",
+                original_body=child.body_plain or "",
+            )
+
+            if "error" not in draft:
+                auto_send = determine_auto_send(category, sensitivity)
+
+                outbound = OutboundQueue(
+                    inbound_email_id=child.id,
+                    to_email=child.customer_email,
+                    to_name=child.customer_name,
+                    subject=draft.get("subject", f"Update on your policy — {child.extracted_policy_number or ''}"),
+                    body_html=draft.get("body_html", ""),
+                    body_plain=draft.get("body_plain", ""),
+                    ai_rationale=draft.get("rationale"),
+                    sensitivity=sensitivity,
+                    status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
+                )
+                db.add(outbound)
+                db.commit()
+
+                if auto_send:
+                    msg_id = await _send_via_mailgun(
+                        to=outbound.to_email,
+                        subject=outbound.subject,
+                        html=outbound.body_html,
+                    )
+                    if msg_id:
+                        outbound.sent_at = datetime.utcnow()
+                        outbound.mailgun_message_id = msg_id
+                        child.status = ProcessingStatus.OUTBOUND_SENT
+                    else:
+                        outbound.send_error = "Mailgun send failed"
+                        outbound.status = OutboundStatus.PENDING_APPROVAL
+                else:
+                    child.status = ProcessingStatus.OUTBOUND_QUEUED
+
+                db.commit()
+        elif not needs_response:
+            child.status = ProcessingStatus.COMPLETED
+            db.commit()
+
+    except Exception as e:
+        logger.error(f"Batch child {child_id} processing failed: {e}")
+        try:
+            child = db.query(InboundEmail).filter(InboundEmail.id == child_id).first()
+            if child:
+                child.status = ProcessingStatus.FAILED
+                child.error_message = str(e)[:400]
+                db.commit()
+        except Exception:
+            pass
+
 @router.post("/inbound")
 async def receive_inbound_email(
     request: Request,
@@ -451,9 +679,17 @@ async def receive_inbound_email(
 
     # Kick off async processing
     db_url = os.getenv("DATABASE_URL", "")
-    background_tasks.add_task(process_inbound_email, inbound.id, db_url)
 
-    return {"status": "received", "id": inbound.id}
+    # Check if this is a batch report (multiple customers in one email)
+    batch_info = detect_batch_report(from_addr, subject)
+    if batch_info:
+        background_tasks.add_task(
+            process_batch_report, inbound.id, db_url, batch_info
+        )
+    else:
+        background_tasks.add_task(process_inbound_email, inbound.id, db_url)
+
+    return {"status": "received", "id": inbound.id, "batch": batch_info is not None}
 
 
 # ── Email List & Detail ──────────────────────────────────────────────────────
@@ -534,7 +770,34 @@ def get_inbound_email(email_id: int, db: Session = Depends(get_db)):
     result["body_html"] = email.body_html
     result["ai_analysis"] = email.ai_analysis
     result["outbound_messages"] = [_serialize_outbound(o) for o in email.outbound_messages]
+
+    # Include child items if this is a batch report
+    if getattr(email, "is_batch_report", False):
+        children = (
+            db.query(InboundEmail)
+            .filter(InboundEmail.parent_email_id == email.id)
+            .order_by(InboundEmail.id)
+            .all()
+        )
+        result["child_items"] = [_serialize_inbound(c) for c in children]
+
     return result
+
+
+@router.get("/emails/{email_id}/children")
+def list_batch_children(email_id: int, db: Session = Depends(get_db)):
+    """List all child items for a batch report email."""
+    children = (
+        db.query(InboundEmail)
+        .filter(InboundEmail.parent_email_id == email_id)
+        .order_by(InboundEmail.id)
+        .all()
+    )
+    return {
+        "parent_id": email_id,
+        "count": len(children),
+        "items": [_serialize_inbound(c) for c in children],
+    }
 
 
 # ── Outbound Queue Management ───────────────────────────────────────────────
@@ -899,6 +1162,9 @@ def _serialize_inbound(e: InboundEmail) -> dict:
         "has_outbound": len(e.outbound_messages) > 0 if e.outbound_messages else False,
         "is_read": getattr(e, "is_read", False) or False,
         "is_archived": getattr(e, "is_archived", False) or False,
+        "is_batch_report": getattr(e, "is_batch_report", False) or False,
+        "batch_item_count": getattr(e, "batch_item_count", None),
+        "parent_email_id": getattr(e, "parent_email_id", None),
     }
 
 

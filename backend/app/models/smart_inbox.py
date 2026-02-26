@@ -126,6 +126,12 @@ class InboundEmail(Base):
     is_read = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
 
+    # Batch report support (one carrier email → multiple customer items)
+    is_batch_report = Column(Boolean, default=False)
+    batch_item_count = Column(Integer, nullable=True)
+    parent_email_id = Column(Integer, ForeignKey("inbound_emails.id"), nullable=True)
+    parent_email = relationship("InboundEmail", remote_side=[id], backref="child_items")
+
     # Relationships
     outbound_messages = relationship("OutboundQueue", back_populates="inbound_email")
 
