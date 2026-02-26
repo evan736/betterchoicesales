@@ -91,51 +91,72 @@ async def pause(page: Page, email: str, password: str) -> dict:
 
         paused_count = 0
         already_paused = 0
+        errors = 0
 
         for i in range(count):
             row = rows.nth(i)
-            row_text = await row.inner_text()
+            try:
+                row_text = (await row.inner_text()).strip()[:60]
 
-            # Check if this campaign is already paused (red dot)
-            # Look for status indicators
-            status_dot = row.locator('[class*="status"], [class*="dot"], [class*="circle"]').first
-            options_btn = row.locator('button:has-text("..."), [class*="options"], [class*="menu"], [aria-label*="option" i], td:last-child button').first
+                # Find the "..." button — it's typically a small button with three dots
+                # Avoid matching hidden dropdown-menu divs by checking visibility
+                options_btn = None
+                for selector in [
+                    'button:has-text("⋮")',
+                    'button:has-text("...")',
+                    'button:has-text("⋯")',
+                    '[class*="dropdown-toggle"]',
+                    'button[data-toggle="dropdown"]',
+                    'a[data-toggle="dropdown"]',
+                ]:
+                    el = row.locator(selector).first
+                    if await el.count() > 0 and await el.is_visible():
+                        options_btn = el
+                        break
 
-            if await options_btn.count() > 0:
-                await options_btn.click()
-                await page.wait_for_timeout(1000)
+                if not options_btn:
+                    # Try the last visible button in the row
+                    all_btns = row.locator('button:visible, a.btn:visible')
+                    btn_count = await all_btns.count()
+                    if btn_count > 0:
+                        options_btn = all_btns.nth(btn_count - 1)
 
-                # Look for Pause option in dropdown menu
-                pause_option = page.locator('li:has-text("Pause"), button:has-text("Pause"), a:has-text("Pause"), [role="menuitem"]:has-text("Pause")').first
-                if await pause_option.count() > 0:
-                    await pause_option.click()
+                if options_btn and await options_btn.is_visible():
+                    await options_btn.click()
                     await page.wait_for_timeout(1500)
-                    paused_count += 1
-                    logger.info(f"  Paused campaign: {row_text[:50]}")
-                else:
-                    # No pause option — might already be paused, or might say "Resume"
-                    resume_option = page.locator('li:has-text("Resume"), li:has-text("Activate"), button:has-text("Resume"), button:has-text("Activate")').first
-                    if await resume_option.count() > 0:
-                        # Already paused — close the menu
-                        await page.keyboard.press("Escape")
-                        already_paused += 1
+
+                    # Look for Pause option in the now-visible dropdown
+                    pause_option = page.locator('[role="menuitem"]:has-text("Pause"):visible, li:has-text("Pause"):visible, a:has-text("Pause"):visible, button:has-text("Pause"):visible').first
+                    if await pause_option.count() > 0:
+                        await pause_option.click()
+                        await page.wait_for_timeout(2000)
+                        paused_count += 1
+                        logger.info(f"  Paused: {row_text}")
                     else:
-                        await page.keyboard.press("Escape")
-                        logger.warning(f"  No pause/resume option for row {i}")
-            else:
-                # Try clicking the status dot directly to toggle
-                if await status_dot.count() > 0:
-                    await status_dot.click()
-                    await page.wait_for_timeout(1500)
-                    paused_count += 1
+                        # Check if Resume/Activate is showing (meaning already paused)
+                        resume_opt = page.locator('[role="menuitem"]:has-text("Resume"):visible, [role="menuitem"]:has-text("Activate"):visible, li:has-text("Resume"):visible, li:has-text("Activate"):visible').first
+                        if await resume_opt.count() > 0:
+                            await page.keyboard.press("Escape")
+                            already_paused += 1
+                        else:
+                            await page.keyboard.press("Escape")
+                            errors += 1
+                else:
+                    logger.warning(f"  No visible options button for row {i}")
+                    errors += 1
 
-        total = paused_count + already_paused
-        logger.info(f"InsuranceAgents.ai: {paused_count} paused, {already_paused} already paused")
+            except Exception as row_err:
+                logger.warning(f"  Error on row {i}: {row_err}")
+                await page.keyboard.press("Escape")
+                errors += 1
+
+        logger.info(f"InsuranceAgents.ai: {paused_count} paused, {already_paused} already paused, {errors} errors")
         return {
-            "success": True,
+            "success": paused_count > 0 or already_paused > 0,
             "action": "paused",
             "paused": paused_count,
             "already_paused": already_paused,
+            "errors": errors,
             "total_campaigns": count,
         }
 
@@ -156,45 +177,66 @@ async def unpause(page: Page, email: str, password: str) -> dict:
 
         activated_count = 0
         already_active = 0
+        errors = 0
 
         for i in range(count):
             row = rows.nth(i)
-            row_text = await row.inner_text()
+            try:
+                row_text = (await row.inner_text()).strip()[:60]
 
-            options_btn = row.locator('button:has-text("..."), [class*="options"], [class*="menu"], [aria-label*="option" i], td:last-child button').first
+                options_btn = None
+                for selector in [
+                    'button:has-text("⋮")',
+                    'button:has-text("...")',
+                    'button:has-text("⋯")',
+                    '[class*="dropdown-toggle"]',
+                    'button[data-toggle="dropdown"]',
+                    'a[data-toggle="dropdown"]',
+                ]:
+                    el = row.locator(selector).first
+                    if await el.count() > 0 and await el.is_visible():
+                        options_btn = el
+                        break
 
-            if await options_btn.count() > 0:
-                await options_btn.click()
-                await page.wait_for_timeout(1000)
+                if not options_btn:
+                    all_btns = row.locator('button:visible, a.btn:visible')
+                    btn_count = await all_btns.count()
+                    if btn_count > 0:
+                        options_btn = all_btns.nth(btn_count - 1)
 
-                # Look for Resume/Activate option
-                resume_option = page.locator('li:has-text("Resume"), li:has-text("Activate"), button:has-text("Resume"), button:has-text("Activate"), [role="menuitem"]:has-text("Resume"), [role="menuitem"]:has-text("Activate")').first
-                if await resume_option.count() > 0:
-                    await resume_option.click()
+                if options_btn and await options_btn.is_visible():
+                    await options_btn.click()
                     await page.wait_for_timeout(1500)
-                    activated_count += 1
-                    logger.info(f"  Activated campaign: {row_text[:50]}")
-                else:
-                    # No resume option — might already be active
-                    pause_option = page.locator('li:has-text("Pause"), button:has-text("Pause")').first
-                    if await pause_option.count() > 0:
-                        await page.keyboard.press("Escape")
-                        already_active += 1
+
+                    resume_opt = page.locator('[role="menuitem"]:has-text("Resume"):visible, [role="menuitem"]:has-text("Activate"):visible, li:has-text("Resume"):visible, li:has-text("Activate"):visible, a:has-text("Resume"):visible, a:has-text("Activate"):visible').first
+                    if await resume_opt.count() > 0:
+                        await resume_opt.click()
+                        await page.wait_for_timeout(2000)
+                        activated_count += 1
+                        logger.info(f"  Activated: {row_text}")
                     else:
-                        await page.keyboard.press("Escape")
-            else:
-                status_dot = row.locator('[class*="status"], [class*="dot"], [class*="circle"]').first
-                if await status_dot.count() > 0:
-                    await status_dot.click()
-                    await page.wait_for_timeout(1500)
-                    activated_count += 1
+                        pause_opt = page.locator('[role="menuitem"]:has-text("Pause"):visible, li:has-text("Pause"):visible').first
+                        if await pause_opt.count() > 0:
+                            await page.keyboard.press("Escape")
+                            already_active += 1
+                        else:
+                            await page.keyboard.press("Escape")
+                            errors += 1
+                else:
+                    errors += 1
 
-        logger.info(f"InsuranceAgents.ai: {activated_count} activated, {already_active} already active")
+            except Exception as row_err:
+                logger.warning(f"  Error on row {i}: {row_err}")
+                await page.keyboard.press("Escape")
+                errors += 1
+
+        logger.info(f"InsuranceAgents.ai: {activated_count} activated, {already_active} already active, {errors} errors")
         return {
-            "success": True,
+            "success": activated_count > 0 or already_active > 0,
             "action": "resumed",
             "activated": activated_count,
             "already_active": already_active,
+            "errors": errors,
             "total_campaigns": count,
         }
 

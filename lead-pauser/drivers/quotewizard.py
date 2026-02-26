@@ -72,59 +72,73 @@ async def login(page: Page, email: str, password: str) -> bool:
 async def _navigate_to_pause_tab(page: Page) -> bool:
     """Navigate to the Pause tab from dashboard."""
     try:
-        # From screenshots: user icon top-right → "Profile / Account Info" link
-        # Then tabs: Account | Pause | Schedule | User Management | Referrals | Send History
-        
-        # Step 1: Check if we're already on an account/pause page with tabs visible
-        pause_link = page.locator('a[href*="Pause" i], a:text-is("Pause")').first
-        if await pause_link.count() > 0:
+        # Step 1: Check if Pause tab is already visible on page
+        pause_link = page.locator('a:text-is("Pause")').first
+        if await pause_link.count() > 0 and await pause_link.is_visible():
             await pause_link.click()
             await page.wait_for_timeout(3000)
             logger.info("QuoteWizard: Found and clicked Pause tab directly")
             return True
 
-        # Step 2: Try the user dropdown menu (top right of dashboard)
-        # From screenshot: person icon in top-right corner
-        user_icons = [
-            page.locator('svg[class*="user" i], svg[class*="person" i]').first,
-            page.locator('[class*="avatar" i], [class*="user-menu" i], [class*="profile-icon" i]').first,
-            page.locator('a[href*="profile" i], a[href*="account" i]').first,
-            page.locator('.navbar a:last-child, nav a:last-child').first,
+        # Step 2: Click the user icon in the top-right nav
+        # From the screenshot: it's a person/user icon in the navbar
+        # Try clicking various user-related elements that are VISIBLE
+        selectors_to_try = [
+            'a[href*="profile" i]',
+            'a[href*="account" i]',
+            '.avatar:visible',
+            'nav .dropdown-toggle:last-child',
+            'header .dropdown-toggle:last-child',
+            '[class*="nav"] [data-toggle="dropdown"]:last-child',
+            'a:has(svg[class*="user" i]):visible',
+            'button:has(svg[class*="user" i]):visible',
         ]
         
-        for icon in user_icons:
-            if await icon.count() > 0:
-                await icon.click()
+        for selector in selectors_to_try:
+            el = page.locator(selector).first
+            if await el.count() > 0 and await el.is_visible():
+                await el.click()
                 await page.wait_for_timeout(2000)
+                logger.info(f"QuoteWizard: Clicked user element: {selector}")
                 
-                # Look for "Profile / Account Info" in dropdown
+                # Look for Profile / Account Info link in dropdown
                 profile_link = page.locator('a:has-text("Profile"), a:has-text("Account Info"), a:has-text("Account")').first
-                if await profile_link.count() > 0:
+                if await profile_link.count() > 0 and await profile_link.is_visible():
                     await profile_link.click()
-                    await page.wait_for_load_state("domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(2000)
+                    await page.wait_for_timeout(3000)
                     
                     # Now find Pause tab
-                    pause_link = page.locator('a[href*="Pause" i], a:text-is("Pause")').first
-                    if await pause_link.count() > 0:
+                    pause_link = page.locator('a:text-is("Pause")').first
+                    if await pause_link.count() > 0 and await pause_link.is_visible():
                         await pause_link.click()
                         await page.wait_for_timeout(3000)
                         logger.info("QuoteWizard: Navigated via user menu → Pause tab")
                         return True
-                break
 
-        # Step 3: Try clicking any visible element with text "Pause"
-        all_pause = page.locator('text=Pause').first
-        if await all_pause.count() > 0:
-            await all_pause.click()
-            await page.wait_for_timeout(3000)
-            content = await page.content()
-            if "Pause My Account" in content or "Add Pause" in content or "End Pause" in content:
-                logger.info("QuoteWizard: Found Pause page via text match")
-                return True
+                # Maybe clicking the icon went directly to account page
+                pause_link = page.locator('a:text-is("Pause")').first
+                if await pause_link.count() > 0 and await pause_link.is_visible():
+                    await pause_link.click()
+                    await page.wait_for_timeout(3000)
+                    return True
 
-        logger.error(f"QuoteWizard: Could not find Pause tab. Current URL: {page.url}")
-        # Take screenshot for debugging
+        # Step 3: Try using keyboard/URL navigation as last resort
+        # QuoteWizard admin URL might support direct navigation
+        current_url = page.url
+        if "admin.quotewizard.com" in current_url:
+            # Try common URL patterns
+            for path in ["/account/pause", "/pause", "/profile/pause"]:
+                try:
+                    await page.goto(f"https://admin.quotewizard.com{path}", timeout=15000)
+                    await page.wait_for_timeout(2000)
+                    content = await page.content()
+                    if "Pause My Account" in content or "Add Pause" in content or "End Pause" in content:
+                        logger.info(f"QuoteWizard: Found Pause page at {path}")
+                        return True
+                except:
+                    continue
+
+        logger.error(f"QuoteWizard: Could not find Pause tab. URL: {page.url}")
         return False
 
     except Exception as e:
