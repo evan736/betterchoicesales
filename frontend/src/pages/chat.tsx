@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import {
   MessageCircle, Send, Hash, User, Users, Search, Plus, ArrowLeft, Paperclip, Smile, X,
+  Zap, Brain,
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -49,6 +50,28 @@ function avatarColor(id: number) {
   return AVATAR_COLORS[id % AVATAR_COLORS.length];
 }
 
+// BEACON typing indicator component
+function BeaconTyping() {
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+          <Zap size={14} className="text-white" />
+        </div>
+        <span className="text-sm font-semibold text-amber-300">BEACON</span>
+        <span className="text-xs text-slate-500">is thinking...</span>
+      </div>
+      <div className="pl-9">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const { user } = useAuth();
   const [channels, setChannels] = useState<any[]>([]);
@@ -60,6 +83,7 @@ export default function ChatPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [showNewDM, setShowNewDM] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [beaconTyping, setBeaconTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sseRef = useRef<EventSource | null>(null);
@@ -111,14 +135,18 @@ export default function ChatPage() {
       setLoading(true);
       const chs = await loadChannels();
       await loadUsers();
+      // Ensure BEACON channel exists
+      try { await axios.post(`${API}/api/chat/channels/ensure-beacon`, {}, { headers: headers() }); } catch {}
+      // Re-load channels to pick up BEACON
+      const updatedChs = await loadChannels();
       // Auto-select office channel
-      const office = chs.find((c: any) => c.channel_type === 'office');
+      const office = updatedChs.find((c: any) => c.channel_type === 'office');
       if (office) {
         setActiveChannel(office);
         await loadMessages(office.id);
-      } else if (chs.length > 0) {
-        setActiveChannel(chs[0]);
-        await loadMessages(chs[0].id);
+      } else if (updatedChs.length > 0) {
+        setActiveChannel(updatedChs[0]);
+        await loadMessages(updatedChs[0].id);
       }
       setLoading(false);
     })();
@@ -146,6 +174,10 @@ export default function ChatPage() {
               if (prev.find(m => m.id === msg.id)) return prev;
               return [...prev, msg];
             });
+            // If BEACON just responded, clear typing indicator
+            if (msg.sender_name === 'BEACON' || msg.sender_username === 'beacon.ai') {
+              setBeaconTyping(false);
+            }
             // Mark as read
             axios.post(`${API}/api/chat/channels/${channelId}/read`, {}, { headers: headers() }).catch(() => {});
           }
@@ -190,6 +222,12 @@ export default function ChatPage() {
       await axios.post(`${API}/api/chat/channels/${activeChannel.id}/messages`, form, {
         headers: { ...headers(), 'Content-Type': 'multipart/form-data' },
       });
+      // Show typing indicator in BEACON channel
+      if (activeChannel.channel_type === 'beacon') {
+        setBeaconTyping(true);
+        // Safety timeout — clear typing after 30s in case SSE misses the response
+        setTimeout(() => setBeaconTyping(false), 30000);
+      }
       setNewMsg('');
       inputRef.current?.focus();
     } catch (e) {
@@ -223,6 +261,7 @@ export default function ChatPage() {
   if (!user) return null;
 
   const officeChannels = channels.filter(c => c.channel_type === 'office');
+  const beaconChannels = channels.filter(c => c.channel_type === 'beacon');
   const dmChannels = channels.filter(c => c.channel_type === 'dm');
 
   return (
@@ -295,6 +334,36 @@ export default function ChatPage() {
               </div>
             )}
 
+            {/* BEACON AI Channel */}
+            {beaconChannels.length > 0 && (
+              <div className="p-3">
+                <p className="text-xs text-slate-500 uppercase tracking-wider mb-2 px-2">AI Assistant</p>
+                {beaconChannels.map(ch => (
+                  <button
+                    key={ch.id}
+                    onClick={() => selectChannel(ch)}
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition text-left mb-0.5 ${
+                      activeChannel?.id === ch.id
+                        ? 'bg-amber-500/20 text-amber-300'
+                        : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                      activeChannel?.id === ch.id ? 'bg-amber-400/30' : 'bg-amber-500/20'
+                    }`}>
+                      <Zap size={12} className={activeChannel?.id === ch.id ? 'text-amber-300' : 'text-amber-500'} />
+                    </div>
+                    <span className="flex-1 text-sm font-medium truncate">{ch.name}</span>
+                    {ch.unread > 0 && (
+                      <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                        {ch.unread}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* DMs */}
             {dmChannels.length > 0 && (
               <div className="p-3">
@@ -339,6 +408,10 @@ export default function ChatPage() {
                 </button>
                 {activeChannel.channel_type === 'office' ? (
                   <Hash size={20} className="text-cyan-400" />
+                ) : activeChannel.channel_type === 'beacon' ? (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                    <Zap size={16} className="text-white" />
+                  </div>
                 ) : (
                   <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarColor(activeChannel.id)} flex items-center justify-center text-xs font-bold`}>
                     {getInitials(activeChannel.name)}
@@ -347,7 +420,9 @@ export default function ChatPage() {
                 <div>
                   <h3 className="font-semibold text-sm">{activeChannel.name}</h3>
                   <p className="text-xs text-slate-400">
-                    {activeChannel.channel_type === 'office'
+                    {activeChannel.channel_type === 'beacon'
+                      ? 'AI Insurance Knowledge Assistant — Ask anything'
+                      : activeChannel.channel_type === 'office'
                       ? `${activeChannel.members?.length || 0} members`
                       : 'Direct Message'}
                   </p>
@@ -364,6 +439,7 @@ export default function ChatPage() {
                 )}
                 {messages.map((msg, i) => {
                   const isMe = msg.sender_id === user?.id;
+                  const isBeacon = msg.sender_name === 'BEACON' || msg.sender_username === 'beacon.ai';
                   const showAvatar = i === 0 || messages[i - 1]?.sender_id !== msg.sender_id ||
                     (new Date(msg.created_at).getTime() - new Date(messages[i - 1]?.created_at).getTime()) > 300000;
                   
@@ -371,10 +447,16 @@ export default function ChatPage() {
                     <div key={msg.id} className={`${showAvatar ? 'mt-4' : 'mt-0.5'}`}>
                       {showAvatar && (
                         <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${avatarColor(msg.sender_id)} flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>
-                            {getInitials(msg.sender_name || msg.sender_username)}
-                          </div>
-                          <span className="text-sm font-semibold text-slate-200">
+                          {isBeacon ? (
+                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
+                              <Zap size={14} className="text-white" />
+                            </div>
+                          ) : (
+                            <div className={`w-7 h-7 rounded-full bg-gradient-to-br ${avatarColor(msg.sender_id)} flex items-center justify-center text-[10px] font-bold flex-shrink-0`}>
+                              {getInitials(msg.sender_name || msg.sender_username)}
+                            </div>
+                          )}
+                          <span className={`text-sm font-semibold ${isBeacon ? 'text-amber-300' : 'text-slate-200'}`}>
                             {msg.sender_name || msg.sender_username}
                           </span>
                           <span className="text-xs text-slate-500">{formatTime(msg.created_at)}</span>
@@ -395,12 +477,29 @@ export default function ChatPage() {
                             </a>
                           </div>
                         ) : (
-                          <p className="text-sm text-slate-200 leading-relaxed break-words">{msg.content}</p>
+                          <div className={`text-sm leading-relaxed break-words ${isBeacon ? 'text-slate-200' : 'text-slate-200'}`}>
+                            {isBeacon ? (
+                              <div className="prose prose-invert prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{
+                                  __html: (msg.content || '')
+                                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                    .replace(/^• /gm, '&bull; ')
+                                    .replace(/^- /gm, '&bull; ')
+                                    .replace(/\n/g, '<br />')
+                                }}
+                              />
+                            ) : (
+                              <p>{msg.content}</p>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
                   );
                 })}
+                {/* BEACON typing indicator */}
+                {beaconTyping && activeChannel?.channel_type === 'beacon' && <BeaconTyping />}
                 <div ref={messagesEndRef} />
               </div>
 
@@ -413,7 +512,7 @@ export default function ChatPage() {
                     value={newMsg}
                     onChange={e => setNewMsg(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                    placeholder={`Message ${activeChannel.name}...`}
+                    placeholder={activeChannel.channel_type === 'beacon' ? 'Ask BEACON anything about insurance...' : `Message ${activeChannel.name}...`}
                     className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20"
                     autoComplete="off"
                   />

@@ -1,7 +1,8 @@
-"""Chat API — internal agency messaging."""
+"""Chat API — internal agency messaging + BEACON AI bot."""
 import logging
 import os
 import uuid
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from sqlalchemy import func, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.chat import ChatChannel, ChatChannelMember, ChatMessage
@@ -177,6 +178,146 @@ def ensure_office_channel(
     return _serialize_channel(office, current_user.id, db)
 
 
+# ── BEACON Bot ──
+
+BEACON_CHANNEL_NAME = "BEACON"
+BEACON_BOT_USERNAME = "beacon.ai"
+
+def _get_or_create_beacon_user(db: Session) -> User:
+    """Ensure the BEACON bot system user exists."""
+    bot = db.query(User).filter(User.username == BEACON_BOT_USERNAME).first()
+    if not bot:
+        bot = User(
+            username=BEACON_BOT_USERNAME,
+            full_name="BEACON",
+            email="beacon@betterchoiceins.com",
+            role="system",
+            is_active=True,
+        )
+        # Set a random password hash (bot never logs in)
+        bot.hashed_password = "!bot-no-login"
+        db.add(bot)
+        db.commit()
+        db.refresh(bot)
+        logger.info(f"Created BEACON bot user (id={bot.id})")
+    return bot
+
+
+def _get_beacon_channel(db: Session) -> Optional[ChatChannel]:
+    """Get the BEACON channel if it exists."""
+    return db.query(ChatChannel).filter(
+        ChatChannel.name == BEACON_CHANNEL_NAME,
+        ChatChannel.channel_type == "beacon",
+    ).first()
+
+
+def _beacon_respond_async(channel_id: int, user_message: str, sender_name: str):
+    """Run BEACON AI response in a background thread (non-blocking)."""
+    def _respond():
+        try:
+            from app.services.beacon import get_beacon_response, BEACON_USER_NAME
+            db = SessionLocal()
+            try:
+                bot_user = _get_or_create_beacon_user(db)
+                
+                # Get recent messages for context
+                recent = (
+                    db.query(ChatMessage)
+                    .options(joinedload(ChatMessage.sender))
+                    .filter(ChatMessage.channel_id == channel_id)
+                    .order_by(ChatMessage.id.desc())
+                    .limit(20)
+                    .all()
+                )
+                history = []
+                for m in reversed(recent):
+                    history.append({
+                        "sender_name": m.sender.full_name if m.sender else "Unknown",
+                        "content": m.content or "",
+                    })
+                
+                # Get AI response
+                response_text, model_used = get_beacon_response(user_message, history)
+                
+                # Post response as BEACON
+                bot_msg = ChatMessage(
+                    channel_id=channel_id,
+                    sender_id=bot_user.id,
+                    content=response_text,
+                    message_type="text",
+                )
+                db.add(bot_msg)
+                db.commit()
+                db.refresh(bot_msg)
+                
+                # Broadcast via SSE
+                try:
+                    from app.api.events import event_bus
+                    event_bus.publish_sync("chat:message", {
+                        "channel_id": channel_id,
+                        "message": _serialize_message(bot_msg),
+                    })
+                except Exception as e:
+                    logger.warning(f"BEACON SSE broadcast failed: {e}")
+                
+                logger.info(f"BEACON responded in channel {channel_id} using {model_used}")
+                
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"BEACON response error: {e}", exc_info=True)
+    
+    thread = threading.Thread(target=_respond, daemon=True)
+    thread.start()
+
+
+@router.post("/channels/ensure-beacon")
+def ensure_beacon_channel(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ensure the BEACON AI channel exists and all active users + bot are members."""
+    beacon = _get_beacon_channel(db)
+    
+    if not beacon:
+        bot_user = _get_or_create_beacon_user(db)
+        beacon = ChatChannel(
+            channel_type="beacon",
+            name=BEACON_CHANNEL_NAME,
+            created_by=bot_user.id,
+        )
+        db.add(beacon)
+        db.flush()
+        
+        # Add bot as member
+        db.add(ChatChannelMember(channel_id=beacon.id, user_id=bot_user.id))
+        
+        # Post welcome message
+        welcome = ChatMessage(
+            channel_id=beacon.id,
+            sender_id=bot_user.id,
+            content="👋 Welcome to BEACON — your AI insurance knowledge assistant!\n\nI can help with:\n• **Carrier appetites & guidelines** — Who writes what, where\n• **State regulations** — All 50 states\n• **Cancellation/non-renewal processes** — By carrier\n• **Underwriter contacts** — Who to call\n• **Quoting & binding procedures** — Step by step\n• **Claims processes** — Filing & follow-up\n• **Coverage comparisons** — HO-3 vs HO-5, liability limits, etc.\n\nJust type your question and I'll respond. I use ⚡ quick mode for simple lookups and 🧠 deep mode for complex analysis.\n\nTry asking: *\"Does NatGen write homes with trampolines in Ohio?\"*",
+            message_type="text",
+        )
+        db.add(welcome)
+
+    # Add all active non-bot users
+    all_users = db.query(User).filter(
+        User.is_active == True,
+        User.username != BEACON_BOT_USERNAME,
+    ).all()
+    existing_members = {m.user_id for m in db.query(ChatChannelMember).filter(
+        ChatChannelMember.channel_id == beacon.id
+    ).all()}
+
+    for u in all_users:
+        if u.id not in existing_members:
+            db.add(ChatChannelMember(channel_id=beacon.id, user_id=u.id))
+
+    db.commit()
+    return _serialize_channel(beacon, current_user.id, db)
+
+
 # ── Messages ──
 
 @router.get("/channels/{channel_id}/messages")
@@ -293,6 +434,14 @@ def send_message(
         })
     except Exception as e:
         logger.warning(f"SSE chat broadcast failed: {e}")
+
+    # BEACON auto-response: if this is the BEACON channel, trigger AI response
+    try:
+        channel = db.query(ChatChannel).filter(ChatChannel.id == channel_id).first()
+        if channel and channel.channel_type == "beacon" and current_user.username != BEACON_BOT_USERNAME:
+            _beacon_respond_async(channel_id, content or "", current_user.full_name or current_user.username)
+    except Exception as e:
+        logger.warning(f"BEACON trigger failed: {e}")
 
     return _serialize_message(msg, current_user.id)
 def mark_read(

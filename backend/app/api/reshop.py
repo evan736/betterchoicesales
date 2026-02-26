@@ -676,7 +676,6 @@ def purge_proactive_reshops(
     return {"status": "ok", "deleted": count}
 
 
-@router.post("/detect-proactive")
 def _run_proactive_scan(
     db: Session,
     days_out: int = 60,
