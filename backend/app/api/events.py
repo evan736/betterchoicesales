@@ -72,21 +72,59 @@ class EventBus:
                 self._subscribers.discard(q)
     
     def publish_sync(self, event_type: str, data: Any = None):
-        """Synchronous publish — for use from sync code (API endpoints, schedulers)."""
+        """Synchronous publish — for use from sync code (API endpoints, schedulers, threads)."""
         payload = {
             "type": event_type,
             "data": data,
             "timestamp": datetime.utcnow().isoformat(),
         }
-        # Push to all queues from sync context
-        dead_queues = []
-        for queue in self._subscribers:
+        # Try to use the running event loop (thread-safe)
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, push directly
+            dead_queues = []
+            for queue in self._subscribers:
+                try:
+                    queue.put_nowait(payload)
+                except (asyncio.QueueFull, Exception):
+                    dead_queues.append(queue)
+            for q in dead_queues:
+                self._subscribers.discard(q)
+        except RuntimeError:
+            # No running loop — we're in a background thread
+            # Use call_soon_threadsafe to push to queues from the main loop
             try:
-                queue.put_nowait(payload)
-            except (asyncio.QueueFull, Exception):
-                dead_queues.append(queue)
-        for q in dead_queues:
-            self._subscribers.discard(q)
+                loop = self._get_loop()
+                if loop and loop.is_running():
+                    for queue in list(self._subscribers):
+                        loop.call_soon_threadsafe(self._safe_put, queue, payload)
+                else:
+                    # Fallback: direct push (may work in some scenarios)
+                    for queue in list(self._subscribers):
+                        try:
+                            queue.put_nowait(payload)
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.warning(f"SSE publish_sync from thread failed: {e}")
+
+    @staticmethod
+    def _safe_put(queue: asyncio.Queue, payload: dict):
+        """Put item on queue, called via call_soon_threadsafe."""
+        try:
+            queue.put_nowait(payload)
+        except (asyncio.QueueFull, Exception):
+            pass
+
+    def _get_loop(self):
+        """Get the main event loop."""
+        if not hasattr(self, '_loop'):
+            self._loop = None
+        return self._loop
+    
+    def set_loop(self, loop):
+        """Store reference to the main event loop for thread-safe publishing."""
+        self._loop = loop
     
     @property
     def client_count(self) -> int:
@@ -106,6 +144,12 @@ async def event_stream(request: Request):
     No auth required for now — events contain only IDs and counts, not PII.
     The frontend uses this to know WHEN to refetch, not to get the data itself.
     """
+    # Capture the event loop for thread-safe publishing
+    try:
+        event_bus.set_loop(asyncio.get_running_loop())
+    except Exception:
+        pass
+    
     queue = await event_bus.subscribe()
     
     async def generate():
