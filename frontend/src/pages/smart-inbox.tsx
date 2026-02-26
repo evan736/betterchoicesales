@@ -91,6 +91,96 @@ function dateGroup(d: string): string {
 }
 function needsAttn(e: InboundEmail) { return e.status==='failed'||e.status==='outbound_queued'; }
 
+function NeedsEmailActions({ msgId, toName, onDone, hdr }: { msgId: number; toName: string; onDone: () => void; hdr: any }) {
+  const [mode, setMode] = useState<'choose'|'email'|'letter'>('choose');
+  const [email, setEmail] = useState('');
+  const [pushNc, setPushNc] = useState(true);
+  const [addr, setAddr] = useState(''); const [city, setCity] = useState(''); const [st, setSt] = useState(''); const [zip, setZip] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const sendEmail = async () => {
+    if (!email || !email.includes('@')) { setError('Enter a valid email'); return; }
+    setSending(true); setError('');
+    try {
+      await axios.post(`${API}/api/smart-inbox/queue/${msgId}/set-email`, { email, push_to_nowcerts: pushNc, send: true }, { headers: hdr });
+      onDone();
+    } catch (e: any) { setError(e.response?.data?.detail || 'Failed to send'); }
+    setSending(false);
+  };
+
+  const sendLetter = async () => {
+    if (!addr || !city || !st || !zip) { setError('Complete address required'); return; }
+    setSending(true); setError('');
+    try {
+      await axios.post(`${API}/api/smart-inbox/queue/${msgId}/send-letter`, { address: addr, city, state: st, zip }, { headers: hdr });
+      onDone();
+    } catch (e: any) { setError(e.response?.data?.detail || 'Failed to send letter'); }
+    setSending(false);
+  };
+
+  if (mode === 'choose') {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-orange-600 font-medium">No email on file for {toName}. Choose how to deliver:</p>
+        <div className="flex gap-2">
+          <button onClick={() => setMode('email')} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5">
+            <Mail size={14} /> Add Email & Send
+          </button>
+          <button onClick={() => setMode('letter')} className="flex-1 py-2 rounded-lg bg-violet-500 hover:bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5">
+            📬 Send via Thanks.io
+          </button>
+          <button onClick={async () => { try { await axios.post(`${API}/api/smart-inbox/queue/${msgId}/reject`, null, { headers: hdr, params: { reason: 'No contact info' } }); onDone(); } catch {} }}
+            className="py-2 px-3 rounded-lg bg-red-50 border border-red-200 text-red-500 text-sm hover:bg-red-100">✕</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'email') {
+    return (
+      <div className="space-y-2 bg-cyan-50 rounded-lg p-3 border border-cyan-200">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-cyan-700">Add email for {toName}</p>
+          <button onClick={() => setMode('choose')} className="text-xs text-slate-400 hover:text-slate-600">← Back</button>
+        </div>
+        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" type="email"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-400 bg-white" />
+        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={pushNc} onChange={e => setPushNc(e.target.checked)} className="rounded" />
+          Save email to NowCerts customer file
+        </label>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <button onClick={sendEmail} disabled={sending}
+          className="w-full py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold disabled:opacity-50">
+          {sending ? 'Sending...' : '✓ Save Email & Send'}
+        </button>
+      </div>
+    );
+  }
+
+  // letter mode
+  return (
+    <div className="space-y-2 bg-violet-50 rounded-lg p-3 border border-violet-200">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-violet-700">📬 Mail letter to {toName}</p>
+        <button onClick={() => setMode('choose')} className="text-xs text-slate-400 hover:text-slate-600">← Back</button>
+      </div>
+      <input value={addr} onChange={e => setAddr(e.target.value)} placeholder="Street address" className="w-full px-3 py-1.5 text-xs rounded border border-violet-300 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400" />
+      <div className="grid grid-cols-3 gap-2">
+        <input value={city} onChange={e => setCity(e.target.value)} placeholder="City" className="px-3 py-1.5 text-xs rounded border border-violet-300 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400" />
+        <input value={st} onChange={e => setSt(e.target.value)} placeholder="State" maxLength={2} className="px-3 py-1.5 text-xs rounded border border-violet-300 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400" />
+        <input value={zip} onChange={e => setZip(e.target.value)} placeholder="ZIP" maxLength={10} className="px-3 py-1.5 text-xs rounded border border-violet-300 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400" />
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <button onClick={sendLetter} disabled={sending}
+        className="w-full py-2 rounded-lg bg-violet-500 hover:bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">
+        {sending ? 'Sending...' : '📬 Send Letter via Thanks.io'}
+      </button>
+    </div>
+  );
+}
+
 export default function SmartInboxPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<'inbox'|'queue'|'sent'|'stats'>('inbox');
@@ -459,20 +549,27 @@ export default function SmartInboxPage() {
                 <div className="text-center py-16 rounded-lg border border-slate-200 bg-white card">
                   <CheckCircle size={36} className="mx-auto text-emerald-400 mb-2"/><p className="text-emerald-600 font-semibold">All caught up!</p><p className="text-slate-400 text-xs mt-1">No messages waiting.</p>
                 </div>
-              ):queue.map(msg=>(
-                <div key={msg.id} className="card rounded-lg border border-amber-200 bg-white p-4 mb-3" style={{borderLeft:'4px solid #fbbf24'}}>
+              ):queue.map(msg=>{
+                const needsEmail = msg.to_email === 'NEEDS_EMAIL' || msg.delivery_method === 'pending';
+                return (
+                <div key={msg.id} className="card rounded-lg border border-amber-200 bg-white p-4 mb-3" style={{borderLeft:`4px solid ${needsEmail?'#f97316':'#fbbf24'}`}}>
                   <div className="flex justify-between mb-1.5">
-                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||msg.to_email} • {msg.delivery_method==='thanksio'?'📬 Thanks.io Letter':'📧 Email'} • {timeAgo(msg.created_at)}</p></div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 self-start">{msg.delivery_method==='thanksio'?'LETTER':'PENDING'}</span>
+                    <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||'Unknown'} {needsEmail ? <span className="text-orange-500 font-semibold">• ⚠ No Email On File</span> : msg.delivery_method==='thanksio'?'• 📬 Thanks.io Letter':'• 📧 Email'} • {timeAgo(msg.created_at)}</p></div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded self-start ${needsEmail?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>{needsEmail?'NEEDS EMAIL':msg.delivery_method==='thanksio'?'LETTER':'PENDING'}</span>
                   </div>
                   {msg.ai_rationale && <p className="text-[11px] text-slate-400 italic mb-2">💡 {msg.ai_rationale}</p>}
                   <div className="rounded bg-slate-50 border border-slate-200 p-3 mb-3 text-xs text-slate-600 leading-relaxed max-h-[200px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
-                  <div className="flex gap-2">
-                    <button onClick={()=>approve(msg.id)} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">✓ Approve & Send</button>
-                    <button onClick={()=>reject(msg.id)} className="py-2 px-4 rounded-lg bg-red-50 border border-red-200 text-red-500 text-sm hover:bg-red-100">✕ Reject</button>
-                  </div>
+                  
+                  {needsEmail ? (
+                    <NeedsEmailActions msgId={msg.id} toName={msg.to_name||'Customer'} onDone={()=>{fetchQueue();fetchEmails(true);}} hdr={hdr} />
+                  ) : (
+                    <div className="flex gap-2">
+                      <button onClick={()=>approve(msg.id)} className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-semibold">✓ Approve & Send</button>
+                      <button onClick={()=>reject(msg.id)} className="py-2 px-4 rounded-lg bg-red-50 border border-red-200 text-red-500 text-sm hover:bg-red-100">✕ Reject</button>
+                    </div>
+                  )}
                 </div>
-              ))}
+              );})}
             </div>
           )}
 

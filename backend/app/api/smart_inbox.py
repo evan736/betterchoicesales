@@ -323,83 +323,94 @@ async def process_inbound_email(email_id: int, db_url: str):
                 logger.warning(f"NowCerts note logging failed for {email.customer_name} (email #{email.id})")
 
         # ── Step 4: Draft Client Communication ───────────────────────────
-        # Always draft when we have a matched customer — everything forwarded
-        # to Smart Inbox is worth communicating to the customer about
-        needs_comm = True if customer else classification.get("needs_client_communication", False)
-        if needs_comm and email.customer_email:
+        # Always draft — if it was forwarded to Smart Inbox, it's worth acting on
+        customer_name = email.customer_name or email.extracted_insured_name or "Valued Customer"
+        has_identifiable_customer = email.customer_name or email.extracted_insured_name
+        
+        if has_identifiable_customer:
             draft = await draft_response(
                 summary=email.ai_summary or "",
                 category=email.category or "other",
                 carrier=email.extracted_carrier,
                 policy_number=email.extracted_policy_number,
-                customer_name=email.customer_name or "Valued Customer",
+                customer_name=customer_name,
                 original_body=email.body_plain or "",
             )
 
             if "error" not in draft:
-                auto_send = determine_auto_send(
-                    category=email.category or "other",
-                    sensitivity=email.sensitivity or "sensitive",
-                )
-
-                outbound = OutboundQueue(
-                    inbound_email_id=email.id,
-                    to_email=email.customer_email,
-                    to_name=email.customer_name,
-                    subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
-                    body_html=draft.get("body_html", ""),
-                    body_plain=draft.get("body_plain", ""),
-                    ai_rationale=draft.get("rationale"),
-                    sensitivity=email.sensitivity,
-                    status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
-                )
-                db.add(outbound)
-                db.commit()
-
-                # Auto-send routine ones
-                if auto_send:
-                    msg_id = await _send_via_mailgun(
-                        to=outbound.to_email,
-                        subject=outbound.subject,
-                        html=outbound.body_html,
+                if email.customer_email:
+                    # Have email — normal send/queue flow
+                    auto_send = determine_auto_send(
+                        category=email.category or "other",
+                        sensitivity=email.sensitivity or "sensitive",
                     )
-                    if msg_id:
-                        outbound.sent_at = datetime.utcnow()
-                        outbound.mailgun_message_id = msg_id
-                        email.status = ProcessingStatus.OUTBOUND_SENT
+                    outbound = OutboundQueue(
+                        inbound_email_id=email.id,
+                        to_email=email.customer_email,
+                        to_name=customer_name,
+                        subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
+                        body_html=draft.get("body_html", ""),
+                        body_plain=draft.get("body_plain", ""),
+                        ai_rationale=draft.get("rationale"),
+                        sensitivity=email.sensitivity,
+                        status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
+                    )
+                    db.add(outbound)
+                    db.commit()
 
-                        # Log outbound to NowCerts too
-                        if email.customer_name:
-                            out_note = format_outbound_note(
-                                to_email=outbound.to_email,
-                                subject=outbound.subject,
-                                status="sent",
-                                body_preview=outbound.body_plain or "",
-                            )
-                            await log_note_to_customer(
-                                insured_id=email.nowcerts_insured_id or "",
-                                subject=f"Smart Inbox: Sent — {outbound.subject}",
-                                note_body=out_note,
-                                customer_name=email.customer_name or "",
-                                customer_email=email.customer_email or "",
-                            )
+                    if auto_send:
+                        msg_id = await _send_via_mailgun(
+                            to=outbound.to_email,
+                            subject=outbound.subject,
+                            html=outbound.body_html,
+                        )
+                        if msg_id:
+                            outbound.sent_at = datetime.utcnow()
+                            outbound.mailgun_message_id = msg_id
+                            email.status = ProcessingStatus.OUTBOUND_SENT
+
+                            if email.customer_name:
+                                out_note = format_outbound_note(
+                                    to_email=outbound.to_email,
+                                    subject=outbound.subject,
+                                    status="sent",
+                                    body_preview=outbound.body_plain or "",
+                                )
+                                await log_note_to_customer(
+                                    insured_id=email.nowcerts_insured_id or "",
+                                    subject=f"Smart Inbox: Sent — {outbound.subject}",
+                                    note_body=out_note,
+                                    customer_name=email.customer_name or "",
+                                    customer_email=email.customer_email or "",
+                                )
+                        else:
+                            outbound.send_error = "Mailgun send failed"
+                            outbound.status = OutboundStatus.PENDING_APPROVAL
                     else:
-                        outbound.send_error = "Mailgun send failed"
-                        outbound.status = OutboundStatus.PENDING_APPROVAL
+                        email.status = ProcessingStatus.OUTBOUND_QUEUED
+                        if email.sensitivity in ("sensitive", "critical"):
+                            await _send_evan_alert(email, outbound)
+                    db.commit()
                 else:
+                    # No email — queue with NEEDS_EMAIL for manual resolution
+                    outbound = OutboundQueue(
+                        inbound_email_id=email.id,
+                        to_email="NEEDS_EMAIL",
+                        to_name=customer_name,
+                        subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
+                        body_html=draft.get("body_html", ""),
+                        body_plain=draft.get("body_plain", ""),
+                        ai_rationale=f"No email on file for {customer_name} — add email or send letter via Thanks.io",
+                        sensitivity=email.sensitivity,
+                        status=OutboundStatus.PENDING_APPROVAL,
+                        delivery_method="pending",
+                    )
+                    db.add(outbound)
                     email.status = ProcessingStatus.OUTBOUND_QUEUED
-                    # Alert Evan for sensitive items
-                    if email.sensitivity in ("sensitive", "critical"):
-                        await _send_evan_alert(email, outbound)
-
-                db.commit()
+                    db.commit()
             else:
                 email.processing_notes = f"Draft failed: {draft.get('error')}"
                 db.commit()
-        elif needs_comm and not email.customer_email:
-            email.processing_notes = "Client communication needed but no customer email found"
-            email.status = ProcessingStatus.CUSTOMER_NOT_FOUND
-            db.commit()
         else:
             email.status = ProcessingStatus.COMPLETED
             db.commit()
@@ -590,30 +601,29 @@ async def _process_batch_child(child_id: int, db):
                 child.status = ProcessingStatus.LOGGED
                 db.commit()
 
-        # ── Draft Response — always draft when we have a matched customer ──
+        # ── Draft Response — always draft, even for unmatched customers ──
         sensitivity = child.sensitivity or "routine"
         category = child.category or "other"
+        customer_name = child.customer_name or child.extracted_insured_name or "Valued Customer"
 
-        # Draft for everything — if it came through Smart Inbox, the customer should hear about it
-        needs_response = True
+        # Always draft a response — unmatched items queue for manual email entry
+        draft = await draft_response(
+            summary=child.ai_summary or "",
+            category=category,
+            carrier=child.extracted_carrier,
+            policy_number=child.extracted_policy_number,
+            customer_name=customer_name,
+            original_body=child.body_plain or "",
+        )
 
-        if needs_response and child.customer_email:
-            draft = await draft_response(
-                summary=child.ai_summary or "",
-                category=category,
-                carrier=child.extracted_carrier,
-                policy_number=child.extracted_policy_number,
-                customer_name=child.customer_name or "Valued Customer",
-                original_body=child.body_plain or "",
-            )
-
-            if "error" not in draft:
+        if "error" not in draft:
+            if child.customer_email:
+                # Have email — normal flow
                 auto_send = determine_auto_send(category, sensitivity)
-
                 outbound = OutboundQueue(
                     inbound_email_id=child.id,
                     to_email=child.customer_email,
-                    to_name=child.customer_name,
+                    to_name=customer_name,
                     subject=draft.get("subject", f"Update on your policy — {child.extracted_policy_number or ''}"),
                     body_html=draft.get("body_html", ""),
                     body_plain=draft.get("body_plain", ""),
@@ -640,49 +650,26 @@ async def _process_batch_child(child_id: int, db):
                         child.status = ProcessingStatus.OUTBOUND_QUEUED
                 else:
                     child.status = ProcessingStatus.OUTBOUND_QUEUED
-
                 db.commit()
-        elif needs_response and not child.customer_email:
-            # No email — try Thanks.io letter via mailing address
-            child.processing_notes = "No email on file — queuing Thanks.io letter if address available"
-            
-            # Look up mailing address from customer data
-            address_info = await _get_customer_address(child.nowcerts_insured_id, child.customer_name or "")
-            if address_info and address_info.get("address"):
-                # Draft the letter content via AI
-                draft = await draft_response(
-                    summary=child.ai_summary or "",
-                    category=category,
-                    carrier=child.extracted_carrier,
-                    policy_number=child.extracted_policy_number,
-                    customer_name=child.customer_name or "Valued Customer",
-                    original_body=child.body_plain or "",
-                )
-                if "error" not in draft:
-                    outbound = OutboundQueue(
-                        inbound_email_id=child.id,
-                        to_email=f"MAIL: {address_info.get('address', '')}, {address_info.get('city', '')} {address_info.get('state', '')} {address_info.get('zip', '')}",
-                        to_name=child.customer_name,
-                        subject=draft.get("subject", f"Update on your policy — {child.extracted_policy_number or ''}"),
-                        body_html=draft.get("body_html", ""),
-                        body_plain=draft.get("body_plain", ""),
-                        ai_rationale=f"No email on file — Thanks.io letter to {address_info.get('address', '')}. {draft.get('rationale', '')}",
-                        sensitivity=sensitivity,
-                        status=OutboundStatus.PENDING_APPROVAL,
-                        delivery_method="thanksio",
-                    )
-                    db.add(outbound)
-                    child.status = ProcessingStatus.OUTBOUND_QUEUED
-                    db.commit()
-                else:
-                    child.processing_notes = f"No email, draft failed: {draft.get('error')}"
-                    child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
-                    db.commit()
             else:
-                child.processing_notes = "No email and no mailing address on file — manual follow-up needed"
-                child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+                # No email — draft queued, agent can add email or send via Thanks.io
+                outbound = OutboundQueue(
+                    inbound_email_id=child.id,
+                    to_email="NEEDS_EMAIL",
+                    to_name=customer_name,
+                    subject=draft.get("subject", f"Update on your policy — {child.extracted_policy_number or ''}"),
+                    body_html=draft.get("body_html", ""),
+                    body_plain=draft.get("body_plain", ""),
+                    ai_rationale=f"No email on file for {customer_name} — add email or send letter via Thanks.io",
+                    sensitivity=sensitivity,
+                    status=OutboundStatus.PENDING_APPROVAL,
+                    delivery_method="pending",  # needs email or thanksio decision
+                )
+                db.add(outbound)
+                child.status = ProcessingStatus.OUTBOUND_QUEUED
                 db.commit()
         else:
+            child.processing_notes = f"Draft failed: {draft.get('error')}"
             child.status = ProcessingStatus.COMPLETED
             db.commit()
 
@@ -1071,6 +1058,154 @@ async def edit_and_approve(
 
     db.commit()
     return {"status": item.status, "id": item.id}
+
+
+@router.post("/queue/{item_id}/set-email")
+async def set_email_and_send(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Set customer email on a NEEDS_EMAIL queue item, save to inbound record,
+    optionally push to NowCerts, then approve & send.
+    Body: { "email": "...", "push_to_nowcerts": true/false, "send": true/false }
+    """
+    item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    body = await request.json()
+    new_email = (body.get("email") or "").strip()
+    push_nc = body.get("push_to_nowcerts", False)
+    send_now = body.get("send", True)
+
+    if not new_email or "@" not in new_email:
+        raise HTTPException(status_code=400, detail="Valid email address required")
+
+    # Update the outbound item
+    item.to_email = new_email
+    item.delivery_method = "email"
+
+    # Update the parent inbound email record (save for future)
+    inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+    if inbound:
+        inbound.customer_email = new_email
+
+    db.commit()
+
+    # Push to NowCerts if requested
+    if push_nc and inbound:
+        try:
+            nc_note = f"Customer email updated via Smart Inbox: {new_email}"
+            await log_note_to_customer(
+                insured_id=inbound.nowcerts_insured_id or "",
+                subject=f"Email Updated: {inbound.customer_name or inbound.extracted_insured_name or 'Customer'}",
+                note_body=nc_note,
+                customer_name=inbound.customer_name or inbound.extracted_insured_name or "",
+                customer_email=new_email,
+            )
+        except Exception as e:
+            logger.warning(f"NowCerts email push failed: {e}")
+
+    # Send if requested
+    if send_now:
+        msg_id = await _send_via_mailgun(
+            to=new_email,
+            subject=item.subject,
+            html=item.body_html,
+        )
+        if msg_id:
+            item.status = OutboundStatus.SENT
+            item.sent_at = datetime.utcnow()
+            item.mailgun_message_id = msg_id
+            item.approved_by = "evan"
+            item.approved_at = datetime.utcnow()
+            if inbound:
+                inbound.status = ProcessingStatus.OUTBOUND_SENT
+
+                # Log to NowCerts
+                out_note = format_outbound_note(
+                    to_email=new_email,
+                    subject=item.subject,
+                    status="sent",
+                    body_preview=item.body_plain or "",
+                )
+                await log_note_to_customer(
+                    insured_id=inbound.nowcerts_insured_id or "",
+                    subject=f"Smart Inbox: Sent — {item.subject}",
+                    note_body=out_note,
+                    customer_name=inbound.customer_name or inbound.extracted_insured_name or "",
+                    customer_email=new_email,
+                )
+
+            db.commit()
+            return {"status": "sent", "email": new_email, "mailgun_id": msg_id}
+        else:
+            item.send_error = "Mailgun send failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail="Failed to send email")
+    else:
+        db.commit()
+        return {"status": "email_saved", "email": new_email}
+
+
+@router.post("/queue/{item_id}/send-letter")
+async def send_thanksio_letter_endpoint(
+    item_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Send a queue item as a physical letter via Thanks.io.
+    Body: { "address": "...", "city": "...", "state": "...", "zip": "..." }
+    """
+    from app.services.thanksio_letter import send_thanksio_letter
+
+    item = db.query(OutboundQueue).filter(OutboundQueue.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    body = await request.json()
+    address = body.get("address", "")
+    city = body.get("city", "")
+    state = body.get("state", "")
+    zip_code = body.get("zip", "")
+
+    if not address or not city or not state or not zip_code:
+        raise HTTPException(status_code=400, detail="Complete mailing address required (address, city, state, zip)")
+
+    inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+
+    result = send_thanksio_letter(
+        client_name=item.to_name or "Valued Customer",
+        address=address,
+        city=city,
+        state=state,
+        zip_code=zip_code,
+        policy_number=inbound.extracted_policy_number or "" if inbound else "",
+        carrier=inbound.extracted_carrier or "" if inbound else "",
+        custom_message=item.body_plain or "",
+        letter_subject=item.subject or "Important Policy Notice",
+    )
+
+    if result.get("success"):
+        item.status = OutboundStatus.SENT
+        item.sent_at = datetime.utcnow()
+        item.delivery_method = "thanksio"
+        item.thanksio_order_id = result.get("order_id")
+        item.to_email = f"MAIL: {address}, {city} {state} {zip_code}"
+        item.approved_by = "evan"
+        item.approved_at = datetime.utcnow()
+        if inbound:
+            inbound.status = ProcessingStatus.OUTBOUND_SENT
+
+        db.commit()
+        return {"status": "sent", "method": "thanksio", "order_id": result.get("order_id")}
+    else:
+        item.send_error = result.get("error", "Thanks.io send failed")
+        db.commit()
+        raise HTTPException(status_code=500, detail=result.get("error", "Thanks.io send failed"))
 
 
 # ── Batch Actions ─────────────────────────────────────────────────────────
