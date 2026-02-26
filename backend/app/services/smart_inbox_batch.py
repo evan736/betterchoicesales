@@ -151,9 +151,12 @@ def _parse_policy_activity(
             continue
 
         # Determine category and sensitivity from the to-do description
-        category, sensitivity, summary = _categorize_policy_activity(
+        result = _categorize_policy_activity(
             todo_desc, action, status, insured, policy
         )
+        if result is None:
+            continue  # Skip this item (e.g. GoPaperless)
+        category, sensitivity, summary = result
 
         items.append({
             "policy_number": policy,
@@ -322,11 +325,7 @@ def _categorize_policy_activity(
     action_lower = action.lower()
 
     if "gopaperless" in desc_lower:
-        return (
-            "underwriting_requirement",
-            "routine",
-            f"GoPaperless enrollment needed for {insured} (policy {policy})",
-        )
+        return None  # Skip — not actionable for the agency
     elif "umuimpd" in desc_lower or "umpd" in desc_lower:
         return (
             "underwriting_requirement",
