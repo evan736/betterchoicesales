@@ -1055,7 +1055,13 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.0"}
+    sse_loaded = False
+    try:
+        from app.api.events import event_bus
+        sse_loaded = True
+    except Exception:
+        pass
+    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.0", "sse": sse_loaded}
 
 
 @app.post("/admin/force-migrate")
@@ -1227,9 +1233,15 @@ from app.api import gmail_sync as gmail_sync_api
 app.include_router(gmail_sync_api.router)
 
 from app.api import smart_inbox as smart_inbox_api
-from app.api import events as events_api
 app.include_router(smart_inbox_api.router)
-app.include_router(events_api.router)
+
+try:
+    from app.api import events as events_api
+    app.include_router(events_api.router)
+    logger.info("Events SSE router loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load events router: {e}")
+
 app.include_router(reshop_api.router)
 
 
