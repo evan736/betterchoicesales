@@ -657,6 +657,25 @@ def move_reshop_stage(
 
 # ── Proactive Detection ──────────────────────────────────────────
 
+@router.delete("/purge-proactive")
+def purge_proactive_reshops(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all proactive reshop entries (for re-scanning with new criteria)."""
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Delete activities for proactive reshops first
+    proactive_ids = [r.id for r in db.query(Reshop.id).filter(Reshop.is_proactive == True).all()]
+    if proactive_ids:
+        db.query(ReshopActivity).filter(ReshopActivity.reshop_id.in_(proactive_ids)).delete(synchronize_session=False)
+    
+    count = db.query(Reshop).filter(Reshop.is_proactive == True).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "ok", "deleted": count}
+
+
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
     days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
