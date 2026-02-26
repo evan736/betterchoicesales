@@ -88,51 +88,59 @@ async def pause(page: Page, username: str, password: str) -> dict:
         }""")
         await page.wait_for_timeout(2000)
 
-        # Modal: "Pause Calls" with "Resume Date" input + time dropdown + "Pause Calls" button
-        tomorrow = (datetime.now() + timedelta(days=365)).strftime("%m/%d/%Y")
+        # Modal opens with a datepicker calendar. Click the date input to open calendar.
+        date_input = page.locator('input[placeholder="Resume Date"], input:visible').first
+        await date_input.click()
+        await page.wait_for_timeout(1000)
 
-        # Find the date input — click it, clear it, type the date
-        all_inputs = page.locator('input:visible')
-        input_count = await all_inputs.count()
-        logger.info(f"AWL: Found {input_count} visible inputs in modal")
-
-        filled = False
-        for idx in range(input_count):
-            inp = all_inputs.nth(idx)
-            inp_type = await inp.get_attribute("type") or ""
-            inp_name = await inp.get_attribute("name") or ""
-            inp_id = await inp.get_attribute("id") or ""
-            logger.info(f"AWL: Input {idx}: type={inp_type}, name={inp_name}, id={inp_id}")
-
-            # Skip password/hidden/checkbox inputs
-            if inp_type in ("password", "hidden", "checkbox", "radio", "submit", "button"):
-                continue
-
-            # Click the input, select all, type the date
-            await inp.click()
-            await page.wait_for_timeout(300)
-            await inp.press("Control+a")
-            await inp.type(tomorrow, delay=50)
-            await page.wait_for_timeout(300)
-            await inp.press("Tab")
-            logger.info(f"AWL: Typed date {tomorrow} into input {idx}")
-            filled = True
-            break
-
-        if not filled:
-            # JS fallback — force value into every visible text input
-            await page.evaluate("""(dateVal) => {
-                const inputs = document.querySelectorAll('input');
-                for (const input of inputs) {
-                    if (input.offsetParent !== null && input.type !== 'hidden' && input.type !== 'password') {
-                        input.value = dateVal;
-                        input.dispatchEvent(new Event('input', {bubbles: true}));
-                        input.dispatchEvent(new Event('change', {bubbles: true}));
+        # Calendar is showing. Click tomorrow's date or the next available date.
+        # Strategy: click the ">" arrow to go to next month, then click day "1"
+        # OR just click the last day visible in the current month (27 or 28)
+        
+        # Simpler: just click tomorrow or any future date that's visible and clickable
+        clicked_date = await page.evaluate("""() => {
+            // Find all clickable day cells in the calendar
+            const cells = document.querySelectorAll('td, .day, [class*="day"], .datepicker td');
+            const today = new Date().getDate();
+            
+            // Look for tomorrow or any day after today
+            for (const cell of cells) {
+                const text = cell.textContent.trim();
+                const num = parseInt(text);
+                if (num > today && num <= 31 && cell.offsetParent !== null && 
+                    !cell.classList.contains('disabled') && !cell.classList.contains('off')) {
+                    cell.click();
+                    return num;
+                }
+            }
+            
+            // If we're at end of month, click the ">" arrow to go to next month
+            const nextArrow = document.querySelector('.next, .datepicker-next, [class*="next"], button:has-text(">")');
+            if (nextArrow) {
+                nextArrow.click();
+                return 'next_month';
+            }
+            
+            return null;
+        }""")
+        
+        logger.info(f"AWL: Clicked date: {clicked_date}")
+        
+        if clicked_date == 'next_month':
+            await page.wait_for_timeout(500)
+            # Now click day 1 of next month
+            await page.evaluate("""() => {
+                const cells = document.querySelectorAll('td, .day, [class*="day"]');
+                for (const cell of cells) {
+                    if (cell.textContent.trim() === '1' && cell.offsetParent !== null &&
+                        !cell.classList.contains('disabled') && !cell.classList.contains('off')) {
+                        cell.click();
+                        return true;
                     }
                 }
-            }""", tomorrow)
-            logger.info("AWL: Filled date via JS fallback")
-
+                return false;
+            }""")
+        
         await page.wait_for_timeout(1000)
 
         # Click "Pause Calls" confirmation button
