@@ -267,8 +267,26 @@ export default function SmartInboxPage() {
     setChecked(new Set()); setBatchOpen(false); fetchEmails(true);
     if (sel && ids.includes(sel.id)) { if (action==='archive') setSel(null); else fetchDetail(sel.id); }
   };
+  const lastCheckedRef = useRef<number|null>(null);
   const toggle = (id:number, e?:React.MouseEvent) => {
-    e?.stopPropagation(); setChecked(p => { const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; });
+    e?.stopPropagation();
+    // Shift+click or Ctrl+click: range select between last checked and this one
+    if (e && (e.shiftKey || e.ctrlKey) && lastCheckedRef.current !== null && lastCheckedRef.current !== id) {
+      const ids = filtered.map(em => em.id);
+      const lastIdx = ids.indexOf(lastCheckedRef.current);
+      const curIdx = ids.indexOf(id);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const start = Math.min(lastIdx, curIdx);
+        const end = Math.max(lastIdx, curIdx);
+        const rangeIds = ids.slice(start, end + 1);
+        setChecked(p => { const n = new Set(p); rangeIds.forEach(rid => n.add(rid)); return n; });
+        lastCheckedRef.current = id;
+        return;
+      }
+    }
+    // Normal click: toggle single
+    setChecked(p => { const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; });
+    lastCheckedRef.current = id;
   };
   const selAll = () => { if (checked.size===filtered.length) setChecked(new Set()); else setChecked(new Set(filtered.map(e=>e.id))); };
 
