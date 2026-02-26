@@ -323,7 +323,9 @@ async def process_inbound_email(email_id: int, db_url: str):
                 logger.warning(f"NowCerts note logging failed for {email.customer_name} (email #{email.id})")
 
         # ── Step 4: Draft Client Communication ───────────────────────────
-        needs_comm = classification.get("needs_client_communication", False)
+        # Always draft when we have a matched customer — everything forwarded
+        # to Smart Inbox is worth communicating to the customer about
+        needs_comm = True if customer else classification.get("needs_client_communication", False)
         if needs_comm and email.customer_email:
             draft = await draft_response(
                 summary=email.ai_summary or "",
@@ -588,17 +590,12 @@ async def _process_batch_child(child_id: int, db):
                 child.status = ProcessingStatus.LOGGED
                 db.commit()
 
-        # ── Draft Response (for items that need client action) ──────────
+        # ── Draft Response — always draft when we have a matched customer ──
         sensitivity = child.sensitivity or "routine"
         category = child.category or "other"
 
-        # Draft responses for anything actionable where we have a customer email
-        actionable_categories = {
-            "non_payment", "cancellation", "non_renewal",
-            "underwriting_requirement", "billing_inquiry",
-            "renewal_notice", "policy_change",
-        }
-        needs_response = category in actionable_categories
+        # Draft for everything — if it came through Smart Inbox, the customer should hear about it
+        needs_response = True
 
         if needs_response and child.customer_email:
             draft = await draft_response(
