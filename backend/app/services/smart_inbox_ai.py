@@ -52,10 +52,31 @@ Analyze this email and respond with a JSON object (no markdown, just raw JSON):
 }}
 
 SENSITIVITY RULES:
-- "routine": Payment reminders, standard renewal notices, policy confirmations, basic status updates
-- "moderate": Underwriting requirements, endorsement requests, billing inquiries  
+- "routine": Payment reminders, standard renewal notices, policy confirmations, basic status updates, vehicle changes, endorsement confirmations
+- "moderate": Underwriting requirements, endorsement requests, billing inquiries, inspection requirements
 - "sensitive": Cancellation notices, non-renewal notices, claim notices, coverage disputes
 - "critical": Immediate cancellation, lapse in coverage, legal notices, compliance issues
+
+CLIENT COMMUNICATION RULES — BE PROACTIVE:
+Set "needs_client_communication" to TRUE for:
+- ANY policy change (vehicle swap, driver addition/removal, address change, coverage change) — client should be informed
+- Non-payment notices — client needs to pay
+- Cancellation or non-renewal — client needs to know and take action
+- Underwriting requirements — client may need to provide documents
+- Claim updates — client should be informed of progress
+- Billing changes — client should know about premium changes
+- Renewal notices with premium changes — client should review
+- Endorsement confirmations — client should know their change went through
+- Any email that mentions a deadline the client needs to meet
+
+Set "needs_client_communication" to FALSE only for:
+- Internal agency communications (API discussions, system emails, agent-to-agent)
+- Carrier marketing or general announcements not specific to a customer
+- Emails where there is no identifiable customer/insured
+- Duplicate confirmations of something the client already knows about
+- Emails that are clearly not customer-facing (system notifications, reports)
+
+When in doubt, set it to TRUE — it's better to draft a response that gets reviewed than to miss communicating with a client.
 
 EMAIL TO ANALYZE:
 From: {from_address}
