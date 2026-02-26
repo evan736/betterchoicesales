@@ -72,71 +72,76 @@ async def login(page: Page, email: str, password: str) -> bool:
 async def _navigate_to_pause_tab(page: Page) -> bool:
     """Navigate to the Pause tab from dashboard."""
     try:
-        # Step 1: Check if Pause tab is already visible on page
-        pause_link = page.locator('a:text-is("Pause")').first
-        if await pause_link.count() > 0 and await pause_link.is_visible():
-            await pause_link.click()
-            await page.wait_for_timeout(3000)
-            logger.info("QuoteWizard: Found and clicked Pause tab directly")
-            return True
-
-        # Step 2: Click the user icon in the top-right nav
-        # From the screenshot: it's a person/user icon in the navbar
-        # Try clicking various user-related elements that are VISIBLE
-        selectors_to_try = [
-            'a[href*="profile" i]',
-            'a[href*="account" i]',
-            '.avatar:visible',
-            'nav .dropdown-toggle:last-child',
-            'header .dropdown-toggle:last-child',
-            '[class*="nav"] [data-toggle="dropdown"]:last-child',
-            'a:has(svg[class*="user" i]):visible',
-            'button:has(svg[class*="user" i]):visible',
-        ]
+        # Step 1: Extract client ID from current URL or page content
+        current_url = page.url
+        client_id = None
         
-        for selector in selectors_to_try:
-            el = page.locator(selector).first
-            if await el.count() > 0 and await el.is_visible():
-                await el.click()
-                await page.wait_for_timeout(2000)
-                logger.info(f"QuoteWizard: Clicked user element: {selector}")
-                
-                # Look for Profile / Account Info link in dropdown
-                profile_link = page.locator('a:has-text("Profile"), a:has-text("Account Info"), a:has-text("Account")').first
-                if await profile_link.count() > 0 and await profile_link.is_visible():
-                    await profile_link.click()
-                    await page.wait_for_timeout(3000)
-                    
-                    # Now find Pause tab
-                    pause_link = page.locator('a:text-is("Pause")').first
-                    if await pause_link.count() > 0 and await pause_link.is_visible():
-                        await pause_link.click()
-                        await page.wait_for_timeout(3000)
-                        logger.info("QuoteWizard: Navigated via user menu → Pause tab")
-                        return True
+        # Check if we're already on a client page
+        if "/client/" in current_url:
+            # Extract client ID: /client/{uuid}/...
+            parts = current_url.split("/client/")
+            if len(parts) > 1:
+                client_id = parts[1].split("/")[0]
+        
+        # Step 2: If we have a client ID, navigate directly to pause tab
+        if client_id:
+            pause_url = f"https://admin.quotewizard.com/client/{client_id}/pause"
+            logger.info(f"QuoteWizard: Navigating to {pause_url}")
+            await page.goto(pause_url, timeout=30000)
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+            await page.wait_for_timeout(2000)
+            
+            content = await page.content()
+            if "404" not in page.url and ("Pause" in content or "pause" in content.lower()):
+                logger.info("QuoteWizard: Navigated to Pause tab via direct URL")
+                return True
 
-                # Maybe clicking the icon went directly to account page
-                pause_link = page.locator('a:text-is("Pause")').first
-                if await pause_link.count() > 0 and await pause_link.is_visible():
-                    await pause_link.click()
-                    await page.wait_for_timeout(3000)
+        # Step 3: Try to find the account page link first to get client ID
+        # Look for any link containing /client/ in the page
+        account_link = await page.evaluate("""() => {
+            const links = document.querySelectorAll('a[href*="/client/"]');
+            for (const link of links) {
+                return link.href;
+            }
+            return null;
+        }""")
+        
+        if account_link and "/client/" in account_link:
+            parts = account_link.split("/client/")
+            if len(parts) > 1:
+                client_id = parts[1].split("/")[0]
+                pause_url = f"https://admin.quotewizard.com/client/{client_id}/pause"
+                await page.goto(pause_url, timeout=30000)
+                await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                await page.wait_for_timeout(2000)
+                
+                if "404" not in page.url:
+                    logger.info("QuoteWizard: Found client ID from page links")
                     return True
 
-        # Step 3: Try using keyboard/URL navigation as last resort
-        # QuoteWizard admin URL might support direct navigation
-        current_url = page.url
-        if "admin.quotewizard.com" in current_url:
-            # Try common URL patterns
-            for path in ["/account/pause", "/pause", "/profile/pause"]:
-                try:
-                    await page.goto(f"https://admin.quotewizard.com{path}", timeout=15000)
-                    await page.wait_for_timeout(2000)
-                    content = await page.content()
-                    if "Pause My Account" in content or "Add Pause" in content or "End Pause" in content:
-                        logger.info(f"QuoteWizard: Found Pause page at {path}")
-                        return True
-                except:
-                    continue
+        # Step 4: Navigate to account page first, then click Pause tab
+        if client_id:
+            account_url = f"https://admin.quotewizard.com/client/{client_id}/account"
+            await page.goto(account_url, timeout=30000)
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+            await page.wait_for_timeout(2000)
+            
+            pause_link = page.locator('a:text-is("Pause")').first
+            if await pause_link.count() > 0 and await pause_link.is_visible():
+                await pause_link.click()
+                await page.wait_for_timeout(3000)
+                logger.info("QuoteWizard: Clicked Pause tab from account page")
+                return True
+
+        # Step 5: Try known client ID as hardcoded fallback
+        known_id = "e95fa754-5cc3-4f8c-b8bc-248347b81ba2"
+        pause_url = f"https://admin.quotewizard.com/client/{known_id}/pause"
+        await page.goto(pause_url, timeout=30000)
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(2000)
+        if "404" not in page.url:
+            logger.info("QuoteWizard: Used known client ID fallback")
+            return True
 
         logger.error(f"QuoteWizard: Could not find Pause tab. URL: {page.url}")
         return False
