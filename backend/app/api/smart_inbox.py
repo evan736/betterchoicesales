@@ -523,14 +523,17 @@ async def _process_batch_child(child_id: int, db):
                 child.status = ProcessingStatus.LOGGED
                 db.commit()
 
-        # ── Draft Response (for sensitive items like non-pay cancellations) ──
+        # ── Draft Response (for items that need client action) ──────────
         sensitivity = child.sensitivity or "routine"
         category = child.category or "other"
 
-        # Only draft responses for items that need client action
-        needs_response = category in (
+        # Draft responses for anything actionable where we have a customer email
+        actionable_categories = {
             "non_payment", "cancellation", "non_renewal",
-        ) or sensitivity in ("sensitive", "critical")
+            "underwriting_requirement", "billing_inquiry",
+            "renewal_notice", "policy_change",
+        }
+        needs_response = category in actionable_categories
 
         if needs_response and child.customer_email:
             draft = await draft_response(
@@ -572,11 +575,17 @@ async def _process_batch_child(child_id: int, db):
                     else:
                         outbound.send_error = "Mailgun send failed"
                         outbound.status = OutboundStatus.PENDING_APPROVAL
+                        child.status = ProcessingStatus.OUTBOUND_QUEUED
                 else:
                     child.status = ProcessingStatus.OUTBOUND_QUEUED
 
                 db.commit()
-        elif not needs_response:
+        elif needs_response and not child.customer_email:
+            # Actionable item but no customer email — flag for manual attention
+            child.processing_notes = "Customer email not on file — manual follow-up needed"
+            child.status = ProcessingStatus.CUSTOMER_NOT_FOUND
+            db.commit()
+        else:
             child.status = ProcessingStatus.COMPLETED
             db.commit()
 
