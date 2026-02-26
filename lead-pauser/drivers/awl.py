@@ -88,31 +88,50 @@ async def pause(page: Page, username: str, password: str) -> dict:
         }""")
         await page.wait_for_timeout(2000)
 
-        # Modal opens: "Pause Calls" with Resume Date input and Time dropdown
-        # Set resume date to far future (next year) so it stays paused until manually resumed
+        # Modal: "Pause Calls" with "Resume Date" input + time dropdown + "Pause Calls" button
         tomorrow = (datetime.now() + timedelta(days=365)).strftime("%m/%d/%Y")
 
-        # Fill the Resume Date field
-        date_input = page.locator('input[name*="Resume" i], input[placeholder*="Resume" i], input[id*="resume" i]').first
-        if await date_input.count() == 0:
-            # Try any visible date/text input in the modal
-            date_input = page.locator('.modal input[type="text"], dialog input[type="text"], .popup input[type="text"]').first
-        if await date_input.count() == 0:
-            # Try the input right after "Date to Resume" or "Resume Date"
-            date_input = page.locator('input').nth(0)
-            # Use JS to find it
-            await page.evaluate(f"""() => {{
-                const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
-                for (const input of inputs) {{
-                    if (input.offsetParent !== null && input.closest('.pause-inner-container, .modal, dialog, [role="dialog"]')) {{
-                        input.value = '{tomorrow}';
-                        input.dispatchEvent(new Event('change', {{bubbles: true}}));
-                        input.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        return true;
-                    }}
-                }}
-                return false;
-            }}""")
+        # Find the date input — click it, clear it, type the date
+        all_inputs = page.locator('input:visible')
+        input_count = await all_inputs.count()
+        logger.info(f"AWL: Found {input_count} visible inputs in modal")
+
+        filled = False
+        for idx in range(input_count):
+            inp = all_inputs.nth(idx)
+            inp_type = await inp.get_attribute("type") or ""
+            inp_name = await inp.get_attribute("name") or ""
+            inp_id = await inp.get_attribute("id") or ""
+            logger.info(f"AWL: Input {idx}: type={inp_type}, name={inp_name}, id={inp_id}")
+
+            # Skip password/hidden/checkbox inputs
+            if inp_type in ("password", "hidden", "checkbox", "radio", "submit", "button"):
+                continue
+
+            # Click the input, select all, type the date
+            await inp.click()
+            await page.wait_for_timeout(300)
+            await inp.press("Control+a")
+            await inp.type(tomorrow, delay=50)
+            await page.wait_for_timeout(300)
+            await inp.press("Tab")
+            logger.info(f"AWL: Typed date {tomorrow} into input {idx}")
+            filled = True
+            break
+
+        if not filled:
+            # JS fallback — force value into every visible text input
+            await page.evaluate("""(dateVal) => {
+                const inputs = document.querySelectorAll('input');
+                for (const input of inputs) {
+                    if (input.offsetParent !== null && input.type !== 'hidden' && input.type !== 'password') {
+                        input.value = dateVal;
+                        input.dispatchEvent(new Event('input', {bubbles: true}));
+                        input.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                }
+            }""", tomorrow)
+            logger.info("AWL: Filled date via JS fallback")
 
         await page.wait_for_timeout(1000)
 
