@@ -828,9 +828,9 @@ def _run_proactive_scan(
         # Log activity with system actor
         activity = ReshopActivity(
             reshop_id=reshop.id,
-            actor_name=actor_name,
+            user_name=actor_name,
             action="created",
-            details=source_detail,
+            detail=source_detail,
         )
         db.add(activity)
         created += 1
