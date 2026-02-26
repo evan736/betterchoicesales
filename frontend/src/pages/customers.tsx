@@ -8,7 +8,8 @@ import {
   Search, RefreshCw, ChevronDown, ChevronUp, User, Users, Phone, Mail, MapPin,
   Calendar, DollarSign, Loader2, AlertCircle, CheckCircle2,
   FileText, AlertTriangle, Merge, X, Upload, Clock, Send, Ban, ExternalLink, TrendingUp,
-  Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff, Target
+  Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff, Target,
+  Pencil, Save
 } from 'lucide-react';
 
 const CARRIER_DISPLAY: Record<string, string> = {
@@ -55,6 +56,13 @@ export default function CustomersPage() {
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
   const [merging, setMerging] = useState(false);
+
+  // Inline edit customer fields
+  const [editing, setEditing] = useState(false);
+  const [editFields, setEditFields] = useState<Record<string, string>>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editMsg, setEditMsg] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [pushToNowCerts, setPushToNowCerts] = useState(true);
 
   // Non-pay automation
   const [showNonPay, setShowNonPay] = useState(false);
@@ -119,9 +127,9 @@ export default function CustomersPage() {
 
   const handleExpand = async (customer: any) => {
     const key = customer.id || customer.nowcerts_insured_id;
-    if (expandedId === key) { setExpandedId(null); setDetail(null); setDriversData(null); setDriversOpen(false); return; }
+    if (expandedId === key) { setExpandedId(null); setDetail(null); setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null); return; }
     setExpandedId(key);
-    setDriversData(null); setDriversOpen(false);
+    setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null);
     if (customer.id) {
       setDetailLoading(true);
       try { const r = await customersAPI.get(customer.id); setDetail(r.data); } catch {}
@@ -145,6 +153,53 @@ export default function CustomersPage() {
     setDetailLoading(true);
     try { const r = await customersAPI.sync(id); setDetail(r.data); } catch (e: any) { alert(e.response?.data?.detail || 'Sync failed'); }
     setDetailLoading(false);
+  };
+
+  // Start editing customer fields
+  const startEditing = () => {
+    const c = detail?.customer;
+    if (!c) return;
+    setEditFields({
+      email: c.email || '',
+      phone: c.phone || '',
+      mobile_phone: c.mobile_phone || '',
+      address: c.address || '',
+      city: c.city || '',
+      state: c.state || '',
+      zip_code: c.zip_code || '',
+    });
+    setEditing(true);
+    setEditMsg(null);
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setEditFields({});
+    setEditMsg(null);
+  };
+
+  const saveCustomerEdits = async () => {
+    if (!detail?.customer?.id) return;
+    setEditSaving(true);
+    setEditMsg(null);
+    try {
+      const r = await customersAPI.update(detail.customer.id, editFields, pushToNowCerts);
+      setDetail({ ...detail, customer: r.data.customer });
+      setEditing(false);
+      const ncOk = r.data.nowcerts_update?.success;
+      setEditMsg({
+        type: 'success',
+        text: pushToNowCerts
+          ? (ncOk ? 'Saved & pushed to NowCerts ✓' : 'Saved locally — NowCerts push failed')
+          : 'Saved locally',
+      });
+      setTimeout(() => setEditMsg(null), 4000);
+      // Also refresh the list item
+      loadStats();
+    } catch (e: any) {
+      setEditMsg({ type: 'error', text: e.response?.data?.detail || 'Save failed' });
+    }
+    setEditSaving(false);
   };
 
   const handleSyncAll = async () => {
@@ -441,13 +496,68 @@ export default function CustomersPage() {
                           <div className="text-center py-8 text-slate-500"><Loader2 size={20} className="animate-spin mx-auto mb-2" />Loading...</div>
                         ) : detail ? (
                           <>
+                            {/* Edit / Save bar */}
+                            <div className="flex items-center justify-between mb-3">
+                              {!editing ? (
+                                <button onClick={startEditing} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold">
+                                  <Pencil size={12} /> Edit Info
+                                </button>
+                              ) : (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                                    <input type="checkbox" checked={pushToNowCerts} onChange={e => setPushToNowCerts(e.target.checked)} className="rounded" />
+                                    Save to NowCerts
+                                  </label>
+                                  <button onClick={saveCustomerEdits} disabled={editSaving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors disabled:opacity-50">
+                                    {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                                    {pushToNowCerts ? 'Save & Push to NowCerts' : 'Save Locally'}
+                                  </button>
+                                  <button onClick={cancelEditing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors">
+                                    <X size={12} /> Cancel
+                                  </button>
+                                </div>
+                              )}
+                              {editMsg && (
+                                <span className={`text-xs font-medium ${editMsg.type === 'success' ? 'text-emerald-600' : 'text-red-500'}`}>
+                                  {editMsg.text}
+                                </span>
+                              )}
+                            </div>
+
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
                               <InfoItem icon={<User size={14} />} label="Name" value={detail.customer?.full_name} />
-                              <InfoItem icon={<Mail size={14} />} label="Email" value={detail.customer?.email} />
-                              <InfoItem icon={<Phone size={14} />} label="Phone" value={detail.customer?.phone} />
-                              <InfoItem icon={<Phone size={14} />} label="Mobile" value={detail.customer?.mobile_phone} />
-                              <InfoItem icon={<MapPin size={14} />} label="Address" value={detail.customer?.address} />
-                              <InfoItem icon={<MapPin size={14} />} label="City" value={detail.customer?.city ? `${detail.customer.city}, ${detail.customer.state} ${detail.customer.zip_code}` : null} />
+                              {editing ? (
+                                <EditableField icon={<Mail size={14} />} label="Email" value={editFields.email} onChange={v => setEditFields({...editFields, email: v})} placeholder="email@example.com" />
+                              ) : (
+                                <InfoItem icon={<Mail size={14} />} label="Email" value={detail.customer?.email} />
+                              )}
+                              {editing ? (
+                                <EditableField icon={<Phone size={14} />} label="Phone" value={editFields.phone} onChange={v => setEditFields({...editFields, phone: v})} placeholder="(555) 123-4567" />
+                              ) : (
+                                <InfoItem icon={<Phone size={14} />} label="Phone" value={detail.customer?.phone} />
+                              )}
+                              {editing ? (
+                                <EditableField icon={<Phone size={14} />} label="Mobile" value={editFields.mobile_phone} onChange={v => setEditFields({...editFields, mobile_phone: v})} placeholder="(555) 123-4567" />
+                              ) : (
+                                <InfoItem icon={<Phone size={14} />} label="Mobile" value={detail.customer?.mobile_phone} />
+                              )}
+                              {editing ? (
+                                <EditableField icon={<MapPin size={14} />} label="Address" value={editFields.address} onChange={v => setEditFields({...editFields, address: v})} placeholder="123 Main St" />
+                              ) : (
+                                <InfoItem icon={<MapPin size={14} />} label="Address" value={detail.customer?.address} />
+                              )}
+                              {editing ? (
+                                <div className="col-span-2 md:col-span-1">
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5"><MapPin size={14} />City / State / Zip</div>
+                                  <div className="flex gap-1">
+                                    <input value={editFields.city} onChange={e => setEditFields({...editFields, city: e.target.value})} placeholder="City" className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none" />
+                                    <input value={editFields.state} onChange={e => setEditFields({...editFields, state: e.target.value})} placeholder="ST" className="w-16 px-2 py-1 text-sm border border-slate-300 rounded focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none" />
+                                    <input value={editFields.zip_code} onChange={e => setEditFields({...editFields, zip_code: e.target.value})} placeholder="Zip" className="w-20 px-2 py-1 text-sm border border-slate-300 rounded focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none" />
+                                  </div>
+                                </div>
+                              ) : (
+                                <InfoItem icon={<MapPin size={14} />} label="City" value={detail.customer?.city ? `${detail.customer.city}, ${detail.customer.state} ${detail.customer.zip_code}` : null} />
+                              )}
                               <InfoItem icon={<User size={14} />} label="Agent" value={detail.customer?.agent_name} />
                               <InfoItem icon={<Calendar size={14} />} label="Last Synced" value={detail.customer?.last_synced_at ? new Date(detail.customer.last_synced_at).toLocaleDateString() : 'Never'} />
                             </div>
@@ -889,6 +999,18 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
 
 const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
   <div className="min-w-0"><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800 break-words">{value || '—'}</p></div>
+);
+
+const EditableField: React.FC<{ icon: React.ReactNode; label: string; value: string; onChange: (v: string) => void; placeholder?: string }> = ({ icon, label, value, onChange, placeholder }) => (
+  <div className="min-w-0">
+    <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div>
+    <input
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-2 py-1 text-sm font-semibold border border-slate-300 rounded focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none bg-white"
+    />
+  </div>
 );
 
 // ── Driver / Contact Card ─────────────────────────────────────────

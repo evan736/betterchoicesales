@@ -590,6 +590,27 @@ class NowCertsClient:
             logger.error("NowCerts insert insured failed: %s", e)
             return None
 
+    def update_insured(self, insured_data: dict) -> Optional[dict]:
+        """Update an existing insured in NowCerts.
+        
+        Uses the Insert endpoint which also handles updates when
+        databaseId is provided. Fields:
+          databaseId (required) — the NowCerts insured database ID
+          eMail, phone, cellPhone, addressLine1, city, state, zipCode,
+          firstName, lastName, commercialName, etc.
+        Only include fields you want to update.
+        """
+        if not insured_data.get("databaseId"):
+            logger.error("update_insured requires databaseId")
+            return None
+        try:
+            data = self._post("/api/Insured/Insert", insured_data)
+            logger.info("NowCerts insured updated (id=%s): %s", insured_data["databaseId"], str(data)[:200])
+            return data
+        except Exception as e:
+            logger.error("NowCerts update insured failed (id=%s): %s", insured_data.get("databaseId"), e)
+            return None
+
     def insert_policy(self, policy_data: dict) -> Optional[dict]:
         """Insert or update a policy in NowCerts.
         

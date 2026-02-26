@@ -252,6 +252,8 @@ export const customersAPI = {
   growthData: () => api.get('/api/customers/growth-data'),
   captureSnapshot: () => api.post('/api/customers/capture-snapshot'),
   drivers: (id: number) => api.get(`/api/customers/${id}/drivers`),
+  update: (id: number, fields: Record<string, string>, pushToNowCerts: boolean) =>
+    api.patch(`/api/customers/${id}`, { fields, push_to_nowcerts: pushToNowCerts }),
   quickEmail: (data: { to_email: string; to_name?: string; cc_emails?: string; subject: string; body: string; send_as?: string; customer_id?: number; attachments?: File[] }) => {
     const fd = new FormData();
     fd.append('to_email', data.to_email);

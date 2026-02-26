@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, UploadFile, File, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, distinct
 
@@ -755,6 +755,78 @@ def get_customer(
     return {
         "customer": _customer_to_dict(customer),
         "policies": [_policy_to_dict(p) for p in policies],
+    }
+
+
+@router.patch("/{customer_id}")
+def update_customer(
+    customer_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update customer fields locally and optionally push to NowCerts.
+    
+    Body: { fields: {email, phone, mobile_phone, address, city, state, zip_code}, push_to_nowcerts: true }
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    fields = body.get("fields", {})
+    push_to_nowcerts = body.get("push_to_nowcerts", False)
+
+    # Allowed editable fields → local DB column mapping
+    ALLOWED = {
+        "email": "email",
+        "phone": "phone",
+        "mobile_phone": "mobile_phone",
+        "address": "address",
+        "city": "city",
+        "state": "state",
+        "zip_code": "zip_code",
+    }
+
+    updated = {}
+    for key, col in ALLOWED.items():
+        if key in fields:
+            val = (fields[key] or "").strip()
+            setattr(customer, col, val if val else None)
+            updated[key] = val
+
+    db.commit()
+    db.refresh(customer)
+
+    nc_result = None
+    if push_to_nowcerts and customer.nowcerts_insured_id and updated:
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+
+            # Map our field names → NowCerts API camelCase field names
+            NC_MAP = {
+                "email": "eMail",
+                "phone": "phone",
+                "mobile_phone": "cellPhone",
+                "address": "addressLine1",
+                "city": "city",
+                "state": "state",
+                "zip_code": "zipCode",
+            }
+            nc_data = {"databaseId": customer.nowcerts_insured_id}
+            for key, val in updated.items():
+                if key in NC_MAP:
+                    nc_data[NC_MAP[key]] = val or ""
+
+            result = nc.update_insured(nc_data)
+            nc_result = {"success": result is not None, "data": str(result)[:200] if result else None}
+        except Exception as e:
+            nc_result = {"success": False, "error": str(e)}
+
+    return {
+        "customer": _customer_to_dict(customer),
+        "nowcerts_update": nc_result,
+        "updated_fields": list(updated.keys()),
     }
 
 
