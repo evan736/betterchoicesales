@@ -1590,3 +1590,41 @@ def debug_lookup(policy_number: str, db: Session = Depends(get_db)):
             "confidence": conf,
         },
     }
+
+
+@router.get("/diag/mailgun-events")
+async def mailgun_events(recipient: str = None):
+    """Check recent Mailgun events to diagnose delivery issues."""
+    import httpx
+    if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
+        return {"error": "Mailgun not configured"}
+    
+    params = {"limit": 20}
+    if recipient:
+        params["recipient"] = recipient
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/events",
+                auth=("api", MAILGUN_API_KEY),
+                params=params,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                events = []
+                for item in data.get("items", []):
+                    events.append({
+                        "event": item.get("event"),
+                        "timestamp": item.get("timestamp"),
+                        "recipient": item.get("recipient"),
+                        "from": item.get("message", {}).get("headers", {}).get("from"),
+                        "subject": item.get("message", {}).get("headers", {}).get("subject", "")[:60],
+                        "reason": item.get("reason", ""),
+                        "delivery_status": item.get("delivery-status", {}).get("message", ""),
+                    })
+                return {"count": len(events), "events": events}
+            else:
+                return {"error": f"Mailgun returned {resp.status_code}", "body": resp.text[:300]}
+    except Exception as e:
+        return {"error": str(e)}
