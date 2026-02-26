@@ -272,14 +272,14 @@ export default function CustomersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 overflow-x-hidden">
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
           <div>
-            <h1 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 mb-1">Customers</h1>
-            <p className="text-slate-600 text-sm">Agency customer directory</p>
+            <h1 className="font-display text-2xl sm:text-4xl font-bold text-slate-900 mb-0.5">Customers</h1>
+            <p className="text-slate-600 text-xs sm:text-sm">Agency customer directory</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {ncStatus && (
@@ -423,7 +423,7 @@ export default function CustomersPage() {
                       </div>
                     </button>
                     {isExpanded && (
-                      <div className="border-t border-slate-200 bg-slate-50 p-5">
+                      <div className="border-t border-slate-200 bg-slate-50 p-3 sm:p-5">
                         {detailLoading ? (
                           <div className="text-center py-8 text-slate-500"><Loader2 size={20} className="animate-spin mx-auto mb-2" />Loading...</div>
                         ) : detail ? (
@@ -737,27 +737,36 @@ export default function CustomersPage() {
                                           />
                                           <button
                                             onClick={() => emailFileRef.current?.click()}
-                                            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors"
+                                            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors border border-dashed border-slate-300 rounded-lg px-3 py-2 w-full justify-center hover:border-brand-400 hover:bg-brand-50"
                                           >
                                             <Paperclip size={13} />
-                                            Attach Files
+                                            {emailFiles.length > 0 ? `Add More Files (${emailFiles.length} attached)` : 'Attach Files'}
                                           </button>
                                           {emailFiles.length > 0 && (
-                                            <div className="mt-2 space-y-1">
+                                            <div className="mt-2 space-y-1.5 bg-slate-50 rounded-lg p-2">
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Attachments ({emailFiles.length})</p>
                                               {emailFiles.map((f, i) => (
-                                                <div key={i} className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 rounded px-2 py-1">
-                                                  <FileText size={12} className="text-slate-400" />
-                                                  <span className="flex-1 truncate">{f.name}</span>
-                                                  <span className="text-slate-400">{(f.size / 1024).toFixed(0)}KB</span>
-                                                  <button onClick={() => setEmailFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+                                                <div key={i} className="flex items-center gap-2 text-xs bg-white rounded-lg px-2.5 py-2 border border-slate-100">
+                                                  {f.type?.startsWith('image/') ? (
+                                                    <img src={URL.createObjectURL(f)} alt={f.name} className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                                                  ) : f.type === 'application/pdf' ? (
+                                                    <div className="w-8 h-8 rounded bg-red-50 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-red-500" /></div>
+                                                  ) : (
+                                                    <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-slate-400" /></div>
+                                                  )}
+                                                  <div className="flex-1 min-w-0">
+                                                    <p className="font-medium text-slate-700 truncate">{f.name}</p>
+                                                    <p className="text-[10px] text-slate-400">{f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(0)} KB` : `${(f.size / (1024 * 1024)).toFixed(1)} MB`}</p>
+                                                  </div>
+                                                  <button onClick={() => setEmailFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-red-500 flex-shrink-0 p-1"><X size={14} /></button>
                                                 </div>
                                               ))}
                                             </div>
                                           )}
                                         </div>
-                                        <div className="flex items-center justify-between pt-1">
-                                          <span className="text-[10px] text-slate-400">Better Choice Insurance · (847) 908-5665</span>
-                                          <div className="flex items-center gap-2">
+                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-2">
+                                          <span className="text-[10px] text-slate-400 text-center sm:text-left">Better Choice Insurance · (847) 908-5665</span>
+                                          <div className="flex items-center gap-2 justify-end">
                                             <button onClick={() => setEmailOpen(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
                                             <button
                                               disabled={!emailSubject.trim() || !emailBody.trim() || emailSending}
@@ -866,7 +875,7 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
 };
 
 const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
-  <div><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800">{value || '—'}</p></div>
+  <div className="min-w-0"><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800 break-words">{value || '—'}</p></div>
 );
 
 // ── Driver / Contact Card ─────────────────────────────────────────
