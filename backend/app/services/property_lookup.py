@@ -103,6 +103,55 @@ def _extract_address_from_query(query: str) -> Optional[str]:
 # ── Google Geocoding ─────────────────────────────────────────────
 
 def _geocode_address(address: str) -> Dict[str, Any]:
+    """Geocode an address. Tries Google first, falls back to free Nominatim (OpenStreetMap)."""
+    if GOOGLE_API_KEY:
+        result = _geocode_google(address)
+        if result:
+            return result
+    
+    # Free fallback: OpenStreetMap Nominatim (no API key needed)
+    return _geocode_nominatim(address)
+
+
+def _geocode_nominatim(address: str) -> Dict[str, Any]:
+    """Free geocoder using OpenStreetMap Nominatim. No API key required."""
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "q": address,
+                    "format": "json",
+                    "addressdetails": 1,
+                    "limit": 1,
+                    "countrycodes": "us",
+                },
+                headers={"User-Agent": "BetterChoiceInsurance-ORBIT/1.0"},
+            )
+            results = resp.json()
+            
+            if not results:
+                return {}
+            
+            r = results[0]
+            addr = r.get("address", {})
+            
+            return {
+                "latitude": float(r.get("lat", 0)),
+                "longitude": float(r.get("lon", 0)),
+                "formatted_address": r.get("display_name", ""),
+                "street": f"{addr.get('house_number', '')} {addr.get('road', '')}".strip(),
+                "city": addr.get("city") or addr.get("town") or addr.get("village", ""),
+                "state": addr.get("state", ""),
+                "county": addr.get("county", ""),
+                "zip_code": addr.get("postcode", ""),
+            }
+    except Exception as e:
+        logger.error(f"Nominatim geocode error: {e}")
+        return {}
+
+
+def _geocode_google(address: str) -> Dict[str, Any]:
     """Geocode an address using Google Maps API. Returns lat/lng and components."""
     if not GOOGLE_API_KEY:
         return {}
@@ -272,9 +321,8 @@ def _cook_county_lookup(address: str, city: str = "") -> Dict[str, Any]:
 
 def _get_zillow_url(address: str) -> str:
     """Generate a Zillow search URL for the property."""
-    clean = re.sub(r'[^\w\s,-]', '', address)
-    slug = clean.replace(' ', '-').replace(',', '').replace('--', '-').strip('-')
-    return f"https://www.zillow.com/homes/{slug}_rb/"
+    from urllib.parse import quote_plus
+    return f"https://www.zillow.com/homes/{quote_plus(address)}_rb/"
 
 
 # ── Main Lookup Function ────────────────────────────────────────
@@ -317,11 +365,22 @@ def lookup_property(address: str, db: Session) -> Dict[str, Any]:
             "zip_code": geo.get("zip_code"),
             "formatted_address": geo.get("formatted_address"),
         })
-        result["data_sources"].append("google_geocoding")
+        result["data_sources"].append("google_geocoding" if GOOGLE_API_KEY else "openstreetmap_nominatim")
     
     lat = result.get("latitude")
     lng = result.get("longitude")
-    state = (result.get("state") or "").upper()
+    state_raw = (result.get("state") or "").strip()
+    
+    # Normalize state to abbreviation
+    state_abbrev_map = {
+        "Illinois": "IL", "Indiana": "IN", "Ohio": "OH", "Texas": "TX",
+        "Minnesota": "MN", "Tennessee": "TN", "Missouri": "MO", "Pennsylvania": "PA",
+        "Florida": "FL", "Wisconsin": "WI", "Michigan": "MI", "Kentucky": "KY",
+        "Georgia": "GA", "Virginia": "VA", "West Virginia": "WV", "North Carolina": "NC",
+        "South Carolina": "SC", "California": "CA", "New York": "NY", "New Jersey": "NJ",
+        "Maryland": "MD", "Arizona": "AZ", "Colorado": "CO",
+    }
+    state = state_abbrev_map.get(state_raw, state_raw.upper()[:2] if len(state_raw) > 2 else state_raw.upper())
     
     # 2. FEMA Flood Zone (free, nationwide)
     if lat and lng:
