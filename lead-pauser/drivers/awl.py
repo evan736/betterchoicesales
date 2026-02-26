@@ -93,53 +93,47 @@ async def pause(page: Page, username: str, password: str) -> dict:
         await date_input.click()
         await page.wait_for_timeout(1000)
 
-        # Calendar is showing. Click tomorrow's date or the next available date.
-        # Strategy: click the ">" arrow to go to next month, then click day "1"
-        # OR just click the last day visible in the current month (27 or 28)
-        
-        # Simpler: just click tomorrow or any future date that's visible and clickable
-        clicked_date = await page.evaluate("""() => {
-            // Find all clickable day cells in the calendar
-            const cells = document.querySelectorAll('td, .day, [class*="day"], .datepicker td');
-            const today = new Date().getDate();
-            
-            // Look for tomorrow or any day after today
-            for (const cell of cells) {
-                const text = cell.textContent.trim();
-                const num = parseInt(text);
-                if (num > today && num <= 31 && cell.offsetParent !== null && 
-                    !cell.classList.contains('disabled') && !cell.classList.contains('off')) {
-                    cell.click();
-                    return num;
-                }
-            }
-            
-            // If we're at end of month, click the ">" arrow to go to next month
-            const nextArrow = document.querySelector('.next, .datepicker-next, [class*="next"], button:has-text(">")');
-            if (nextArrow) {
-                nextArrow.click();
-                return 'next_month';
-            }
-            
-            return null;
-        }""")
-        
-        logger.info(f"AWL: Clicked date: {clicked_date}")
-        
-        if clicked_date == 'next_month':
-            await page.wait_for_timeout(500)
-            # Now click day 1 of next month
+        # Calendar is showing. Click tomorrow (27) or day after (28).
+        # Use Playwright to click the visible "27" text on the calendar
+        day_clicked = False
+        for day_num in ["27", "28", "1"]:
+            day_cell = page.locator(f'td:text-is("{day_num}")').first
+            if await day_cell.count() > 0 and await day_cell.is_visible():
+                await day_cell.click()
+                await page.wait_for_timeout(1000)
+                logger.info(f"AWL: Clicked day {day_num} on calendar")
+                day_clicked = True
+                break
+
+        if not day_clicked:
+            # Click the ">" next month arrow, then click day "1"
+            next_arrow = page.locator('text=">"').first
+            if await next_arrow.count() == 0:
+                next_arrow = page.locator('[class*="next"], .fa-chevron-right, .glyphicon-chevron-right').first
+            if await next_arrow.count() > 0:
+                await next_arrow.click()
+                await page.wait_for_timeout(500)
+                day_one = page.locator('td:text-is("1")').first
+                if await day_one.count() > 0:
+                    await day_one.click()
+                    await page.wait_for_timeout(1000)
+                    logger.info("AWL: Clicked day 1 of next month")
+                    day_clicked = True
+
+        if not day_clicked:
+            # Last resort: JS click any td with a number > today
             await page.evaluate("""() => {
-                const cells = document.querySelectorAll('td, .day, [class*="day"]');
-                for (const cell of cells) {
-                    if (cell.textContent.trim() === '1' && cell.offsetParent !== null &&
-                        !cell.classList.contains('disabled') && !cell.classList.contains('off')) {
-                        cell.click();
+                const tds = document.querySelectorAll('td');
+                for (const td of tds) {
+                    const num = parseInt(td.textContent.trim());
+                    if (num === 27 || num === 28) {
+                        td.click();
                         return true;
                     }
                 }
                 return false;
             }""")
+            logger.info("AWL: Clicked date via JS fallback")
         
         await page.wait_for_timeout(1000)
 
