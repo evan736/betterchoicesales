@@ -230,10 +230,16 @@ async def process_inbound_email(email_id: int, db_url: str):
                 category=email.category or "other",
                 summary=email.ai_summary or "No summary",
                 body_preview=email.body_plain or "",
+                carrier=email.extracted_carrier or "",
+                policy_number=email.extracted_policy_number or "",
+                due_date=email.extracted_due_date or "",
+                amount=str(email.extracted_amount) if email.extracted_amount else "",
             )
+            # Use AI summary as the note subject — much more useful than raw email subject
+            note_subject = f"{(email.category or 'other').replace('_', ' ').title()}: {email.ai_summary or email.subject or 'Forwarded Email'}"
             note_id = await log_note_to_customer(
                 insured_id=email.nowcerts_insured_id or "",
-                subject=f"Smart Inbox: {email.subject or 'Forwarded Email'}",
+                subject=note_subject[:200],
                 note_body=note_body,
                 customer_name=email.customer_name or "",
                 customer_email=email.customer_email or "",

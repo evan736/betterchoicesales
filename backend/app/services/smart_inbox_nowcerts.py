@@ -169,20 +169,41 @@ def format_inbound_note(
     category: str,
     summary: str,
     body_preview: str,
+    carrier: str = "",
+    policy_number: str = "",
+    due_date: str = "",
+    amount: str = "",
 ) -> str:
-    preview = (body_preview or "")[:500]
-    return (
-        f"SMART INBOX - Inbound Email Logged\n"
-        f"{'=' * 40}\n"
-        f"From: {from_address}\n"
-        f"Subject: {subject}\n"
-        f"Category: {category.replace('_', ' ').title()}\n"
-        f"AI Summary: {summary}\n"
-        f"{'=' * 40}\n"
-        f"Preview:\n{preview}\n"
-        f"{'=' * 40}\n"
-        f"Logged automatically by ORBIT Smart Inbox"
-    )
+    """Format a detailed, actionable note for NowCerts."""
+    lines = []
+    lines.append(f"[{category.replace('_', ' ').upper()}] {summary}")
+    lines.append("")
+    
+    # Key details block
+    if carrier or policy_number or due_date or amount:
+        if carrier:
+            lines.append(f"Carrier: {carrier}")
+        if policy_number:
+            lines.append(f"Policy #: {policy_number}")
+        if due_date:
+            lines.append(f"Deadline: {due_date}")
+        if amount:
+            lines.append(f"Amount: ${amount}")
+        lines.append("")
+    
+    lines.append(f"From: {from_address}")
+    lines.append(f"Subject: {subject}")
+    lines.append("")
+    
+    # Truncated preview of original email
+    preview = (body_preview or "")[:400]
+    if preview:
+        lines.append("--- Original Email Preview ---")
+        lines.append(preview)
+        lines.append("")
+    
+    lines.append("Logged by ORBIT Smart Inbox")
+    return "\n".join(lines)
 
 
 def format_outbound_note(
@@ -192,14 +213,13 @@ def format_outbound_note(
     body_preview: str,
 ) -> str:
     preview = (body_preview or "")[:500]
+    action = "Sent to" if status == "sent" else "Queued for"
     return (
-        f"SMART INBOX - Outbound Email {'Sent' if status == 'sent' else 'Queued'}\n"
-        f"{'=' * 40}\n"
-        f"To: {to_email}\n"
+        f"[OUTBOUND] {action} {to_email}\n"
         f"Subject: {subject}\n"
-        f"Status: {status.replace('_', ' ').title()}\n"
-        f"{'=' * 40}\n"
-        f"Preview:\n{preview}\n"
-        f"{'=' * 40}\n"
-        f"Logged automatically by ORBIT Smart Inbox"
+        f"\n"
+        f"--- Message Preview ---\n"
+        f"{preview}\n"
+        f"\n"
+        f"Logged by ORBIT Smart Inbox"
     )
