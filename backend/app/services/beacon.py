@@ -201,6 +201,24 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
                 system = system + "\n" + kb_context + "\n\nIMPORTANT: The knowledge base entries above come from your team and may contain corrections to your built-in knowledge. Prioritize knowledge base entries over your defaults when they conflict."
         except Exception as e:
             logger.warning(f"Knowledge base lookup failed: {e}")
+        
+        # Property lookup — detect address in query and fetch data
+        try:
+            from app.services.property_lookup import _extract_address_from_query, lookup_property, format_property_for_beacon
+            detected_address = _extract_address_from_query(user_message)
+            if detected_address:
+                logger.info(f"BEACON detected property address: {detected_address}")
+                prop_data = lookup_property(detected_address, db_session)
+                if prop_data:
+                    prop_context = format_property_for_beacon(prop_data)
+                    if prop_context:
+                        system = system + "\n" + prop_context
+                        system = system + "\n\nYou just looked up property data for this address. Present the findings clearly to the agent, including any insurance-relevant observations (roof age, flood zone risk, carrier recommendations based on property characteristics). If a Street View URL is available, mention the agent can check the property visually. If a Zillow link is available, mention it for additional details."
+                        # Property lookups should use Sonnet for better analysis
+                        use_complex = True
+                        model = SONNET_MODEL
+        except Exception as e:
+            logger.warning(f"Property lookup failed: {e}")
     
     # Build messages
     messages = []

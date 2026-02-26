@@ -1202,6 +1202,37 @@ def force_migrate():
         )""",
         "CREATE INDEX IF NOT EXISTS idx_beacon_kb_status ON beacon_knowledge(status)",
         "CREATE INDEX IF NOT EXISTS idx_beacon_kb_type ON beacon_knowledge(source_type)",
+        # Property Lookup Cache
+        """CREATE TABLE IF NOT EXISTS property_lookup_cache (
+            id SERIAL PRIMARY KEY,
+            address_hash VARCHAR UNIQUE,
+            address_raw VARCHAR NOT NULL,
+            latitude FLOAT,
+            longitude FLOAT,
+            street VARCHAR,
+            city VARCHAR,
+            state VARCHAR,
+            zip_code VARCHAR,
+            county VARCHAR,
+            year_built INTEGER,
+            square_footage INTEGER,
+            assessed_value FLOAT,
+            market_value FLOAT,
+            property_class VARCHAR,
+            bedrooms INTEGER,
+            bathrooms FLOAT,
+            stories INTEGER,
+            lot_size_sqft INTEGER,
+            flood_zone VARCHAR,
+            flood_zone_desc VARCHAR,
+            in_sfha VARCHAR,
+            street_view_url VARCHAR,
+            zillow_url VARCHAR,
+            data_sources JSONB,
+            raw_data JSONB,
+            looked_up_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
     ]:
         try:
             with engine.connect() as conn:
@@ -1288,6 +1319,9 @@ app.include_router(lead_providers_api.router)
 
 from app.api import beacon_kb as beacon_kb_api
 app.include_router(beacon_kb_api.router)
+
+from app.api import property as property_api
+app.include_router(property_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
