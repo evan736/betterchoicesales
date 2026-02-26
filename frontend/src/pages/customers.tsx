@@ -79,6 +79,19 @@ export default function CustomersPage() {
     else if (user) { loadStatus(); loadStats(); }
   }, [user, authLoading]);
 
+  // SSE live updates
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('customers:updated', () => { loadStats(); if (hasSearched) doSearch(); });
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user, hasSearched]);
+
   const loadStatus = async () => { try { const r = await customersAPI.nowcertsStatus(); setNcStatus(r.data); } catch {} };
   const loadStats = async () => { setStatsLoading(true); try { const r = await customersAPI.agencyStats(); setStats(r.data); } catch {} setStatsLoading(false); };
 

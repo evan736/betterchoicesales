@@ -677,44 +677,32 @@ def purge_proactive_reshops(
 
 
 @router.post("/detect-proactive")
-def detect_proactive_reshops(
-    days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
-    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
-    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+def _run_proactive_scan(
+    db: Session,
+    days_out: int = 60,
+    increase_threshold: float = 10.0,
+    min_annual_premium: float = 2000.0,
+    actor_name: str = "system",
 ):
-    """Scan for upcoming renewal terms and flag policies with premium increases.
+    """Core reshop detection logic — callable from scheduler or endpoint.
     
+    Scans for upcoming renewal terms and flags policies with premium increases.
     NowCerts syncs future renewal terms (status='Renewing') 30-60 days before
-    effective date. This compares each Renewing term's premium to the current
-    Active term of the same policy number.
-    
-    Criteria:
-    1. Renewal term exists with status 'Renewing' and effective date within `days_out`
-    2. Matching Active term exists for same policy number
-    3. Annualized premium >= `min_annual_premium` (6-month autos doubled)
-    4. Premium increased >= `increase_threshold`% (current → renewal)
-    5. Sorted by premium size, largest accounts first
+    effective date. Compares each Renewing term's premium to the current Active term.
     """
-    if not _can_manage(current_user):
-        raise HTTPException(status_code=403, detail="Not authorized")
-
     now = datetime.utcnow()
     cutoff = now + timedelta(days=days_out)
 
-    # Step 1: Find all "Renewing" terms with effective dates in the window
     renewing = (
         db.query(CustomerPolicy)
         .filter(
             func.lower(CustomerPolicy.status).in_(["renewing"]),
-            CustomerPolicy.effective_date >= now - timedelta(days=7),  # small buffer
+            CustomerPolicy.effective_date >= now - timedelta(days=7),
             CustomerPolicy.effective_date <= cutoff,
         )
         .all()
     )
 
-    # Step 2: Load matching Active terms for these policy numbers
     renewing_policy_nums = [p.policy_number for p in renewing if p.policy_number]
     active_terms = {}
     if renewing_policy_nums:
@@ -730,7 +718,6 @@ def detect_proactive_reshops(
             if t.policy_number:
                 active_terms[t.policy_number] = t
 
-    # Step 3: Check existing reshops to avoid duplicates
     existing_policy_nums = set()
     active_reshops = db.query(Reshop).filter(Reshop.stage.in_(ACTIVE_STAGES)).all()
     for r in active_reshops:
@@ -750,7 +737,6 @@ def detect_proactive_reshops(
             skipped_existing += 1
             continue
 
-        # Must have a matching active term
         active = active_terms.get(renewal.policy_number)
         if not active:
             skipped_no_active += 1
@@ -761,11 +747,10 @@ def detect_proactive_reshops(
         if current_prem <= 0 or renewal_prem <= 0:
             continue
 
-        # Annualize based on term length
         def calc_term_months(p):
             if p.effective_date and p.expiration_date:
                 delta = (p.expiration_date - p.effective_date).days
-                if delta < 200:  # ~6 month policy
+                if delta < 200:
                     return 6
             return 12
 
@@ -774,15 +759,11 @@ def detect_proactive_reshops(
         ann_current = current_prem * (12 / current_term)
         ann_renewal = renewal_prem * (12 / renewal_term)
 
-        # Filter: minimum annual premium (use renewal premium)
         if ann_renewal < min_annual_premium:
             skipped_below_threshold += 1
             continue
 
-        # Calculate increase
         change_pct = ((ann_renewal - ann_current) / ann_current) * 100
-
-        # Filter: must meet increase threshold
         if change_pct < increase_threshold:
             skipped_no_increase += 1
             continue
@@ -797,17 +778,15 @@ def detect_proactive_reshops(
             "renewal_term": renewal_term,
         })
 
-    # Sort by annualized renewal premium descending (largest accounts first)
     candidates.sort(key=lambda c: c["ann_renewal"], reverse=True)
 
     for c in candidates:
         renewal = c["renewal"]
-        active = c["active"]
+        active_pol = c["active"]
         customer = db.query(Customer).filter(Customer.id == renewal.customer_id).first()
         if not customer:
             continue
 
-        # Priority based on annualized renewal premium
         ann = c["ann_renewal"]
         if ann >= 10000:
             priority = "urgent"
@@ -822,7 +801,7 @@ def detect_proactive_reshops(
         term_note = " [6mo annualized]" if c["current_term"] < 12 or c["renewal_term"] < 12 else ""
         source_detail = (
             f"+{c['change_pct']:.1f}% increase: "
-            f"${float(active.premium or 0):,.0f} → ${float(renewal.premium or 0):,.0f}{term_note}, "
+            f"${float(active_pol.premium or 0):,.0f} → ${float(renewal.premium or 0):,.0f}{term_note}, "
             f"renews in {days_to_renewal} days"
         )
 
@@ -832,12 +811,12 @@ def detect_proactive_reshops(
             customer_phone=customer.phone,
             customer_email=customer.email,
             policy_number=renewal.policy_number,
-            carrier=active.carrier or renewal.carrier,
-            line_of_business=active.line_of_business or renewal.line_of_business,
-            current_premium=active.premium,
+            carrier=active_pol.carrier or renewal.carrier,
+            line_of_business=active_pol.line_of_business or renewal.line_of_business,
+            current_premium=active_pol.premium,
             renewal_premium=renewal.premium,
             premium_change_pct=round(c["change_pct"], 1),
-            expiration_date=active.expiration_date,
+            expiration_date=active_pol.expiration_date,
             stage="proactive",
             priority=priority,
             source="proactive_renewal",
@@ -847,14 +826,29 @@ def detect_proactive_reshops(
         )
         db.add(reshop)
         db.flush()
-        _log_activity(db, reshop.id, current_user, "created", source_detail)
+        # Log activity with system actor
+        activity = ReshopActivity(
+            reshop_id=reshop.id,
+            actor_name=actor_name,
+            action="created",
+            details=source_detail,
+        )
+        db.add(activity)
         created += 1
         existing_policy_nums.add(pnum)
 
     db.commit()
+
+    # Broadcast live update if new reshops were created
+    if created > 0:
+        try:
+            from app.api.events import event_bus
+            event_bus.publish_sync("reshop:new", {"created": created})
+            event_bus.publish_sync("dashboard:refresh", {})
+        except Exception:
+            pass
+
     return {
-        "status": "ok",
-        "created": created,
         "renewing_terms_found": len(renewing),
         "skipped_existing_reshop": skipped_existing,
         "skipped_no_active_term": skipped_no_active,
@@ -866,6 +860,20 @@ def detect_proactive_reshops(
             "increase_threshold_pct": increase_threshold,
         },
     }
+
+
+@router.post("/detect-proactive")
+def detect_proactive_reshops(
+    days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
+    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
+    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Scan for upcoming renewal terms and flag policies with premium increases."""
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return _run_proactive_scan(db, days_out, increase_threshold, min_annual_premium, current_user.full_name or current_user.username)
 
 
 # ── Create from Customer Card ────────────────────────────────────

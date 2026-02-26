@@ -879,6 +879,18 @@ async def lifespan(app: FastAPI):
                         logger.error(f"NowCerts sync error: {e}")
                     finally:
                         db.close()
+
+                    # Run proactive reshop scan after sync completes
+                    logger.info("Running post-sync reshop detection...")
+                    db2 = SessionLocal()
+                    try:
+                        from app.api.reshop import _run_proactive_scan
+                        scan_result = _run_proactive_scan(db2)
+                        logger.info(f"Reshop scan complete: {scan_result}")
+                    except Exception as e:
+                        logger.error(f"Reshop scan error: {e}")
+                    finally:
+                        db2.close()
             except Exception as e:
                 logger.error(f"NowCerts sync scheduler error: {e}")
             time.sleep(3600)  # Check every hour
@@ -1215,7 +1227,9 @@ from app.api import gmail_sync as gmail_sync_api
 app.include_router(gmail_sync_api.router)
 
 from app.api import smart_inbox as smart_inbox_api
+from app.api import events as events_api
 app.include_router(smart_inbox_api.router)
+app.include_router(events_api.router)
 app.include_router(reshop_api.router)
 
 

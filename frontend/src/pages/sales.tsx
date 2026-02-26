@@ -72,6 +72,20 @@ export default function Sales() {
     }
   }, [user, loading]);
 
+  // SSE live updates — refresh when new sales are added
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('sales:new', () => loadSales(dateFrom, dateTo));
+      es.addEventListener('sales:updated', () => loadSales(dateFrom, dateTo));
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user, dateFrom, dateTo]);
+
   const loadDropdowns = async () => {
     try {
       const res = await adminAPI.dropdownOptions();

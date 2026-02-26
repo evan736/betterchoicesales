@@ -77,6 +77,20 @@ export default function ReshopPage() {
     loadTeam();
   }, [user]);
 
+  // SSE live updates
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('reshop:new', () => loadData());
+      es.addEventListener('reshop:updated', () => loadData());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [user]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {

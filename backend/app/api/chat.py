@@ -284,10 +284,17 @@ def send_message(
     db.commit()
     db.refresh(msg)
 
+    # Broadcast via SSE for live chat
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("chat:message", {
+            "channel_id": channel_id,
+            "message": _serialize_message(msg, current_user.id),
+        })
+    except Exception as e:
+        logger.warning(f"SSE chat broadcast failed: {e}")
+
     return _serialize_message(msg, current_user.id)
-
-
-@router.post("/channels/{channel_id}/read")
 def mark_read(
     channel_id: int,
     current_user: User = Depends(get_current_user),

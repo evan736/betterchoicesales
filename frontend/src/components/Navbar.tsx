@@ -8,8 +8,10 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox,
+  Inbox, MessageCircle,
 } from 'lucide-react';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -19,13 +21,14 @@ const Navbar: React.FC = () => {
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [reshopBadge, setReshopBadge] = useState(0);
   const [inboxBadge, setInboxBadge] = useState(0);
+  const [chatBadge, setChatBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
 
-  // Poll reshop + smart inbox badge counts
+  // Poll reshop + smart inbox + chat badge counts
   useEffect(() => {
     if (!user) return;
     const load = async () => {
@@ -33,21 +36,63 @@ const Navbar: React.FC = () => {
         const r = await reshopAPI.badgeCount();
         setReshopBadge(r.data.new || 0);
       } catch {}
-      // Smart Inbox pending approval count (manager/admin only)
       if (isManager) {
         try {
           const token = localStorage.getItem('token');
           const r = await axios.get(
-            `${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}/api/smart-inbox/queue`,
+            `${API_BASE}/api/smart-inbox/queue`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           setInboxBadge(Array.isArray(r.data) ? r.data.length : r.data?.items?.length || 0);
         } catch {}
       }
+      // Chat unread count
+      try {
+        const token = localStorage.getItem('token');
+        const r = await axios.get(
+          `${API_BASE}/api/chat/unread`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setChatBadge(r.data.total_unread || 0);
+      } catch {}
     };
     load();
-    const interval = setInterval(load, 60000);
+    const interval = setInterval(load, 30000);
     return () => clearInterval(interval);
+  }, [user, isManager]);
+
+  // SSE for live badge updates
+  useEffect(() => {
+    if (!user) return;
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API_BASE}/api/events/stream`);
+      es.addEventListener('chat:message', () => {
+        // Only increment if not on chat page
+        if (!window.location.pathname.startsWith('/chat')) {
+          setChatBadge(prev => prev + 1);
+        }
+      });
+      es.addEventListener('smart_inbox:new', () => {
+        if (isManager) setInboxBadge(prev => prev + 1);
+      });
+      es.addEventListener('smart_inbox:updated', () => {
+        if (isManager) setInboxBadge(prev => Math.max(0, prev - 1));
+      });
+      es.addEventListener('reshop:new', () => {
+        setReshopBadge(prev => prev + 1);
+      });
+      es.onerror = () => {
+        es?.close();
+        // Reconnect after 10s
+        setTimeout(() => {
+          if (user) {
+            // Will reconnect on next poll cycle
+          }
+        }, 10000);
+      };
+    } catch {}
+    return () => es?.close();
   }, [user, isManager]);
 
   // Close dropdowns on outside click
@@ -85,6 +130,7 @@ const Navbar: React.FC = () => {
       label: 'Operations',
       items: [
         { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager, badge: inboxBadge },
+        { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
         { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
@@ -105,7 +151,7 @@ const Navbar: React.FC = () => {
   const currentPage = allNavItems.find((i) => router.asPath.startsWith(i.href))?.label || 'Menu';
 
   // Total badge count for mobile indicator
-  const totalBadges = reshopBadge + inboxBadge;
+  const totalBadges = reshopBadge + inboxBadge + chatBadge;
 
   return (
     <nav className="glass sticky top-0 z-50 border-b border-white/20">

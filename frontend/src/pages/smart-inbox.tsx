@@ -147,6 +147,19 @@ export default function SmartInboxPage() {
     if (autoRef) timerRef.current = setInterval(() => refreshAll(true), 30000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [autoRef, search, fCat, fSens, vf]);
+
+  // SSE live updates — instant refresh on new emails or status changes
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API}/api/events/stream`);
+      es.addEventListener('smart_inbox:new', () => refreshAll(true));
+      es.addEventListener('smart_inbox:updated', () => refreshAll(true));
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, []);
+
   useEffect(() => {
     const h = (e: MouseEvent) => { if (batchRef.current && !batchRef.current.contains(e.target as Node)) setBatchOpen(false); };
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);

@@ -58,6 +58,26 @@ export default function Dashboard() {
     else if (user) { loadDashboardData(); loadClockStatus(); if (isManager) loadInboxStats(); }
   }, [user, loading]);
 
+  // SSE live refresh — auto-reload data when events arrive
+  useEffect(() => {
+    if (!user) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      const refresh = () => {
+        loadDashboardData();
+        if (isManager) loadInboxStats();
+      };
+      es.addEventListener('dashboard:refresh', refresh);
+      es.addEventListener('sales:new', refresh);
+      es.addEventListener('smart_inbox:new', () => { if (isManager) loadInboxStats(); });
+      es.addEventListener('smart_inbox:updated', () => { if (isManager) loadInboxStats(); });
+      es.onerror = () => { es?.close(); };
+    } catch {}
+    return () => es?.close();
+  }, [user, isManager]);
+
   const loadInboxStats = async () => {
     try {
       const token = localStorage.getItem('token');

@@ -334,6 +334,18 @@ async def process_inbound_email(email_id: int, db_url: str):
             email.status = ProcessingStatus.COMPLETED
             db.commit()
 
+        # Broadcast SSE event for live updates
+        try:
+            from app.api.events import event_bus
+            event_bus.publish_sync("smart_inbox:new", {
+                "id": email.id,
+                "status": email.status.value if email.status else None,
+                "category": email.category,
+                "customer_name": email.customer_name,
+            })
+        except Exception:
+            pass
+
     except Exception as e:
         logger.exception(f"Processing pipeline failed for email {email_id}")
         try:
@@ -586,6 +598,12 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
                 )
 
         db.commit()
+        # Broadcast SSE event
+        try:
+            from app.api.events import event_bus
+            event_bus.publish_sync("smart_inbox:updated", {"id": item_id, "action": "approved"})
+        except Exception:
+            pass
         return {"status": "sent", "mailgun_id": msg_id}
     else:
         item.send_error = "Mailgun send failed"
@@ -612,6 +630,12 @@ def reject_outbound(
         inbound.status = ProcessingStatus.OUTBOUND_REJECTED
 
     db.commit()
+    # Broadcast SSE event
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("smart_inbox:updated", {"id": item_id, "action": "rejected"})
+    except Exception:
+        pass
     return {"status": "rejected"}
 
 

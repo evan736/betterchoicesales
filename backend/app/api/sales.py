@@ -373,6 +373,14 @@ def create_sale(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+
+    # Broadcast live update
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("sales:new", {"id": sale.id, "customer_name": sale.customer_name})
+        event_bus.publish_sync("dashboard:refresh", {})
+    except Exception:
+        pass
     
     # Welcome email is now sent manually from the frontend after save,
     # so the agent can choose whether to attach a PDF.
