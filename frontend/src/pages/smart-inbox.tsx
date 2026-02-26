@@ -263,7 +263,7 @@ export default function SmartInboxPage() {
 
   const batch = async (action: string) => {
     const ids = [...checked]; if (!ids.length) return;
-    try { await axios.post(`${API}/api/smart-inbox/emails/batch`, { ids, action }, { headers:hdr }); } catch{}
+    try { await axios.post(`${API}/api/smart-inbox/batch`, { ids, action }, { headers:hdr }); } catch{}
     setChecked(new Set()); setBatchOpen(false); fetchEmails(true);
     if (sel && ids.includes(sel.id)) { if (action==='archive') setSel(null); else fetchDetail(sel.id); }
   };
