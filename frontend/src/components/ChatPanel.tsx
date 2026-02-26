@@ -492,7 +492,7 @@ export default function ChatPanel() {
       {/* BEACON AI icon */}
       <button
         onClick={() => {
-          const beaconCh = channels.find(c => c.channel_type === 'beacon');
+          const beaconCh = channels.find(c => c.channel_type === 'beacon' && c.name !== 'BEACON');
           if (beaconCh) {
             openSidebar();
             openChannel(beaconCh);
@@ -628,8 +628,8 @@ export default function ChatPanel() {
             </button>
           ))}
 
-          {/* BEACON AI Channel */}
-          {channels.filter(c => c.channel_type === 'beacon').map(ch => (
+          {/* BEACON AI Channel — only show user's private channel */}
+          {channels.filter(c => c.channel_type === 'beacon' && c.name !== 'BEACON').slice(0, 1).map(ch => (
             <button
               key={ch.id}
               onClick={() => openChannel(ch)}

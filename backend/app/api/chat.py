@@ -104,6 +104,12 @@ def list_channels(
         ChatChannel.id.in_(my_channel_ids)
     ).order_by(ChatChannel.channel_type, ChatChannel.name).all()
 
+    # Filter out the old shared BEACON channel — only show user's private BEACON:N
+    channels = [
+        ch for ch in channels
+        if not (ch.channel_type == "beacon" and ch.name == "BEACON")
+    ]
+
     return [_serialize_channel(ch, current_user.id, db) for ch in channels]
 
 
