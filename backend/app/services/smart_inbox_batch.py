@@ -325,7 +325,11 @@ def _categorize_policy_activity(
     action_lower = action.lower()
 
     if "gopaperless" in desc_lower:
-        return None  # Skip — not actionable for the agency
+        return (
+            "underwriting_requirement",
+            "routine",
+            f"GoPaperless enrollment needed for {insured} (policy {policy})",
+        )
     elif "umuimpd" in desc_lower or "umpd" in desc_lower:
         return (
             "underwriting_requirement",
@@ -406,6 +410,102 @@ def _categorize_reinstatement(
             "moderate",
             f"Billing activity ({reason}) for {insured} (policy {policy}) — {amount} due",
         )
+
+
+# ── Group Items by Policy Number ─────────────────────────────────────────────
+
+def group_items_by_policy(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Group parsed batch items by policy number.
+    Items with the same policy number are combined into a single item
+    with all tasks listed together, so the customer gets ONE email
+    instead of multiple.
+    """
+    from collections import OrderedDict
+    groups: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+
+    for item in items:
+        key = item.get("policy_number", "")
+        if not key:
+            # No policy number — keep as individual item
+            groups.setdefault(f"_no_policy_{id(item)}", []).append(item)
+        else:
+            groups.setdefault(key, []).append(item)
+
+    merged = []
+    for policy_num, group in groups.items():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+
+        # Multiple items for same policy — combine them
+        first = group[0]
+        insured = first.get("insured_name", "")
+        carrier = first.get("carrier", "")
+
+        # Collect all task descriptions
+        tasks = []
+        all_dates = []
+        highest_sensitivity = "routine"
+        sensitivity_order = {"routine": 0, "moderate": 1, "sensitive": 2, "critical": 3}
+
+        for item in group:
+            desc = item.get("todo_description") or item.get("reason") or item.get("summary", "")
+            action = item.get("action_to_take", "")
+            date = item.get("next_action_date") or item.get("cancel_date", "")
+            status = item.get("status", "")
+            task_line = desc
+            if action:
+                task_line += f" → {action}"
+            if date:
+                task_line += f" (by {date})"
+            if status:
+                task_line += f" [{status}]"
+            tasks.append(task_line)
+
+            if date:
+                all_dates.append(date)
+
+            s = item.get("sensitivity", "routine")
+            if sensitivity_order.get(s, 0) > sensitivity_order.get(highest_sensitivity, 0):
+                highest_sensitivity = s
+
+        # Pick the earliest deadline
+        earliest_date = min(all_dates) if all_dates else None
+
+        # Determine overall category — use the most important one
+        categories = [it.get("category", "other") for it in group]
+        cat_priority = ["cancellation", "non_payment", "non_renewal", "underwriting_requirement", "billing_inquiry", "other"]
+        best_category = "other"
+        for cp in cat_priority:
+            if cp in categories:
+                best_category = cp
+                break
+
+        task_list = "; ".join(tasks)
+        summary = f"Multiple outstanding items for {insured} (policy {policy_num}): {task_list}"
+
+        combined = {
+            "policy_number": policy_num,
+            "insured_name": insured,
+            "carrier": carrier,
+            "category": best_category,
+            "sensitivity": highest_sensitivity,
+            "summary": summary,
+            "division": first.get("division", ""),
+            "todo_description": task_list,
+            "next_action_date": earliest_date,
+            "action_to_take": ", ".join(filter(None, [it.get("action_to_take") for it in group])),
+            "status": ", ".join(filter(None, set(it.get("status", "") for it in group))),
+            "policy_type": first.get("policy_type", ""),
+            "amount_due": max((it.get("amount_due") or 0 for it in group), default=None),
+            "_grouped_tasks": tasks,  # Preserved for email drafting
+            "_grouped_items": group,  # Full original items
+        }
+        merged.append(combined)
+
+    logger.info(f"Grouped {len(items)} items into {len(merged)} combined items")
+    return merged
 
 
 # ── Build Child Inbound Records ─────────────────────────────────────────────

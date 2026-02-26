@@ -36,6 +36,7 @@ from app.services.smart_inbox_nowcerts import (
 )
 from app.services.smart_inbox_batch import (
     detect_batch_report, parse_batch_report, build_child_email_data,
+    group_items_by_policy,
 )
 
 logger = logging.getLogger(__name__)
@@ -487,6 +488,9 @@ async def process_batch_report(email_id: int, db_url: str, batch_info: dict):
         email.ai_summary = f"Batch report: {len(items)} items from {batch_info.get('carrier', 'carrier')} {batch_info['report_type'].replace('_', ' ')} report"
         email.status = ProcessingStatus.COMPLETED
         db.commit()
+
+        # Group items by policy number so same customer gets ONE combined email
+        items = group_items_by_policy(items)
 
         # Create child InboundEmail records
         child_ids = []
