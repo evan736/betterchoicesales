@@ -131,6 +131,17 @@ async def _send_via_thanksio(
         return None
 
 
+def _archive_inbound_on_send(db: Session, inbound_email_id: int):
+    """Auto-archive the inbound email once its outbound response has been sent."""
+    try:
+        inbound = db.query(InboundEmail).filter(InboundEmail.id == inbound_email_id).first()
+        if inbound and not inbound.is_archived:
+            inbound.is_archived = True
+            logger.info(f"Auto-archived inbound email #{inbound_email_id} after send")
+    except Exception as e:
+        logger.warning(f"Failed to auto-archive inbound #{inbound_email_id}: {e}")
+
+
 async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] = None) -> Optional[str]:
     """Send email via Mailgun. Returns message ID or None."""
     import httpx
@@ -374,6 +385,7 @@ async def process_inbound_email(email_id: int, db_url: str):
                             outbound.sent_at = datetime.utcnow()
                             outbound.mailgun_message_id = msg_id
                             email.status = ProcessingStatus.OUTBOUND_SENT
+                            email.is_archived = True  # Auto-archive once sent
 
                             if email.customer_name:
                                 out_note = format_outbound_note(
@@ -653,6 +665,7 @@ async def _process_batch_child(child_id: int, db):
                         outbound.sent_at = datetime.utcnow()
                         outbound.mailgun_message_id = msg_id
                         child.status = ProcessingStatus.OUTBOUND_SENT
+                        child.is_archived = True  # Auto-archive once sent
                     else:
                         outbound.send_error = "Mailgun send failed"
                         outbound.status = OutboundStatus.PENDING_APPROVAL
@@ -980,6 +993,7 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
         inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
         if inbound:
             inbound.status = ProcessingStatus.OUTBOUND_SENT
+            inbound.is_archived = True  # Auto-archive once sent
             # Log to NowCerts
             if inbound.customer_name:
                 method_label = "Thanks.io letter" if delivery == "thanksio" else "email"
@@ -1148,6 +1162,7 @@ async def set_email_and_send(
             item.approved_at = datetime.utcnow()
             if inbound:
                 inbound.status = ProcessingStatus.OUTBOUND_SENT
+                inbound.is_archived = True  # Auto-archive once sent
 
                 # Log to NowCerts
                 out_note = format_outbound_note(
@@ -1224,6 +1239,7 @@ async def send_thanksio_letter_endpoint(
         item.approved_at = datetime.utcnow()
         if inbound:
             inbound.status = ProcessingStatus.OUTBOUND_SENT
+            inbound.is_archived = True  # Auto-archive once sent
 
         db.commit()
         return {"status": "sent", "method": "thanksio", "order_id": result.get("order_id")}
@@ -1277,6 +1293,27 @@ def unarchive_email(email_id: int, db: Session = Depends(get_db)):
     email.is_archived = False
     db.commit()
     return {"status": "ok"}
+
+
+@router.post("/archive-sent")
+def archive_all_sent(db: Session = Depends(get_db)):
+    """Archive all inbound emails that already have a sent outbound response."""
+    sent_statuses = [
+        ProcessingStatus.OUTBOUND_SENT,
+        ProcessingStatus.OUTBOUND_APPROVED,
+        ProcessingStatus.COMPLETED,
+    ]
+    emails = db.query(InboundEmail).filter(
+        InboundEmail.status.in_(sent_statuses),
+        InboundEmail.is_archived == False,
+    ).all()
+    count = 0
+    for e in emails:
+        e.is_archived = True
+        count += 1
+    db.commit()
+    logger.info(f"Archived {count} already-sent inbound emails")
+    return {"archived": count}
 
 
 @router.post("/batch")
@@ -1382,6 +1419,7 @@ async def batch_approve(request: Request, db: Session = Depends(get_db)):
             inbound = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
             if inbound:
                 inbound.status = ProcessingStatus.OUTBOUND_SENT
+                inbound.is_archived = True  # Auto-archive once sent
 
                 if inbound.customer_name:
                     out_note = format_outbound_note(
