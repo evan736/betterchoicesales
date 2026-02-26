@@ -1207,10 +1207,20 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
         )}
 
         {q.email_sent && (
-          <div className="flex items-center gap-2 p-3 mb-5 rounded-lg bg-blue-500/10 text-blue-400 text-sm">
-            <Check size={14} />
-            Quote emailed on {new Date(q.email_sent_at).toLocaleDateString()} at {new Date(q.email_sent_at).toLocaleTimeString()}
-            {q.nowcerts_prospect_created && ' • NowCerts prospect created'}
+          <div className="flex items-center justify-between gap-2 p-3 mb-5 rounded-lg bg-blue-500/10 text-blue-400 text-sm">
+            <div className="flex items-center gap-2">
+              <Check size={14} />
+              Quote emailed on {new Date(q.email_sent_at).toLocaleDateString()} at {new Date(q.email_sent_at).toLocaleTimeString()}
+              {q.nowcerts_prospect_created && ' • NowCerts prospect created'}
+            </div>
+            <button
+              onClick={handleSendEmail}
+              disabled={sending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition-colors whitespace-nowrap"
+            >
+              {sending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+              Resend
+            </button>
           </div>
         )}
 
