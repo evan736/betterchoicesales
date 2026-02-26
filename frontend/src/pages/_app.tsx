@@ -13,6 +13,7 @@ import '../styles/true-black.css';
 
 const ChatSidebar = dynamic(() => import('../components/ChatPanel'), { ssr: false });
 const EmailSidebar = dynamic(() => import('../components/EmailPanel'), { ssr: false });
+const TicketReporter = dynamic(() => import('../components/TicketReporter'), { ssr: false });
 
 function AppLayout({ Component, pageProps }: { Component: any; pageProps: any }) {
   const { user } = useAuth();
@@ -43,6 +44,8 @@ function AppLayout({ Component, pageProps }: { Component: any; pageProps: any })
       <EmailSidebar />
       {/* Chat sidebar — fixed right edge */}
       <ChatSidebar />
+      {/* Ticket reporter — floating button on every page */}
+      <TicketReporter />
     </div>
   );
 }

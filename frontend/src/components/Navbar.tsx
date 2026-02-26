@@ -8,7 +8,7 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox, MessageCircle, Zap, BookOpen,
+  Inbox, MessageCircle, Zap, BookOpen, Bug,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -144,6 +144,7 @@ const Navbar: React.FC = () => {
     {
       label: 'System',
       items: [
+        { href: '/tickets', label: 'Tickets', icon: <Bug size={16} />, show: isAdmin },
         { href: '/admin', label: 'Admin', icon: <Shield size={16} />, show: isAdmin },
       ],
     },

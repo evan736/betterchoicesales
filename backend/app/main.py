@@ -1305,6 +1305,13 @@ app.include_router(gmail_sync_api.router)
 from app.api import smart_inbox as smart_inbox_api
 app.include_router(smart_inbox_api.router)
 
+from app.api import tickets as tickets_api
+app.include_router(tickets_api.router)
+try:
+    tickets_api.ensure_tickets_table()
+except Exception as e:
+    logger.warning(f"Tickets table migration: {e}")
+
 try:
     from app.api import events as events_api
     app.include_router(events_api.router)
