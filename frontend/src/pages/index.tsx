@@ -87,9 +87,27 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden mb-8 text-center">
-            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-16 w-auto mx-auto mb-4" />
-            <h2 className="font-display font-bold text-3xl text-brand-900">Better Choice</h2>
-            <p className="text-brand-500 font-medium">Insurance Group</p>
+            {/* ORBIT Logo - Mobile */}
+            <svg viewBox="0 0 40 40" className="h-12 w-12 mx-auto mb-3" fill="none">
+              <defs>
+                <linearGradient id="orbitGradMobile" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#06b6d4" />
+                  <stop offset="60%" stopColor="#0ea5e9" />
+                  <stop offset="100%" stopColor="#6366f1" />
+                </linearGradient>
+              </defs>
+              <ellipse cx="20" cy="20" rx="17" ry="10" stroke="url(#orbitGradMobile)" strokeWidth="1.2" opacity="0.5" transform="rotate(-25 20 20)" />
+              <ellipse cx="20" cy="20" rx="14" ry="7" stroke="url(#orbitGradMobile)" strokeWidth="0.8" opacity="0.3" transform="rotate(30 20 20)" />
+              <circle cx="20" cy="20" r="7" fill="url(#orbitGradMobile)" opacity="0.15" />
+              <circle cx="20" cy="20" r="7" stroke="url(#orbitGradMobile)" strokeWidth="1.5" fill="none" />
+              <circle cx="35" cy="14" r="2.5" fill="#06b6d4" />
+              <circle cx="35" cy="14" r="1.5" fill="#fff" />
+              <circle cx="20" cy="20" r="2" fill="url(#orbitGradMobile)" />
+            </svg>
+            <h1 className="font-display font-bold text-3xl tracking-[0.2em] text-white mb-1">ORBIT</h1>
+            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-12 w-auto mx-auto mb-3 mt-4" />
+            <h2 className="font-display font-bold text-2xl text-white">Better Choice</h2>
+            <p className="text-cyan-400 font-medium">Insurance Group</p>
           </div>
 
           <div className="card animate-fade-in">
