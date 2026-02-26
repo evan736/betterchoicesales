@@ -27,6 +27,7 @@ const Navbar: React.FC = () => {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
+  const canSeeInbox = isManager || user?.role?.toLowerCase() === 'retention_specialist';
 
   // Poll reshop + smart inbox + chat badge counts
   useEffect(() => {
@@ -130,7 +131,7 @@ const Navbar: React.FC = () => {
     {
       label: 'Operations',
       items: [
-        { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager, badge: inboxBadge },
+        { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: canSeeInbox, badge: inboxBadge },
         { href: '/beacon-kb', label: 'BEACON Knowledge', icon: <BookOpen size={16} />, show: true },
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
