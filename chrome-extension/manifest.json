@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "BCI Lead Control",
+  "short_name": "BCI Leads",
+  "version": "1.0.0",
+  "description": "Pause/unpause all lead providers with one click — Better Choice Insurance",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://better-choice-api.onrender.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-active-16.png",
+      "48": "icons/icon-active-48.png",
+      "128": "icons/icon-active-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon-active-16.png",
+    "48": "icons/icon-active-48.png",
+    "128": "icons/icon-active-128.png"
+  }
+}
