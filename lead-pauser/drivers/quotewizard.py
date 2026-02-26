@@ -171,26 +171,48 @@ async def pause(page: Page, email: str, password: str) -> dict:
         add_pause = page.locator('button:has-text("Add Pause"), a:has-text("Add Pause")').first
         if await add_pause.count() > 0:
             await add_pause.click()
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
 
-            # A form/modal should appear — look for date inputs or just submit
-            # The pause typically sets From=now and To=next morning
-            # Try to find and click confirm/save/submit
-            confirm = page.locator('button:has-text("Save"), button:has-text("Confirm"), button:has-text("Submit"), button:has-text("Add"), button[type="submit"]').first
-            if await confirm.count() > 0:
-                await confirm.click()
-                await page.wait_for_load_state("networkidle", timeout=10000)
-                logger.info("QuoteWizard: Paused successfully")
+            # Modal should appear with "Create a Pause" and a Save button
+            # Wait for Save button to be visible
+            save_btn = page.locator('button:has-text("Save"):visible').first
+            if await save_btn.count() > 0:
+                await save_btn.click()
+                await page.wait_for_timeout(5000)
+                logger.info("QuoteWizard: Clicked Save — paused successfully")
                 return {"success": True, "action": "paused"}
 
-            # If no confirm button, the Add Pause button itself might have done it
-            await page.wait_for_timeout(2000)
-            new_content = await page.content()
-            if "Paused" in new_content or "End Pause Now" in new_content:
-                logger.info("QuoteWizard: Paused successfully (after Add Pause click)")
+            # Try other confirm buttons
+            for selector in [
+                'button:has-text("Confirm"):visible',
+                'button:has-text("Submit"):visible',
+                'button[type="submit"]:visible',
+                'button.btn-primary:visible',
+            ]:
+                btn = page.locator(selector).first
+                if await btn.count() > 0:
+                    await btn.click()
+                    await page.wait_for_timeout(5000)
+                    logger.info(f"QuoteWizard: Clicked {selector} — paused")
+                    return {"success": True, "action": "paused"}
+
+            # JS fallback — find and click any Save button in the modal
+            clicked = await page.evaluate("""() => {
+                const btns = document.querySelectorAll('button');
+                for (const btn of btns) {
+                    if (btn.textContent.trim() === 'Save' && btn.offsetParent !== null) {
+                        btn.click();
+                        return true;
+                    }
+                }
+                return false;
+            }""")
+            if clicked:
+                await page.wait_for_timeout(5000)
+                logger.info("QuoteWizard: Clicked Save via JS")
                 return {"success": True, "action": "paused"}
 
-            return {"success": False, "error": "Could not confirm pause"}
+            return {"success": False, "error": "Save button not found in modal"}
         else:
             return {"success": False, "error": "Add Pause button not found"}
 
