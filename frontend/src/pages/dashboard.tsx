@@ -227,6 +227,7 @@ export default function Dashboard() {
   const premiumToNext = tierInfo?.premium_to_next_tier;
   const nextRate = tierInfo?.next_tier ? `${(tierInfo.next_tier.commission_rate * 100).toFixed(0)}%` : null;
   const isAdmin = user.role?.toLowerCase() === 'admin';
+  const isFlatRate = tierInfo?.is_flat_rate === true;
 
   return (
     <div className="min-h-screen">
@@ -307,12 +308,12 @@ export default function Dashboard() {
             <div className="flex items-start justify-between mb-2">
               <div className="p-2 rounded-lg bg-white/10"><Award size={20} /></div>
             </div>
-            <div className="text-3xl font-bold mb-0.5">Tier {currentTier}</div>
-            <div className="text-sm font-semibold text-blue-100">{currentRate} commission</div>
-            {premiumToNext && premiumToNext > 0 && nextRate && (
+            <div className="text-3xl font-bold mb-0.5">{isFlatRate ? '3%' : `Tier ${currentTier}`}</div>
+            <div className="text-sm font-semibold text-blue-100">{isFlatRate ? 'Flat Rate' : `${currentRate} commission`}</div>
+            {!isFlatRate && premiumToNext && premiumToNext > 0 && nextRate && (
               <p className="text-xs text-blue-200 mt-1">${Number(premiumToNext).toLocaleString()} to {nextRate}</p>
             )}
-            {!premiumToNext && tierInfo?.current_tier === 7 && (
+            {!isFlatRate && !premiumToNext && tierInfo?.current_tier === 7 && (
               <p className="text-xs text-blue-200 mt-1">Top tier!</p>
             )}
           </div>

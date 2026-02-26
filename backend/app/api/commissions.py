@@ -22,7 +22,9 @@ def calculate_period_commissions(
     Period format: YYYY-MM
     """
     # Producers can only view their own commissions
-    if current_user.role.lower() == "producer" and current_user.id != producer_id:
+    # Retention specialists can only view their own
+    role = (current_user.role or "").lower()
+    if role in ("producer", "retention_specialist") and current_user.id != producer_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
@@ -62,6 +64,32 @@ def get_my_current_tier(
     from app.models.commission import CommissionTier as TierModel
     from sqlalchemy import func
     from datetime import datetime
+
+    role = (current_user.role or "").lower()
+    is_retention = role == "retention_specialist"
+
+    # Retention specialists get flat 3% — no tier progression
+    if is_retention:
+        now = datetime.utcnow()
+        total_premium = (
+            db.query(func.coalesce(func.sum(Sale.written_premium), 0))
+            .filter(
+                Sale.producer_id == current_user.id,
+                func.extract('year', Sale.sale_date) == now.year,
+                func.extract('month', Sale.sale_date) == now.month
+            )
+            .scalar()
+        )
+        return {
+            "current_tier": 1,
+            "commission_rate": 0.03,
+            "total_written_premium": float(total_premium),
+            "tier_description": "Retention — 3% Flat",
+            "next_tier": None,
+            "premium_to_next_tier": None,
+            "period": now.strftime("%Y-%m"),
+            "is_flat_rate": True,
+        }
     
     # Get current month's total written premium
     now = datetime.utcnow()
@@ -135,7 +163,21 @@ def list_commission_tiers(
 ):
     """List all active commission tiers"""
     from app.models.commission import CommissionTier as TierModel
-    
+
+    role = (current_user.role or "").lower()
+
+    # Retention specialists only see their flat 3% rate
+    if role == "retention_specialist":
+        return [{
+            "id": 0,
+            "tier_level": 1,
+            "min_written_premium": 0,
+            "max_written_premium": None,
+            "commission_rate": 0.03,
+            "description": "Retention — 3% Flat Rate",
+            "is_active": True,
+        }]
+
     tiers = db.query(TierModel).filter(
         TierModel.is_active == True
     ).order_by(TierModel.tier_level).all()

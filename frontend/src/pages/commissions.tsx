@@ -69,6 +69,8 @@ export default function Commissions() {
 
   const currentTierLevel = tierInfo?.current_tier || 1;
   const currentRate = tierInfo ? `${(tierInfo.commission_rate * 100).toFixed(0)}%` : '—';
+  const isFlatRate = tierInfo?.is_flat_rate === true;
+  const isRetention = user?.role?.toLowerCase() === 'retention_specialist';
 
   return (
     <div className="min-h-screen">
@@ -88,9 +90,9 @@ export default function Commissions() {
           <div className="stat-card bg-gradient-to-br from-brand-600 to-brand-700 text-white">
             <div className="flex items-center justify-between mb-4">
               <Award size={32} />
-              <div className="text-3xl font-bold">Tier {currentTierLevel}</div>
+              <div className="text-3xl font-bold">{isFlatRate ? '3%' : `Tier ${currentTierLevel}`}</div>
             </div>
-            <div className="text-blue-100">Current Tier — {currentRate} commission</div>
+            <div className="text-blue-100">{isFlatRate ? 'Flat Rate Commission' : `Current Tier — ${currentRate} commission`}</div>
           </div>
 
           <div className="stat-card">
@@ -151,7 +153,7 @@ export default function Commissions() {
           <div>
             <div className="card">
               <h3 className="font-display text-xl font-bold text-slate-900 mb-6">
-                Commission Tiers
+                {isFlatRate ? 'Your Commission Rate' : 'Commission Tiers'}
               </h3>
 
               <div className="space-y-4">
@@ -159,17 +161,19 @@ export default function Commissions() {
                   <TierCard
                     key={tier.id}
                     tier={tier}
-                    isCurrentTier={tier.tier_level === currentTierLevel}
+                    isCurrentTier={isFlatRate || tier.tier_level === currentTierLevel}
                   />
                 ))}
               </div>
 
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm text-blue-900">
-                  <strong>Note:</strong> Tiers are based on monthly written premium. Commission
-                  is paid on recognized premium.
-                </p>
-              </div>
+              {!isFlatRate && (
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-900">
+                    <strong>Note:</strong> Tiers are based on monthly written premium. Commission
+                    is paid on recognized premium.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
