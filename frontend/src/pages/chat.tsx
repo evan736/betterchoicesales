@@ -258,6 +258,47 @@ export default function ChatPage() {
     setMobileShowChat(true);
   };
 
+  // Render message content with URL detection, auto-embed images/GIFs, and clickable links
+  const renderMessageContent = (content: string) => {
+    const urlRegex = /(https?:\/\/[^\s<]+)/g;
+    const imageExts = /\.(gif|png|jpg|jpeg|webp|svg)(\?.*)?$/i;
+    const parts = content.split(urlRegex);
+    
+    return parts.map((part, i) => {
+      if (urlRegex.test(part)) {
+        // Reset lastIndex since we're reusing the regex
+        urlRegex.lastIndex = 0;
+        if (imageExts.test(part)) {
+          // It's an image/GIF URL — embed it
+          return (
+            <div key={i} className="my-1.5">
+              <img src={part} alt="" className="max-w-xs max-h-64 rounded-lg" loading="lazy"
+                onError={(e) => {
+                  // If image fails to load, fall back to link
+                  const el = e.currentTarget;
+                  const link = document.createElement('a');
+                  link.href = part;
+                  link.target = '_blank';
+                  link.className = 'text-cyan-400 hover:underline text-sm break-all';
+                  link.textContent = part;
+                  el.parentElement?.replaceChild(link, el);
+                }}
+              />
+            </div>
+          );
+        } else {
+          // Regular URL — make it clickable
+          return (
+            <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+              className="text-cyan-400 hover:underline break-all">{part}</a>
+          );
+        }
+      }
+      // Plain text
+      return part ? <span key={i}>{part}</span> : null;
+    });
+  };
+
   if (!user) return null;
 
   const officeChannels = channels.filter(c => c.channel_type === 'office');
@@ -490,7 +531,7 @@ export default function ChatPage() {
                                 }}
                               />
                             ) : (
-                              <p>{msg.content}</p>
+                              <div>{renderMessageContent(msg.content || '')}</div>
                             )}
                           </div>
                         )}

@@ -8,6 +8,7 @@ Sends professional carrier-specific emails with:
 - CTA to bind (mailto reply)
 """
 import logging
+import os
 import requests
 from typing import Optional
 from datetime import datetime
@@ -550,8 +551,9 @@ def send_quote_email(
     reply_to = agent_email if agent_email else "service@betterchoiceins.com"
     from_name = f"{agent_name} at Better Choice Insurance" if agent_name else "Better Choice Insurance Group"
 
+    agency_from = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
     data = {
-        "from": f"{from_name} <quotes@{settings.MAILGUN_DOMAIN}>",
+        "from": f"{from_name} <{agency_from}>",
         "to": [to_email],
         "subject": subject,
         "html": html,
