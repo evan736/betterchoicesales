@@ -173,43 +173,47 @@ async def pause(page: Page, email: str, password: str) -> dict:
             await add_pause.click()
             await page.wait_for_timeout(3000)
 
-            # Modal should appear with "Create a Pause" and a Save button
-            # Wait for Save button to be visible
-            save_btn = page.locator('button:has-text("Save"):visible').first
-            if await save_btn.count() > 0:
-                await save_btn.click()
-                await page.wait_for_timeout(5000)
-                logger.info("QuoteWizard: Clicked Save — paused successfully")
-                return {"success": True, "action": "paused"}
+            # A modal dialog opens with el-overlay-dialog that intercepts pointer events.
+            # Must use force=True or JS click to bypass the overlay.
 
-            # Try other confirm buttons
+            # Try the primary/action button inside the dialog with force click
             for selector in [
+                '.el-overlay-dialog button.el-button--primary',
+                '[role="dialog"] button.el-button--primary',
+                '.el-dialog button.el-button--primary',
+                'button.action-btn',
+                'button:has-text("Save"):visible',
                 'button:has-text("Confirm"):visible',
-                'button:has-text("Submit"):visible',
-                'button[type="submit"]:visible',
-                'button.btn-primary:visible',
             ]:
                 btn = page.locator(selector).first
                 if await btn.count() > 0:
-                    await btn.click()
+                    await btn.click(force=True)
                     await page.wait_for_timeout(5000)
-                    logger.info(f"QuoteWizard: Clicked {selector} — paused")
+                    logger.info(f"QuoteWizard: Clicked {selector} with force=True — paused")
                     return {"success": True, "action": "paused"}
 
-            # JS fallback — find and click any Save button in the modal
+            # JS fallback — click the primary button directly
             clicked = await page.evaluate("""() => {
-                const btns = document.querySelectorAll('button');
-                for (const btn of btns) {
-                    if (btn.textContent.trim() === 'Save' && btn.offsetParent !== null) {
+                // Try primary buttons in dialogs
+                const dialogBtns = document.querySelectorAll('.el-button--primary, .action-btn');
+                for (const btn of dialogBtns) {
+                    btn.click();
+                    return 'primary_btn';
+                }
+                // Try any Save/Confirm button
+                const allBtns = document.querySelectorAll('button');
+                for (const btn of allBtns) {
+                    const text = btn.textContent.trim().toLowerCase();
+                    if (['save', 'confirm', 'submit', 'ok', 'add'].includes(text)) {
                         btn.click();
-                        return true;
+                        return text;
                     }
                 }
-                return false;
+                return null;
             }""")
             if clicked:
                 await page.wait_for_timeout(5000)
-                logger.info("QuoteWizard: Clicked Save via JS")
+                logger.info(f"QuoteWizard: Clicked via JS ({clicked})")
                 return {"success": True, "action": "paused"}
 
             return {"success": False, "error": "Save button not found in modal"}

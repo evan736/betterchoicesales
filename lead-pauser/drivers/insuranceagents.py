@@ -96,32 +96,58 @@ async def pause(page: Page, email: str, password: str) -> dict:
             try:
                 row_text = (await row.inner_text()).strip()[:60]
 
-                # Find the status dot — it's an <i> with class "mil-circle" and color class
-                # Green = sfgreen (active), Red = sfred (paused)
-                status_dot = row.locator('i.mil-circle, [class*="mil-circle"]').first
+                # Find the status indicator — could be various elements
+                # From DOM: it's in the Status column, could be <i>, <span>, <div> with color classes
+                status_dot = None
+                for selector in [
+                    'i.mil-circle',
+                    'i[class*="circle"]',
+                    'i[class*="sf"]',
+                    '.sfgreen, .sfred',
+                    '[class*="status-dot"]',
+                    '[class*="status-indicator"]',
+                    'td:nth-child(2) i',       # Status is 2nd column
+                    'td:nth-child(2) span',
+                    'td.selection-cell + td i', # After checkbox column
+                    'td.selection-cell + td',   # The status cell itself
+                ]:
+                    el = row.locator(selector).first
+                    if await el.count() > 0:
+                        status_dot = el
+                        break
 
-                if await status_dot.count() > 0:
-                    # Check if already paused (has sfred class)
+                if status_dot:
                     dot_class = await status_dot.get_attribute("class") or ""
-                    if "sfred" in dot_class:
+                    dot_html = await status_dot.evaluate("el => el.outerHTML")
+                    
+                    if "sfred" in dot_class or "paused" in dot_class.lower():
                         already_paused += 1
                         continue
 
-                    # Click the green dot to open dropdown
-                    await status_dot.click()
-                    await page.wait_for_timeout(1000)
+                    # Click to open dropdown
+                    await status_dot.click(force=True)
+                    await page.wait_for_timeout(1500)
 
-                    # Click "Paused" option in the dropdown
-                    paused_option = page.locator('li:has-text("Paused"):visible, a:has-text("Paused"):visible').first
+                    # Click "Paused" in dropdown
+                    paused_option = page.locator('li:has-text("Paused"):visible, a:has-text("Paused"):visible, [role="menuitem"]:has-text("Paused"):visible').first
                     if await paused_option.count() > 0:
                         await paused_option.click()
-                        await page.wait_for_timeout(1500)
+                        await page.wait_for_timeout(2000)
                         paused_count += 1
                         logger.info(f"  Paused: {row_text}")
                     else:
+                        # Log what's visible after clicking
+                        visible_items = await page.evaluate("""() => {
+                            const items = document.querySelectorAll('li:not([style*="display: none"])');
+                            return Array.from(items).slice(0, 10).map(li => li.textContent.trim()).filter(t => t);
+                        }""")
+                        logger.warning(f"  No 'Paused' option found. Visible items: {visible_items}")
                         await page.keyboard.press("Escape")
                         errors += 1
                 else:
+                    # Debug: log what elements are in the row
+                    row_html = await row.evaluate("el => el.innerHTML.substring(0, 300)")
+                    logger.warning(f"  No status dot found in row {i}. HTML: {row_html}")
                     errors += 1
 
             except Exception as row_err:
@@ -167,23 +193,36 @@ async def unpause(page: Page, email: str, password: str) -> dict:
                 row_text = (await row.inner_text()).strip()[:60]
 
                 # Find the status dot
-                status_dot = row.locator('i.mil-circle, [class*="mil-circle"]').first
+                status_dot = None
+                for selector in [
+                    'i.mil-circle',
+                    'i[class*="circle"]',
+                    'i[class*="sf"]',
+                    '.sfgreen, .sfred',
+                    '[class*="status-dot"]',
+                    'td:nth-child(2) i',
+                    'td:nth-child(2) span',
+                    'td.selection-cell + td i',
+                    'td.selection-cell + td',
+                ]:
+                    el = row.locator(selector).first
+                    if await el.count() > 0:
+                        status_dot = el
+                        break
 
-                if await status_dot.count() > 0:
+                if status_dot:
                     dot_class = await status_dot.get_attribute("class") or ""
-                    if "sfgreen" in dot_class:
+                    if "sfgreen" in dot_class or "active" in dot_class.lower():
                         already_active += 1
                         continue
 
-                    # Click the red dot to open dropdown
-                    await status_dot.click()
-                    await page.wait_for_timeout(1000)
+                    await status_dot.click(force=True)
+                    await page.wait_for_timeout(1500)
 
-                    # Click "Active" option in the dropdown
-                    active_option = page.locator('li:has-text("Active"):visible, a:has-text("Active"):visible').first
+                    active_option = page.locator('li:has-text("Active"):visible, a:has-text("Active"):visible, [role="menuitem"]:has-text("Active"):visible').first
                     if await active_option.count() > 0:
                         await active_option.click()
-                        await page.wait_for_timeout(1500)
+                        await page.wait_for_timeout(2000)
                         activated_count += 1
                         logger.info(f"  Activated: {row_text}")
                     else:
