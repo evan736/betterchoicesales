@@ -8,7 +8,7 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox, MessageCircle,
+  Inbox, MessageCircle, Zap,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -123,6 +123,7 @@ const Navbar: React.FC = () => {
         { href: '/sales', label: 'Sales', icon: <FileText size={16} />, show: true },
         { href: '/quotes', label: 'Quotes', icon: <FileText size={16} />, show: true },
         { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: true, badge: reshopBadge },
+        { href: '/leads', label: 'Lead Control', icon: <Zap size={16} />, show: isManager },
         { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
       ],
     },

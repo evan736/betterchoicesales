@@ -1163,6 +1163,22 @@ def force_migrate():
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )""",
         "CREATE INDEX IF NOT EXISTS idx_reshop_activities_reshop ON reshop_activities(reshop_id)",
+        # Lead Providers table
+        """CREATE TABLE IF NOT EXISTS lead_providers (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            slug VARCHAR NOT NULL UNIQUE,
+            portal_url VARCHAR,
+            pause_url VARCHAR,
+            logo_emoji VARCHAR,
+            is_paused BOOLEAN DEFAULT FALSE,
+            last_status_change TIMESTAMP WITH TIME ZONE,
+            last_status_by VARCHAR,
+            notes TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
     ]:
         try:
             with engine.connect() as conn:
@@ -1243,6 +1259,9 @@ except Exception as e:
     logger.error(f"Failed to load events router: {e}")
 
 app.include_router(reshop_api.router)
+
+from app.api import lead_providers as lead_providers_api
+app.include_router(lead_providers_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
