@@ -23,7 +23,7 @@ const PRIORITY_STYLES: Record<string, { bg: string; text: string }> = {
 };
 
 export default function TicketsPage() {
-  const { user, token, loading } = useAuth();
+  const { user, loading } = useAuth();
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketLoading, setTicketLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -35,6 +35,7 @@ export default function TicketsPage() {
   const [stats, setStats] = useState<any>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   const headers = () => ({ Authorization: `Bearer ${token}` });
 
   const copyForDeveloper = (ticket: any) => {
@@ -115,8 +116,8 @@ export default function TicketsPage() {
   };
 
   useEffect(() => {
-    if (token) { loadTickets(); loadStats(); }
-  }, [token, filter]);
+    if (user && token) { loadTickets(); loadStats(); }
+  }, [user, filter]);
 
   const handleExpand = (id: number) => {
     if (expandedId === id) { setExpandedId(null); setDetail(null); return; }
