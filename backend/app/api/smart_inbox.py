@@ -681,7 +681,7 @@ async def receive_inbound_email(
     db_url = os.getenv("DATABASE_URL", "")
 
     # Check if this is a batch report (multiple customers in one email)
-    batch_info = detect_batch_report(from_addr, subject)
+    batch_info = detect_batch_report(from_addr, subject, body_plain, body_html)
     if batch_info:
         background_tasks.add_task(
             process_batch_report, inbound.id, db_url, batch_info
@@ -1086,11 +1086,25 @@ async def reprocess_email(
 
     email.status = ProcessingStatus.RECEIVED
     email.error_message = None
+    email.is_batch_report = False
+    email.batch_item_count = None
     db.commit()
 
     db_url = os.getenv("DATABASE_URL", "")
-    background_tasks.add_task(process_inbound_email, email.id, db_url)
-    return {"status": "reprocessing", "id": email.id}
+
+    # Check if this should be processed as a batch report
+    batch_info = detect_batch_report(
+        email.from_address or "",
+        email.subject or "",
+        email.body_plain or "",
+        email.body_html or "",
+    )
+    if batch_info:
+        background_tasks.add_task(process_batch_report, email.id, db_url, batch_info)
+    else:
+        background_tasks.add_task(process_inbound_email, email.id, db_url)
+
+    return {"status": "reprocessing", "id": email.id, "batch": batch_info is not None}
 
 
 # ── Stats ────────────────────────────────────────────────────────────────────

@@ -24,48 +24,74 @@ logger = logging.getLogger(__name__)
 BATCH_REPORT_PATTERNS = [
     {
         "name": "natgen_policy_activity",
-        "from_pattern": r"Reports@NGIC\.com",
-        "subject_pattern": r"Policy Activity\s+\d{2}/\d{2}/\d{4}",
+        "from_pattern": r"Reports@NGIC\.com|NGIC|NatGen|National General",
+        "subject_pattern": r"\d{5,10}:\s*Policy Activity\s+\d{2}/\d{2}/\d{4}",
         "report_type": "policy_activity",
         "carrier": "National General",
+        "subject_only_match": True,  # Agent code + "Policy Activity" is unique enough
     },
     {
         "name": "natgen_billing_activity",
-        "from_pattern": r"Reports@NGIC\.com",
-        "subject_pattern": r"Billing Activity\s+\d{2}/\d{2}/\d{4}",
+        "from_pattern": r"Reports@NGIC\.com|NGIC|NatGen|National General",
+        "subject_pattern": r"\d{5,10}:\s*Billing Activity\s+\d{2}/\d{2}/\d{4}",
         "report_type": "reinstatement",
         "carrier": "National General",
+        "subject_only_match": True,
     },
     {
         "name": "natgen_reinstatements",
-        "from_pattern": r"Reports@NGIC\.com",
+        "from_pattern": r"Reports@NGIC\.com|NGIC|NatGen|National General",
         "subject_pattern": r"Reinstatements?\s*[-–]\s*Daily",
         "report_type": "reinstatement",
         "carrier": "National General",
+        "subject_only_match": False,
     },
     {
         "name": "natgen_daily_report",
-        "from_pattern": r"Reports@NGIC\.com",
-        "subject_pattern": r"Daily Report",
+        "from_pattern": r"Reports@NGIC\.com|NGIC|NatGen|National General",
+        "subject_pattern": r"\d{5,10}:\s*Daily Report",
         "report_type": "policy_activity",
         "carrier": "National General",
+        "subject_only_match": False,
     },
 ]
 
 
 def detect_batch_report(
-    from_address: str, subject: str
+    from_address: str, subject: str, body_plain: str = "", body_html: str = ""
 ) -> Optional[Dict[str, str]]:
     """
     Check if an email matches a known batch report pattern.
+    Handles forwarded emails where from_address is the forwarder, not the original sender.
+    Checks both from_address AND the email body for original sender references.
     Returns report info dict or None.
     """
+    # Build a combined text to search for original sender clues
+    body_text = (body_plain or "") + " " + (body_html or "")
+
     for pattern in BATCH_REPORT_PATTERNS:
-        from_match = re.search(pattern["from_pattern"], from_address or "", re.IGNORECASE)
         subj_match = re.search(pattern["subject_pattern"], subject or "", re.IGNORECASE)
-        if from_match and subj_match:
-            logger.info(f"Detected batch report: {pattern['name']} — {subject}")
+        if not subj_match:
+            continue
+
+        # Check if from_address matches directly
+        from_match = re.search(pattern["from_pattern"], from_address or "", re.IGNORECASE)
+        if from_match:
+            logger.info(f"Detected batch report (direct from): {pattern['name']} — {subject}")
             return pattern
+
+        # Check if original sender appears in the email body (forwarded emails)
+        body_from_match = re.search(pattern["from_pattern"], body_text[:3000], re.IGNORECASE)
+        if body_from_match:
+            logger.info(f"Detected batch report (forwarded, original sender in body): {pattern['name']} — {subject}")
+            return pattern
+
+        # For NatGen reports: the agent code + "Policy Activity" or "Billing Activity"
+        # subject pattern is distinctive enough on its own
+        if pattern.get("subject_only_match", False):
+            logger.info(f"Detected batch report (subject-only): {pattern['name']} — {subject}")
+            return pattern
+
     return None
 
 
