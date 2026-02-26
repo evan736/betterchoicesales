@@ -97,7 +97,7 @@ def _build_winback_email_html(campaign: WinBackCampaign, touchpoint: int) -> str
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
   <div style="background:{BCI_NAVY};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="margin:0;color:white;font-size:20px;">Better Choice Insurance Group</h1>
+    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
     <p style="margin:4px 0 0 0;color:{BCI_CYAN};font-size:13px;">{subject_text}</p>
   </div>
   <div style="background:white;padding:32px;border-radius:0 0 12px 12px;">

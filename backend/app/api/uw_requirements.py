@@ -99,7 +99,7 @@ def _build_uw_email_html(req: UWRequirement) -> str:
 
   <!-- Header -->
   <div style="background:{BCI_NAVY};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="margin:0;color:white;font-size:20px;">Better Choice Insurance Group</h1>
+    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
     <p style="margin:4px 0 0 0;color:{accent};font-size:13px;">Action Required for Your {carrier_name} Policy</p>
   </div>
 

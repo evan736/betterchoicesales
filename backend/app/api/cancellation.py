@@ -479,7 +479,7 @@ def _send_cancellation_form_email(email: str, name: str, token: str):
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
   <div style="background:linear-gradient(135deg,#1a2b5f 0%,#162249 60%,#0c4a6e 100%);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="margin:0;color:white;font-size:20px;">Better Choice Insurance Group</h1>
+    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
     <p style="margin:6px 0 0;color:#00e5c7;font-size:13px;font-weight:600;">Congratulations on Your New Policy!</p>
   </div>
   <div style="background:white;padding:32px;border-radius:0 0 12px 12px;border:1px solid #E2E8F0;border-top:none;">
@@ -782,7 +782,7 @@ def _build_cancellation_form_html(first_name: str, token: str, cancel_date: str,
 <div class="container">
   <div class="card">
     <div class="header">
-      <h1>Better Choice Insurance Group</h1>
+      <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
       <p>Cancel Your Old Policy</p>
     </div>
     <div class="body" id="formSection">

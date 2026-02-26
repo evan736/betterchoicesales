@@ -126,6 +126,7 @@ Respond with JSON (no markdown):
 
 def wrap_branded_email(inner_html: str, customer_name: str = "Valued Customer") -> str:
     """Wrap AI-generated email content in the BCI branded template."""
+    logo_url = "https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png"
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -134,8 +135,7 @@ def wrap_branded_email(inner_html: str, customer_name: str = "Valued Customer") 
 
     <!-- Header -->
     <div style="background:linear-gradient(135deg, #1a2b5f 0%, #0c4a6e 100%); border-radius:16px 16px 0 0; padding:28px 32px; text-align:center;">
-        <h1 style="margin:0; color:#ffffff; font-size:20px; font-weight:700; letter-spacing:-0.3px;">Better Choice Insurance Group</h1>
-        <p style="margin:6px 0 0; color:#2cb5e8; font-size:13px; font-weight:500;">Your trusted insurance partner</p>
+        <img src="{logo_url}" alt="Better Choice Insurance Group" width="220" style="display:block; margin:0 auto 0; max-width:220px; height:auto;" />
     </div>
 
     <!-- Body -->

@@ -385,7 +385,7 @@ def build_quote_email_html(
 
   <!-- Header -->
   <div style="background:linear-gradient(135deg, #1a2b5f 0%, #162249 60%, #0c4a6e 100%);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="margin:0;color:white;font-size:20px;font-weight:700;">Better Choice Insurance Group</h1>
+    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
     <p style="margin:6px 0 0 0;color:{accent};font-size:13px;font-weight:600;">Your {carrier_name} {policy_label} Quote</p>
   </div>
 

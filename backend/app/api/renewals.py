@@ -100,7 +100,7 @@ def _build_renewal_email_html(notice: RenewalNotice, is_high_increase: bool) -> 
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
   <div style="background:{BCI_NAVY};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="margin:0;color:white;font-size:20px;">Better Choice Insurance Group</h1>
+    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
     <p style="margin:4px 0 0 0;color:{accent};font-size:13px;">Policy Renewal {'Review' if is_high_increase else 'Reminder'}</p>
   </div>
   <div style="background:white;padding:32px;border-radius:0 0 12px 12px;">
