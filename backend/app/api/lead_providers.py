@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -301,3 +301,122 @@ def update_provider(
     
     db.commit()
     return _serialize(provider)
+
+
+# ── Automation Job System ────────────────────────────────────────
+# The local Playwright worker polls for pending jobs and executes them
+
+class AutomationJob(Base):
+    __tablename__ = "lead_automation_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, nullable=False)           # "pause_all" or "unpause_all"
+    status = Column(String, default="pending")         # pending, running, completed, failed
+    requested_by = Column(String, nullable=True)
+    results = Column(Text, nullable=True)              # JSON results per provider
+    created_at = Column(DateTime, server_default=func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+
+def ensure_automation_table():
+    from app.core.database import engine
+    AutomationJob.__table__.create(bind=engine, checkfirst=True)
+    logger.info("lead_automation_jobs table ensured")
+
+
+@router.get("/automation/pending")
+def get_pending_jobs(db: Session = Depends(get_db)):
+    """Poll for pending automation jobs (called by local worker)."""
+    jobs = db.query(AutomationJob).filter(
+        AutomationJob.status == "pending"
+    ).order_by(AutomationJob.created_at).all()
+    return {
+        "jobs": [
+            {"id": j.id, "action": j.action, "requested_by": j.requested_by,
+             "created_at": j.created_at.isoformat() if j.created_at else None}
+            for j in jobs
+        ]
+    }
+
+
+@router.post("/automation/jobs/{job_id}/claim")
+def claim_job(job_id: int, db: Session = Depends(get_db)):
+    """Worker claims a job (marks it as running)."""
+    job = db.query(AutomationJob).filter(AutomationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "pending":
+        raise HTTPException(status_code=409, detail=f"Job already {job.status}")
+    job.status = "running"
+    job.started_at = datetime.utcnow()
+    db.commit()
+    return {"status": "claimed", "id": job_id, "action": job.action}
+
+
+@router.post("/automation/jobs/{job_id}/complete")
+async def complete_job(job_id: int, request: Request, db: Session = Depends(get_db)):
+    """Worker reports job completion with per-provider results."""
+    import json as _json
+    body = await request.json()
+    job = db.query(AutomationJob).filter(AutomationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job.status = body.get("status", "completed")
+    job.results = _json.dumps(body.get("results", {}))
+    job.completed_at = datetime.utcnow()
+
+    # Update provider statuses based on results
+    for slug, result in body.get("results", {}).items():
+        provider = db.query(LeadProvider).filter(LeadProvider.slug == slug).first()
+        if provider and result.get("success"):
+            provider.is_paused = (job.action == "pause_all")
+            provider.last_status_change = datetime.utcnow()
+            provider.last_status_by = f"auto ({job.requested_by or 'worker'})"
+
+    db.commit()
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("dashboard:refresh", {})
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+
+@router.post("/automation/trigger")
+def trigger_automation(
+    action: str = Query(..., description="pause_all or unpause_all"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create an automation job (triggered by Chrome extension or ORBIT UI)."""
+    if action not in ("pause_all", "unpause_all"):
+        raise HTTPException(status_code=400, detail="Action must be pause_all or unpause_all")
+
+    # Cancel existing pending jobs
+    for p in db.query(AutomationJob).filter(AutomationJob.status == "pending").all():
+        p.status = "cancelled"
+
+    job = AutomationJob(action=action, requested_by=getattr(current_user, "username", "unknown"))
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    logger.info(f"Automation job #{job.id}: {action} by {job.requested_by}")
+    return {"id": job.id, "action": action, "status": "pending"}
+
+
+@router.get("/automation/status")
+def automation_status(db: Session = Depends(get_db)):
+    """Latest automation job status (for Chrome extension polling)."""
+    import json as _json
+    job = db.query(AutomationJob).order_by(AutomationJob.created_at.desc()).first()
+    if not job:
+        return {"has_job": False}
+    return {
+        "has_job": True, "id": job.id, "action": job.action,
+        "status": job.status, "requested_by": job.requested_by,
+        "results": _json.loads(job.results) if job.results else None,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+    }

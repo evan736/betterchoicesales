@@ -87,13 +87,23 @@ async function pauseAll() {
   if (!token) return { error: 'Not logged in' };
 
   try {
+    // 1. Update ORBIT status immediately
     const resp = await fetch(`${API}/api/lead-providers/pause-all`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` }
     });
     const data = await resp.json();
     if (!resp.ok) return { error: data.detail || 'Failed' };
-    lastStatus = null; // Force refresh
+
+    // 2. Trigger automation job for local worker
+    try {
+      await fetch(`${API}/api/lead-providers/automation/trigger?action=pause_all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) { console.warn('Automation trigger failed:', e); }
+
+    lastStatus = null;
     await fetchStatus();
     return data;
   } catch (e) {
@@ -112,6 +122,14 @@ async function unpauseAll() {
     });
     const data = await resp.json();
     if (!resp.ok) return { error: data.detail || 'Failed' };
+
+    try {
+      await fetch(`${API}/api/lead-providers/automation/trigger?action=unpause_all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) { console.warn('Automation trigger failed:', e); }
+
     lastStatus = null;
     await fetchStatus();
     return data;

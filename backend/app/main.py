@@ -1323,6 +1323,10 @@ app.include_router(reshop_api.router)
 
 from app.api import lead_providers as lead_providers_api
 app.include_router(lead_providers_api.router)
+try:
+    lead_providers_api.ensure_automation_table()
+except Exception as e:
+    logger.warning(f"Lead automation table migration: {e}")
 
 from app.api import beacon_kb as beacon_kb_api
 app.include_router(beacon_kb_api.router)
