@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.core.database import get_db
@@ -63,7 +64,7 @@ def login(
     db: Session = Depends(get_db)
 ):
     """Login and get access token"""
-    user = db.query(User).filter(User.username == form_data.username).first()
+    user = db.query(User).filter(func.lower(User.username) == form_data.username.lower().strip()).first()
     
     if not user or not verify_password(form_data.password, user.hashed_password):
         logger.warning(f"Failed login attempt for username: {form_data.username} from {get_remote_address(request)}")

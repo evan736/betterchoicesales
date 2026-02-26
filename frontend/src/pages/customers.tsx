@@ -51,6 +51,7 @@ export default function CustomersPage() {
   const [emailCc, setEmailCc] = useState('');
   const emailFileRef = useRef<HTMLInputElement>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -437,9 +438,9 @@ export default function CustomersPage() {
                               <InfoItem icon={<User size={14} />} label="Agent" value={detail.customer?.agent_name} />
                               <InfoItem icon={<Calendar size={14} />} label="Last Synced" value={detail.customer?.last_synced_at ? new Date(detail.customer.last_synced_at).toLocaleDateString() : 'Never'} />
                             </div>
-                            <div className="flex items-center justify-between mb-3">
-                              <h3 className="font-bold text-slate-900">Policies ({detail.policies?.length || 0})</h3>
-                              <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                              <h3 className="font-bold text-slate-900">Policies ({detail.policies?.filter((p: any) => p.status?.toLowerCase() === 'active').length || 0} active)</h3>
+                              <div className="flex items-center gap-3 flex-wrap">
                                 {detail.customer?.nowcerts_insured_id && (
                                   <a
                                     href={`https://www6.nowcerts.com/AMSINS/Insureds/Details/${detail.customer.nowcerts_insured_id}/Information`}
@@ -447,107 +448,110 @@ export default function CustomersPage() {
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-semibold"
                                   >
-                                    <ExternalLink size={13} />Open in NowCerts
+                                    <ExternalLink size={13} />NowCerts
                                   </a>
                                 )}
                                 {detail.customer?.id && (
-                                  <button onClick={() => handleSync(detail.customer.id)} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold"><RefreshCw size={13} />Refresh from NowCerts</button>
+                                  <button onClick={() => handleSync(detail.customer.id)} className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-semibold"><RefreshCw size={13} />Refresh</button>
                                 )}
                               </div>
                             </div>
                             {(() => {
-                              // Filter policies: only show last 1 year + deduplicate active renewals
                               const now = new Date();
                               const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                              const allPolicies = detail.policies || [];
 
-                              // Find active policy numbers to deduplicate renewals
-                              const activePolicyNums = new Set(
-                                (detail.policies || [])
-                                  .filter((p: any) => p.status?.toLowerCase() === 'active')
-                                  .map((p: any) => p.policy_number)
-                              );
-
-                              const filteredPolicies = (detail.policies || []).filter((p: any) => {
-                                // Always show active policies
-                                if (p.status?.toLowerCase() === 'active') return true;
-
-                                // Check if within 1 year
-                                const effDate = p.effective_date ? new Date(p.effective_date) : null;
-                                const expDate = p.expiration_date ? new Date(p.expiration_date) : null;
-                                const refDate = expDate || effDate;
-                                if (refDate && refDate < oneYearAgo) return false;
-
-                                // Skip if same policy number as an active policy (it's just the prior term)
-                                if (p.policy_number && activePolicyNums.has(p.policy_number)) return false;
-
-                                return true;
+                              // Active policies
+                              const activePolicies = allPolicies.filter((p: any) => {
+                                const st = (p.status || '').toLowerCase();
+                                return st === 'active' || st === 'in force' || st === 'inforce';
                               });
 
-                              return filteredPolicies.length > 0 ? (
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                  <thead><tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                                    <th className="pb-2 font-semibold">Policy #</th><th className="pb-2 font-semibold">Carrier</th><th className="pb-2 font-semibold">Type</th><th className="pb-2 font-semibold">Status</th><th className="pb-2 font-semibold">Effective</th><th className="pb-2 font-semibold">Expires</th><th className="pb-2 font-semibold text-right">Premium</th>
-                                  </tr></thead>
-                                  <tbody>
-                                    {filteredPolicies.map((p: any, i: number) => (
-                                      <tr key={p.id || i} className="border-b border-slate-100">
-                                        <td className="py-2.5 font-semibold text-slate-900">
-                                          <button
-                                            onClick={() => {
-                                              let pn = p.policy_number || '';
-                                              // Grange auto policies: strip the PA3 prefix (e.g. PA35448260 → 5448260)
-                                              const carrierKey = (p.carrier || '').toLowerCase();
-                                              if (carrierKey.includes('grange') && pn.toUpperCase().startsWith('PA3')) {
-                                                pn = pn.substring(3);
-                                              }
-                                              navigator.clipboard.writeText(pn);
-                                              setCopiedPolicy(pn);
-                                              setTimeout(() => setCopiedPolicy(null), 2000);
-                                              const carrierPortals: Record<string, string> = {
-                                                'grange': 'https://agentware.grangeagent.com/default.aspx?ReturnUrl=https%3a%2f%2fgainwebpl.grangeagent.com%2fGainweb%2f',
-                                                'safeco': 'https://now.safeco.com',
-                                                'national general': 'https://natgenagency.com',
-                                                'nat gen': 'https://natgenagency.com',
-                                                'integon': 'https://natgenagency.com',
-                                                'integon natl': 'https://natgenagency.com',
-                                                'integon national': 'https://natgenagency.com',
-                                                'openly': 'https://portal.openly.com',
-                                                'progressive': 'https://www.foragentsonly.com',
-                                                'travelers': 'https://www.mserviceportal.com',
-                                                'branch': 'https://app.ourbranch.com',
-                                                'hippo': 'https://agent.hippo.com',
-                                                'bristol west': 'https://www.bristolwest.com',
-                                                'clearcover': 'https://agent.clearcover.com',
-                                                'geico': 'https://www.geico.com/agent',
-                                                'american modern': 'https://www.amig.com/agent',
-                                                'steadily': 'https://app.steadily.com',
-                                                'universal property': 'https://www.universalproperty.com/agent',
-                                                'integrity': 'https://www.integrityinsurance.com/agent',
-                                              };
-                                              const portal = Object.entries(carrierPortals).find(([k]) => carrierKey.includes(k));
-                                              if (portal) {
-                                                window.open(portal[1], '_blank');
-                                              }
-                                            }}
-                                            className="text-brand-600 hover:text-brand-700 hover:underline cursor-pointer"
-                                            title={`Copy policy # and open ${p.carrier || 'carrier'} portal`}
-                                          >
-                                            {copiedPolicy === p.policy_number ? '✓ Copied!' : (p.policy_number || '—')}
-                                          </button>
-                                        </td>
-                                        <td className="py-2.5">{normCarrier(p.carrier)}</td>
-                                        <td className="py-2.5 capitalize">{p.line_of_business || p.policy_type || '—'}</td>
-                                        <td className="py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || 'Unknown'}</span></td>
-                                        <td className="py-2.5">{p.effective_date ? new Date(p.effective_date).toLocaleDateString() : '—'}</td>
-                                        <td className="py-2.5">{p.expiration_date ? new Date(p.expiration_date).toLocaleDateString() : '—'}</td>
-                                        <td className="py-2.5 text-right font-semibold">{p.premium ? `$${parseFloat(p.premium).toLocaleString()}` : '—'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : <p className="text-sm text-slate-500 py-4 text-center">No policies found. Try refreshing from NowCerts.</p>;
+                              // Recently cancelled (within 1 year, by expiration or effective date)
+                              const cancelledPolicies = allPolicies.filter((p: any) => {
+                                const st = (p.status || '').toLowerCase();
+                                if (st === 'active' || st === 'in force' || st === 'inforce') return false;
+                                if (st !== 'cancelled' && st !== 'non-renewed' && st !== 'nonrenewed') return false;
+                                const expDate = p.expiration_date ? new Date(p.expiration_date) : null;
+                                const effDate = p.effective_date ? new Date(p.effective_date) : null;
+                                const refDate = expDate || effDate;
+                                return refDate ? refDate >= oneYearAgo : true;
+                              });
+
+                              const showPolicies = showCancelled ? [...activePolicies, ...cancelledPolicies] : activePolicies;
+
+                              const PolicyRow = ({ p, i }: { p: any; i: number }) => (
+                                <div key={p.id || i} className="flex items-center gap-3 py-2.5 border-b border-slate-100 last:border-0">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <button
+                                        onClick={() => {
+                                          let pn = p.policy_number || '';
+                                          const carrierKey = (p.carrier || '').toLowerCase();
+                                          if (carrierKey.includes('grange') && pn.toUpperCase().startsWith('PA3')) {
+                                            pn = pn.substring(3);
+                                          }
+                                          navigator.clipboard.writeText(pn);
+                                          setCopiedPolicy(pn);
+                                          setTimeout(() => setCopiedPolicy(null), 2000);
+                                          const carrierPortals: Record<string, string> = {
+                                            'grange': 'https://agentware.grangeagent.com/default.aspx?ReturnUrl=https%3a%2f%2fgainwebpl.grangeagent.com%2fGainweb%2f',
+                                            'safeco': 'https://now.safeco.com',
+                                            'national general': 'https://natgenagency.com',
+                                            'nat gen': 'https://natgenagency.com',
+                                            'integon': 'https://natgenagency.com',
+                                            'integon natl': 'https://natgenagency.com',
+                                            'integon national': 'https://natgenagency.com',
+                                            'openly': 'https://portal.openly.com',
+                                            'progressive': 'https://www.foragentsonly.com',
+                                            'travelers': 'https://www.mserviceportal.com',
+                                            'branch': 'https://app.ourbranch.com',
+                                            'hippo': 'https://agent.hippo.com',
+                                            'bristol west': 'https://www.bristolwest.com',
+                                            'clearcover': 'https://agent.clearcover.com',
+                                            'american modern': 'https://www.amig.com/agent',
+                                            'steadily': 'https://app.steadily.com',
+                                          };
+                                          const portal = Object.entries(carrierPortals).find(([k]) => carrierKey.includes(k));
+                                          if (portal) window.open(portal[1], '_blank');
+                                        }}
+                                        className="text-brand-600 hover:text-brand-700 hover:underline font-bold text-sm"
+                                        title={`Copy & open ${p.carrier || 'carrier'} portal`}
+                                      >
+                                        {copiedPolicy === (p.policy_number || '') ? '✓ Copied!' : (p.policy_number || '—')}
+                                      </button>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : p.status?.toLowerCase() === 'non-renewed' || p.status?.toLowerCase() === 'nonrenewed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || '?'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
+                                      <span>{normCarrier(p.carrier)}</span>
+                                      <span>·</span>
+                                      <span className="capitalize">{p.line_of_business || p.policy_type || '—'}</span>
+                                      {p.premium && <><span>·</span><span className="font-semibold text-slate-700">${parseFloat(p.premium).toLocaleString()}</span></>}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      {p.effective_date ? new Date(p.effective_date).toLocaleDateString() : '?'} → {p.expiration_date ? new Date(p.expiration_date).toLocaleDateString() : '?'}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+
+                              return (
+                                <div>
+                                  {showPolicies.length > 0 ? (
+                                    <div>{showPolicies.map((p: any, i: number) => <PolicyRow key={p.id || i} p={p} i={i} />)}</div>
+                                  ) : (
+                                    <p className="text-sm text-slate-500 py-4 text-center">No active policies. Try refreshing from NowCerts.</p>
+                                  )}
+                                  {cancelledPolicies.length > 0 && (
+                                    <button
+                                      onClick={() => setShowCancelled(!showCancelled)}
+                                      className="mt-2 w-full text-center text-xs font-semibold text-slate-500 hover:text-slate-700 py-2 border border-dashed border-slate-200 rounded-lg transition-colors"
+                                    >
+                                      {showCancelled ? 'Hide' : 'Show'} {cancelledPolicies.length} cancelled/non-renewed (last 12 months)
+                                    </button>
+                                  )}
+                                </div>
+                              );
                             })()}
 
                             {/* Drivers & Contacts from NowCerts */}
