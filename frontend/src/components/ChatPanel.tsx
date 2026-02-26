@@ -7,7 +7,7 @@ import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
   Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
   Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
-  Mail,
+  Mail, Zap,
 } from 'lucide-react';
 
 // Email toggle button used in collapsed sidebar
@@ -102,6 +102,7 @@ export default function ChatPanel() {
   const [chatSearch, setChatSearch] = useState('');
   const [chatSearchResults, setChatSearchResults] = useState<any[] | null>(null);
   const [chatSearching, setChatSearching] = useState(false);
+  const [beaconTyping, setBeaconTyping] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +110,10 @@ export default function ChatPanel() {
   const pollRef = useRef<any>(null);
   const notifAudio = useRef<HTMLAudioElement | null>(null);
   const prevUnreadRef = useRef<number>(0);
+  const activeChannelRef = useRef<Channel | null>(null);
+
+  // Keep ref in sync
+  useEffect(() => { activeChannelRef.current = activeChannel; }, [activeChannel]);
 
   // Initialize notification sound
   useEffect(() => {
@@ -121,12 +126,41 @@ export default function ChatPanel() {
     if (!user) return;
     loadChannels();
     loadUnread();
-    // Poll for new messages every 8 seconds
+    // Poll for new messages every 4 seconds
     pollRef.current = setInterval(() => {
       loadUnread();
-      if (activeChannel) loadMessages(activeChannel.id, true);
+      if (activeChannelRef.current) loadMessages(activeChannelRef.current.id, true);
     }, 4000);
-    return () => clearInterval(pollRef.current);
+
+    // SSE for live chat messages
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API_BASE}/api/events/stream`);
+      es.addEventListener('chat:message', (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          const data = parsed.data || parsed;
+          const msg = data.message;
+          const channelId = data.channel_id;
+          // If this is the active channel, append the message
+          if (channelId === activeChannelRef.current?.id && msg) {
+            setMessages(prev => {
+              if (prev.find(m => m.id === msg.id)) return prev;
+              return [...prev, msg];
+            });
+            // Clear BEACON typing when bot responds
+            if (msg.sender_username === 'beacon.ai' || msg.sender_name === 'BEACON') {
+              setBeaconTyping(false);
+            }
+          }
+          // Refresh unread counts
+          loadUnread();
+        } catch {}
+      });
+      es.onerror = () => es?.close();
+    } catch {}
+
+    return () => { clearInterval(pollRef.current); es?.close(); };
   }, [user]);
 
   // Scroll to bottom on new messages
@@ -136,8 +170,16 @@ export default function ChatPanel() {
 
   const loadChannels = async () => {
     try {
-      // Ensure office channel exists
+      // Ensure office + BEACON channels exist
       await chatAPI.ensureOffice();
+      try { 
+        const token = localStorage.getItem('token');
+        await fetch(`${API_BASE}/api/chat/channels/ensure-beacon`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+      } catch {}
       const res = await chatAPI.channels();
       setChannels(res.data);
       // Load users for mentions/DMs
@@ -233,6 +275,11 @@ export default function ChatPanel() {
       setInput('');
       setFile(null);
       setReplyTo(null);
+      // Show BEACON typing if in BEACON channel
+      if (activeChannel?.channel_type === 'beacon') {
+        setBeaconTyping(true);
+        setTimeout(() => setBeaconTyping(false), 30000); // safety timeout
+      }
       await loadMessages(activeChannel!.id);
     } catch (e) {
       console.error('Send failed:', e);
@@ -373,6 +420,27 @@ export default function ChatPanel() {
           </span>
         )}
       </button>
+      {/* BEACON AI icon */}
+      <button
+        onClick={() => {
+          const beaconCh = channels.find(c => c.channel_type === 'beacon');
+          if (beaconCh) {
+            openSidebar();
+            openChannel(beaconCh);
+          } else {
+            openSidebar();
+            loadChannels();
+          }
+        }}
+        className={`relative h-10 w-10 rounded-lg flex items-center justify-center transition-colors ${
+          activeChannel?.channel_type === 'beacon' && open
+            ? 'bg-amber-500/30 text-amber-300'
+            : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+        }`}
+        title="BEACON AI Assistant"
+      >
+        <Zap size={20} />
+      </button>
     </div>
   );
 
@@ -395,10 +463,20 @@ export default function ChatPanel() {
             </button>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
-                {activeChannel.channel_type === 'office' ? <Hash size={14} className="text-cyan-400" /> : <Users size={14} className="text-purple-400" />}
+                {activeChannel.channel_type === 'beacon' ? (
+                  <Zap size={14} className="text-amber-400" />
+                ) : activeChannel.channel_type === 'office' ? (
+                  <Hash size={14} className="text-cyan-400" />
+                ) : (
+                  <Users size={14} className="text-purple-400" />
+                )}
                 {activeChannel.name}
               </div>
-              <div className="text-[10px] text-slate-500">{activeChannel.members?.length || 0} members</div>
+              <div className="text-[10px] text-slate-500">
+                {activeChannel.channel_type === 'beacon'
+                  ? 'AI Insurance Expert — Ask anything'
+                  : `${activeChannel.members?.length || 0} members`}
+              </div>
             </div>
           </>
         ) : (
@@ -481,6 +559,28 @@ export default function ChatPanel() {
             </button>
           ))}
 
+          {/* BEACON AI Channel */}
+          {channels.filter(c => c.channel_type === 'beacon').map(ch => (
+            <button
+              key={ch.id}
+              onClick={() => openChannel(ch)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-500/[0.06] transition-colors border-b border-white/[0.03] text-left"
+            >
+              <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center flex-shrink-0">
+                <Zap size={16} className="text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-amber-300">{ch.name}</div>
+                <div className="text-[10px] text-slate-500">AI Insurance Expert</div>
+              </div>
+              {(unreadMap[ch.id] || 0) > 0 && (
+                <span className="h-5 min-w-[20px] px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadMap[ch.id]}
+                </span>
+              )}
+            </button>
+          ))}
+
           {/* DM Header */}
           <div className="flex items-center justify-between px-4 py-2 mt-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Direct Messages</span>
@@ -548,6 +648,7 @@ export default function ChatPanel() {
             ) : (
               messages.map((msg, i) => {
                 const isMe = msg.sender_id === (user as any)?.id;
+                const isBeacon = msg.sender_username === 'beacon.ai' || msg.sender_name === 'BEACON';
                 const showAvatar = i === 0 || messages[i - 1]?.sender_id !== msg.sender_id;
                 const isGif = msg.message_type === 'gif';
 
@@ -556,11 +657,19 @@ export default function ChatPanel() {
                     {/* Sender info */}
                     {showAvatar && (
                       <div className="flex items-center gap-2 mb-0.5">
-                        <div className="h-6 w-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
-                          style={{ background: initColor(msg.sender_name) }}>
-                          {getInitials(msg.sender_name)}
-                        </div>
-                        <span className="text-xs font-semibold text-slate-300">{isMe ? 'You' : msg.sender_name}</span>
+                        {isBeacon ? (
+                          <div className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
+                            <Zap size={11} className="text-white" />
+                          </div>
+                        ) : (
+                          <div className="h-6 w-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
+                            style={{ background: initColor(msg.sender_name) }}>
+                            {getInitials(msg.sender_name)}
+                          </div>
+                        )}
+                        <span className={`text-xs font-semibold ${isBeacon ? 'text-amber-300' : 'text-slate-300'}`}>
+                          {isMe ? 'You' : msg.sender_name}
+                        </span>
                         <span className="text-[10px] text-slate-600">{formatTime(msg.created_at)}</span>
                       </div>
                     )}
@@ -574,20 +683,34 @@ export default function ChatPanel() {
 
                     {/* Message bubble */}
                     <div className={`ml-8 relative ${isGif ? '' : `rounded-lg px-3 py-1.5 text-sm max-w-[85%] ${
+                      isBeacon ? 'bg-amber-500/[0.06] text-slate-200 border border-amber-500/10' :
                       isMe ? 'bg-cyan-600/20 text-cyan-100' : 'bg-white/[0.04] text-slate-300'
                     }`}`}>
                       {/* Content */}
                       {isGif ? (
                         <img src={msg.content || ''} alt="GIF" className="rounded-lg max-w-[200px] max-h-[150px]" loading="lazy" />
                       ) : msg.content ? (
-                        <span className="break-words whitespace-pre-wrap"
-                          dangerouslySetInnerHTML={{
-                            __html: msg.content.replace(
-                              /@(\w+)/g,
-                              '<span class="text-cyan-400 font-semibold">@$1</span>'
-                            )
-                          }}
-                        />
+                        isBeacon ? (
+                          <div className="break-words whitespace-pre-wrap text-sm leading-relaxed"
+                            dangerouslySetInnerHTML={{
+                              __html: (msg.content || '')
+                                .replace(/\*\*(.*?)\*\*/g, '<strong class="text-amber-200">$1</strong>')
+                                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                .replace(/^• /gm, '&bull; ')
+                                .replace(/^- /gm, '&bull; ')
+                                .replace(/\n/g, '<br />')
+                            }}
+                          />
+                        ) : (
+                          <span className="break-words whitespace-pre-wrap"
+                            dangerouslySetInnerHTML={{
+                              __html: msg.content.replace(
+                                /@(\w+)/g,
+                                '<span class="text-cyan-400 font-semibold">@$1</span>'
+                              )
+                            }}
+                          />
+                        )
                       ) : null}
 
                       {/* File attachment */}
@@ -645,6 +768,23 @@ export default function ChatPanel() {
               })
             )}
             <div ref={messagesEndRef} />
+            {/* BEACON typing indicator */}
+            {beaconTyping && activeChannel?.channel_type === 'beacon' && (
+              <div className="mt-3">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <div className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
+                    <Zap size={11} className="text-white" />
+                  </div>
+                  <span className="text-xs font-semibold text-amber-300">BEACON</span>
+                  <span className="text-[10px] text-slate-500">is thinking...</span>
+                </div>
+                <div className="ml-8 flex items-center gap-1.5 py-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Reply bar */}
@@ -743,7 +883,7 @@ export default function ChatPanel() {
                 value={input}
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Type a message... (@mention)"
+                placeholder={activeChannel?.channel_type === 'beacon' ? "Ask BEACON about insurance..." : "Type a message... (@mention)"}
                 className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-600 outline-none focus:border-cyan-500/40 transition-colors"
               />
               <button
