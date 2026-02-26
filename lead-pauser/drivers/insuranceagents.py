@@ -28,15 +28,30 @@ CAMPAIGNS_URL = "https://portal.insuranceagents.ai/campaigns"
 async def login(page: Page, email: str, password: str) -> bool:
     """Login to InsuranceAgents.ai."""
     try:
-        await page.goto(LOGIN_URL, wait_until="networkidle", timeout=30000)
-        await page.wait_for_timeout(1000)
-
-        await page.fill('input[type="email"], input[name="email"], input[placeholder*="mail" i]', email)
-        await page.fill('input[type="password"], input[name="password"]', password)
-
-        await page.click('button:has-text("Log In"), button:has-text("Login"), button[type="submit"]')
-        await page.wait_for_load_state("networkidle", timeout=20000)
+        await page.goto(LOGIN_URL, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000)
+
+        email_input = page.locator('input[type="email"]').first
+        if await email_input.count() == 0:
+            email_input = page.locator('input[name="email"], input[placeholder*="mail" i]').first
+        if await email_input.count() == 0:
+            email_input = page.locator('input[type="text"]').first
+        await email_input.fill(email)
+
+        password_input = page.locator('input[type="password"]').first
+        if await password_input.count() == 0:
+            password_input = page.locator('input[name="password"]').first
+        await password_input.fill(password)
+
+        login_btn = page.locator('button:has-text("Log In"), button:has-text("Login")').first
+        if await login_btn.count() == 0:
+            login_btn = page.locator('button[type="submit"]').first
+        await login_btn.click()
+
+        await page.wait_for_timeout(5000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(3000)
 
         if "login" not in page.url.lower():
             logger.info("InsuranceAgents.ai: Login successful")
@@ -52,8 +67,9 @@ async def login(page: Page, email: str, password: str) -> bool:
 
 async def _get_campaign_rows(page: Page):
     """Get all campaign rows from the campaigns table."""
-    await page.goto(CAMPAIGNS_URL, wait_until="networkidle", timeout=20000)
-    await page.wait_for_timeout(2000)
+    await page.goto(CAMPAIGNS_URL, timeout=60000)
+    await page.wait_for_load_state("domcontentloaded", timeout=30000)
+    await page.wait_for_timeout(3000)
 
     # The campaigns table has rows with: checkbox, Status dot, Name, Product, Type, etc.
     # Each row has a "..." options menu in the last column

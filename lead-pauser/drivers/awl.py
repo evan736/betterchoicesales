@@ -25,11 +25,32 @@ PAUSE_URL = "https://secure.allwebleads.com/Leads/Pause"
 async def login(page: Page, username: str, password: str) -> bool:
     """Login to All Web Leads. Returns True on success."""
     try:
-        await page.goto(LOGIN_URL, wait_until="networkidle", timeout=30000)
-        await page.fill('input[name="Username"], input[type="text"]', username)
-        await page.fill('input[name="Password"], input[type="password"]', password)
-        await page.click('input[value="Log In"], button:has-text("Log In")')
-        await page.wait_for_load_state("networkidle", timeout=15000)
+        await page.goto(LOGIN_URL, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2000)
+
+        # Fill username
+        username_input = page.locator('input[name="Username"]').first
+        if await username_input.count() == 0:
+            username_input = page.locator('input[type="text"]').first
+        await username_input.fill(username)
+
+        # Fill password
+        password_input = page.locator('input[name="Password"]').first
+        if await password_input.count() == 0:
+            password_input = page.locator('input[type="password"]').first
+        await password_input.fill(password)
+
+        # Click login
+        login_btn = page.locator('input[value="Log In"]').first
+        if await login_btn.count() == 0:
+            login_btn = page.locator('button:has-text("Log In")').first
+        if await login_btn.count() == 0:
+            login_btn = page.locator('input[type="submit"]').first
+        await login_btn.click()
+
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(3000)
 
         # Check if we landed on the dashboard (logged in)
         if "login" not in page.url.lower():
@@ -49,29 +70,24 @@ async def pause(page: Page, username: str, password: str) -> dict:
         if not await login(page, username, password):
             return {"success": False, "error": "Login failed"}
 
-        await page.goto(PAUSE_URL, wait_until="networkidle", timeout=20000)
+        await page.goto(PAUSE_URL, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2000)
 
-        # Check current state
         content = await page.content()
 
         if "Leads are active" in content:
-            # Find and click the Pause button
-            pause_btn = page.locator('button:has-text("Pause"), input[value="Pause"], a:has-text("Pause")').first
+            pause_btn = page.locator('button:has-text("Pause"), input[value="Pause"]').first
+            if await pause_btn.count() == 0:
+                pause_btn = page.locator('a:has-text("Pause")').first
             if await pause_btn.count() > 0:
                 await pause_btn.click()
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_timeout(3000)
                 logger.info("AWL: Paused successfully")
                 return {"success": True, "action": "paused"}
-            else:
-                # Try the specific button pattern from the screenshot
-                pause_btn = page.locator('[class*="pause"], .btn:has-text("Pause")').first
-                if await pause_btn.count() > 0:
-                    await pause_btn.click()
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                    return {"success": True, "action": "paused"}
-                return {"success": False, "error": "Pause button not found"}
+            return {"success": False, "error": "Pause button not found"}
 
-        elif "Calls are paused" in content or "paused" in content.lower():
+        elif "paused" in content.lower():
             logger.info("AWL: Already paused")
             return {"success": True, "action": "already_paused"}
         else:
@@ -89,19 +105,22 @@ async def unpause(page: Page, username: str, password: str) -> dict:
         if not await login(page, username, password):
             return {"success": False, "error": "Login failed"}
 
-        await page.goto(PAUSE_URL, wait_until="networkidle", timeout=20000)
+        await page.goto(PAUSE_URL, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2000)
 
         content = await page.content()
 
-        if "Calls are paused" in content or "paused" in content.lower():
-            resume_btn = page.locator('button:has-text("Resume"), input[value="Resume"], a:has-text("Resume")').first
+        if "paused" in content.lower():
+            resume_btn = page.locator('button:has-text("Resume"), input[value="Resume"]').first
+            if await resume_btn.count() == 0:
+                resume_btn = page.locator('a:has-text("Resume")').first
             if await resume_btn.count() > 0:
                 await resume_btn.click()
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_timeout(3000)
                 logger.info("AWL: Resumed successfully")
                 return {"success": True, "action": "resumed"}
-            else:
-                return {"success": False, "error": "Resume button not found"}
+            return {"success": False, "error": "Resume button not found"}
 
         elif "Leads are active" in content:
             logger.info("AWL: Already active")

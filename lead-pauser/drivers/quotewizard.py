@@ -24,37 +24,40 @@ PAUSE_TAB_SELECTOR = 'a:has-text("Pause"), [href*="pause" i]'
 async def login(page: Page, email: str, password: str) -> bool:
     """Login to QuoteWizard via Azure B2C."""
     try:
-        await page.goto(LOGIN_URL, wait_until="networkidle", timeout=45000)
-        await page.wait_for_timeout(2000)
+        await page.goto(LOGIN_URL, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(3000)
 
         # Azure B2C login form
-        email_input = page.locator('input[type="email"], input[name="loginfmt"], input[placeholder*="mail" i], input[id*="email" i]').first
-        if await email_input.count() > 0:
-            await email_input.fill(email)
-        else:
-            # Try generic text input
-            await page.locator('input[type="text"]').first.fill(email)
+        email_input = page.locator('input[type="email"]').first
+        if await email_input.count() == 0:
+            email_input = page.locator('input[id*="email" i], input[name*="email" i]').first
+        if await email_input.count() == 0:
+            email_input = page.locator('input[type="text"]').first
+        await email_input.fill(email)
 
         password_input = page.locator('input[type="password"]').first
         await password_input.fill(password)
 
-        # Click sign in
-        submit = page.locator('button[type="submit"], button:has-text("Sign in"), input[type="submit"]').first
+        submit = page.locator('button[type="submit"]').first
+        if await submit.count() == 0:
+            submit = page.locator('button:has-text("Sign in"), input[type="submit"]').first
         await submit.click()
 
-        await page.wait_for_load_state("networkidle", timeout=30000)
+        # Wait for redirect — B2C can be slow
+        await page.wait_for_timeout(5000)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(3000)
 
-        # Check for successful login — should be on dashboard
         url = page.url.lower()
-        if "login" not in url and "authorize" not in url and "b2clogin" not in url:
+        if "b2clogin" not in url and "authorize" not in url:
             logger.info("QuoteWizard: Login successful")
             return True
 
-        # Sometimes there's a redirect — wait a bit more
-        await page.wait_for_timeout(5000)
+        # Extra wait for slow redirects
+        await page.wait_for_timeout(8000)
         url = page.url.lower()
-        if "login" not in url and "authorize" not in url and "b2clogin" not in url:
+        if "b2clogin" not in url and "authorize" not in url:
             logger.info("QuoteWizard: Login successful (after redirect)")
             return True
 
@@ -67,44 +70,61 @@ async def login(page: Page, email: str, password: str) -> bool:
 
 
 async def _navigate_to_pause_tab(page: Page) -> bool:
-    """Navigate to the Pause tab."""
+    """Navigate to the Pause tab from dashboard."""
     try:
-        # Try direct navigation to account page first
-        # From screenshots: tabs are Account | Pause | Schedule | User Management | ...
-        pause_link = page.locator('a:has-text("Pause")').first
+        # From screenshots: user icon top-right → "Profile / Account Info" link
+        # Then tabs: Account | Pause | Schedule | User Management | Referrals | Send History
+        
+        # Step 1: Check if we're already on an account/pause page with tabs visible
+        pause_link = page.locator('a[href*="Pause" i], a:text-is("Pause")').first
         if await pause_link.count() > 0:
             await pause_link.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await page.wait_for_timeout(3000)
+            logger.info("QuoteWizard: Found and clicked Pause tab directly")
             return True
 
-        # Try clicking Profile/Account Info first
-        profile_link = page.locator('a:has-text("Profile"), a:has-text("Account")').first
-        if await profile_link.count() > 0:
-            await profile_link.click()
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            # Now find the Pause tab
-            pause_link = page.locator('a:has-text("Pause")').first
-            if await pause_link.count() > 0:
-                await pause_link.click()
-                await page.wait_for_load_state("networkidle", timeout=15000)
+        # Step 2: Try the user dropdown menu (top right of dashboard)
+        # From screenshot: person icon in top-right corner
+        user_icons = [
+            page.locator('svg[class*="user" i], svg[class*="person" i]').first,
+            page.locator('[class*="avatar" i], [class*="user-menu" i], [class*="profile-icon" i]').first,
+            page.locator('a[href*="profile" i], a[href*="account" i]').first,
+            page.locator('.navbar a:last-child, nav a:last-child').first,
+        ]
+        
+        for icon in user_icons:
+            if await icon.count() > 0:
+                await icon.click()
+                await page.wait_for_timeout(2000)
+                
+                # Look for "Profile / Account Info" in dropdown
+                profile_link = page.locator('a:has-text("Profile"), a:has-text("Account Info"), a:has-text("Account")').first
+                if await profile_link.count() > 0:
+                    await profile_link.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    await page.wait_for_timeout(2000)
+                    
+                    # Now find Pause tab
+                    pause_link = page.locator('a[href*="Pause" i], a:text-is("Pause")').first
+                    if await pause_link.count() > 0:
+                        await pause_link.click()
+                        await page.wait_for_timeout(3000)
+                        logger.info("QuoteWizard: Navigated via user menu → Pause tab")
+                        return True
+                break
+
+        # Step 3: Try clicking any visible element with text "Pause"
+        all_pause = page.locator('text=Pause').first
+        if await all_pause.count() > 0:
+            await all_pause.click()
+            await page.wait_for_timeout(3000)
+            content = await page.content()
+            if "Pause My Account" in content or "Add Pause" in content or "End Pause" in content:
+                logger.info("QuoteWizard: Found Pause page via text match")
                 return True
 
-        # Try user menu dropdown
-        user_menu = page.locator('[class*="user"], [class*="avatar"], [class*="profile"]').first
-        if await user_menu.count() > 0:
-            await user_menu.click()
-            await page.wait_for_timeout(1000)
-            account_link = page.locator('a:has-text("Profile"), a:has-text("Account Info")').first
-            if await account_link.count() > 0:
-                await account_link.click()
-                await page.wait_for_load_state("networkidle", timeout=15000)
-                pause_link = page.locator('a:has-text("Pause")').first
-                if await pause_link.count() > 0:
-                    await pause_link.click()
-                    await page.wait_for_load_state("networkidle", timeout=15000)
-                    return True
-
-        logger.error("QuoteWizard: Could not find Pause tab")
+        logger.error(f"QuoteWizard: Could not find Pause tab. Current URL: {page.url}")
+        # Take screenshot for debugging
         return False
 
     except Exception as e:
