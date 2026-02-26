@@ -1,17 +1,14 @@
 """
-All Web Leads — Playwright automation driver.
+All Web Leads - Playwright automation driver.
+Target: CALLS only (not Leads).
 
-Pause flow:
-  1. Login at secure.allwebleads.com/login (Username + Password → Log In)
-  2. Navigate to secure.allwebleads.com/Leads/Pause
-  3. If "Leads are active" → click "Pause" button
-  4. If "Calls are paused" → already paused, skip
+Page layout (secure.allwebleads.com/Leads/Pause):
+  "Leads are active"    [Pause button]
+  "Calls are paused"    [Update button] [Resume button]
+  - or -
+  "Calls are active"    [Pause button]
 
-Unpause flow:
-  1. Login (same)
-  2. Navigate to secure.allwebleads.com/Leads/Pause
-  3. If "Calls are paused" → click "Resume" button
-  4. If "Leads are active" → already active, skip
+Each row is a separate section. Buttons have text like "Resume" and "Pause".
 """
 import logging
 from playwright.async_api import Page
@@ -23,25 +20,21 @@ PAUSE_URL = "https://secure.allwebleads.com/Leads/Pause"
 
 
 async def login(page: Page, username: str, password: str) -> bool:
-    """Login to All Web Leads. Returns True on success."""
     try:
         await page.goto(LOGIN_URL, timeout=60000)
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000)
 
-        # Fill username
         username_input = page.locator('input[name="Username"]').first
         if await username_input.count() == 0:
             username_input = page.locator('input[type="text"]').first
         await username_input.fill(username)
 
-        # Fill password
         password_input = page.locator('input[name="Password"]').first
         if await password_input.count() == 0:
             password_input = page.locator('input[type="password"]').first
         await password_input.fill(password)
 
-        # Click login
         login_btn = page.locator('input[value="Log In"]').first
         if await login_btn.count() == 0:
             login_btn = page.locator('button:has-text("Log In")').first
@@ -52,7 +45,6 @@ async def login(page: Page, username: str, password: str) -> bool:
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(3000)
 
-        # Check if we landed on the dashboard (logged in)
         if "login" not in page.url.lower():
             logger.info("AWL: Login successful")
             return True
@@ -64,8 +56,56 @@ async def login(page: Page, username: str, password: str) -> bool:
         return False
 
 
+async def _click_calls_button(page: Page, button_text: str) -> str:
+    """Find the Calls section and click Pause or Resume. Pure JS approach."""
+    result = await page.evaluate("""(buttonText) => {
+        const body = document.body.innerText;
+        const callsPaused = body.includes('Calls are paused');
+        const callsActive = body.includes('Calls are active');
+
+        if (buttonText === 'Pause' && callsPaused) return 'already_paused';
+        if (buttonText === 'Resume' && callsActive) return 'already_active';
+
+        // Find all buttons containing target text
+        const allButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.btn'));
+        const targetButtons = allButtons.filter(btn => btn.textContent.includes(buttonText));
+
+        if (targetButtons.length === 0) return 'no_button_found';
+
+        if (buttonText === 'Pause') {
+            // Page has 2 rows: Leads then Calls. 2 Pause buttons = [0]=Leads, [1]=Calls
+            if (targetButtons.length >= 2) {
+                targetButtons[1].click();
+                return 'clicked_calls_pause';
+            }
+            // Only 1 pause button - Leads might already be paused, this is for Calls
+            targetButtons[0].click();
+            return 'clicked_only_pause';
+        }
+
+        if (buttonText === 'Resume') {
+            // Find Resume button in the Calls row (parent contains "Calls")
+            for (const btn of targetButtons) {
+                let el = btn.parentElement;
+                for (let i = 0; i < 8; i++) {
+                    if (el && el.textContent && el.textContent.includes('Calls')) {
+                        btn.click();
+                        return 'clicked_calls_resume';
+                    }
+                    if (el) el = el.parentElement;
+                }
+            }
+            // Fallback: Calls row is below Leads, so last Resume button
+            targetButtons[targetButtons.length - 1].click();
+            return 'clicked_last_resume';
+        }
+
+        return 'no_match';
+    }""", button_text)
+    return result
+
+
 async def pause(page: Page, username: str, password: str) -> dict:
-    """Pause CALLS on All Web Leads (not leads)."""
     try:
         if not await login(page, username, password):
             return {"success": False, "error": "Login failed"}
@@ -74,70 +114,22 @@ async def pause(page: Page, username: str, password: str) -> dict:
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000)
 
-        content = await page.content()
+        result = await _click_calls_button(page, "Pause")
+        logger.info(f"AWL: Pause result: {result}")
 
-        # Check if calls are already paused
-        if "Calls are paused" in content or "calls are paused" in content.lower():
-            logger.info("AWL: Calls already paused")
+        if result == "already_paused":
             return {"success": True, "action": "already_paused"}
-
-        # Target the Call pause button specifically (data-type="Call")
-        call_pause_btn = page.locator('button[data-type="Call"].pause-button:visible').first
-        if await call_pause_btn.count() > 0:
-            await call_pause_btn.click()
+        elif result and "clicked" in result:
             await page.wait_for_timeout(3000)
-            logger.info("AWL: Calls paused via data-type=Call button")
             return {"success": True, "action": "paused"}
-
-        # Fallback: use JavaScript to find the Call pause button
-        clicked = await page.evaluate("""() => {
-            // Look for pause button with data-type="Call"
-            const btn = document.querySelector('button.pause-button[data-type="Call"]');
-            if (btn && !btn.classList.contains('hidden')) {
-                btn.click();
-                return 'call_button';
-            }
-            // Try unhiding it
-            if (btn) {
-                btn.classList.remove('hidden');
-                btn.click();
-                return 'call_button_unhidden';
-            }
-            // Look in the Calls section
-            const sections = document.querySelectorAll('.pause-section, .card, [class*="section"]');
-            for (const sec of sections) {
-                if (sec.textContent.includes('Call')) {
-                    const pauseBtn = sec.querySelector('.pause-button, button:not(.resume-button)');
-                    if (pauseBtn) {
-                        pauseBtn.click();
-                        return 'section_button';
-                    }
-                }
-            }
-            return null;
-        }""")
-        if clicked:
-            await page.wait_for_timeout(3000)
-            logger.info(f"AWL: Calls paused via JS ({clicked})")
-            return {"success": True, "action": "paused"}
-
-        # Last fallback: click any visible pause button
-        pause_btn = page.locator('button.pause-button:visible').first
-        if await pause_btn.count() > 0:
-            await pause_btn.click()
-            await page.wait_for_timeout(3000)
-            logger.info("AWL: Paused via generic visible button")
-            return {"success": True, "action": "paused"}
-
-        return {"success": False, "error": "Call pause button not found"}
-
+        else:
+            return {"success": False, "error": f"Could not pause: {result}"}
     except Exception as e:
         logger.error(f"AWL pause error: {e}")
         return {"success": False, "error": str(e)}
 
 
 async def unpause(page: Page, username: str, password: str) -> dict:
-    """Resume CALLS on All Web Leads (not leads)."""
     try:
         if not await login(page, username, password):
             return {"success": False, "error": "Login failed"}
@@ -146,64 +138,16 @@ async def unpause(page: Page, username: str, password: str) -> dict:
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000)
 
-        content = await page.content()
+        result = await _click_calls_button(page, "Resume")
+        logger.info(f"AWL: Resume result: {result}")
 
-        # Check if calls are already active
-        if "Calls are active" in content or ("active" in content.lower() and "call" in content.lower()):
-            logger.info("AWL: Calls already active")
+        if result == "already_active":
             return {"success": True, "action": "already_active"}
-
-        # Target the Call resume button specifically (data-type="Call")
-        call_resume_btn = page.locator('button[data-type="Call"].resume-button:visible').first
-        if await call_resume_btn.count() > 0:
-            await call_resume_btn.click()
+        elif result and "clicked" in result:
             await page.wait_for_timeout(3000)
-            logger.info("AWL: Calls resumed via data-type=Call button")
             return {"success": True, "action": "resumed"}
-
-        # Fallback: use JavaScript to find the Call resume button
-        clicked = await page.evaluate("""() => {
-            // Look for resume button with data-type="Call"
-            const btn = document.querySelector('button.resume-button[data-type="Call"]');
-            if (btn && !btn.classList.contains('hidden')) {
-                btn.click();
-                return 'call_button';
-            }
-            // Try unhiding it
-            if (btn) {
-                btn.classList.remove('hidden');
-                btn.click();
-                return 'call_button_unhidden';
-            }
-            // Look in the Calls section
-            const sections = document.querySelectorAll('.pause-section, .card, [class*="section"]');
-            for (const sec of sections) {
-                if (sec.textContent.includes('Call')) {
-                    const resumeBtn = sec.querySelector('.resume-button');
-                    if (resumeBtn) {
-                        resumeBtn.classList.remove('hidden');
-                        resumeBtn.click();
-                        return 'section_button';
-                    }
-                }
-            }
-            return null;
-        }""")
-        if clicked:
-            await page.wait_for_timeout(3000)
-            logger.info(f"AWL: Calls resumed via JS ({clicked})")
-            return {"success": True, "action": "resumed"}
-
-        # Last fallback: any visible resume button
-        resume_btn = page.locator('button.resume-button:visible').first
-        if await resume_btn.count() > 0:
-            await resume_btn.click()
-            await page.wait_for_timeout(3000)
-            logger.info("AWL: Resumed via generic visible button")
-            return {"success": True, "action": "resumed"}
-
-        return {"success": False, "error": "Call resume button not found"}
-
+        else:
+            return {"success": False, "error": f"Could not resume: {result}"}
     except Exception as e:
         logger.error(f"AWL unpause error: {e}")
         return {"success": False, "error": str(e)}
