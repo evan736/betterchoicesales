@@ -661,16 +661,20 @@ def move_reshop_stage(
 def detect_proactive_reshops(
     days_out: int = Query(60, description="Look for renewals within N days"),
     increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
+    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Scan upcoming renewals and create proactive reshop entries for policies
-    with significant premium increases or other risk factors.
+    """Scan upcoming renewals and flag policies meeting reshop criteria:
     
-    This checks policies expiring within `days_out` days and flags those where
-    the renewal premium represents a significant increase.
+    1. Active policies renewing within `days_out` days
+    2. Annualized premium >= `min_annual_premium` (6-month auto premiums are doubled)
+    3. Premium increased >= `increase_threshold`% vs prior term
+    4. Prioritized by premium size (largest accounts first → priority=urgent/high)
     
-    Admin/retention only.
+    Compares current active term premium to the prior term of the same policy number.
+    If no prior term exists, the policy is still included if it meets the premium
+    threshold (flagged as "no prior term — manual review").
     """
     if not _can_manage(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -696,22 +700,127 @@ def detect_proactive_reshops(
         if r.policy_number:
             existing_policy_nums.add(r.policy_number.lower())
 
+    # Pre-load all policy terms for comparison (batch instead of N+1 queries)
+    all_policy_nums = [p.policy_number for p in expiring if p.policy_number]
+    prior_terms = {}
+    if all_policy_nums:
+        all_terms = (
+            db.query(CustomerPolicy)
+            .filter(
+                CustomerPolicy.policy_number.in_(all_policy_nums),
+                func.lower(CustomerPolicy.status).in_(["renewed", "expired", "cancelled", "non-renewed", "nonrenewed"]),
+            )
+            .order_by(CustomerPolicy.effective_date.desc())
+            .all()
+        )
+        for t in all_terms:
+            pn = t.policy_number
+            if pn and pn not in prior_terms:
+                prior_terms[pn] = t
+
     created = 0
-    skipped = 0
+    skipped_existing = 0
+    skipped_below_threshold = 0
+    skipped_no_increase = 0
+    candidates = []
 
     for policy in expiring:
         pnum = (policy.policy_number or "").lower()
         if pnum and pnum in existing_policy_nums:
-            skipped += 1
+            skipped_existing += 1
             continue
 
-        # Get the customer
+        # Get current premium
+        current_prem = float(policy.premium or 0)
+        if current_prem <= 0:
+            continue
+
+        # Annualize 6-month auto policies
+        lob = (policy.line_of_business or "").lower()
+        is_auto = "auto" in lob or "vehicle" in lob or "car" in lob
+        term_months = 12
+        if policy.effective_date and policy.expiration_date:
+            delta = (policy.expiration_date - policy.effective_date).days
+            if delta < 200:  # ~6 month policy
+                term_months = 6
+
+        annualized_premium = current_prem * (12 / term_months) if term_months < 12 else current_prem
+
+        # Filter: minimum annual premium
+        if annualized_premium < min_annual_premium:
+            skipped_below_threshold += 1
+            continue
+
+        # Compare to prior term
+        prior = prior_terms.get(policy.policy_number)
+        prior_prem = float(prior.premium or 0) if prior and prior.premium else 0
+        change_pct = 0.0
+        has_prior = False
+
+        if prior_prem > 0:
+            has_prior = True
+            # Annualize prior term too
+            prior_term_months = 12
+            if prior.effective_date and prior.expiration_date:
+                prior_delta = (prior.expiration_date - prior.effective_date).days
+                if prior_delta < 200:
+                    prior_term_months = 6
+            annualized_prior = prior_prem * (12 / prior_term_months) if prior_term_months < 12 else prior_prem
+            change_pct = ((annualized_premium - annualized_prior) / annualized_prior) * 100
+
+            # Filter: must meet increase threshold
+            if change_pct < increase_threshold:
+                skipped_no_increase += 1
+                continue
+
+        # If no prior term but meets premium threshold, include for manual review
+        # (new business or first term in our system)
+
+        candidates.append({
+            "policy": policy,
+            "annualized_premium": annualized_premium,
+            "prior_premium": prior_prem,
+            "change_pct": change_pct,
+            "has_prior": has_prior,
+            "term_months": term_months,
+        })
+
+    # Sort by annualized premium descending (largest accounts first)
+    candidates.sort(key=lambda c: c["annualized_premium"], reverse=True)
+
+    for c in candidates:
+        policy = c["policy"]
         customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
         if not customer:
             continue
 
-        # Flag reason: upcoming renewal (we don't have renewal premium in our data,
-        # but we can flag all renewals for manual review, or those with high premiums)
+        # Priority based on annualized premium
+        ann = c["annualized_premium"]
+        if ann >= 10000:
+            priority = "urgent"
+        elif ann >= 5000:
+            priority = "high"
+        elif ann >= 3000:
+            priority = "normal"
+        else:
+            priority = "low"
+
+        days_to_renewal = (policy.expiration_date - now).days
+        if c["has_prior"]:
+            source_detail = (
+                f"Premium increase {c['change_pct']:.1f}% "
+                f"(${c['prior_premium']:,.0f} → ${float(policy.premium or 0):,.0f})"
+                f"{' [6mo→annualized]' if c['term_months'] < 12 else ''}, "
+                f"renewal in {days_to_renewal} days"
+            )
+            reason = "renewal_increase"
+        else:
+            source_detail = (
+                f"High premium ${ann:,.0f}/yr, renewal in {days_to_renewal} days "
+                f"(no prior term for comparison)"
+            )
+            reason = "price_increase"
+
         reshop = Reshop(
             customer_id=customer.id,
             customer_name=customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip(),
@@ -722,26 +831,34 @@ def detect_proactive_reshops(
             line_of_business=policy.line_of_business,
             current_premium=policy.premium,
             expiration_date=policy.expiration_date,
+            renewal_premium=policy.premium if not c["has_prior"] else None,
+            premium_change_pct=round(c["change_pct"], 1) if c["has_prior"] else None,
             stage="proactive",
-            priority="normal",
+            priority=priority,
             source="proactive_renewal",
-            source_detail=f"Renewal in {(policy.expiration_date - now).days} days",
+            source_detail=source_detail,
+            reason=reason,
             is_proactive=True,
         )
         db.add(reshop)
         db.flush()
-        _log_activity(db, reshop.id, current_user, "created",
-                      f"Proactive: renewal in {(policy.expiration_date - now).days} days, "
-                      f"current premium ${float(policy.premium or 0):,.0f}")
+        _log_activity(db, reshop.id, current_user, "created", source_detail)
         created += 1
-        existing_policy_nums.add(pnum)
+        existing_policy_nums.add((policy.policy_number or "").lower())
 
     db.commit()
     return {
         "status": "ok",
         "created": created,
-        "skipped": skipped,
+        "skipped_existing_reshop": skipped_existing,
+        "skipped_below_premium_threshold": skipped_below_threshold,
+        "skipped_no_increase": skipped_no_increase,
         "policies_checked": len(expiring),
+        "criteria": {
+            "days_out": days_out,
+            "min_annual_premium": min_annual_premium,
+            "increase_threshold_pct": increase_threshold,
+        },
     }
 
 
