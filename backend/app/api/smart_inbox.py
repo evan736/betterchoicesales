@@ -1413,6 +1413,47 @@ async def reprocess_email(
     return {"status": "reprocessing", "id": email.id, "batch": batch_info is not None}
 
 
+@router.post("/reprocess-stuck")
+async def reprocess_stuck_emails(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Reprocess all emails stuck in 'logged' or 'customer_not_found' status that have no outbound drafts."""
+    stuck = db.query(InboundEmail).filter(
+        InboundEmail.status.in_([
+            ProcessingStatus.LOGGED,
+            ProcessingStatus.CUSTOMER_NOT_FOUND,
+        ])
+    ).all()
+
+    db_url = os.getenv("DATABASE_URL", "")
+    requeued = []
+
+    for email in stuck:
+        # Skip if already has outbound drafts
+        existing = db.query(OutboundQueue).filter(OutboundQueue.inbound_email_id == email.id).first()
+        if existing:
+            continue
+
+        email.status = ProcessingStatus.RECEIVED
+        email.error_message = None
+        db.commit()
+
+        batch_info = detect_batch_report(
+            email.from_address or "",
+            email.subject or "",
+            email.body_plain or "",
+            email.body_html or "",
+        )
+        if batch_info:
+            background_tasks.add_task(process_batch_report, email.id, db_url, batch_info)
+        else:
+            background_tasks.add_task(process_inbound_email, email.id, db_url)
+        requeued.append(email.id)
+
+    return {"status": "reprocessing", "count": len(requeued), "ids": requeued}
+
+
 # ── Stats ────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
