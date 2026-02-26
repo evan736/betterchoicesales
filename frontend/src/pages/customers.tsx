@@ -232,7 +232,19 @@ export default function CustomersPage() {
     e.target.value = '';
   };
 
-  if (authLoading || !user) return null;
+  if (authLoading || !user) return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="h-10 w-64 rounded-lg bg-slate-200 animate-pulse mb-4" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-slate-200 animate-pulse" />)}
+        </div>
+        <div className="h-12 rounded-lg bg-slate-200 animate-pulse mb-4" />
+        {[1,2,3,4,5].map(i => <div key={i} className="h-20 rounded-xl bg-slate-200 animate-pulse mb-3" />)}
+      </main>
+    </div>
+  );
   const isAdmin = user.role?.toLowerCase() === 'admin';
   const fmt = (n: number) => n?.toLocaleString('en-US') ?? '0';
   const fmtMoney = (n: number) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -634,7 +646,19 @@ export default function CustomersPage() {
                                         <CheckCircle2 size={28} className="text-green-500 mx-auto mb-2" />
                                         <p className="text-sm font-semibold text-green-700">Email sent!</p>
                                         <p className="text-xs text-slate-500 mt-1">Delivered to {detail.customer.email}</p>
-                                        <button onClick={() => setEmailOpen(false)} className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-semibold">Close</button>
+                                        {emailFiles.length > 0 && (
+                                          <div className="mt-3 text-left bg-slate-50 rounded-lg p-3">
+                                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Attachments Sent ({emailFiles.length})</p>
+                                            {emailFiles.map((f, i) => (
+                                              <div key={i} className="flex items-center gap-2 text-xs text-slate-600 py-0.5">
+                                                <Paperclip size={11} className="text-green-500 flex-shrink-0" />
+                                                <span className="truncate">{f.name}</span>
+                                                <span className="text-slate-400 flex-shrink-0">{(f.size / 1024).toFixed(0)}KB</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        <button onClick={() => { setEmailOpen(false); setEmailFiles([]); }} className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-semibold">Close</button>
                                       </div>
                                     ) : (
                                       <div className="p-4 space-y-3">

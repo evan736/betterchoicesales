@@ -31,7 +31,9 @@ import {
   Send,
   XCircle,
   Shield,
+  Inbox,
 } from 'lucide-react';
+import axios from 'axios';
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -46,10 +48,30 @@ export default function Dashboard() {
   const [elapsedTime, setElapsedTime] = useState('');
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'acquiring' | 'acquired' | 'denied' | 'error'>('idle');
 
+  // Smart Inbox state
+  const [inboxStats, setInboxStats] = useState<any>(null);
+
+  const isManager = user?.role?.toLowerCase() === 'manager' || user?.role?.toLowerCase() === 'admin';
+
   useEffect(() => {
     if (!loading && !user) router.push('/');
-    else if (user) { loadDashboardData(); loadClockStatus(); }
+    else if (user) { loadDashboardData(); loadClockStatus(); if (isManager) loadInboxStats(); }
   }, [user, loading]);
+
+  const loadInboxStats = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const [statsRes, queueRes] = await Promise.all([
+        axios.get(`${baseUrl}/api/smart-inbox/stats`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${baseUrl}/api/smart-inbox/queue`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setInboxStats({
+        ...statsRes.data,
+        pending_approvals: Array.isArray(queueRes.data) ? queueRes.data.length : queueRes.data?.items?.length || 0,
+      });
+    } catch {}
+  };
 
   const loadDashboardData = async () => {
     // Load independently so one failure doesn't kill the others
@@ -152,7 +174,32 @@ export default function Dashboard() {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-brand-600 font-semibold">Loading...</div></div>;
+  if (loading) return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Skeleton greeting */}
+        <div className="h-8 w-48 rounded-lg bg-slate-200 animate-pulse mb-6" />
+        {/* Skeleton stat cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="stat-card animate-pulse">
+              <div className="h-5 w-5 rounded bg-slate-200 mb-3" />
+              <div className="h-8 w-20 rounded bg-slate-200 mb-2" />
+              <div className="h-3 w-24 rounded bg-slate-200" />
+            </div>
+          ))}
+        </div>
+        {/* Skeleton content area */}
+        <div className="flex flex-col xl:flex-row gap-6">
+          <div className="flex-1 space-y-4">
+            {[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-slate-200 animate-pulse" />)}
+          </div>
+          <div className="xl:w-[420px] h-64 rounded-xl bg-slate-200 animate-pulse" />
+        </div>
+      </main>
+    </div>
+  );
   if (!user) return null;
 
   const currentRate = tierInfo ? `${(tierInfo.commission_rate * 100).toFixed(0)}%` : '—';
@@ -250,6 +297,46 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* ── Smart Inbox Quick View (Manager/Admin only) ── */}
+        {isManager && inboxStats && (
+          <div className="mb-6">
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-cyan-50"><Inbox size={18} className="text-cyan-600" /></div>
+                  <h3 className="text-sm font-semibold text-slate-700">Smart Inbox</h3>
+                  {inboxStats.pending_approvals > 0 && (
+                    <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-red-500 text-white animate-pulse">
+                      {inboxStats.pending_approvals} awaiting approval
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => router.push('/smart-inbox')} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+                  Open Inbox →
+                </button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="text-center p-2 rounded-lg bg-slate-50">
+                  <div className="text-lg font-bold text-slate-900">{inboxStats.today_count || 0}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Today</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-slate-50">
+                  <div className="text-lg font-bold text-green-600">{inboxStats.auto_sent || 0}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Auto-Sent</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-slate-50">
+                  <div className="text-lg font-bold text-blue-600">{inboxStats.customer_match_rate ? `${Math.round(inboxStats.customer_match_rate)}%` : '—'}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Match Rate</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-slate-50">
+                  <div className="text-lg font-bold text-slate-900">{inboxStats.week_count || 0}</div>
+                  <div className="text-[10px] text-slate-500 font-medium">This Week</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Two-Column Layout: Main Content + Compliance Center ── */}
         <div className="flex flex-col xl:flex-row gap-6">

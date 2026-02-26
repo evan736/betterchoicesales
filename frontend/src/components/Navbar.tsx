@@ -4,9 +4,11 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
 import { reshopAPI } from '../lib/api';
+import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
+  Inbox,
 } from 'lucide-react';
 
 const Navbar: React.FC = () => {
@@ -16,10 +18,14 @@ const Navbar: React.FC = () => {
   const [showMenu, setShowMenu] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [reshopBadge, setReshopBadge] = useState(0);
+  const [inboxBadge, setInboxBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Poll reshop badge count
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
+  const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
+
+  // Poll reshop + smart inbox badge counts
   useEffect(() => {
     if (!user) return;
     const load = async () => {
@@ -27,14 +33,22 @@ const Navbar: React.FC = () => {
         const r = await reshopAPI.badgeCount();
         setReshopBadge(r.data.new || 0);
       } catch {}
+      // Smart Inbox pending approval count (manager/admin only)
+      if (isManager) {
+        try {
+          const token = localStorage.getItem('token');
+          const r = await axios.get(
+            `${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}/api/smart-inbox/queue`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          setInboxBadge(Array.isArray(r.data) ? r.data.length : r.data?.items?.length || 0);
+        } catch {}
+      }
     };
     load();
-    const interval = setInterval(load, 60000); // every minute
+    const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
-  }, [user]);
-
-  const isAdmin = user?.role?.toLowerCase() === 'admin';
-  const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
+  }, [user, isManager]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -49,23 +63,49 @@ const Navbar: React.FC = () => {
   // Close menu on route change
   useEffect(() => { setShowMenu(false); }, [router.asPath]);
 
-  const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: <TrendingUp size={16} />, show: true },
-    { href: '/sales', label: 'Sales', icon: <FileText size={16} />, show: true },
-    { href: '/quotes', label: 'Quotes', icon: <FileText size={16} />, show: true },
-    { href: '/customers', label: 'Customers', icon: <Users size={16} />, show: true },
-    { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
-    { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
-    { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: true },
-    { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
-    { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
-    { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: true },
-    { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
-    { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager },
-    { href: '/admin', label: 'Admin', icon: <Shield size={16} />, show: isAdmin },
-  ].filter((i) => i.show);
+  // Nav items grouped into sections
+  const navSections = [
+    {
+      label: 'Core',
+      items: [
+        { href: '/dashboard', label: 'Dashboard', icon: <TrendingUp size={16} />, show: true },
+        { href: '/customers', label: 'Customers', icon: <Users size={16} />, show: true },
+      ],
+    },
+    {
+      label: 'Sales',
+      items: [
+        { href: '/sales', label: 'Sales', icon: <FileText size={16} />, show: true },
+        { href: '/quotes', label: 'Quotes', icon: <FileText size={16} />, show: true },
+        { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: true, badge: reshopBadge },
+        { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
+      ],
+    },
+    {
+      label: 'Operations',
+      items: [
+        { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: isManager, badge: inboxBadge },
+        { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
+        { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
+        { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
+        { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
+        { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: true },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { href: '/admin', label: 'Admin', icon: <Shield size={16} />, show: isAdmin },
+      ],
+    },
+  ];
 
-  const currentPage = navItems.find((i) => router.asPath.startsWith(i.href))?.label || 'Menu';
+  // Flat list for currentPage lookup
+  const allNavItems = navSections.flatMap(s => s.items).filter(i => i.show);
+  const currentPage = allNavItems.find((i) => router.asPath.startsWith(i.href))?.label || 'Menu';
+
+  // Total badge count for mobile indicator
+  const totalBadges = reshopBadge + inboxBadge;
 
   return (
     <nav className="glass sticky top-0 z-50 border-b border-white/20">
@@ -126,30 +166,46 @@ const Navbar: React.FC = () => {
                 >
                   <Menu size={16} />
                   <span>{currentPage}</span>
+                  {totalBadges > 0 && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">
+                      {totalBadges > 9 ? '9+' : totalBadges}
+                    </span>
+                  )}
                   <ChevronDown size={14} className={`transition-transform ${showMenu ? 'rotate-180' : ''}`} />
                 </button>
 
                 {showMenu && (
-                  <div className="absolute left-0 top-full mt-1.5 w-52 rounded-xl shadow-xl border z-[100] overflow-hidden theme-picker-dropdown">
-                    {navItems.map((item) => {
-                      const active = router.asPath.startsWith(item.href);
+                  <div className="absolute left-0 top-full mt-1.5 w-56 rounded-xl shadow-xl border z-[100] overflow-hidden theme-picker-dropdown max-h-[70vh] overflow-y-auto">
+                    {navSections.map((section) => {
+                      const visibleItems = section.items.filter(i => i.show);
+                      if (visibleItems.length === 0) return null;
                       return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={`flex items-center space-x-2.5 px-3 py-2.5 text-sm font-medium transition-colors theme-picker-item ${
-                            active ? 'nav-menu-active' : ''
-                          }`}
-                        >
-                          <span className="nav-menu-icon">{item.icon}</span>
-                          <span className="theme-picker-name">{item.label}</span>
-                          {item.href === '/reshop' && reshopBadge > 0 && (
-                            <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">
-                              {reshopBadge > 9 ? '9+' : reshopBadge}
-                            </span>
-                          )}
-                          {active && <Check size={14} className="ml-auto text-green-500" />}
-                        </Link>
+                        <div key={section.label}>
+                          <div className="px-3 py-1.5 border-b theme-picker-header">
+                            <p className="text-[10px] font-bold uppercase tracking-wider theme-picker-label opacity-50">{section.label}</p>
+                          </div>
+                          {visibleItems.map((item) => {
+                            const active = router.asPath.startsWith(item.href);
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`flex items-center space-x-2.5 px-3 py-2.5 text-sm font-medium transition-colors theme-picker-item ${
+                                  active ? 'nav-menu-active' : ''
+                                }`}
+                              >
+                                <span className="nav-menu-icon">{item.icon}</span>
+                                <span className="theme-picker-name flex-1">{item.label}</span>
+                                {item.badge && item.badge > 0 ? (
+                                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">
+                                    {item.badge > 9 ? '9+' : item.badge}
+                                  </span>
+                                ) : null}
+                                {active && <Check size={14} className="text-green-500" />}
+                              </Link>
+                            );
+                          })}
+                        </div>
                       );
                     })}
                   </div>
