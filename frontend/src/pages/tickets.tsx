@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import {
   Bug, Loader2, ChevronDown, ChevronUp, Clock, CheckCircle2,
-  AlertTriangle, XCircle, Image, ExternalLink, Play, ArrowUpRight
+  AlertTriangle, XCircle, Image, ExternalLink, Play, ArrowUpRight, Copy, ClipboardCheck
 } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '';
@@ -33,8 +33,38 @@ export default function TicketsPage() {
   const [updating, setUpdating] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState('');
   const [stats, setStats] = useState<any>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const headers = () => ({ Authorization: `Bearer ${token}` });
+
+  const copyForDeveloper = (ticket: any) => {
+    const screenshotUrl = ticket.has_screenshot || ticket.screenshot_data
+      ? `${API}/api/tickets/${ticket.id}/screenshot`
+      : null;
+    const lines = [
+      `## ORBIT Support Ticket #${ticket.id}`,
+      `**Priority:** ${(ticket.priority || 'normal').toUpperCase()}`,
+      `**Status:** ${ticket.status}`,
+      `**Reporter:** ${ticket.reporter_name || ticket.reporter_username}`,
+      `**Page:** ${ticket.page_url || 'N/A'}`,
+      `**Created:** ${ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'Unknown'}`,
+      ``,
+      `### Description`,
+      ticket.description || '(no description)',
+    ];
+    if (ticket.resolution_notes) {
+      lines.push('', `### Resolution Notes`, ticket.resolution_notes);
+    }
+    if (screenshotUrl) {
+      lines.push('', `### Screenshot`, screenshotUrl);
+    }
+    lines.push('', `---`, `Paste this into a Claude session for developer review.`);
+
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopiedId(ticket.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   const loadTickets = async () => {
     setTicketLoading(true);
@@ -266,6 +296,12 @@ export default function TicketsPage() {
                                   </button>
                                 </>
                               )}
+                              <button
+                                onClick={() => copyForDeveloper(detail)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition-colors"
+                              >
+                                {copiedId === t.id ? <><ClipboardCheck size={12} /> Copied!</> : <><Copy size={12} /> Copy for Developer</>}
+                              </button>
                               <button
                                 onClick={() => updateTicket(t.id, { status: 'closed' })}
                                 disabled={updating}
