@@ -51,9 +51,16 @@ PROVIDERS = {
         "username_key": "AWL_USERNAME",
         "password_key": "AWL_PASSWORD",
     },
-    # Future:
-    # "quotewizard": { "module": "drivers.quotewizard", ... },
-    # "insuranceagents-ai": { "module": "drivers.insuranceagents", ... },
+    "quotewizard": {
+        "module": "drivers.quotewizard",
+        "username_key": "QW_EMAIL",
+        "password_key": "QW_PASSWORD",
+    },
+    "insuranceagents-ai": {
+        "module": "drivers.insuranceagents",
+        "username_key": "IAI_EMAIL",
+        "password_key": "IAI_PASSWORD",
+    },
 }
 
 
