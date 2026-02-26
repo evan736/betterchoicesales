@@ -469,7 +469,7 @@ export default function ChatPanel() {
   // Collapsed sidebar bar — includes both Chat + Email icons
   // Always show this bar (it sits at right-0, behind any open panels)
   const collapsedBar = (
-    <div className="fixed top-0 right-0 h-full w-12 z-30 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-3"
+    <div className="fixed top-0 right-0 h-full w-12 z-20 bg-[#0a1628]/80 border-l border-cyan-900/20 flex flex-col items-center pt-20 gap-3"
       style={{ backdropFilter: 'blur(10px)' }}
     >
       {/* Email icon */}
@@ -520,7 +520,7 @@ export default function ChatPanel() {
   return (
     <>
       {collapsedBar}
-      <div className="fixed top-0 h-full w-[380px] z-40 flex flex-col bg-[#0a1628] border-l border-cyan-900/30 shadow-2xl shadow-black/40"
+      <div className="fixed top-0 h-full w-[380px] z-30 flex flex-col bg-[#0a1628] border-l border-cyan-900/30 shadow-2xl shadow-black/40"
         style={{ right: '48px', backdropFilter: 'blur(20px)' }}
       >
       {/* Header */}

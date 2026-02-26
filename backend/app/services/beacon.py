@@ -181,14 +181,24 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
     use_complex = _is_complex_query(user_message)
     model = SONNET_MODEL if use_complex else HAIKU_MODEL
     
-    # Build system prompt with knowledge base context
+    # Build system prompt with knowledge base context + live ORBIT data
     system = SYSTEM_PROMPT
     if db_session:
+        # Live ORBIT data (carriers, sales stats, team)
+        try:
+            from app.services.beacon_context import get_live_context
+            live_context = get_live_context(user_message, db_session)
+            if live_context:
+                system = system + "\n" + live_context
+        except Exception as e:
+            logger.warning(f"Live context lookup failed: {e}")
+        
+        # Knowledge base entries (PDFs, corrections, etc)
         try:
             from app.api.beacon_kb import get_relevant_knowledge
             kb_context = get_relevant_knowledge(user_message, db_session)
             if kb_context:
-                system = system + "\n\n" + kb_context + "\n\nIMPORTANT: The knowledge base entries above come from your team and may contain corrections to your built-in knowledge. Prioritize knowledge base entries over your defaults when they conflict."
+                system = system + "\n" + kb_context + "\n\nIMPORTANT: The knowledge base entries above come from your team and may contain corrections to your built-in knowledge. Prioritize knowledge base entries over your defaults when they conflict."
         except Exception as e:
             logger.warning(f"Knowledge base lookup failed: {e}")
     
