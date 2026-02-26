@@ -105,6 +105,7 @@ export default function ChatPanel() {
   const [beaconTyping, setBeaconTyping] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<any>(null);
@@ -134,7 +135,14 @@ export default function ChatPanel() {
       if (!ch) return;
       try {
         const res = await chatAPI.messages(ch.id);
-        const freshMsgs = res.data || [];
+        let freshMsgs = res.data || [];
+
+        // BEACON channel: filter out messages older than 10 minutes
+        if (ch.channel_type === 'beacon') {
+          const cutoff = Date.now() - 10 * 60 * 1000;
+          freshMsgs = freshMsgs.filter((m: any) => new Date(m.created_at).getTime() > cutoff);
+        }
+
         setMessages(prev => {
           // Only update if message count changed (avoid unnecessary rerenders)
           if (freshMsgs.length !== prev.length || 
@@ -198,10 +206,15 @@ export default function ChatPanel() {
     };
   }, [user]);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom of messages container (not the page)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const el = messagesContainerRef.current;
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [messages, beaconTyping]);
 
   const loadChannels = async () => {
     try {
@@ -250,7 +263,19 @@ export default function ChatPanel() {
     if (!silent) setLoading(true);
     try {
       const res = await chatAPI.messages(channelId);
-      setMessages(res.data || []);
+      let msgs = res.data || [];
+
+      // BEACON channel: filter out messages older than 10 minutes
+      const ch = channels.find(c => c.id === channelId);
+      if (ch?.channel_type === 'beacon') {
+        const cutoff = Date.now() - 10 * 60 * 1000; // 10 minutes
+        msgs = msgs.filter((m: any) => {
+          const ts = new Date(m.created_at).getTime();
+          return ts > cutoff;
+        });
+      }
+
+      setMessages(msgs);
       if (!silent) {
         await chatAPI.markRead(channelId);
         loadUnread();
@@ -671,7 +696,7 @@ export default function ChatPanel() {
       ) : (
         /* ── Messages View ── */
         <>
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 size={24} className="animate-spin text-cyan-400" />
