@@ -138,6 +138,11 @@ async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] 
         logger.error("Mailgun not configured")
         return None
 
+    # Ensure all outbound emails have BCI branding
+    if html and "linear-gradient" not in html and "bci_header_white" not in html:
+        from app.services.smart_inbox_ai import wrap_branded_email
+        html = wrap_branded_email(html)
+
     data = {
         "from": f"Better Choice Insurance <{AGENCY_FROM_EMAIL}>",
         "h:Reply-To": AGENCY_REPLY_TO,
@@ -952,10 +957,16 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
         )
     else:
         # Standard email via Mailgun
+        # Ensure branding wrapper is applied (older drafts may lack it)
+        send_html = item.body_html or ""
+        if send_html and "linear-gradient" not in send_html and "bci_header_white" not in send_html:
+            from app.services.smart_inbox_ai import wrap_branded_email
+            send_html = wrap_branded_email(send_html, item.to_name or "Valued Customer")
+            item.body_html = send_html  # Update stored version too
         msg_id = await _send_via_mailgun(
             to=item.to_email,
             subject=item.subject,
-            html=item.body_html,
+            html=send_html,
         )
 
     if msg_id:
@@ -1048,7 +1059,12 @@ async def edit_and_approve(
 
     send_now = body.get("send", False)
     if send_now:
-        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=item.body_html)
+        send_html = item.body_html or ""
+        if send_html and "linear-gradient" not in send_html and "bci_header_white" not in send_html:
+            from app.services.smart_inbox_ai import wrap_branded_email
+            send_html = wrap_branded_email(send_html, item.to_name or "Valued Customer")
+            item.body_html = send_html
+        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=send_html)
         if msg_id:
             item.status = OutboundStatus.SENT
             item.sent_at = datetime.utcnow()
@@ -1114,10 +1130,15 @@ async def set_email_and_send(
 
     # Send if requested
     if send_now:
+        send_html = item.body_html or ""
+        if send_html and "linear-gradient" not in send_html and "bci_header_white" not in send_html:
+            from app.services.smart_inbox_ai import wrap_branded_email
+            send_html = wrap_branded_email(send_html, item.to_name or "Valued Customer")
+            item.body_html = send_html
         msg_id = await _send_via_mailgun(
             to=new_email,
             subject=item.subject,
-            html=item.body_html,
+            html=send_html,
         )
         if msg_id:
             item.status = OutboundStatus.SENT
@@ -1345,7 +1366,12 @@ async def batch_approve(request: Request, db: Session = Depends(get_db)):
             results.append({"id": item_id, "status": "not_found"})
             continue
 
-        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=item.body_html)
+        send_html = item.body_html or ""
+        if send_html and "linear-gradient" not in send_html and "bci_header_white" not in send_html:
+            from app.services.smart_inbox_ai import wrap_branded_email
+            send_html = wrap_branded_email(send_html, item.to_name or "Valued Customer")
+            item.body_html = send_html
+        msg_id = await _send_via_mailgun(to=item.to_email, subject=item.subject, html=send_html)
         if msg_id:
             item.status = OutboundStatus.SENT
             item.sent_at = datetime.utcnow()
