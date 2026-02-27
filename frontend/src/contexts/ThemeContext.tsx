@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 
 export type ThemeId = 'mission-control' | 'sakura-pink' | 'apple-clean' | 'blue-white' | 'true-black';
+
+// Public pages that should NOT have any theme applied
+const PUBLIC_PAGES = ['/get-quote', '/survey'];
 
 export interface ThemeOption {
   id: ThemeId;
@@ -59,6 +63,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode; userId?: numbe
   userId,
 }) => {
   const [theme, setThemeState] = useState<ThemeId>('mission-control');
+  const router = useRouter();
 
   // Load saved theme on mount / user change
   useEffect(() => {
@@ -74,9 +79,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode; userId?: numbe
     }
   }, [userId]);
 
-  // Apply theme classes to body whenever theme changes
+  // Apply theme classes to body whenever theme or route changes
   useEffect(() => {
     const body = document.body;
+    const isPublicPage = PUBLIC_PAGES.some(p => router.pathname.startsWith(p));
+
+    if (isPublicPage) {
+      // Strip ALL theme classes on public/customer-facing pages
+      THEMES.forEach((t) => body.classList.remove(t.id));
+      return;
+    }
 
     // Always add mission-control as the base dark layer
     // (apple-clean and blue-white will override it with their own light backgrounds)
@@ -93,7 +105,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode; userId?: numbe
     if (theme !== 'mission-control') {
       body.classList.add(theme);
     }
-  }, [theme]);
+  }, [theme, router.pathname]);
 
   const setTheme = useCallback(
     (t: ThemeId) => {
