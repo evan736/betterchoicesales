@@ -51,11 +51,14 @@ export default function Dashboard() {
   // Smart Inbox state
   const [inboxStats, setInboxStats] = useState<any>(null);
 
+  // Daily Checklist state
+  const [checklist, setChecklist] = useState<any>(null);
+
   const isManager = user?.role?.toLowerCase() === 'manager' || user?.role?.toLowerCase() === 'admin';
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
-    else if (user) { loadDashboardData(); loadClockStatus(); if (isManager) loadInboxStats(); }
+    else if (user) { loadDashboardData(); loadClockStatus(); if (isManager) { loadInboxStats(); loadChecklist(); } }
   }, [user, loading]);
 
   // SSE live refresh — auto-reload data when events arrive
@@ -90,6 +93,24 @@ export default function Dashboard() {
         ...statsRes.data,
         pending_approvals: Array.isArray(queueRes.data) ? queueRes.data.length : queueRes.data?.items?.length || 0,
       });
+    } catch {}
+  };
+
+  const loadChecklist = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const res = await axios.get(`${baseUrl}/api/checklist/today`, { headers: { Authorization: `Bearer ${token}` } });
+      setChecklist(res.data);
+    } catch {}
+  };
+
+  const toggleChecklistItem = async (key: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      await axios.post(`${baseUrl}/api/checklist/toggle/${key}?username=${user?.name || user?.username || ''}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      loadChecklist();
     } catch {}
   };
 
@@ -354,6 +375,63 @@ export default function Dashboard() {
                   <div className="text-lg font-bold text-slate-900">{inboxStats.week_count || 0}</div>
                   <div className="text-[10px] text-slate-500 font-medium">This Week</div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Daily Non-Pay Checklist (Manager/Admin only) ── */}
+        {isManager && checklist && (
+          <div className="mb-6">
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-50"><ClipboardList size={18} className="text-amber-600" /></div>
+                  <h3 className="text-sm font-semibold text-slate-700">Daily Non-Pay Lists</h3>
+                  {checklist.all_done ? (
+                    <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-green-100 text-green-700">
+                      ✓ All Done
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[11px] font-bold rounded-full bg-amber-100 text-amber-700">
+                      {checklist.completed}/{checklist.total} complete
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium">
+                  {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {checklist.items.map((item: any) => (
+                  <button
+                    key={item.key}
+                    onClick={() => toggleChecklistItem(item.key)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
+                      item.completed
+                        ? 'bg-green-50 border border-green-200'
+                        : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      item.completed
+                        ? 'border-green-500 bg-green-500'
+                        : 'border-slate-300'
+                    }`}>
+                      {item.completed && <CheckCircle size={14} className="text-white" />}
+                    </div>
+                    <span className={`text-sm font-medium flex-1 ${
+                      item.completed ? 'text-green-700 line-through' : 'text-slate-700'
+                    }`}>
+                      {item.label}
+                    </span>
+                    {item.completed && item.completed_at && (
+                      <span className="text-[10px] text-green-500 font-medium">
+                        {new Date(item.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

@@ -794,6 +794,25 @@ async def lifespan(app: FastAPI):
     from app.migrations.smart_inbox_migration import migrate_smart_inbox
     migrate_smart_inbox()
 
+    # Self-healing: create daily_checklist_items table
+    try:
+        from sqlalchemy import text as _ck_text
+        from app.core.database import engine as _ck_engine
+        with _ck_engine.connect() as conn:
+            conn.execute(_ck_text("""CREATE TABLE IF NOT EXISTS daily_checklist_items (
+                id SERIAL PRIMARY KEY,
+                check_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                item_key VARCHAR NOT NULL,
+                completed BOOLEAN DEFAULT FALSE,
+                completed_by VARCHAR,
+                completed_at TIMESTAMP,
+                notes VARCHAR
+            )"""))
+            conn.commit()
+        logger.info("daily_checklist_items table ready")
+    except Exception as e:
+        logger.warning(f"Checklist migration: {e}")
+
     # Self-healing: add PDF storage columns to sales table if missing
     try:
         from sqlalchemy import text as sa_text, inspect as sa_inspect
@@ -1322,7 +1341,9 @@ except Exception as e:
 app.include_router(reshop_api.router)
 
 from app.api import lead_providers as lead_providers_api
+from app.api import daily_checklist as daily_checklist_api
 app.include_router(lead_providers_api.router)
+app.include_router(daily_checklist_api.router)
 try:
     lead_providers_api.ensure_automation_table()
 except Exception as e:
