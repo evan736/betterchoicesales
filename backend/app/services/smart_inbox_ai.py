@@ -105,12 +105,20 @@ Write a professional, warm, and helpful email to the customer. Guidelines:
 - Address the customer by first name
 - Be empathetic and solution-oriented
 - Include specific action items if applicable
-- Include deadlines if they exist
+- Include deadlines/effective dates if they exist
 - Keep it concise — 2-4 short paragraphs max
 - Do NOT include any header, logo, or signature block — just the message paragraphs
 - Do NOT include a subject line in the body
 - Do NOT wrap in full HTML document tags — just provide the inner content paragraphs as simple HTML (<p> tags, <strong> for emphasis)
 - End with something like "If you have any questions, don't hesitate to reach out."
+
+CRITICAL RULES — FOLLOW THESE EXACTLY:
+- The ONLY phone number you may include is the agency number: (847) 908-5665. NEVER use any other phone number.
+- Do NOT include any phone number from the original email/report — those are the CUSTOMER'S personal phone numbers, NOT the agency number.
+- Do NOT mention any producer, agent, or employee by name (e.g. "Joseph Rivera", "Evan Larson"). Just say "our team" or "we".
+- Do NOT tell the customer that someone specific will be reaching out. Instead, ask the customer to contact US at (847) 908-5665.
+- Do NOT include premium amounts or dollar figures in the email body.
+- Always direct the customer to call the agency at (847) 908-5665 or reply to this email.
 
 Also provide a subject line separately.
 
@@ -370,7 +378,7 @@ def determine_auto_send(category: str, sensitivity: str) -> bool:
       - Policy confirmations
       - Basic billing updates
     
-    Queue for approval (sensitive/critical):
+    NEVER auto-send (always require approval):
       - Cancellations
       - Non-renewals
       - Claims
@@ -378,6 +386,15 @@ def determine_auto_send(category: str, sensitivity: str) -> bool:
       - Anything classified as sensitive/critical
     """
     if sensitivity in ("sensitive", "critical"):
+        return False
+
+    # These categories ALWAYS require human approval regardless of sensitivity
+    never_auto_send = {
+        "non_renewal",
+        "cancellation",
+        "claim_notice",
+    }
+    if category in never_auto_send:
         return False
 
     auto_send_categories = {
