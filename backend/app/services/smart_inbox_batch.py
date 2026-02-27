@@ -57,7 +57,7 @@ BATCH_REPORT_PATTERNS = [
     {
         "name": "natgen_nonrenewal_excel",
         "from_pattern": r".*",  # Can come from anyone (forwarded)
-        "subject_pattern": r"(?i)non[\s-]*renewals?\s+(?:national\s+general|natgen|NGIC)|(?i)(?:national\s+general|natgen|NGIC)\s+non[\s-]*renewals?|(?i)pending\s+non[\s-]*renewals?",
+        "subject_pattern": r"non[\s-]*renewals?\s+(?:national\s+general|natgen|NGIC)|(?:national\s+general|natgen|NGIC)\s+non[\s-]*renewals?|pending\s+non[\s-]*renewals?",
         "report_type": "nonrenewal_excel",
         "carrier": "National General",
         "subject_only_match": True,
