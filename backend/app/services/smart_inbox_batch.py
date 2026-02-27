@@ -54,6 +54,14 @@ BATCH_REPORT_PATTERNS = [
         "carrier": "National General",
         "subject_only_match": False,
     },
+    {
+        "name": "natgen_nonrenewal_excel",
+        "from_pattern": r".*",  # Can come from anyone (forwarded)
+        "subject_pattern": r"(?i)non[\s-]*renewals?\s+(?:national\s+general|natgen|NGIC)|(?i)(?:national\s+general|natgen|NGIC)\s+non[\s-]*renewals?|(?i)pending\s+non[\s-]*renewals?",
+        "report_type": "nonrenewal_excel",
+        "carrier": "National General",
+        "subject_only_match": True,
+    },
 ]
 
 
@@ -102,18 +110,86 @@ def parse_batch_report(
     body_plain: str,
     report_type: str,
     carrier: str,
+    attachment_data: Optional[List[Dict]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Parse the email HTML to extract individual customer rows from the report table.
+    Parse the email HTML or attachments to extract individual customer rows.
     Returns a list of dicts, one per customer/policy row.
     """
     if report_type == "policy_activity":
         return _parse_policy_activity(body_html, body_plain, carrier)
     elif report_type == "reinstatement":
         return _parse_reinstatement(body_html, body_plain, carrier)
+    elif report_type == "nonrenewal_excel":
+        return _parse_nonrenewal_excel(attachment_data, carrier)
     else:
         logger.warning(f"Unknown batch report type: {report_type}")
         return []
+
+
+def _parse_nonrenewal_excel(
+    attachment_data: Optional[List[Dict]], carrier: str
+) -> List[Dict[str, Any]]:
+    """
+    Parse non-renewal Excel spreadsheet attachment.
+    
+    Expected columns:
+    Policy | Named Insured | Phone | Type | Product | DIV | Processed | Effective |
+    Description | Premium | Producer | Additional Products
+    """
+    if not attachment_data:
+        logger.warning("No attachment data for nonrenewal_excel parser")
+        return []
+
+    items = []
+    for att in attachment_data:
+        extracted_text = att.get("extracted_text", "")
+        if not extracted_text:
+            continue
+
+        # Parse the semicolon-delimited rows from the extracted text
+        for line in extracted_text.strip().split("\n"):
+            if not line.strip() or line.startswith("Excel Sheet:") or line.startswith("Columns:") or line.startswith("CSV File:"):
+                continue
+
+            # Parse "Key: Value; Key: Value" format
+            fields = {}
+            for pair in line.split("; "):
+                if ": " in pair:
+                    key, val = pair.split(": ", 1)
+                    fields[key.strip()] = val.strip()
+
+            policy = fields.get("Policy", "").strip()
+            insured = fields.get("Named Insured", "").strip()
+            phone = fields.get("Phone", "").strip()
+            effective = fields.get("Effective", "").strip()
+            description = fields.get("Description", "").strip()
+            premium = fields.get("Premium", "").strip()
+            producer = fields.get("Producer", "").strip()
+            product = fields.get("Product", "").strip()
+
+            if not policy or not insured:
+                continue
+
+            # Clean policy number (remove spaces around dash)
+            policy_clean = re.sub(r'\s*-\s*', '-', policy)
+
+            items.append({
+                "policy_number": policy_clean,
+                "insured_name": insured,
+                "phone": phone,
+                "carrier": carrier,
+                "category": "non_renewal",
+                "description": description or "Non-Renewal - Underwriting Reasons",
+                "effective_date": effective,
+                "premium": premium,
+                "producer": producer,
+                "product": product,
+                "action": "non_renewal_notice",
+            })
+
+    logger.info(f"Parsed {len(items)} non-renewal items from Excel attachment")
+    return items
 
 
 def _parse_policy_activity(

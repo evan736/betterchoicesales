@@ -485,12 +485,13 @@ async def process_batch_report(email_id: int, db_url: str, batch_info: dict):
         email.sensitivity = "routine"
         db.commit()
 
-        # Parse the report table
+        # Parse the report table (or Excel attachment)
         items = parse_batch_report(
             body_html=email.body_html or "",
             body_plain=email.body_plain or "",
             report_type=batch_info["report_type"],
             carrier=batch_info.get("carrier", "Unknown"),
+            attachment_data=email.attachment_data,
         )
 
         if not items:
