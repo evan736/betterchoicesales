@@ -3,41 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, ChevronDown } from 'lucide-react';
 
-// Public landing page — override mission-control dark theme
-const LANDING_PAGE_RESET = `
-  .get-quote-page,
-  .get-quote-page h1,
-  .get-quote-page h2,
-  .get-quote-page h3,
-  .get-quote-page h4,
-  .get-quote-page h5,
-  .get-quote-page h6,
-  .get-quote-page p,
-  .get-quote-page span,
-  .get-quote-page div,
-  .get-quote-page a,
-  .get-quote-page td,
-  .get-quote-page label,
-  .get-quote-page input,
-  .get-quote-page textarea,
-  .get-quote-page button {
-    font-family: 'DM Sans', sans-serif !important;
-    color: inherit !important;
-  }
-  .get-quote-page h1,
-  .get-quote-page h2 {
-    font-family: 'Playfair Display', serif !important;
-  }
-  .get-quote-page input,
-  .get-quote-page textarea {
-    background: inherit !important;
-    border-color: inherit !important;
-  }
-  .get-quote-page section,
-  .get-quote-page footer {
-    background: inherit !important;
-  }
-`;
+// Public landing page — theme classes removed via useEffect
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -76,6 +42,14 @@ export default function GetQuotePage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Strip dark theme classes on this public page
+  useEffect(() => {
+    const body = document.body;
+    const savedClasses = body.className;
+    body.classList.remove('mission-control', 'sakura-pink', 'apple-clean', 'blue-white', 'true-black');
+    return () => { body.className = savedClasses; };
+  }, []);
+
   useEffect(() => {
     if (firstName) setFormData(prev => ({ ...prev, name: firstName }));
   }, [firstName]);
@@ -112,7 +86,6 @@ export default function GetQuotePage() {
         <title>Get Your Free Quote Comparison | Better Choice Insurance</title>
         <meta name="description" content="Compare rates from 15+ carriers in minutes. Free, no-obligation insurance quote comparison from Better Choice Insurance." />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet" />
-        <style dangerouslySetInnerHTML={{ __html: LANDING_PAGE_RESET }} />
       </Head>
 
       <div className="get-quote-page" style={{ margin: 0, padding: 0, background: '#fafbfc', fontFamily: "'DM Sans', sans-serif", color: '#1a1a2e', minHeight: '100vh' }}>
