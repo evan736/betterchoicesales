@@ -383,6 +383,17 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
     })
     landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
 
+    # Build landing page URL with personalized query params
+    import urllib.parse
+    landing_params = urllib.parse.urlencode({
+        'name': first_name,
+        'type': policy_type or 'insurance',
+        'carrier': carrier or '',
+        'xdate': x_date or '',
+        'utm_campaign': 'requote',
+    })
+    landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
+
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
