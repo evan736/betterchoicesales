@@ -367,13 +367,72 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
     query_lower = query.lower()
     query_words = set(re.findall(r'\w+', query_lower))
     
+    # ── State abbreviation expansion ──
+    # Users often say "OK" instead of "Oklahoma", "IL" instead of "Illinois", etc.
+    STATE_ABBREVS = {
+        'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
+        'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
+        'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
+        'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
+        'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
+        'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
+        'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
+        'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
+        'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
+        'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
+        'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
+        'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
+        'wi': 'wisconsin', 'wy': 'wyoming',
+    }
+    # Also reverse: full name → abbreviation
+    STATE_NAMES = {v: k for k, v in STATE_ABBREVS.items()}
+    
+    expanded_query_words = set(query_words)
+    detected_state_names = set()  # Full state names found/expanded from query
+    for word in query_words:
+        word_l = word.lower()
+        if word_l in STATE_ABBREVS:
+            full_name = STATE_ABBREVS[word_l]
+            expanded_query_words.add(full_name)
+            # Add individual words for multi-word states
+            for part in full_name.split():
+                expanded_query_words.add(part)
+            detected_state_names.add(full_name)
+        elif word_l in STATE_NAMES:
+            expanded_query_words.add(STATE_NAMES[word_l])
+            detected_state_names.add(word_l)
+    
+    # Also check for multi-word state names in the query
+    for state_name in STATE_NAMES:
+        if ' ' not in state_name and state_name in query_lower:
+            detected_state_names.add(state_name)
+        elif ' ' in state_name and state_name in query_lower:
+            detected_state_names.add(state_name)
+    
+    # ── Product type keywords for title matching ──
+    PRODUCT_KEYWORDS = {
+        'home': ['home', 'homeowner', 'homeowners', 'dwelling', 'ho3', 'ho5', 'ho6'],
+        'auto': ['auto', 'automobile', 'vehicle', 'car', 'driver'],
+        'rv': ['rv', 'recreational vehicle', 'motorhome'],
+        'renters': ['renter', 'renters', 'tenant'],
+        'condo': ['condo', 'condominium'],
+        'umbrella': ['umbrella', 'excess liability'],
+    }
+    detected_products = set()
+    for product, keywords in PRODUCT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in query_lower:
+                detected_products.add(product)
+                break
+    
     scored = []
     for entry in entries:
         score = 0
+        title_lower = (entry.title or '').lower()
         searchable = f"{entry.title} {entry.content} {entry.tags or ''} {entry.carrier or ''} {entry.summary or ''}".lower()
         
-        # Exact phrase fragments
-        for word in query_words:
+        # Exact phrase fragments (use expanded words including state full names)
+        for word in expanded_query_words:
             if len(word) >= 3:  # Skip tiny words
                 count = searchable.count(word)
                 score += count * 2
@@ -381,6 +440,28 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         # Carrier name match (big boost)
         if entry.carrier and entry.carrier.lower() in query_lower:
             score += 20
+        
+        # ── State match in title (BIG boost) ──
+        # If user asked about Oklahoma and the title says "Oklahoma", that's highly relevant
+        for state_name in detected_state_names:
+            if state_name in title_lower:
+                score += 30  # Strong signal — right state doc
+            # Also check abbreviation in title
+            if state_name in STATE_NAMES:
+                abbrev = STATE_NAMES[state_name]
+                if f" {abbrev} " in f" {title_lower} " or title_lower.endswith(f" {abbrev}"):
+                    score += 30
+        
+        # ── Product type match in title (significant boost) ──
+        # If user asked about "home" and title says "Home Guidelines", prefer it
+        for product in detected_products:
+            if product in title_lower:
+                score += 15
+            # Also check synonyms in title
+            for kw in PRODUCT_KEYWORDS.get(product, []):
+                if kw in title_lower:
+                    score += 10
+                    break
         
         # Tag matches
         if entry.tags:
@@ -460,6 +541,29 @@ def _extract_relevant_chunks(content: str, query_words: set, max_total: int = 80
         for key, syns in SYNONYMS.items():
             if word.startswith(key) or key.startswith(word):
                 expanded.update(syns)
+    
+    # State abbreviation expansion for chunk matching too
+    STATE_ABBREVS_CHUNK = {
+        'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
+        'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
+        'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
+        'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
+        'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
+        'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
+        'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
+        'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
+        'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
+        'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
+        'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
+        'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
+        'wi': 'wisconsin', 'wy': 'wyoming',
+    }
+    for word in query_words:
+        if word.lower() in STATE_ABBREVS_CHUNK:
+            full = STATE_ABBREVS_CHUNK[word.lower()]
+            expanded.add(full)
+            for part in full.split():
+                expanded.add(part)
     
     scored_lines = []
     for i, line in enumerate(lines):
