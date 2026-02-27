@@ -11,7 +11,7 @@ import hashlib
 from datetime import datetime, timedelta, date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Numeric, JSON, and_, or_, func as sqlfunc
 from sqlalchemy.orm import Session
 
@@ -374,6 +374,15 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
         </p>
         """
 
+    # Build landing page URL with personalized params
+    import urllib.parse
+    landing_params = urllib.parse.urlencode({
+        k: v for k, v in {
+            'name': first_name, 'type': policy_type, 'carrier': carrier, 'xdate': x_date,
+        }.items() if v
+    })
+    landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
+
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -394,7 +403,7 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
         <tr><td style="padding:16px 32px 0;">{body}</td></tr>
         <!-- CTA -->
         <tr><td style="padding:24px 32px;" align="center">
-          <a href="mailto:{AGENCY_REPLY_TO}?subject=Requote%20Request%20-%20{first_name}" 
+          <a href="{landing_url}" 
              style="display:inline-block;background:#2563eb;color:#fff;padding:14px 36px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:600;">
             Get My Free Quote Comparison
           </a>
@@ -1055,3 +1064,74 @@ def campaign_calendar(
     return {
         "schedule": sorted(schedule.values(), key=lambda x: x["date"]),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# LANDING PAGE LEAD CAPTURE
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/landing-lead")
+async def capture_landing_lead(request: Request, db: Session = Depends(get_db)):
+    """Capture a lead from the requote landing page (no auth required)."""
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip()
+    message = (data.get("message") or "").strip()
+    policy_type = (data.get("policy_type") or "").strip()
+    current_carrier = (data.get("current_carrier") or "").strip()
+    renewal_date = (data.get("renewal_date") or "").strip()
+    utm_campaign = (data.get("utm_campaign") or "").strip()
+
+    if not name or not phone:
+        raise HTTPException(status_code=400, detail="Name and phone are required")
+
+    # Send alert email to Evan
+    if MAILGUN_API_KEY:
+        alert_html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;margin:0;padding:20px;background:#f1f5f9;">
+        <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+            <div style="background:linear-gradient(135deg,#059669,#10b981);padding:20px 28px;">
+                <h2 style="margin:0;color:#fff;font-size:18px;">🎯 New Requote Lead from Landing Page</h2>
+            </div>
+            <div style="padding:24px 28px;">
+                <table style="width:100%;font-size:14px;color:#334155;" cellpadding="0" cellspacing="0">
+                    <tr><td style="padding:8px 0;color:#64748b;width:130px;">Name</td><td style="padding:8px 0;font-weight:700;">{name}</td></tr>
+                    <tr><td style="padding:8px 0;color:#64748b;">Phone</td><td style="padding:8px 0;font-weight:700;">{phone}</td></tr>
+                    {"<tr><td style='padding:8px 0;color:#64748b;'>Email</td><td style='padding:8px 0;'>" + email + "</td></tr>" if email else ""}
+                    {"<tr><td style='padding:8px 0;color:#64748b;'>Policy Type</td><td style='padding:8px 0;'>" + policy_type + "</td></tr>" if policy_type else ""}
+                    {"<tr><td style='padding:8px 0;color:#64748b;'>Current Carrier</td><td style='padding:8px 0;'>" + current_carrier + "</td></tr>" if current_carrier else ""}
+                    {"<tr><td style='padding:8px 0;color:#64748b;'>Renewal Date</td><td style='padding:8px 0;'>" + renewal_date + "</td></tr>" if renewal_date else ""}
+                    {"<tr><td style='padding:8px 0;color:#64748b;'>UTM Campaign</td><td style='padding:8px 0;font-size:12px;color:#94a3b8;'>" + utm_campaign + "</td></tr>" if utm_campaign else ""}
+                </table>
+                {"<div style='margin:16px 0;padding:12px 16px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;'><p style=\"margin:0;font-size:13px;color:#0369a1;\"><strong>Message:</strong> " + message + "</p></div>" if message else ""}
+                <div style="margin-top:20px;">
+                    <a href="tel:{phone.replace('(','').replace(')','').replace('-','').replace(' ','')}" 
+                       style="display:inline-block;background:#2563eb;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">
+                        📞 Call {name.split()[0] if name else 'Lead'} Now
+                    </a>
+                </div>
+            </div>
+        </div></body></html>"""
+
+        try:
+            httpx.post(
+                f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
+                auth=("api", MAILGUN_API_KEY),
+                data={
+                    "from": f"ORBIT Lead Alert <{AGENCY_FROM_EMAIL}>",
+                    "to": "evan@betterchoiceins.com",
+                    "subject": f"🎯 New Requote Lead: {name} — {phone}",
+                    "html": alert_html,
+                    "o:tag": ["landing-page-lead"],
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send landing lead alert: {e}")
+
+    logger.info(f"Landing page lead captured: {name} / {phone} / {email}")
+    return {"status": "ok", "message": "Lead captured successfully"}
+
