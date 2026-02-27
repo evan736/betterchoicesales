@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 export type ThemeId = 'mission-control' | 'sakura-pink' | 'apple-clean' | 'blue-white' | 'true-black';
 
 // Public pages that should NOT have any theme applied
-const PUBLIC_PAGES = ['/get-quote', '/survey', '/quote-confirmation', '/privacy'];
+const PUBLIC_PAGES = ['/get-quote', '/survey', '/quote-confirmation', '/privacy', '/start-quote'];
 
 export interface ThemeOption {
   id: ThemeId;

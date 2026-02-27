@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, Upload, FileText, Zap, Brain, AlertTriangle, TrendingDown } from 'lucide-react';
-import dynamic from 'next/dynamic';
-const QuoteIntakeForm = dynamic(() => import('../components/QuoteIntakeForm'), { ssr: false });
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -174,7 +172,7 @@ export default function GetQuotePage() {
                 </p>
 
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' as const }}>
-                  <a href="#get-quote" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 20px rgba(37,99,235,0.4)' }}>
+                  <a href="/start-quote" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 20px rgba(37,99,235,0.4)' }}>
                     Start Your Quote <ArrowRight size={18} />
                   </a>
                   <a href="#ai-review" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(16,185,129,0.15)', color: '#34d399', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(16,185,129,0.3)' }}>
@@ -486,28 +484,25 @@ export default function GetQuotePage() {
           </div>
         </section>
 
-        {/* ═══ QUOTE FORM ═══ */}
+        {/* ═══ QUOTE CTA ═══ */}
         <section id="get-quote" style={{ background: 'linear-gradient(145deg, #0a1628 0%, #132042 40%, #1a3a5c 100%)', padding: '72px 24px', position: 'relative' }}>
           <div style={{ position: 'absolute', inset: 0, opacity: 0.04, backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
-          <div style={{ maxWidth: '650px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
-            <div style={{ textAlign: 'center' as const, marginBottom: '36px' }}>
-              <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '32px', fontWeight: 700, margin: '0 0 12px', color: '#fff' }}>Start Your Quote</h2>
-              <p style={{ color: '#94a3b8', fontSize: '16px', margin: 0, lineHeight: 1.6 }}>
-                Answer a few quick questions and we&apos;ll compare rates from 15+ carriers to find your best deal.
-              </p>
-            </div>
-
-            <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '16px', padding: '32px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(10px)' }}>
-              <QuoteIntakeForm
-                initialName={firstName}
-                policyType={policyType}
-                currentCarrier={currentCarrier}
-                renewalDate={renewalDate}
-                utmCampaign={utm_campaign as string}
-              />
-            </div>
-
-            <div style={{ textAlign: 'center' as const, marginTop: '24px' }}>
+          <div style={{ maxWidth: '600px', margin: '0 auto', position: 'relative', zIndex: 1, textAlign: 'center' as const }}>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '32px', fontWeight: 700, margin: '0 0 12px', color: '#fff' }}>
+              Ready to Save?
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '17px', margin: '0 0 32px', lineHeight: 1.6 }}>
+              Answer a few quick questions and we&apos;ll compare rates from 15+ carriers to find your best deal. Most quotes take less than 5 minutes.
+            </p>
+            <a href={`/start-quote${typeof window !== 'undefined' ? window.location.search : ''}`} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '10px',
+              background: '#2563eb', color: '#fff', padding: '18px 40px', borderRadius: '10px',
+              fontSize: '18px', fontWeight: 700, textDecoration: 'none',
+              boxShadow: '0 4px 24px rgba(37,99,235,0.4)',
+            }}>
+              Start Your Quote <ArrowRight size={20} />
+            </a>
+            <div style={{ marginTop: '24px' }}>
               <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 8px' }}>Prefer to talk to a person?</p>
               <a href={`tel:${PHONE_DIGITS}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#93c5fd', fontSize: '18px', fontWeight: 700, textDecoration: 'none' }}>
                 <Phone size={18} /> {PHONE}
