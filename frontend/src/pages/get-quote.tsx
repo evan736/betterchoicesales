@@ -101,7 +101,7 @@ export default function GetQuotePage() {
           <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '48px 24px 56px', position: 'relative', zIndex: 1 }}>
             {/* Top bar */}
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '48px' }}>
-              <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '52px', display: 'block' }} />
+              <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '64px', display: 'block' }} />
             </div>
 
             <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexWrap: 'wrap' as const }}>
@@ -453,7 +453,7 @@ export default function GetQuotePage() {
 
         {/* ═══ FOOTER ═══ */}
         <footer style={{ background: '#060d18', padding: '32px 24px', textAlign: 'center' as const }}>
-          <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '36px', marginBottom: '12px', opacity: 0.6 }} />
+          <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '44px', marginBottom: '12px', opacity: 0.6 }} />
           <p style={{ color: '#475569', fontSize: '13px', margin: '0 0 4px' }}>
             Better Choice Insurance Group | {PHONE} | {EMAIL}
           </p>
