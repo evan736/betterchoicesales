@@ -1157,3 +1157,234 @@ async def capture_landing_lead(request: Request, db: Session = Depends(get_db)):
     logger.info(f"Landing page lead captured: {name} / {phone} / {email}")
     return {"status": "ok", "message": "Lead captured successfully"}
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# AI COVERAGE ANALYSIS — Reads dec pages with Claude Vision
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/api/campaigns/coverage-analysis")
+async def coverage_analysis(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+):
+    """
+    Upload a declarations page (PDF or image). Claude Vision reads it,
+    identifies the policy type, extracts key coverages, finds gaps,
+    and recommends improvements with estimated savings.
+    """
+    import anthropic
+    import base64
+    import subprocess
+    import tempfile
+
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="AI analysis not configured")
+
+    # Read the uploaded file
+    file_bytes = await file.read()
+    filename = file.filename or "upload"
+    content_type = file.content_type or ""
+
+    # Convert PDF to images if needed
+    images_b64 = []
+
+    if "pdf" in content_type.lower() or filename.lower().endswith(".pdf"):
+        # Convert PDF pages to PNG using pdftoppm
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = os.path.join(tmpdir, "upload.pdf")
+            with open(pdf_path, "wb") as f:
+                f.write(file_bytes)
+
+            try:
+                subprocess.run(
+                    ["pdftoppm", "-r", "200", "-png", pdf_path, os.path.join(tmpdir, "page")],
+                    check=True, timeout=30, capture_output=True,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                logger.warning(f"pdftoppm failed: {e}, falling back to direct PDF")
+                # Fallback: send raw PDF as document
+                b64 = base64.standard_b64encode(file_bytes).decode("utf-8")
+                images_b64.append({"type": "document", "media_type": "application/pdf", "data": b64})
+
+            if not images_b64:
+                # Collect converted page images (max 5 pages)
+                import glob
+                pages = sorted(glob.glob(os.path.join(tmpdir, "page-*.png")))[:5]
+                for page_path in pages:
+                    with open(page_path, "rb") as pf:
+                        b64 = base64.standard_b64encode(pf.read()).decode("utf-8")
+                        images_b64.append({"type": "image", "media_type": "image/png", "data": b64})
+    else:
+        # Image file (PNG, JPG)
+        media_type = "image/png" if "png" in content_type.lower() else "image/jpeg"
+        b64 = base64.standard_b64encode(file_bytes).decode("utf-8")
+        images_b64.append({"type": "image", "media_type": media_type, "data": b64})
+
+    if not images_b64:
+        raise HTTPException(status_code=400, detail="Could not process uploaded file")
+
+    # Build Claude Vision request
+    content_blocks = []
+    for img_data in images_b64:
+        if img_data["type"] == "document":
+            content_blocks.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": img_data["media_type"], "data": img_data["data"]},
+            })
+        else:
+            content_blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": img_data["media_type"], "data": img_data["data"]},
+            })
+
+    content_blocks.append({
+        "type": "text",
+        "text": """You are an expert insurance analyst at an independent insurance agency. Analyze this declarations page thoroughly.
+
+Extract and respond with ONLY a JSON object (no markdown, no backticks, no preamble):
+
+{
+  "policy_type": "homeowners|auto|renters|landlord|condo|umbrella|other",
+  "carrier": "Name of the insurance carrier",
+  "policy_number": "Policy number if visible",
+  "effective_dates": "Policy period if visible",
+  "insured_name": "Named insured if visible",
+  "property_address": "Insured property address if visible",
+  "key_coverages": {
+    "description of coverage": "limit/amount"
+  },
+  "gaps": [
+    {
+      "area": "Specific coverage area name",
+      "severity": "high|medium",
+      "detail": "2-3 sentence explanation of WHY this is a gap, what risk it exposes, and what the recommended fix is. Be specific to the actual numbers you see on the dec page."
+    }
+  ],
+  "savings_estimate": "$X - $Y per year",
+  "recommendation": "2-3 sentence personalized recommendation referencing the specific policy details you found. Mention that a licensed agent should review the full policy across 15+ carriers to confirm savings and close any coverage gaps."
+}
+
+IMPORTANT ANALYSIS RULES:
+- For HOMEOWNERS: Check dwelling coverage vs typical rebuild costs ($200-300/sqft), liability limits (recommend $300K+), medical payments, loss of use, water backup coverage, personal property coverage, deductible amount, and whether replacement cost or ACV.
+- For AUTO: Check liability limits (recommend 100/300/100 minimum), uninsured/underinsured motorist, comprehensive/collision deductibles, rental reimbursement, roadside assistance, and gap coverage if applicable.
+- For RENTERS: Check personal property limits, liability, medical payments, and loss of use.
+- Always identify at least 2-3 genuine coverage gaps based on what you actually see on the page.
+- Be specific with numbers from the dec page in your gap analysis.
+- Savings estimate should be realistic ($200-$1,500 range depending on policy type and premium).
+- If you can see the premium, use it to calibrate your savings estimate (typically 15-35% savings for overpriced policies)."""
+    })
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model=os.environ.get("SMART_INBOX_MODEL", "claude-sonnet-4-5-20250929"),
+            max_tokens=2000,
+            messages=[{"role": "user", "content": content_blocks}],
+        )
+
+        # Parse JSON from response
+        response_text = response.content[0].text.strip()
+        # Clean any markdown wrapping
+        if response_text.startswith("```"):
+            response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        response_text = response_text.strip()
+
+        import json
+        analysis = json.loads(response_text)
+
+        # Ensure required fields
+        if "gaps" not in analysis:
+            analysis["gaps"] = []
+        if "savings_estimate" not in analysis:
+            analysis["savings_estimate"] = "$300 - $800"
+        if "recommendation" not in analysis:
+            analysis["recommendation"] = "Based on our review, we see opportunities to improve your coverage. A licensed agent will compare rates across 15+ carriers."
+        if "policy_type" not in analysis:
+            analysis["policy_type"] = "unknown"
+
+        logger.info(f"AI coverage analysis complete: {analysis.get('policy_type')} policy from {analysis.get('carrier', 'unknown')}, {len(analysis.get('gaps', []))} gaps found")
+
+        # Send alert email to Evan with the analysis results
+        if MAILGUN_API_KEY and (name or phone):
+            gaps_html = ""
+            for gap in analysis.get("gaps", []):
+                severity_color = "#ef4444" if gap.get("severity") == "high" else "#f59e0b"
+                severity_label = "HIGH" if gap.get("severity") == "high" else "MEDIUM"
+                gaps_html += f'<tr><td style="padding:6px 8px;"><span style="background:{severity_color};color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;">{severity_label}</span></td><td style="padding:6px 8px;font-weight:700;">{gap.get("area","")}</td><td style="padding:6px 8px;color:#64748b;font-size:13px;">{gap.get("detail","")}</td></tr>'
+
+            coverages_html = ""
+            for cov_name, cov_val in analysis.get("key_coverages", {}).items():
+                coverages_html += f'<tr><td style="padding:4px 8px;color:#64748b;">{cov_name}</td><td style="padding:4px 8px;font-weight:600;">{cov_val}</td></tr>'
+
+            lead_name = name or "Unknown"
+            lead_phone = phone or "N/A"
+            lead_email = email or "N/A"
+            carrier_found = analysis.get("carrier", "Unknown")
+            policy_type_found = analysis.get("policy_type", "Unknown")
+            savings = analysis.get("savings_estimate", "TBD")
+
+            alert_html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;margin:0;padding:20px;background:#f1f5f9;">
+<div style="max-width:650px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:20px 28px;">
+    <h2 style="margin:0;color:#fff;font-size:18px;">🧠 AI Coverage Analysis Lead</h2>
+  </div>
+  <div style="padding:24px 28px;">
+    <table style="width:100%;font-size:14px;color:#334155;margin-bottom:16px;" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:6px 0;color:#64748b;width:120px;">Name</td><td style="font-weight:700;">{lead_name}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">Phone</td><td style="font-weight:700;">{lead_phone}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">Email</td><td>{lead_email}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">File</td><td>{filename}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">Carrier</td><td style="font-weight:700;">{carrier_found}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">Policy Type</td><td>{policy_type_found}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b;">Est. Savings</td><td style="font-weight:700;color:#2563eb;">{savings}</td></tr>
+    </table>
+    <h3 style="font-size:14px;color:#0f172a;margin:16px 0 8px;">Key Coverages Found</h3>
+    <table style="width:100%;font-size:13px;border-collapse:collapse;">{coverages_html}</table>
+    <h3 style="font-size:14px;color:#0f172a;margin:16px 0 8px;">Gaps Identified ({len(analysis.get('gaps',[]))})</h3>
+    <table style="width:100%;font-size:13px;border-collapse:collapse;">{gaps_html}</table>
+    <div style="margin-top:16px;padding:12px;background:#eff6ff;border-radius:8px;font-size:13px;color:#1e40af;">
+      <strong>AI Recommendation:</strong> {analysis.get('recommendation','')}
+    </div>
+  </div>
+</div></body></html>"""
+
+            try:
+                httpx.post(
+                    f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
+                    auth=("api", MAILGUN_API_KEY),
+                    data={
+                        "from": f"ORBIT AI Analysis <{AGENCY_FROM_EMAIL}>",
+                        "to": "evan@betterchoiceins.com",
+                        "subject": f"🧠 AI Coverage Analysis: {lead_name} — {carrier_found} {policy_type_found} — {savings} savings",
+                        "html": alert_html,
+                        "o:tag": ["ai-coverage-analysis"],
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send AI analysis alert: {e}")
+
+        return analysis
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse AI response as JSON: {e}")
+        logger.error(f"Raw response: {response_text[:500]}")
+        # Return a generic analysis if parsing fails
+        return {
+            "policy_type": "unknown",
+            "carrier": "Unknown",
+            "gaps": [
+                {"area": "Coverage Review Needed", "severity": "high", "detail": "We were able to read your declarations page but need a licensed agent to complete the full analysis. There are likely coverage gaps and savings opportunities available."},
+                {"area": "Rate Comparison", "severity": "medium", "detail": "Rates vary significantly across carriers. Without a full comparison across our 15+ partners, you could be overpaying by $500+ per year."},
+            ],
+            "savings_estimate": "$400 - $1,200",
+            "recommendation": "We recommend speaking with one of our licensed agents who can manually review your policy and run a full rate comparison across all our carrier partners.",
+        }
+    except Exception as e:
+        logger.error(f"AI coverage analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
