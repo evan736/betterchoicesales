@@ -482,68 +482,177 @@ export default function CampaignsPage() {
         {showUpload && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={e => { if (e.target === e.currentTarget) setShowUpload(false); }}>
-            <div className="bg-[#0f1729] border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-[#0f1729] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
-                <h2 className="text-lg font-semibold">New Requote Campaign</h2>
+                <h2 className="text-lg font-semibold">
+                  {uploadResult && !uploadResult.error ? '📋 Campaign Preview' : 'New Requote Campaign'}
+                </h2>
                 <button onClick={() => setShowUpload(false)} className="text-slate-400 hover:text-white">✕</button>
               </div>
-              <div className="px-6 py-5 space-y-4">
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold mb-1 block">Campaign Name</label>
-                  <input type="text" value={campaignName} onChange={e => setCampaignName(e.target.value)}
-                    placeholder="e.g. Q1 2026 Xdates Requote"
-                    className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold mb-1 block">Upload Lead List (.xlsx, .xls, .csv)</label>
-                  <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv"
-                    onChange={e => setUploadFile(e.target.files?.[0] || null)}
-                    className="w-full text-sm text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border file:border-white/10 file:bg-white/5 file:text-sm file:text-cyan-300 file:font-semibold hover:file:bg-white/10 file:transition file:cursor-pointer"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1">Supports any column layout — we'll auto-detect names, emails, X-dates, carriers, etc.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 1 (days before X-date)</label>
-                    <input type="number" value={touch1Days} onChange={e => setTouch1Days(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 2 (days before X-date)</label>
-                    <input type="number" value={touch2Days} onChange={e => setTouch2Days(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
-                    />
-                  </div>
-                </div>
 
-                {uploadResult && (
-                  <div className={`p-3 rounded-lg text-sm ${uploadResult.error ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'}`}>
-                    {uploadResult.error ? uploadResult.error : (
-                      <div>
-                        <p className="font-semibold">Campaign created!</p>
-                        <p>{uploadResult.total_valid} valid leads from {uploadResult.total_uploaded} rows</p>
-                        {uploadResult.total_skipped > 0 && <p>{uploadResult.total_skipped} skipped (no email)</p>}
-                        {uploadResult.total_deduped > 0 && <p>{uploadResult.total_deduped} duplicates removed</p>}
-                      </div>
-                    )}
+              {/* Upload form (before upload) */}
+              {!uploadResult && (
+                <div className="px-6 py-5 space-y-4">
+                  <div>
+                    <label className="text-xs text-slate-400 font-semibold mb-1 block">Campaign Name</label>
+                    <input type="text" value={campaignName} onChange={e => setCampaignName(e.target.value)}
+                      placeholder="e.g. Q1 2026 Xdates Requote"
+                      className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
+                    />
                   </div>
-                )}
-              </div>
+                  <div>
+                    <label className="text-xs text-slate-400 font-semibold mb-1 block">Upload Lead List (.xlsx, .xls, .csv)</label>
+                    <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv"
+                      onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                      className="w-full text-sm text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border file:border-white/10 file:bg-white/5 file:text-sm file:text-cyan-300 file:font-semibold hover:file:bg-white/10 file:transition file:cursor-pointer"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Supports any column layout — we'll auto-detect names, emails, X-dates, carriers, etc.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 1 (days before X-date)</label>
+                      <input type="number" value={touch1Days} onChange={e => setTouch1Days(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 2 (days before X-date)</label>
+                      <input type="number" value={touch2Days} onChange={e => setTouch2Days(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview (after upload) */}
+              {uploadResult && !uploadResult.error && (
+                <div className="px-6 py-5 space-y-4">
+                  {/* Stats grid */}
+                  <div className="grid grid-cols-4 gap-3">
+                    {[
+                      { label: 'Uploaded', value: uploadResult.total_uploaded, color: 'text-slate-300' },
+                      { label: 'Valid Leads', value: uploadResult.total_valid, color: 'text-cyan-400' },
+                      { label: 'Will Email', value: uploadResult.would_receive_email, color: 'text-emerald-400' },
+                      { label: 'Current Customers', value: uploadResult.nowcerts_check?.current_customers || 0, color: 'text-amber-400' },
+                    ].map((s, i) => (
+                      <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3 text-center">
+                        <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
+                        <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Breakdown */}
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-400">Rows in file</span><span className="text-white font-semibold">{uploadResult.total_uploaded}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">No email (skipped)</span><span className="text-slate-500">{uploadResult.total_skipped}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Duplicates removed</span><span className="text-slate-500">{uploadResult.total_deduped}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Current customers (NowCerts)</span><span className="text-amber-400 font-semibold">{uploadResult.nowcerts_check?.current_customers || 0}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Past X-date</span><span className="text-slate-500">{uploadResult.past_xdate || 0}</span></div>
+                    <div className="flex justify-between border-t border-white/[0.06] pt-2"><span className="text-slate-300 font-semibold">Would receive emails</span><span className="text-emerald-400 font-bold text-base">{uploadResult.would_receive_email}</span></div>
+                  </div>
+
+                  {/* Current customers list */}
+                  {uploadResult.nowcerts_check?.current_customers > 0 && (
+                    <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle size={16} className="text-amber-400" />
+                        <span className="text-sm font-semibold text-amber-300">Current Customers Excluded ({uploadResult.nowcerts_check.current_customers})</span>
+                      </div>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {uploadResult.nowcerts_check.current_customer_list?.map((c: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-xs">
+                            <span className="text-amber-400">●</span>
+                            <span className="text-slate-300">{c.name}</span>
+                            <span className="text-slate-500">{c.email}</span>
+                            {c.nowcerts_match && <span className="text-amber-400/60">→ {c.nowcerts_match}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sample leads preview */}
+                  {uploadResult.sample_leads?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-slate-400 mb-2">Lead Preview (first {uploadResult.sample_leads.length})</div>
+                      <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-white/[0.06]">
+                              <th className="text-left px-3 py-2 text-slate-500 font-semibold">Name</th>
+                              <th className="text-left px-3 py-2 text-slate-500 font-semibold">Email</th>
+                              <th className="text-left px-3 py-2 text-slate-500 font-semibold">Carrier</th>
+                              <th className="text-left px-3 py-2 text-slate-500 font-semibold">X-Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {uploadResult.sample_leads.map((l: any, i: number) => (
+                              <tr key={i} className="border-b border-white/[0.03]">
+                                <td className="px-3 py-1.5 text-slate-300">{l.name || '—'}</td>
+                                <td className="px-3 py-1.5 text-slate-400">{l.email}</td>
+                                <td className="px-3 py-1.5 text-slate-400">{l.carrier || '—'}</td>
+                                <td className="px-3 py-1.5 text-slate-400">{l.x_date ? new Date(l.x_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3 text-xs text-blue-300">
+                    <strong>⚡ Draft Mode:</strong> No emails will be sent until you activate. Review the preview above and click Activate to start the campaign.
+                  </div>
+                </div>
+              )}
+
+              {/* Error state */}
+              {uploadResult?.error && (
+                <div className="px-6 py-5">
+                  <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-300 border border-red-500/20">
+                    {uploadResult.error}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer buttons */}
               <div className="flex justify-end gap-2 px-6 py-4 border-t border-white/[0.06]">
                 {uploadResult && !uploadResult.error ? (
-                  <button onClick={() => { setShowUpload(false); if (uploadResult.campaign_id) loadCampaignDetail(uploadResult.campaign_id); }}
-                    className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 rounded-lg text-cyan-300 text-sm font-semibold transition">
-                    View Campaign →
-                  </button>
+                  <>
+                    <button onClick={async () => {
+                      try { await axios.post(`${API}/api/campaigns/${uploadResult.campaign_id}/delete-draft`, {}, { headers: headers() }); } catch {}
+                      setShowUpload(false); setUploadResult(null); loadCampaigns();
+                    }}
+                      className="px-4 py-2 text-red-400 hover:text-red-300 text-sm transition">
+                      Delete Draft
+                    </button>
+                    <button onClick={() => { setShowUpload(false); if (uploadResult.campaign_id) loadCampaignDetail(uploadResult.campaign_id); }}
+                      className="px-4 py-2 text-slate-400 hover:text-white text-sm transition">
+                      View Details
+                    </button>
+                    <button onClick={async () => {
+                      try {
+                        await axios.post(`${API}/api/campaigns/${uploadResult.campaign_id}/activate`, {}, { headers: headers() });
+                        setShowUpload(false); loadCampaigns();
+                        if (uploadResult.campaign_id) loadCampaignDetail(uploadResult.campaign_id);
+                      } catch (e: any) { alert(e.response?.data?.detail || 'Activation failed'); }
+                    }}
+                      className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/25 rounded-lg text-emerald-300 text-sm font-semibold transition">
+                      ✓ Activate Campaign ({uploadResult.would_receive_email} emails)
+                    </button>
+                  </>
+                ) : uploadResult?.error ? (
+                  <button onClick={() => { setUploadResult(null); }}
+                    className="px-4 py-2 text-slate-400 hover:text-white text-sm transition">Try Again</button>
                 ) : (
                   <>
                     <button onClick={() => setShowUpload(false)}
                       className="px-4 py-2 text-slate-400 hover:text-white text-sm transition">Cancel</button>
                     <button onClick={handleUpload} disabled={!uploadFile || uploading}
                       className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/25 rounded-lg text-cyan-300 text-sm font-semibold transition disabled:opacity-40">
-                      {uploading ? 'Processing...' : 'Upload & Create Campaign'}
+                      {uploading ? 'Processing & Checking NowCerts...' : 'Upload & Preview'}
                     </button>
                   </>
                 )}

@@ -624,7 +624,7 @@ async def upload_leads(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a lead list file and create a new campaign."""
+    """Upload a lead list file — creates campaign in DRAFT mode with NowCerts cross-reference."""
     file_bytes = await file.read()
     filename = file.filename or "upload"
 
@@ -633,7 +633,7 @@ async def upload_leads(
     if not raw_leads:
         raise HTTPException(status_code=400, detail="Could not parse file or no data found. Supported formats: .xlsx, .xls, .csv")
 
-    # Create campaign
+    # Create campaign in DRAFT status
     if not campaign_name:
         campaign_name = f"Requote - {filename} ({datetime.now().strftime('%b %d')})"
 
@@ -643,6 +643,7 @@ async def upload_leads(
         touch1_days_before=touch1_days,
         touch2_days_before=touch2_days,
         total_uploaded=len(raw_leads),
+        status="draft",
         created_by=current_user.id,
         created_by_name=f"{current_user.first_name or ''} {current_user.last_name or ''}".strip() or current_user.username,
     )
@@ -654,6 +655,7 @@ async def upload_leads(
     skipped_count = 0
     deduped_count = 0
     seen_emails = set()
+    sample_leads = []  # For preview
 
     for raw in raw_leads:
         email = str(raw.get('email') or '').strip().lower()
@@ -695,13 +697,10 @@ async def upload_leads(
         if x_date:
             touch1_date = x_date - timedelta(days=touch1_days)
             touch2_date = x_date - timedelta(days=touch2_days)
-            # If touch1 date is in the past, skip to touch2 or mark as past
             now = datetime.utcnow()
             if touch2_date < now:
-                # X-date is too close or past — still add but mark differently
                 lead_status = "past_xdate"
             elif touch1_date < now:
-                # Touch 1 window passed, but touch 2 still valid
                 lead_status = "touch2_scheduled"
             else:
                 lead_status = "touch1_scheduled"
@@ -734,19 +733,85 @@ async def upload_leads(
         db.add(lead)
         valid_count += 1
 
+        # Collect sample for preview (first 10)
+        if len(sample_leads) < 10:
+            sample_leads.append({
+                "name": f"{first_name} {last_name}".strip(),
+                "email": email,
+                "carrier": str(raw.get('carrier') or '').strip(),
+                "x_date": x_date.isoformat() if x_date else None,
+                "premium": premium,
+                "status": lead_status,
+            })
+
     campaign.total_valid = valid_count
     campaign.total_skipped = skipped_count
     campaign.total_deduped = deduped_count
     db.commit()
 
+    # ── Auto-run NowCerts dedup ──
+    nowcerts_results = {"checked": 0, "current_customers": 0, "current_customer_list": []}
+
+    if check_nowcerts:
+        leads_to_check = db.query(RequoteLead).filter(
+            RequoteLead.campaign_id == campaign.id,
+            RequoteLead.dedup_checked == False,
+        ).all()
+
+        for lead in leads_to_check:
+            result = _check_nowcerts_customer(
+                lead.email or "",
+                lead.first_name or "",
+                lead.last_name or "",
+            )
+            lead.dedup_checked = True
+            lead.is_current_customer = result["is_customer"]
+            lead.nowcerts_match_name = result.get("match_name")
+            lead.nowcerts_match_id = result.get("match_id")
+
+            if result["is_customer"]:
+                lead.status = "skipped"
+                nowcerts_results["current_customers"] += 1
+                nowcerts_results["current_customer_list"].append({
+                    "name": f"{lead.first_name} {lead.last_name}".strip(),
+                    "email": lead.email,
+                    "nowcerts_match": result.get("match_name", ""),
+                })
+            nowcerts_results["checked"] += 1
+
+        # Update campaign skip count
+        campaign.total_skipped = db.query(RequoteLead).filter(
+            RequoteLead.campaign_id == campaign.id,
+            or_(RequoteLead.is_current_customer == True, RequoteLead.status == "skipped"),
+        ).count()
+        db.commit()
+
+    # Calculate how many would actually receive emails
+    sendable = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign.id,
+        RequoteLead.is_current_customer == False,
+        RequoteLead.opted_out == False,
+        RequoteLead.status.in_(["pending", "touch1_scheduled", "touch2_scheduled"]),
+    ).count()
+
+    past_xdate = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign.id,
+        RequoteLead.status == "past_xdate",
+    ).count()
+
     return {
         "campaign_id": campaign.id,
         "campaign_name": campaign.name,
+        "status": "draft",
         "total_uploaded": len(raw_leads),
         "total_valid": valid_count,
         "total_skipped": skipped_count,
         "total_deduped": deduped_count,
-        "message": f"Campaign created with {valid_count} leads. {'NowCerts dedup will run next.' if check_nowcerts else ''}",
+        "would_receive_email": sendable,
+        "past_xdate": past_xdate,
+        "nowcerts_check": nowcerts_results,
+        "sample_leads": sample_leads,
+        "message": f"Campaign created in DRAFT mode. {sendable} leads would receive emails. {nowcerts_results['current_customers']} current customers excluded.",
     }
 
 
@@ -1025,6 +1090,39 @@ def mark_requoted(
 
 
 # ── Campaign Actions ──────────────────────────────────────────────
+
+@router.post("/{campaign_id}/activate")
+def activate_campaign(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Move a draft campaign to active status — emails will start sending."""
+    campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if campaign.status not in ("draft", "paused"):
+        raise HTTPException(status_code=400, detail=f"Campaign is already {campaign.status}")
+    campaign.status = "active"
+    db.commit()
+
+    sendable = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.is_current_customer == False,
+        RequoteLead.opted_out == False,
+        RequoteLead.status.in_(["pending", "touch1_scheduled", "touch2_scheduled"]),
+    ).count()
+
+    return {"status": "active", "would_receive_email": sendable, "message": f"Campaign activated! {sendable} leads will receive emails on schedule."}
+
+@router.post("/{campaign_id}/delete-draft")
+def delete_draft(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a draft campaign and all its leads."""
+    campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if campaign.status != "draft":
+        raise HTTPException(status_code=400, detail="Can only delete draft campaigns")
+    db.query(RequoteLead).filter(RequoteLead.campaign_id == campaign_id).delete()
+    db.delete(campaign)
+    db.commit()
+    return {"message": "Draft campaign deleted."}
 
 @router.post("/{campaign_id}/pause")
 def pause_campaign(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
