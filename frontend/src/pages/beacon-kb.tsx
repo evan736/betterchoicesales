@@ -74,11 +74,34 @@ export default function BeaconKnowledgeBase() {
   const [pasteTags, setPasteTags] = useState('');
 
   const isManager = user && ['admin', 'manager', 'owner'].includes((user as any).role?.toLowerCase());
+  const isAdmin = user && ['admin', 'ADMIN'].includes((user as any).role);
+
+  // Health check state
+  const [healthIssues, setHealthIssues] = useState<any[]>([]);
+  const [showHealthBanner, setShowHealthBanner] = useState(false);
+  const [healthChecked, setHealthChecked] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) router.push('/');
     else if (user) { loadEntries(); loadStats(); }
   }, [user, authLoading]);
+
+  // Auto health check on load for admins
+  useEffect(() => {
+    if (isAdmin && !healthChecked) {
+      runHealthCheck();
+    }
+  }, [isAdmin]);
+
+  const runHealthCheck = async () => {
+    try {
+      const res = await axios.post(`${API}/api/beacon-kb/bulk-health-check`, {}, { headers: headers() });
+      const issues = res.data.issues || [];
+      setHealthIssues(issues);
+      setShowHealthBanner(issues.length > 0);
+      setHealthChecked(true);
+    } catch (e) { console.error('Health check failed:', e); }
+  };
 
   const loadEntries = useCallback(async () => {
     try {
@@ -362,6 +385,48 @@ export default function BeaconKnowledgeBase() {
             </div>
           ))}
         </div>
+
+        {/* Health Check Warning Banner */}
+        {showHealthBanner && healthIssues.length > 0 && (
+          <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="text-amber-400 mt-0.5 flex-shrink-0" size={20} />
+              <div className="flex-1">
+                <h3 className="text-amber-300 font-semibold text-sm">
+                  {healthIssues.length} PDF{healthIssues.length > 1 ? 's' : ''} with extraction issues
+                </h3>
+                <p className="text-amber-200/70 text-xs mt-1">
+                  These PDFs appear to be scanned documents — the text extraction only captured ~500 characters 
+                  from each. BEACON can&apos;t search them effectively. Re-upload them to use the new OCR pipeline 
+                  which reads scanned pages with AI vision.
+                </p>
+                <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                  {healthIssues.map((issue: any) => (
+                    <div key={issue.id} className="text-xs text-amber-200/60 flex items-center gap-2">
+                      <span className="text-amber-500">•</span>
+                      <span className="font-medium text-amber-200/80">{issue.title}</span>
+                      <span className="text-amber-500/50">({issue.content_length} chars)</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => { setShowUpload(true); setShowHealthBanner(false); }}
+                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg text-amber-200 text-xs font-semibold transition"
+                  >
+                    <Upload size={12} className="inline mr-1" /> Re-upload PDFs
+                  </button>
+                  <button
+                    onClick={() => setShowHealthBanner(false)}
+                    className="px-3 py-1.5 text-amber-400/50 hover:text-amber-300 text-xs transition"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 mb-4">

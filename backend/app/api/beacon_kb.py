@@ -76,31 +76,148 @@ def _is_manager(user: User) -> bool:
 
 
 def _extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from PDF bytes using pdfplumber or fallback."""
+    """Extract text from PDF bytes using pdfplumber, with OCR fallback for scanned PDFs."""
+    text = ""
+    num_pages = 0
+    
+    # Phase 1: Try text extraction with pdfplumber
     try:
         import pdfplumber
         import io
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             pages = []
+            num_pages = len(pdf.pages)
             for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-            return "\n\n".join(pages)
+                page_text = page.extract_text()
+                if page_text:
+                    pages.append(page_text)
+            text = "\n\n".join(pages)
     except ImportError:
         logger.warning("pdfplumber not installed, trying PyPDF2")
+        try:
+            import PyPDF2
+            import io
+            reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+            pages = []
+            num_pages = len(reader.pages)
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    pages.append(page_text)
+            text = "\n\n".join(pages)
+        except Exception as e:
+            logger.error(f"PDF extraction failed: {e}")
+    
+    # Phase 2: Check if we got enough text — if not, this is likely a scanned PDF
+    # Heuristic: if we got <1000 chars from a multi-page PDF, it's probably scanned
+    chars_per_page = len(text) / max(num_pages, 1)
+    if chars_per_page < 200 and num_pages > 0:
+        logger.info(f"PDF appears scanned: {len(text)} chars from {num_pages} pages ({chars_per_page:.0f} chars/page). Attempting OCR via Claude Vision...")
+        ocr_text = _ocr_pdf_with_vision(pdf_bytes, num_pages)
+        if ocr_text and len(ocr_text) > len(text) * 2:
+            logger.info(f"OCR extracted {len(ocr_text):,} chars (vs {len(text)} from text extraction)")
+            return ocr_text
+        elif ocr_text:
+            # Combine both
+            text = text + "\n\n" + ocr_text
+    
+    return text
+
+
+def _ocr_pdf_with_vision(pdf_bytes: bytes, num_pages: int) -> str:
+    """Convert PDF pages to images and use Claude Vision to OCR them.
+    Processes up to 20 pages to stay within reasonable API costs."""
+    if not ANTHROPIC_API_KEY:
+        return ""
+    
     try:
-        import PyPDF2
         import io
-        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-        pages = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                pages.append(text)
-        return "\n\n".join(pages)
+        from pdf2image import convert_from_bytes
+        import httpx
+        
+        # Convert PDF pages to images (limit to 20 pages for cost control)
+        max_pages = min(num_pages, 20)
+        logger.info(f"Converting {max_pages} PDF pages to images for OCR...")
+        
+        images = convert_from_bytes(
+            pdf_bytes, 
+            first_page=1, 
+            last_page=max_pages,
+            dpi=200,  # Good balance of quality vs size
+            fmt="jpeg",
+        )
+        
+        all_text = []
+        
+        # Process pages in batches of 4 (Claude can handle multiple images per request)
+        batch_size = 4
+        for batch_start in range(0, len(images), batch_size):
+            batch_images = images[batch_start:batch_start + batch_size]
+            page_range = f"{batch_start + 1}-{batch_start + len(batch_images)}"
+            
+            # Build content array with all images in this batch
+            content = []
+            for i, img in enumerate(batch_images):
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": b64,
+                    },
+                })
+            
+            content.append({
+                "type": "text",
+                "text": f"Extract ALL text from these insurance document pages (pages {page_range}). "
+                       f"This is an underwriting guidelines PDF. Extract everything verbatim — "
+                       f"every rule, eligibility requirement, coverage detail, exclusion, "
+                       f"claims limit, loss history threshold, and any tables or lists. "
+                       f"Preserve the document structure with headers and sections. "
+                       f"Do NOT summarize — extract the complete text.",
+            })
+            
+            try:
+                with httpx.Client(timeout=120.0) as client:
+                    resp = client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": ANTHROPIC_API_KEY,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": "claude-sonnet-4-5-20250929",  # Sonnet for accurate OCR
+                            "max_tokens": 4096,
+                            "messages": [{"role": "user", "content": content}],
+                        },
+                    )
+                    
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for block in data.get("content", []):
+                            if block.get("type") == "text":
+                                all_text.append(block["text"])
+                        logger.info(f"OCR pages {page_range}: extracted {sum(len(t) for t in all_text):,} chars so far")
+                    else:
+                        logger.error(f"Vision OCR error for pages {page_range}: {resp.status_code} - {resp.text[:200]}")
+            except Exception as e:
+                logger.error(f"Vision OCR failed for pages {page_range}: {e}")
+        
+        result = "\n\n".join(all_text)
+        if num_pages > max_pages:
+            result += f"\n\n[Note: OCR processed first {max_pages} of {num_pages} pages]"
+        
+        return result
+        
+    except ImportError as e:
+        logger.error(f"pdf2image not available for OCR: {e}")
+        return ""
     except Exception as e:
-        logger.error(f"PDF extraction failed: {e}")
+        logger.error(f"OCR PDF conversion failed: {e}")
         return ""
 
 
@@ -1144,4 +1261,75 @@ def kb_stats(
         "pending": pending,
         "superseded": superseded,
         "by_type": by_type,
+    }
+
+
+@router.post("/re-extract/{entry_id}")
+async def re_extract_entry(
+    entry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-extract text from a knowledge base entry's original file.
+    Useful for entries that were uploaded before OCR was available."""
+    if current_user.role not in ("admin", "ADMIN"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    entry = db.query(BeaconKnowledge).filter(BeaconKnowledge.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    
+    if not entry.file_hash:
+        return {"error": "No file hash stored — can't re-extract without original file"}
+    
+    old_len = len(entry.content or "")
+    return {
+        "id": entry.id,
+        "title": entry.title,
+        "old_content_length": old_len,
+        "message": "To re-extract, please re-upload the original PDF. The new OCR pipeline will now handle scanned documents automatically.",
+    }
+
+
+@router.post("/bulk-health-check")
+async def bulk_health_check(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check all KB entries for suspiciously low content (likely failed extractions).
+    Returns list of entries that need re-upload."""
+    if current_user.role not in ("admin", "ADMIN"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    entries = db.query(BeaconKnowledge).filter(
+        BeaconKnowledge.status.in_(["approved", "pending"])
+    ).all()
+    
+    issues = []
+    healthy = []
+    for entry in entries:
+        content_len = len(entry.content or "")
+        if content_len < 1000 and entry.source_type == "pdf":
+            issues.append({
+                "id": entry.id,
+                "title": entry.title,
+                "carrier": entry.carrier,
+                "content_length": content_len,
+                "issue": "Likely scanned PDF — needs re-upload with new OCR pipeline",
+            })
+        else:
+            healthy.append({
+                "id": entry.id,
+                "title": entry.title,
+                "content_length": content_len,
+            })
+    
+    return {
+        "total_entries": len(entries),
+        "healthy_count": len(healthy),
+        "issue_count": len(issues),
+        "issues": issues,
+        "message": f"{len(issues)} entries have very little content and need re-uploading. "
+                   f"The new OCR pipeline will automatically detect scanned PDFs and use "
+                   f"Claude Vision to extract text from page images." if issues else "All entries look healthy!",
     }
