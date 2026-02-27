@@ -330,10 +330,16 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         }.get(entry.source_type, "📝 Note")
         
         parts.append(f"### {source_label}: {entry.title}")
-        # Limit content length per entry
+        # Send full content for high-scoring matches, truncate low-scoring ones
         content = entry.content
-        if len(content) > 1500:
-            content = content[:1500] + "\n[... truncated]"
+        if score >= 10:
+            # High relevance — send full content (up to 8000 chars)
+            if len(content) > 8000:
+                content = content[:8000] + "\n[... truncated, full entry available in knowledge base]"
+        else:
+            # Lower relevance — summarize
+            if len(content) > 3000:
+                content = content[:3000] + "\n[... truncated]"
         parts.append(content)
         parts.append("")
     
