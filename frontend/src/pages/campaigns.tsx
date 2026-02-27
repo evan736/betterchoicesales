@@ -218,10 +218,16 @@ export default function CampaignsPage() {
           </div>
           <div className="flex gap-2">
             {view === 'list' && (
+              <>
+              <a href="/get-quote" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 rounded-lg text-blue-300 text-sm font-semibold transition">
+                <Eye size={16} /> Landing Page
+              </a>
               <button onClick={() => { setShowUpload(true); setUploadResult(null); setUploadFile(null); setCampaignName(''); }}
                 className="flex items-center gap-1.5 px-4 py-2 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/25 rounded-lg text-cyan-300 text-sm font-semibold transition">
                 <Upload size={16} /> New Campaign
               </button>
+              </>
             )}
             {view === 'detail' && isManager && (
               <>
