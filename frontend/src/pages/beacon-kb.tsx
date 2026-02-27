@@ -63,6 +63,15 @@ export default function BeaconKnowledgeBase() {
   const [correctionText, setCorrectionText] = useState('');
   const [correctionTitle, setCorrectionTitle] = useState('');
   const [correctionCarrier, setCorrectionCarrier] = useState('');
+  const [screenshotCapturing, setScreenshotCapturing] = useState(false);
+
+  // Clipboard paste handler for screenshots
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pastedImage, setPastedImage] = useState<File | null>(null);
+  const [pastedPreview, setPastedPreview] = useState<string>('');
+  const [pasteTitle, setPasteTitle] = useState('');
+  const [pasteCarrier, setPasteCarrier] = useState('');
+  const [pasteTags, setPasteTags] = useState('');
 
   const isManager = user && ['admin', 'manager', 'owner'].includes((user as any).role?.toLowerCase());
 
@@ -161,6 +170,115 @@ export default function BeaconKnowledgeBase() {
     } catch (e) { console.error(e); }
   };
 
+  // Screenshot capture — uses browser screen capture API
+  const handleScreenCapture = async () => {
+    setScreenshotCapturing(true);
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor' } as any,
+      });
+      
+      // Grab a frame from the video stream
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+      
+      // Wait a tick for the frame to render
+      await new Promise(r => setTimeout(r, 200));
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(video, 0, 0);
+      
+      // Stop the stream
+      stream.getTracks().forEach(t => t.stop());
+      
+      // Convert to blob
+      const blob = await new Promise<Blob | null>(resolve => 
+        canvas.toBlob(resolve, 'image/png')
+      );
+      
+      if (blob) {
+        const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' });
+        const preview = canvas.toDataURL('image/png');
+        setPastedImage(file);
+        setPastedPreview(preview);
+        setPasteTitle('');
+        setPasteCarrier('');
+        setPasteTags('');
+        setShowPasteModal(true);
+      }
+    } catch (e: any) {
+      // User cancelled the screen picker — that's fine
+      if (e.name !== 'AbortError' && e.name !== 'NotAllowedError') {
+        console.error('Screen capture failed:', e);
+        alert('Screen capture failed. Try pasting a screenshot instead (Ctrl+V).');
+      }
+    } finally {
+      setScreenshotCapturing(false);
+    }
+  };
+
+  // Paste handler — listen for Ctrl+V with image data
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const file = new File([blob], `paste-${Date.now()}.png`, { type: blob.type });
+            const reader = new FileReader();
+            reader.onload = () => {
+              setPastedImage(file);
+              setPastedPreview(reader.result as string);
+              setPasteTitle('');
+              setPasteCarrier('');
+              setPasteTags('');
+              setShowPasteModal(true);
+            };
+            reader.readAsDataURL(blob);
+          }
+          break;
+        }
+      }
+    };
+    
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
+
+  // Upload pasted/captured screenshot
+  const handlePasteUpload = async () => {
+    if (!pastedImage) return;
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', pastedImage);
+      if (pasteTitle) fd.append('title', pasteTitle);
+      if (pasteCarrier) fd.append('carrier', pasteCarrier);
+      if (pasteTags) fd.append('tags', pasteTags);
+      const res = await axios.post(`${API}/api/beacon-kb/upload`, fd, { headers: headers() });
+      if (res.data.error) {
+        alert(res.data.error);
+      } else {
+        setShowPasteModal(false);
+        setPastedImage(null);
+        setPastedPreview('');
+        loadEntries();
+        loadStats();
+      }
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Upload failed');
+    } finally { setUploading(false); }
+  };
+
   if (!user) return null;
 
   return (
@@ -182,7 +300,7 @@ export default function BeaconKnowledgeBase() {
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setShowCorrection(true)}
               className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 text-xs font-semibold transition"
@@ -190,12 +308,20 @@ export default function BeaconKnowledgeBase() {
               <Edit3 size={14} /> Add Correction
             </button>
             <button
+              onClick={handleScreenCapture}
+              disabled={screenshotCapturing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 rounded-lg text-violet-300 text-xs font-semibold transition disabled:opacity-50"
+            >
+              <Image size={14} /> {screenshotCapturing ? 'Capturing...' : '📸 Take Screenshot'}
+            </button>
+            <button
               onClick={() => setShowUpload(true)}
               className="flex items-center gap-1.5 px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-lg text-cyan-300 text-xs font-semibold transition"
             >
-              <Upload size={14} /> Upload PDF / Screenshot
+              <Upload size={14} /> Upload File
             </button>
           </div>
+          <div className="text-[10px] text-slate-500 mt-1">Tip: You can also paste screenshots with Ctrl+V anywhere on this page</div>
         </div>
 
         {/* Stats row */}
@@ -518,6 +644,75 @@ export default function BeaconKnowledgeBase() {
             >
               Submit Correction
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Screenshot / Paste Preview Modal */}
+      {showPasteModal && pastedPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Image size={20} className="text-violet-400" />
+                Add Screenshot to Knowledge Base
+              </h3>
+              <button onClick={() => { setShowPasteModal(false); setPastedImage(null); setPastedPreview(''); }} className="text-slate-400 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Preview */}
+              <div className="rounded-lg border border-white/10 overflow-hidden bg-black/30">
+                <img src={pastedPreview} alt="Screenshot preview" className="w-full max-h-64 object-contain" />
+              </div>
+              
+              {/* Title */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Title</label>
+                <input
+                  value={pasteTitle}
+                  onChange={e => setPasteTitle(e.target.value)}
+                  placeholder="e.g. Lender Contacts, NatGen Auto Guidelines..."
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:border-violet-500/50 focus:outline-none"
+                />
+              </div>
+
+              {/* Carrier */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Carrier (optional)</label>
+                <input
+                  value={pasteCarrier}
+                  onChange={e => setPasteCarrier(e.target.value)}
+                  placeholder="e.g. National General, Progressive..."
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:border-violet-500/50 focus:outline-none"
+                />
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Tags (optional, comma-separated)</label>
+                <input
+                  value={pasteTags}
+                  onChange={e => setPasteTags(e.target.value)}
+                  placeholder="e.g. guidelines, contacts, rates..."
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:border-violet-500/50 focus:outline-none"
+                />
+              </div>
+
+              <button
+                onClick={handlePasteUpload}
+                disabled={uploading}
+                className="w-full py-2.5 bg-violet-500 hover:bg-violet-400 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-semibold text-white transition flex items-center justify-center gap-2"
+              >
+                {uploading ? (
+                  <><span className="animate-spin">⏳</span> Processing with AI...</>
+                ) : (
+                  <><Upload size={14} /> Add to Knowledge Base</>
+                )}
+              </button>
+              <p className="text-[10px] text-slate-500 text-center">AI will extract all text and information from the screenshot</p>
+            </div>
           </div>
         </div>
       )}
