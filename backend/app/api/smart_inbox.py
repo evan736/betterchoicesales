@@ -51,6 +51,54 @@ AGENCY_BCC = os.getenv("SMART_INBOX_BCC", "evan@betterchoiceins.com")
 SMART_INBOX_ADDRESS = os.getenv("SMART_INBOX_ADDRESS", "process@mail.betterchoiceins.com")
 
 
+# ── Carrier Alias Normalization ───────────────────────────────────────────
+# Maps underwriting companies / sub-brands to the carrier name used in ORBIT.
+# Add new aliases here as needed.
+
+CARRIER_ALIASES = {
+    # Obsidian is underwriter for Steadily
+    "obsidian": "Steadily",
+    "obsidian insurance": "Steadily",
+    "obsidian insurance company": "Steadily",
+    # NatGen subsidiaries
+    "integon": "National General",
+    "integon national": "National General",
+    "integon indemnity": "National General",
+    "integon casualty": "National General",
+    "integon general": "National General",
+    "encompass insurance": "National General",
+    "encompass indemnity": "National General",
+    "new south insurance": "National General",
+    "imperial fire": "National General",
+    "imperial fire and casualty": "National General",
+    "mic general": "National General",
+    "home state county mutual": "National General",
+    # Travelers subsidiaries
+    "st. paul": "Travelers",
+    "st paul": "Travelers",
+    "charter oak": "Travelers",
+    # Common abbreviations
+    "natgen": "National General",
+    "trv": "Travelers",
+    "prog": "Progressive",
+}
+
+
+def _normalize_carrier(carrier: Optional[str]) -> Optional[str]:
+    """Normalize carrier name using alias map."""
+    if not carrier:
+        return carrier
+    lookup = carrier.strip().lower()
+    # Check exact match first
+    if lookup in CARRIER_ALIASES:
+        return CARRIER_ALIASES[lookup]
+    # Check partial match (e.g. "Obsidian Insurance Company" contains "obsidian insurance company")
+    for alias, normalized in CARRIER_ALIASES.items():
+        if alias in lookup or lookup in alias:
+            return normalized
+    return carrier
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _verify_mailgun_signature(token: str, timestamp: str, signature: str) -> bool:
@@ -340,7 +388,7 @@ async def process_inbound_email(email_id: int, db_url: str):
         extracted = classification.get("extracted", {})
         email.extracted_policy_number = extracted.get("policy_number")
         email.extracted_insured_name = extracted.get("insured_name")
-        email.extracted_carrier = extracted.get("carrier")
+        email.extracted_carrier = _normalize_carrier(extracted.get("carrier"))
         if extracted.get("due_date"):
             try:
                 email.extracted_due_date = datetime.strptime(extracted["due_date"], "%Y-%m-%d")
@@ -560,7 +608,7 @@ async def process_batch_report(email_id: int, db_url: str, batch_info: dict):
         # Mark parent as batch report
         email.is_batch_report = True
         email.status = ProcessingStatus.PARSING
-        email.extracted_carrier = batch_info.get("carrier")
+        email.extracted_carrier = _normalize_carrier(batch_info.get("carrier"))
         email.category = "other"
         email.sensitivity = "routine"
         db.commit()

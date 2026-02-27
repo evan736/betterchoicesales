@@ -450,6 +450,8 @@ def _detect_carrier_from_content(content: str) -> str:
         'openly': 'Openly',
         'foremost': 'Foremost',
         'bristol west': 'Bristol West',
+        'obsidian': 'Steadily',
+        'steadily': 'Steadily',
     }
     for pattern, name in CARRIERS.items():
         if pattern in first_1000:
