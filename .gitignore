@@ -10,3 +10,4 @@ __pycache__/
 # Lead pauser credentials (local only)
 lead-pauser/config.env
 lead-pauser/.installed
+frontend/.next/
