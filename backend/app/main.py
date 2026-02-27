@@ -1352,6 +1352,9 @@ except Exception as e:
 from app.api import beacon_kb as beacon_kb_api
 app.include_router(beacon_kb_api.router)
 
+from app.api import requote_campaigns as requote_campaigns_api
+app.include_router(requote_campaigns_api.router)
+
 from app.api import property as property_api
 app.include_router(property_api.router)
 

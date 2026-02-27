@@ -124,6 +124,7 @@ const Navbar: React.FC = () => {
         { href: '/sales', label: 'Sales', icon: <FileText size={16} />, show: true },
         { href: '/quotes', label: 'Quotes', icon: <FileText size={16} />, show: true },
         { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: true, badge: reshopBadge },
+        { href: '/campaigns', label: 'Campaigns', icon: <Mail size={16} />, show: isManager },
         { href: '/leads', label: 'Lead Control', icon: <Zap size={16} />, show: isManager },
         { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
       ],
