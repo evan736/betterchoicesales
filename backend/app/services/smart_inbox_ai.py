@@ -194,13 +194,24 @@ async def classify_email(
     # Build message content with attachments
     content = []
 
-    # Add PDF/image attachments as vision content
+    # Add PDF/image attachments as vision content, and spreadsheet text
     if attachments:
         for att in attachments:
             try:
                 ct = att.get("content_type", "")
                 b64 = att.get("base64_data", "")
                 fname = att.get("filename", "unknown")
+                extracted_text = att.get("extracted_text", "")
+
+                # Spreadsheet data (extracted as text)
+                if extracted_text:
+                    content.append({
+                        "type": "text",
+                        "text": f"[Attached spreadsheet: {fname}]\n\n{extracted_text}\n\n[End of spreadsheet data. Include all rows and details from this spreadsheet in your analysis.]",
+                    })
+                    logger.info(f"Including spreadsheet text in AI analysis: {fname} ({len(extracted_text)} chars)")
+                    continue
+
                 if not b64:
                     continue
 

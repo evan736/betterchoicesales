@@ -764,6 +764,68 @@ async def receive_inbound_email(
                 except Exception as e:
                     logger.warning(f"Failed to read attachment {att.filename}: {e}")
 
+            # Parse Excel files (.xlsx, .xls) and CSV files into text for AI
+            elif content_type in (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel",
+                "text/csv",
+                "application/csv",
+            ) or (att.filename and att.filename.lower().endswith((".xlsx", ".xls", ".csv"))):
+                try:
+                    raw = await att.read()
+                    extracted_text = ""
+
+                    if att.filename.lower().endswith(".csv") or content_type in ("text/csv", "application/csv"):
+                        # Parse CSV
+                        import io, csv
+                        text_content = raw.decode("utf-8", errors="replace")
+                        reader = csv.reader(io.StringIO(text_content))
+                        rows = list(reader)
+                        if rows:
+                            headers = rows[0]
+                            extracted_text = f"CSV File: {att.filename}\nColumns: {', '.join(headers)}\n\n"
+                            for row in rows[1:]:
+                                row_data = "; ".join(f"{headers[j]}: {row[j]}" if j < len(headers) else row[j] for j in range(len(row)))
+                                extracted_text += row_data + "\n"
+                    else:
+                        # Parse Excel (.xlsx/.xls)
+                        import io
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+                            for sheet_name in wb.sheetnames:
+                                ws = wb[sheet_name]
+                                rows = list(ws.iter_rows(values_only=True))
+                                if not rows:
+                                    continue
+                                headers = [str(h) if h is not None else "" for h in rows[0]]
+                                extracted_text += f"Excel Sheet: {sheet_name}\nColumns: {', '.join(headers)}\n\n"
+                                for row in rows[1:]:
+                                    row_data = "; ".join(
+                                        f"{headers[j]}: {row[j]}" if j < len(headers) and headers[j] else str(row[j])
+                                        for j in range(len(row))
+                                        if row[j] is not None
+                                    )
+                                    if row_data.strip():
+                                        extracted_text += row_data + "\n"
+                                extracted_text += "\n"
+                            wb.close()
+                        except ImportError:
+                            logger.warning("openpyxl not installed — cannot parse Excel attachments")
+                            extracted_text = f"[Excel file attached: {att.filename} — could not parse, openpyxl not installed]"
+
+                    if extracted_text:
+                        # Store as text content for AI (not base64 image/PDF)
+                        attachment_data.append({
+                            "filename": att.filename,
+                            "content_type": "text/plain",
+                            "extracted_text": extracted_text,
+                        })
+                        logger.info(f"Parsed spreadsheet for AI: {att.filename} ({len(extracted_text)} chars)")
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse spreadsheet {att.filename}: {e}")
+
     # Detect who forwarded it (the X-Forwarded-To or the actual sender)
     forwarded_by = sender or from_addr
 
