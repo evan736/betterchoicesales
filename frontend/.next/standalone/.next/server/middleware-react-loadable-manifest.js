@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST='{"../components/EmailPanel.tsx -> ../lib/api":{"id":8856,"files":[]},"_app.tsx -> ../components/ChatPanel":{"id":5093,"files":["static/chunks/93.ea7cd932fe620cb0.js"]},"_app.tsx -> ../components/EmailPanel":{"id":6821,"files":["static/chunks/821.51a3e1166c8be9ec.js"]},"inbox.tsx -> ../lib/api":{"id":8856,"files":[]}}';

@@ -1163,7 +1163,7 @@ async def capture_landing_lead(request: Request, db: Session = Depends(get_db)):
 # AI COVERAGE ANALYSIS — Reads dec pages with Claude Vision
 # ═══════════════════════════════════════════════════════════════
 
-@router.post("/api/campaigns/coverage-analysis")
+@router.post("/coverage-analysis")
 async def coverage_analysis(
     file: UploadFile = File(...),
     name: str = Form(""),
