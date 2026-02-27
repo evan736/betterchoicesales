@@ -1365,6 +1365,7 @@ IMPORTANT ANALYSIS RULES:
                         "html": alert_html,
                         "o:tag": ["ai-coverage-analysis"],
                     },
+                    files={"attachment": (filename, file_bytes)} if file_bytes else None,
                 )
             except Exception as e:
                 logger.warning(f"Failed to send AI analysis alert: {e}")

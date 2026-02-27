@@ -53,6 +53,7 @@ export default function GetQuotePage() {
   const [analysis, setAnalysis] = useState<any>(null);
   const [analysisFormData, setAnalysisFormData] = useState({ name: '', phone: '', email: '' });
   const [analysisSent, setAnalysisSent] = useState(false);
+  const [aiContactCollected, setAiContactCollected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Testimonial pagination
@@ -89,12 +90,13 @@ export default function GetQuotePage() {
       if (resp.ok) {
         const data = await resp.json();
         setAnalysis(data);
+        setAnalysisSent(true); // Contact already collected, lead sent by backend
         setAnalyzing(false);
         return;
       }
     } catch (e) { /* fallback below */ }
 
-    // Fallback analysis when backend endpoint isn't ready yet
+    // Fallback
     await new Promise(r => setTimeout(r, 2500));
     setAnalysis({
       carrier: currentCarrier || 'Your Current Carrier',
@@ -105,13 +107,9 @@ export default function GetQuotePage() {
         { area: 'Water Backup Coverage', severity: 'medium', detail: 'Many standard policies exclude sewer and water backup damage. This is one of the most common claims homeowners face.' },
       ],
       savings_estimate: '$400 - $1,200',
-      recommendation: 'Based on our initial review, we believe there are meaningful savings available once one of our licensed agents reviews your full policy across our 15+ carrier partners. We also identified coverage gaps that should be addressed to make sure you\'re properly protected.',
+      recommendation: 'Based on our initial review, we believe there are meaningful savings available once one of our licensed agents reviews your full policy across our 15+ carrier partners.',
     });
-    setAnalyzing(false);
-  };
-
-  const handleSendAnalysis = async () => {
-    if (!analysisFormData.name || !analysisFormData.phone) return;
+    // Send partial lead for fallback too
     try {
       await fetch(`${API}/api/campaigns/landing-lead`, {
         method: 'POST',
@@ -120,16 +118,14 @@ export default function GetQuotePage() {
           name: analysisFormData.name,
           phone: analysisFormData.phone,
           email: analysisFormData.email,
-          message: `[AI Coverage Review] Dec page: ${decFile?.name || 'N/A'}. Found ${analysis?.gaps?.length || 0} gaps. Est. savings: ${analysis?.savings_estimate || 'TBD'}`,
-          policy_type: policyType,
-          current_carrier: currentCarrier,
-          renewal_date: renewalDate,
-          utm_campaign: 'ai_coverage_review',
-          source: 'ai_coverage_review',
+          message: `[AI Coverage Review - Fallback] Dec page: ${file?.name || 'N/A'}.`,
+          policy_type: policyType, current_carrier: currentCarrier,
+          utm_campaign: 'ai_coverage_review', source: 'ai_coverage_review',
         }),
       });
     } catch (e) { /* ok */ }
     setAnalysisSent(true);
+    setAnalyzing(false);
   };
 
   const iS: React.CSSProperties = {
@@ -255,7 +251,46 @@ export default function GetQuotePage() {
               </p>
             </div>
 
-            {!analysis ? (
+            {/* Phase 1: Collect contact info first */}
+            {!aiContactCollected && !analysis && (
+              <div style={{ maxWidth: '480px', margin: '0 auto' }}>
+                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '16px', padding: '28px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <h3 style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 4px' }}>First, tell us who you are</h3>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 20px' }}>So we can send you the analysis and have an agent follow up.</p>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Name <span style={{ color: '#f87171' }}>*</span></label>
+                    <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                      value={analysisFormData.name} placeholder="John Smith"
+                      onChange={e => setAnalysisFormData(p => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Phone <span style={{ color: '#f87171' }}>*</span></label>
+                    <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                      type="tel" value={analysisFormData.phone} placeholder="(555) 123-4567"
+                      onChange={e => setAnalysisFormData(p => ({ ...p, phone: e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Email <span style={{ color: '#f87171' }}>*</span></label>
+                    <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                      type="email" value={analysisFormData.email} placeholder="john@example.com"
+                      onChange={e => setAnalysisFormData(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <button onClick={() => setAiContactCollected(true)}
+                    disabled={!analysisFormData.name || !analysisFormData.phone || !analysisFormData.email}
+                    style={{
+                      width: '100%', padding: '14px', fontSize: '16px', fontWeight: 700,
+                      background: (analysisFormData.name && analysisFormData.phone && analysisFormData.email) ? '#10b981' : '#475569',
+                      color: '#fff', border: 'none', borderRadius: '8px', cursor: (analysisFormData.name && analysisFormData.phone && analysisFormData.email) ? 'pointer' : 'default',
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}>
+                    Continue to Upload →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Phase 2: Upload dec page */}
+            {aiContactCollected && !analysis && (
               <div style={{ maxWidth: '500px', margin: '0 auto' }}>
                 <div
                   onClick={() => !analyzing && fileInputRef.current?.click()}
@@ -289,19 +324,35 @@ export default function GetQuotePage() {
                   )}
                 </div>
               </div>
-            ) : (
-              /* ── Analysis Results ── */
+            )}
+
+            {/* Phase 3: Analysis results */}
+            {analysis && (
               <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                {/* Header */}
                 <div style={{ background: 'rgba(16,185,129,0.1)', padding: '20px 28px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <CheckCircle size={24} style={{ color: '#34d399' }} />
                   <div>
                     <p style={{ color: '#34d399', fontSize: '16px', fontWeight: 700, margin: 0 }}>Analysis Complete</p>
-                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>{decFile?.name || 'Your Declarations Page'}</p>
+                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>{analysis.carrier ? `${analysis.carrier} — ${analysis.policy_type || ''} Policy` : decFile?.name || 'Your Declarations Page'}</p>
                   </div>
                 </div>
 
                 <div style={{ padding: '28px' }}>
+                  {/* Key coverages if available */}
+                  {analysis.key_coverages && Object.keys(analysis.key_coverages).length > 0 && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <h3 style={{ color: '#fff', fontSize: '16px', fontWeight: 700, margin: '0 0 12px' }}>Your Current Coverages</h3>
+                      <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '8px' }}>
+                        {Object.entries(analysis.key_coverages).map(([k, v]: [string, any], i: number) => (
+                          <div key={i} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '8px 14px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 600 }}>{k}</div>
+                            <div style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 700 }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <h3 style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <AlertTriangle size={20} style={{ color: '#f59e0b' }} /> Coverage Gaps Identified
                   </h3>
@@ -326,7 +377,6 @@ export default function GetQuotePage() {
                     </div>
                   ))}
 
-                  {/* Savings */}
                   <div style={{ background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: '12px', padding: '20px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <TrendingDown size={32} style={{ color: '#60a5fa', flexShrink: 0 }} />
                     <div>
@@ -337,41 +387,14 @@ export default function GetQuotePage() {
                     </div>
                   </div>
 
-                  {/* Contact form after analysis */}
-                  {!analysisSent ? (
-                    <div style={{ marginTop: '28px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '24px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                      <h4 style={{ color: '#fff', fontSize: '16px', fontWeight: 700, margin: '0 0 4px' }}>Ready to fix these gaps and save?</h4>
-                      <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 16px' }}>
-                        Enter your info and an agent will review your full policy and prepare a custom comparison.
-                      </p>
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' as const, marginBottom: '12px' }}>
-                        <input placeholder="Your Name *" value={analysisFormData.name}
-                          onChange={(e) => setAnalysisFormData(p => ({ ...p, name: e.target.value }))}
-                          style={{ ...iS, flex: '1 1 150px' }} />
-                        <input placeholder="Phone *" type="tel" value={analysisFormData.phone}
-                          onChange={(e) => setAnalysisFormData(p => ({ ...p, phone: e.target.value }))}
-                          style={{ ...iS, flex: '1 1 150px' }} />
-                        <input placeholder="Email" type="email" value={analysisFormData.email}
-                          onChange={(e) => setAnalysisFormData(p => ({ ...p, email: e.target.value }))}
-                          style={{ ...iS, flex: '1 1 200px' }} />
-                      </div>
-                      <button onClick={handleSendAnalysis}
-                        disabled={!analysisFormData.name || !analysisFormData.phone}
-                        style={{
-                          width: '100%', padding: '14px', fontSize: '16px', fontWeight: 700,
-                          background: (!analysisFormData.name || !analysisFormData.phone) ? '#475569' : '#2563eb',
-                          color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                        }}>
-                        Send My Analysis to an Agent →
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: '28px', background: 'rgba(34,197,94,0.1)', borderRadius: '12px', padding: '24px', border: '1px solid rgba(34,197,94,0.3)', textAlign: 'center' as const }}>
-                      <CheckCircle size={32} style={{ color: '#22c55e', marginBottom: '8px' }} />
-                      <p style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 4px' }}>We&apos;re on it!</p>
-                      <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>An agent will review your full policy and reach out within one business day with a personalized comparison.</p>
-                    </div>
-                  )}
+                  {/* Already sent — show confirmation */}
+                  <div style={{ marginTop: '28px', background: 'rgba(34,197,94,0.1)', borderRadius: '12px', padding: '24px', border: '1px solid rgba(34,197,94,0.3)', textAlign: 'center' as const }}>
+                    <CheckCircle size={32} style={{ color: '#22c55e', marginBottom: '8px' }} />
+                    <p style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 4px' }}>Your analysis has been sent to our team!</p>
+                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>
+                      {analysisFormData.name ? `${analysisFormData.name}, a` : 'A'}n agent will review your full policy and reach out within one business day with a personalized comparison.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

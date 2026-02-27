@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Home, Car, Shield, ChevronRight, ChevronLeft, CheckCircle, User, MapPin, Calendar, DollarSign, Plus, X, Lock } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { Home, Car, Shield, ChevronRight, ChevronLeft, CheckCircle, Plus, X, Lock } from 'lucide-react';
 
-// Types
 interface Driver {
   name: string;
   dob: string;
@@ -9,33 +9,26 @@ interface Driver {
 }
 
 interface QuoteFormData {
-  // Step 1: Products
   products: string[];
-  // Step 2: Contact
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
   dob: string;
-  // Step 3: Address
   address: string;
   city: string;
   state: string;
   zip: string;
-  // Step 4: Property (if home)
   roofYear: string;
   homeYear: string;
   sqft: string;
-  // Step 5: Drivers (if auto)
   drivers: Driver[];
-  // Step 6: Current coverage
   currentCarrier: string;
   currentPremium: string;
-  // Privacy
   privacyConsent: boolean;
 }
 
-const INITIAL_FORM: QuoteFormData = {
+const INITIAL: QuoteFormData = {
   products: [],
   firstName: '', lastName: '', email: '', phone: '', dob: '',
   address: '', city: '', state: '', zip: '',
@@ -47,38 +40,30 @@ const INITIAL_FORM: QuoteFormData = {
 
 const PRODUCTS = [
   { id: 'home', label: 'Home', icon: Home, desc: 'Homeowners insurance' },
-  { id: 'auto', label: 'Auto', icon: Car, desc: 'Auto insurance' },
   { id: 'bundle', label: 'Bundle & Save', icon: Shield, desc: 'Home + Auto (save up to 25%)', highlight: true },
-  { id: 'renters', label: 'Renters', icon: Home, desc: 'Renters insurance' },
-  { id: 'landlord', label: 'Landlord', icon: Home, desc: 'Landlord / rental property' },
-  { id: 'other', label: 'Other', icon: Shield, desc: 'Umbrella, specialty, etc.' },
+  { id: 'auto', label: 'Auto', icon: Car, desc: 'Auto insurance' },
 ];
 
 const STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
-const CARRIERS = ['Allstate','American Family','Auto-Owners','Erie','Farmers','GEICO','Hartford','Liberty Mutual','Nationwide','Progressive','Safeco','State Farm','Travelers','USAA','Other','None / New Policy'];
+const CARRIERS = ['Allstate','American Family','Auto-Owners','Erie','Farmers','GEICO','Grange','Hartford','Liberty Mutual','National General','Nationwide','Progressive','Safeco','State Farm','Travelers','USAA','Other','None / New Policy'];
 
-interface QuoteIntakeFormProps {
+interface Props {
   initialName?: string;
   policyType?: string;
   currentCarrier?: string;
   renewalDate?: string;
   utmCampaign?: string;
-  onSubmit?: (data: QuoteFormData) => void;
 }
 
-export default function QuoteIntakeForm({ initialName, policyType, currentCarrier: initCarrier, renewalDate, utmCampaign, onSubmit }: QuoteIntakeFormProps) {
-  const [form, setForm] = useState<QuoteFormData>(INITIAL_FORM);
+export default function QuoteIntakeForm({ initialName, policyType, currentCarrier: initCarrier, renewalDate, utmCampaign }: Props) {
+  const router = useRouter();
+  const [form, setForm] = useState<QuoteFormData>(INITIAL);
   const [step, setStep] = useState(0);
-  const [submitted, setSubmitted] = useState(false);
   const [leadSent, setLeadSent] = useState(false);
-  const [streetViewUrl, setStreetViewUrl] = useState('');
-  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 
-  // Pre-fill from URL params
   useEffect(() => {
     if (initialName) {
       const parts = initialName.split(' ');
@@ -97,28 +82,39 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
     }
   }, [initialName, initCarrier, policyType]);
 
-  const needsHome = form.products.some(p => ['home', 'bundle', 'landlord'].includes(p));
+  const needsHome = form.products.some(p => ['home', 'bundle'].includes(p));
   const needsAuto = form.products.some(p => ['auto', 'bundle'].includes(p));
 
-  // Build steps dynamically based on product selection
   const steps = [
-    'products',    // 0: What do you need?
-    'contact',     // 1: Your info
-    'address',     // 2: Address
-    ...(needsHome ? ['property'] : []),   // 3?: Property details
-    ...(needsAuto ? ['drivers'] : []),    // 4?: Driver info
-    'coverage',    // Last: Current coverage + submit
+    'products',
+    'contact',
+    'address',
+    ...(needsHome ? ['property'] : []),
+    ...(needsAuto ? ['drivers'] : []),
+    'coverage',
   ];
-
   const totalSteps = steps.length;
   const currentStepType = steps[step];
   const progress = ((step + 1) / totalSteps) * 100;
 
-  // Send partial lead at key steps
-  const sendPartialLead = useCallback(async (extraData?: Record<string, any>) => {
-    if (leadSent && !extraData) return;
+  // Auto-populate first driver name/DOB from contact info
+  useEffect(() => {
+    if (form.firstName || form.lastName) {
+      const fullName = `${form.firstName} ${form.lastName}`.trim();
+      setForm(p => {
+        const drivers = [...p.drivers];
+        if (drivers[0]) {
+          drivers[0] = { ...drivers[0], name: fullName, dob: p.dob };
+        }
+        return { ...p, drivers };
+      });
+    }
+  }, [form.firstName, form.lastName, form.dob]);
+
+  const sendLead = useCallback(async (extra?: Record<string, any>) => {
     if (!form.firstName && !form.phone) return;
     try {
+      const driverInfo = form.drivers.filter(d => d.name).map(d => `${d.name} (DOB: ${d.dob || 'N/A'}, ${d.relationship || 'N/A'})`).join('; ');
       await fetch(`${API}/api/campaigns/landing-lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,130 +122,96 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
           name: `${form.firstName} ${form.lastName}`.trim(),
           phone: form.phone,
           email: form.email,
-          message: `[Quote Form] Products: ${form.products.join(', ')}. Address: ${form.address} ${form.city} ${form.state} ${form.zip}. DOB: ${form.dob}. ${needsAuto ? `Drivers: ${form.drivers.map(d => d.name).join(', ')}.` : ''} ${needsHome ? `Roof: ${form.roofYear}. Built: ${form.homeYear}. Sqft: ${form.sqft}.` : ''} Current: ${form.currentCarrier} @ ${form.currentPremium}/yr. ${extraData ? JSON.stringify(extraData) : ''}`,
+          message: [
+            `[Quote Form${extra?.step === 'final_submit' ? ' - FINAL' : ' - Partial'}]`,
+            `Products: ${form.products.join(', ')}`,
+            `DOB: ${form.dob}`,
+            `Address: ${form.address}, ${form.city}, ${form.state} ${form.zip}`,
+            needsHome ? `Roof: ${form.roofYear || 'N/A'}, Built: ${form.homeYear || 'N/A'}, Sqft: ${form.sqft || 'N/A'}` : '',
+            needsAuto ? `Drivers: ${driverInfo || 'N/A'}` : '',
+            `Current carrier: ${form.currentCarrier || 'N/A'}`,
+            `Current premium: ${form.currentPremium ? '$' + form.currentPremium : 'N/A'}/yr`,
+          ].filter(Boolean).join('\n'),
           policy_type: form.products.join(', '),
           current_carrier: form.currentCarrier,
           renewal_date: renewalDate || '',
           utm_campaign: utmCampaign || 'quote_form',
           source: 'quote_intake_form',
-          ...extraData,
         }),
       });
       setLeadSent(true);
     } catch (e) { /* ok */ }
-  }, [form, API, leadSent, needsAuto, needsHome, renewalDate, utmCampaign]);
+  }, [form, API, needsAuto, needsHome, renewalDate, utmCampaign]);
 
-  // Address autocomplete (simple version using input events)
-  const handleAddressChange = (value: string) => {
-    setForm(p => ({ ...p, address: value }));
-    // We'll rely on browser autocomplete for now
-    // A Google Places autocomplete could be added later
+  const handleProductToggle = (id: string) => {
+    setForm(p => {
+      let products = [...p.products];
+      if (id === 'bundle') {
+        products = products.includes('bundle') ? [] : ['bundle'];
+      } else if (products.includes('bundle')) {
+        products = [id];
+      } else {
+        products = products.includes(id) ? products.filter(x => x !== id) : [...products, id];
+      }
+      // Auto-bundle if both selected
+      if (products.includes('home') && products.includes('auto')) {
+        products = ['bundle'];
+      }
+      return { ...p, products };
+    });
   };
-
-  // Generate street view URL when we have a full address
-  useEffect(() => {
-    if (form.address && form.city && form.state && form.zip) {
-      const addr = encodeURIComponent(`${form.address}, ${form.city}, ${form.state} ${form.zip}`);
-      setStreetViewUrl(`https://maps.googleapis.com/maps/api/streetview?size=400x250&location=${addr}&key=&source=outdoor`);
-    }
-  }, [form.address, form.city, form.state, form.zip]);
 
   const canAdvance = () => {
     switch (currentStepType) {
       case 'products': return form.products.length > 0;
       case 'contact': return form.firstName && form.phone;
       case 'address': return form.address && form.city && form.state && form.zip;
-      case 'property': return true; // optional fields
-      case 'drivers': return true; // optional fields
+      case 'property': return true;
+      case 'drivers': return true;
       case 'coverage': return form.privacyConsent;
       default: return true;
     }
   };
 
   const handleNext = () => {
-    if (step === 1) { // After contact info, send partial lead
-      sendPartialLead();
-    }
+    if (step === 1) sendLead(); // partial lead after contact
     if (step < totalSteps - 1) setStep(s => s + 1);
   };
 
   const handleSubmit = async () => {
-    setSubmitted(true);
-    await sendPartialLead({ step: 'final_submit' });
-    onSubmit?.(form);
-  };
-
-  const handleProductToggle = (id: string) => {
-    setForm(p => {
-      let products = [...p.products];
-      if (id === 'bundle') {
-        // Bundle replaces individual home/auto
-        if (products.includes('bundle')) {
-          products = products.filter(x => x !== 'bundle');
-        } else {
-          products = products.filter(x => !['home', 'auto'].includes(x));
-          products.push('bundle');
-        }
-      } else if (['home', 'auto'].includes(id) && products.includes('bundle')) {
-        // If bundle is selected and they click home/auto, switch to individual
-        products = products.filter(x => x !== 'bundle');
-        products.push(id);
-      } else {
-        if (products.includes(id)) {
-          products = products.filter(x => x !== id);
-        } else {
-          products.push(id);
-        }
-      }
-      // Auto-suggest bundle
-      if (products.includes('home') && products.includes('auto')) {
-        products = products.filter(x => !['home', 'auto'].includes(x));
-        products.push('bundle');
-      }
-      return { ...p, products };
+    await sendLead({ step: 'final_submit' });
+    // Navigate to confirmation page
+    const params = new URLSearchParams({
+      name: form.firstName,
+      products: form.products.join(','),
     });
+    router.push(`/quote-confirmation?${params.toString()}`);
   };
 
-  const addDriver = () => {
-    setForm(p => ({ ...p, drivers: [...p.drivers, { name: '', dob: '', relationship: '' }] }));
+  const addDriver = () => setForm(p => ({ ...p, drivers: [...p.drivers, { name: '', dob: '', relationship: '' }] }));
+  const removeDriver = (i: number) => { if (i > 0) setForm(p => ({ ...p, drivers: p.drivers.filter((_, j) => j !== i) })); };
+  const updateDriver = (i: number, f: keyof Driver, v: string) => {
+    setForm(p => { const d = [...p.drivers]; d[i] = { ...d[i], [f]: v }; return { ...p, drivers: d }; });
   };
 
-  const removeDriver = (idx: number) => {
-    if (idx === 0) return;
-    setForm(p => ({ ...p, drivers: p.drivers.filter((_, i) => i !== idx) }));
-  };
+  // Current year for roof age calculation
+  const currentYear = new Date().getFullYear();
+  const roofAge = form.roofYear ? currentYear - parseInt(form.roofYear) : null;
 
-  const updateDriver = (idx: number, field: keyof Driver, value: string) => {
-    setForm(p => {
-      const drivers = [...p.drivers];
-      drivers[idx] = { ...drivers[idx], [field]: value };
-      return { ...p, drivers };
-    });
-  };
-
-  // Styles
+  // Input styles
   const iS: React.CSSProperties = {
     width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px',
     border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
     color: '#fff', outline: 'none', boxSizing: 'border-box',
     fontFamily: "'DM Sans', sans-serif",
   };
+  const selS: React.CSSProperties = {
+    ...iS, appearance: 'none' as const,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
+  };
+  const optS: React.CSSProperties = { color: '#1a1a2e', background: '#fff' };
   const lS: React.CSSProperties = { display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' };
-
-  if (submitted) {
-    return (
-      <div style={{ textAlign: 'center', padding: '48px 32px' }}>
-        <CheckCircle size={56} color="#22c55e" style={{ marginBottom: '16px' }} />
-        <h3 style={{ color: '#fff', fontSize: '24px', fontWeight: 700, margin: '0 0 12px' }}>Your quote request is in!</h3>
-        <p style={{ color: '#94a3b8', fontSize: '16px', lineHeight: 1.6, margin: '0 0 8px', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>
-          A licensed agent will review your information and reach out within one business day with personalized rate comparisons from 15+ carriers.
-        </p>
-        <p style={{ color: '#64748b', fontSize: '14px', margin: '24px 0 0' }}>
-          Need faster help? Call <a href="tel:8479085665" style={{ color: '#60a5fa', fontWeight: 700, textDecoration: 'none' }}>(847) 908-5665</a>
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -264,35 +226,31 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
         </div>
       </div>
 
-      {/* ── Step: Products ── */}
+      {/* ── Products ── */}
       {currentStepType === 'products' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>What would you like to quote?</h3>
-          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>Select all that apply. Bundling saves up to 25%!</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>Bundling home &amp; auto saves up to 25%!</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
             {PRODUCTS.map(p => {
               const Icon = p.icon;
-              const selected = form.products.includes(p.id);
+              const sel = form.products.includes(p.id);
               return (
                 <button key={p.id} onClick={() => handleProductToggle(p.id)} style={{
-                  background: selected ? (p.highlight ? 'rgba(16,185,129,0.15)' : 'rgba(37,99,235,0.15)') : 'rgba(255,255,255,0.04)',
-                  border: selected ? `2px solid ${p.highlight ? 'rgba(16,185,129,0.5)' : 'rgba(37,99,235,0.5)'}` : '2px solid rgba(255,255,255,0.08)',
-                  borderRadius: '12px', padding: '16px 12px', cursor: 'pointer', textAlign: 'left' as const,
+                  background: sel ? (p.highlight ? 'rgba(16,185,129,0.15)' : 'rgba(37,99,235,0.15)') : 'rgba(255,255,255,0.04)',
+                  border: sel ? `2px solid ${p.highlight ? 'rgba(16,185,129,0.5)' : 'rgba(37,99,235,0.5)'}` : '2px solid rgba(255,255,255,0.08)',
+                  borderRadius: '12px', padding: '20px 12px', cursor: 'pointer', textAlign: 'center' as const,
                   transition: 'all 0.2s', position: 'relative',
                 }}>
                   {p.highlight && (
-                    <div style={{ position: 'absolute', top: '-8px', right: '8px', background: '#10b981', color: '#fff', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '10px', letterSpacing: '0.5px' }}>
+                    <div style={{ position: 'absolute', top: '-8px', left: '50%', transform: 'translateX(-50%)', background: '#10b981', color: '#fff', fontSize: '10px', fontWeight: 800, padding: '2px 10px', borderRadius: '10px', whiteSpace: 'nowrap' as const }}>
                       BEST VALUE
                     </div>
                   )}
-                  <Icon size={24} style={{ color: selected ? (p.highlight ? '#34d399' : '#60a5fa') : '#64748b', marginBottom: '8px' }} />
+                  <Icon size={28} style={{ color: sel ? (p.highlight ? '#34d399' : '#60a5fa') : '#64748b', marginBottom: '8px' }} />
                   <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700 }}>{p.label}</div>
                   <div style={{ color: '#64748b', fontSize: '12px', marginTop: '2px' }}>{p.desc}</div>
-                  {selected && (
-                    <div style={{ position: 'absolute', top: '8px', left: '8px' }}>
-                      <CheckCircle size={16} style={{ color: p.highlight ? '#34d399' : '#60a5fa' }} />
-                    </div>
-                  )}
+                  {sel && <CheckCircle size={16} style={{ position: 'absolute', top: '8px', right: '8px', color: p.highlight ? '#34d399' : '#60a5fa' }} />}
                 </button>
               );
             })}
@@ -300,7 +258,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
         </div>
       )}
 
-      {/* ── Step: Contact Info ── */}
+      {/* ── Contact ── */}
       {currentStepType === 'contact' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Tell us about yourself</h3>
@@ -308,76 +266,71 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={lS}>First Name <span style={{ color: '#f87171' }}>*</span></label>
-              <input style={iS} value={form.firstName} placeholder="John"
-                onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} />
+              <input style={iS} value={form.firstName} placeholder="John" onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={lS}>Last Name</label>
-              <input style={iS} value={form.lastName} placeholder="Smith"
-                onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} />
+              <input style={iS} value={form.lastName} placeholder="Smith" onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} />
             </div>
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Phone <span style={{ color: '#f87171' }}>*</span></label>
-            <input style={iS} type="tel" value={form.phone} placeholder="(555) 123-4567"
-              onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+            <input style={iS} type="tel" value={form.phone} placeholder="(555) 123-4567" onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
           </div>
           <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Email</label>
-            <input style={iS} type="email" value={form.email} placeholder="john@example.com"
-              onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+            <input style={iS} type="email" value={form.email} placeholder="john@example.com" onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
           </div>
           <div>
             <label style={lS}>Date of Birth</label>
-            <input style={iS} type="date" value={form.dob}
-              onChange={e => setForm(p => ({ ...p, dob: e.target.value }))} />
+            <input style={iS} type="date" value={form.dob} onChange={e => setForm(p => ({ ...p, dob: e.target.value }))} />
           </div>
         </div>
       )}
 
-      {/* ── Step: Address ── */}
+      {/* ── Address ── */}
       {currentStepType === 'address' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>
             {needsHome ? 'Where is the property?' : 'What is your address?'}
           </h3>
           <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>This helps us find the most accurate rates for your area.</p>
-          <div style={{ marginBottom: '16px', position: 'relative' }}>
+          <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Street Address <span style={{ color: '#f87171' }}>*</span></label>
             <input style={iS} value={form.address} placeholder="123 Main Street"
-              autoComplete="street-address"
-              onChange={e => handleAddressChange(e.target.value)} />
+              autoComplete="address-line1" name="street-address"
+              onChange={e => setForm(p => ({ ...p, address: e.target.value }))} />
           </div>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
             <div style={{ flex: 2 }}>
               <label style={lS}>City <span style={{ color: '#f87171' }}>*</span></label>
               <input style={iS} value={form.city} placeholder="Chicago"
-                autoComplete="address-level2"
+                autoComplete="address-level2" name="city"
                 onChange={e => setForm(p => ({ ...p, city: e.target.value }))} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={lS}>State <span style={{ color: '#f87171' }}>*</span></label>
-              <select style={{ ...iS, appearance: 'none' as const }} value={form.state}
-                onChange={e => setForm(p => ({ ...p, state: e.target.value }))}>
-                <option value="">--</option>
-                {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+              <select style={selS} value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))}>
+                <option value="" style={optS}>--</option>
+                {STATES.map(s => <option key={s} value={s} style={optS}>{s}</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
               <label style={lS}>ZIP <span style={{ color: '#f87171' }}>*</span></label>
               <input style={iS} value={form.zip} placeholder="60601" maxLength={5}
-                autoComplete="postal-code"
+                autoComplete="postal-code" name="postal-code"
                 onChange={e => setForm(p => ({ ...p, zip: e.target.value }))} />
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Step: Property Details ── */}
+      {/* ── Property Details ── */}
       {currentStepType === 'property' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Property Details</h3>
-          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>These help us find the most competitive home rates. Skip any you don&apos;t know.</p>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>These help us find the most competitive rates. Skip any you don&apos;t know.</p>
+
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={lS}>Year Roof Installed/Replaced</label>
@@ -390,32 +343,53 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
                 onChange={e => setForm(p => ({ ...p, homeYear: e.target.value }))} />
             </div>
           </div>
+
+          {/* Roof age discount callout */}
+          {roofAge !== null && !isNaN(roofAge) && roofAge >= 0 && (
+            <div style={{
+              background: roofAge <= 10 ? 'rgba(16,185,129,0.12)' : roofAge <= 15 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.08)',
+              border: `1px solid ${roofAge <= 10 ? 'rgba(16,185,129,0.3)' : roofAge <= 15 ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.2)'}`,
+              borderRadius: '10px', padding: '12px 16px', marginBottom: '16px',
+            }}>
+              {roofAge <= 10 ? (
+                <p style={{ color: '#34d399', fontSize: '14px', fontWeight: 700, margin: 0 }}>
+                  🎉 Great news! Your {roofAge}-year-old roof qualifies for significant discounts with most carriers. Newer roofs can save you 15-30% on your homeowners premium!
+                </p>
+              ) : roofAge <= 15 ? (
+                <p style={{ color: '#fbbf24', fontSize: '14px', fontWeight: 700, margin: 0 }}>
+                  Your roof is {roofAge} years old. Many carriers offer better rates for roofs under 15 years. If you&apos;ve had recent updates, let us know — it could mean extra savings.
+                </p>
+              ) : (
+                <p style={{ color: '#f87171', fontSize: '14px', fontWeight: 700, margin: 0 }}>
+                  Your roof is {roofAge} years old. Some carriers may restrict coverage or increase rates for older roofs. We&apos;ll shop carriers that are roof-age friendly to find you the best deal.
+                </p>
+              )}
+            </div>
+          )}
+
           <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Square Footage (approx.)</label>
             <input style={iS} value={form.sqft} placeholder="e.g. 2,200"
               onChange={e => setForm(p => ({ ...p, sqft: e.target.value }))} />
           </div>
           <p style={{ color: '#64748b', fontSize: '12px', margin: '8px 0 0', fontStyle: 'italic' }}>
-            Don&apos;t worry if you don&apos;t have these — our agent can look them up.
+            Don&apos;t worry if you don&apos;t have all of these — our agent can look them up.
           </p>
         </div>
       )}
 
-      {/* ── Step: Drivers ── */}
+      {/* ── Drivers ── */}
       {currentStepType === 'drivers' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Drivers in the Household</h3>
-          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>List all licensed drivers in your household for the most accurate auto rates.</p>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>List all licensed drivers for the most accurate auto rates.</p>
           {form.drivers.map((driver, idx) => (
             <div key={idx} style={{
               background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '16px',
               border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px', position: 'relative',
             }}>
               {idx > 0 && (
-                <button onClick={() => removeDriver(idx)} style={{
-                  position: 'absolute', top: '8px', right: '8px', background: 'none', border: 'none',
-                  color: '#64748b', cursor: 'pointer', padding: '4px',
-                }}>
+                <button onClick={() => removeDriver(idx)} style={{ position: 'absolute', top: '8px', right: '8px', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}>
                   <X size={16} />
                 </button>
               )}
@@ -425,28 +399,31 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' as const }}>
                 <div style={{ flex: '2 1 180px' }}>
                   <label style={lS}>Full Name</label>
-                  <input style={iS} value={driver.name} placeholder={idx === 0 ? `${form.firstName} ${form.lastName}`.trim() || 'Your name' : 'Driver name'}
-                    onChange={e => updateDriver(idx, 'name', e.target.value)} />
+                  <input style={{ ...iS, ...(idx === 0 ? { color: '#94a3b8' } : {}) }} value={driver.name}
+                    readOnly={idx === 0}
+                    placeholder={idx === 0 ? 'Auto-filled from your info' : 'Driver name'}
+                    onChange={e => idx > 0 && updateDriver(idx, 'name', e.target.value)} />
                 </div>
                 <div style={{ flex: '1 1 140px' }}>
                   <label style={lS}>Date of Birth</label>
-                  <input style={iS} type="date" value={driver.dob}
-                    onChange={e => updateDriver(idx, 'dob', e.target.value)} />
+                  <input style={{ ...iS, ...(idx === 0 ? { color: '#94a3b8' } : {}) }} type="date" value={driver.dob}
+                    readOnly={idx === 0}
+                    onChange={e => idx > 0 && updateDriver(idx, 'dob', e.target.value)} />
                 </div>
                 {idx > 0 && (
                   <div style={{ flex: '1 1 140px' }}>
                     <label style={lS}>Relationship</label>
-                    <select style={{ ...iS, appearance: 'none' as const }} value={driver.relationship}
-                      onChange={e => updateDriver(idx, 'relationship', e.target.value)}>
-                      <option value="">Select...</option>
-                      <option value="Spouse">Spouse</option>
-                      <option value="Child">Child</option>
-                      <option value="Parent">Parent</option>
-                      <option value="Other">Other</option>
+                    <select style={selS} value={driver.relationship} onChange={e => updateDriver(idx, 'relationship', e.target.value)}>
+                      <option value="" style={optS}>Select...</option>
+                      <option value="Spouse" style={optS}>Spouse</option>
+                      <option value="Child" style={optS}>Child</option>
+                      <option value="Parent" style={optS}>Parent</option>
+                      <option value="Other" style={optS}>Other</option>
                     </select>
                   </div>
                 )}
               </div>
+              {idx === 0 && <p style={{ color: '#475569', fontSize: '11px', margin: '8px 0 0', fontStyle: 'italic' }}>Pre-filled from your contact info</p>}
             </div>
           ))}
           <button onClick={addDriver} style={{
@@ -459,54 +436,44 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
         </div>
       )}
 
-      {/* ── Step: Current Coverage + Submit ── */}
+      {/* ── Current Coverage ── */}
       {currentStepType === 'coverage' && (
         <div>
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Almost done!</h3>
           <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>This helps us understand what to beat. Both fields are optional.</p>
           <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Current Insurance Carrier</label>
-            <select style={{ ...iS, appearance: 'none' as const }} value={form.currentCarrier}
-              onChange={e => setForm(p => ({ ...p, currentCarrier: e.target.value }))}>
-              <option value="">Select your carrier...</option>
-              {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+            <select style={selS} value={form.currentCarrier} onChange={e => setForm(p => ({ ...p, currentCarrier: e.target.value }))}>
+              <option value="" style={optS}>Select your carrier...</option>
+              {CARRIERS.map(c => <option key={c} value={c} style={optS}>{c}</option>)}
             </select>
           </div>
           <div style={{ marginBottom: '24px' }}>
             <label style={lS}>Current Annual Premium (approx.)</label>
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontSize: '15px' }}>$</span>
+              <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}>$</span>
               <input style={{ ...iS, paddingLeft: '28px' }} value={form.currentPremium} placeholder="e.g. 2,400"
                 onChange={e => setForm(p => ({ ...p, currentPremium: e.target.value }))} />
             </div>
           </div>
-
-          {/* Privacy consent */}
-          <div style={{
-            background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '16px',
-            border: '1px solid rgba(255,255,255,0.08)', marginBottom: '20px',
-          }}>
+          <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '16px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '20px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
               <input type="checkbox" checked={form.privacyConsent}
                 onChange={e => setForm(p => ({ ...p, privacyConsent: e.target.checked }))}
-                style={{ marginTop: '4px', accentColor: '#2563eb', width: '18px', height: '18px', flexShrink: 0 }}
-              />
-              <div>
-                <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                  I consent to Better Choice Insurance Group collecting and using the information provided to obtain insurance quotes on my behalf from their carrier partners. I understand my information may be shared with insurance carriers for the purpose of generating quotes, and that I may be contacted by phone, email, or text regarding my quote request.{' '}
-                  <a href="#privacy" onClick={(e) => { e.preventDefault(); window.open('/privacy', '_blank'); }} style={{ color: '#60a5fa', textDecoration: 'underline' }}>Privacy Policy</a>
-                </p>
-              </div>
+                style={{ marginTop: '4px', accentColor: '#2563eb', width: '18px', height: '18px', flexShrink: 0 }} />
+              <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                I consent to Better Choice Insurance Group collecting and using the information provided to obtain insurance quotes on my behalf from their carrier partners. I understand my information may be shared with insurance carriers for the purpose of generating quotes, and that I may be contacted by phone, email, or text regarding my quote request.{' '}
+                <a href="/privacy" target="_blank" style={{ color: '#60a5fa', textDecoration: 'underline' }}>Privacy Policy</a>
+              </p>
             </div>
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '12px', marginBottom: '16px' }}>
             <Lock size={14} /> Your information is encrypted and never sold to third parties.
           </div>
         </div>
       )}
 
-      {/* ── Navigation buttons ── */}
+      {/* ── Nav buttons ── */}
       <div style={{ display: 'flex', gap: '12px', marginTop: '28px' }}>
         {step > 0 && (
           <button onClick={() => setStep(s => s - 1)} style={{
