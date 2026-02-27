@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, ChevronDown } from 'lucide-react';
 
 // Public landing page — theme classes removed via useEffect
+// Also inject high-specificity CSS to override mission-control !important rules
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -86,6 +87,25 @@ export default function GetQuotePage() {
         <title>Get Your Free Quote Comparison | Better Choice Insurance</title>
         <meta name="description" content="Compare rates from 15+ carriers in minutes. Free, no-obligation insurance quote comparison from Better Choice Insurance." />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet" />
+        <style>{`
+          /* Override mission-control dark theme for this public landing page */
+          body.mission-control .get-quote-page h1,
+          body.mission-control .get-quote-page h2,
+          body.mission-control .get-quote-page h3,
+          body.mission-control .get-quote-page h4,
+          body.mission-control .get-quote-page h5,
+          body.mission-control .get-quote-page h6 {
+            font-family: 'Playfair Display', serif !important;
+          }
+          /* Reset ALL elements to use inline styles, not theme colors */
+          body.mission-control .get-quote-page,
+          body.mission-control .get-quote-page * {
+            color: unset !important;
+            background-color: unset !important;
+            border-color: unset !important;
+            font-family: unset !important;
+          }
+        `}</style>
       </Head>
 
       <div className="get-quote-page" style={{ margin: 0, padding: 0, background: '#fafbfc', fontFamily: "'DM Sans', sans-serif", color: '#1a1a2e', minHeight: '100vh' }}>
