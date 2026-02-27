@@ -100,14 +100,8 @@ export default function GetQuotePage() {
 
           <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '48px 24px 56px', position: 'relative', zIndex: 1 }}>
             {/* Top bar */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '48px' }}>
-              <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '48px' }} />
-              <a href={`tel:${PHONE_DIGITS}`} style={{
-                color: '#93c5fd', fontSize: '15px', fontWeight: 600, textDecoration: 'none',
-                display: 'flex', alignItems: 'center', gap: '6px',
-              }}>
-                <Phone size={16} /> {PHONE}
-              </a>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '48px' }}>
+              <img src="/carrier-logos/bci_logo_white.png" alt="Better Choice Insurance" style={{ height: '52px', display: 'block' }} />
             </div>
 
             <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexWrap: 'wrap' as const }}>
