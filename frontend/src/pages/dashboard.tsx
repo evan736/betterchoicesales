@@ -427,7 +427,7 @@ export default function Dashboard() {
                     </span>
                     {item.completed && item.completed_at && (
                       <span className="text-[10px] text-green-500 font-medium">
-                        {new Date(item.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        {new Date(item.completed_at + (item.completed_at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })}
                       </span>
                     )}
                   </button>
