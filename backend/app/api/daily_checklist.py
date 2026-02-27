@@ -36,6 +36,7 @@ DEFAULT_NONPAY_ITEMS = [
     {"key": "nonpay_natgen", "label": "National General Non-Pay List", "carrier": "National General"},
     {"key": "nonpay_progressive", "label": "Progressive Non-Pay List", "carrier": "Progressive"},
     {"key": "nonpay_geico", "label": "GEICO Non-Pay List", "carrier": "GEICO"},
+    {"key": "nonpay_steadily", "label": "Steadily Non-Pay List", "carrier": "Steadily"},
 ]
 
 
