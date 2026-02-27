@@ -390,7 +390,7 @@ export default function GetQuotePage() {
                     <CheckCircle size={32} style={{ color: '#22c55e', marginBottom: '8px' }} />
                     <p style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 4px' }}>Your analysis has been sent to our team!</p>
                     <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>
-                      {analysisFormData.name ? `${analysisFormData.name}, a` : 'A'}n agent will review your full policy and reach out within one business day with a personalized comparison.
+                      A licensed agent will review your full policy and reach out within one business day with a personalized comparison.
                     </p>
                   </div>
                 </div>
