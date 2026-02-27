@@ -21,7 +21,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.getenv("SMART_INBOX_MODEL", "claude-sonnet-4-5-20250929")
 
 AGENCY_NAME = "Better Choice Insurance"
-AGENCY_PHONE = os.getenv("AGENCY_PHONE", "(555) 555-5555")
+AGENCY_PHONE = os.getenv("AGENCY_PHONE", "(847) 908-5665")
 AGENCY_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "evan@betterchoiceins.com")
 
 
@@ -101,7 +101,26 @@ CONTEXT:
 ORIGINAL EMAIL CONTENT (that triggered this):
 {original_body}
 
-Write a professional, warm, and helpful email to the customer. Guidelines:
+=== MANDATORY RULES — VIOLATING ANY OF THESE IS A CRITICAL ERROR ===
+
+1. PHONE NUMBER: The ONLY phone number you may EVER include in any email is (847) 908-5665. 
+   This is the agency phone. NEVER use ANY other phone number. Numbers from the original email 
+   or report are CUSTOMER phone numbers — including them would tell the customer to call themselves.
+
+2. AGENT/PRODUCER NAMES: NEVER mention any agent, producer, or employee by name. 
+   Do NOT say "Joseph Rivera", "Evan Larson", "Giulian", "Salma", etc.
+   Instead say "our team", "we", or "your agent at Better Choice Insurance".
+
+3. DO NOT say someone specific will reach out or call them. Instead, ask the CUSTOMER to 
+   contact US at (847) 908-5665 or reply to this email.
+
+4. DOLLAR AMOUNTS: Do NOT include premium amounts, payment amounts, or any dollar figures.
+
+5. PERSONAL INFO: Do NOT include the customer's phone number, SSN, DOB, or other personal details.
+
+=== END MANDATORY RULES ===
+
+Writing guidelines:
 - Address the customer by first name
 - Be empathetic and solution-oriented
 - Include specific action items if applicable
@@ -110,17 +129,8 @@ Write a professional, warm, and helpful email to the customer. Guidelines:
 - Do NOT include any header, logo, or signature block — just the message paragraphs
 - Do NOT include a subject line in the body
 - Do NOT wrap in full HTML document tags — just provide the inner content paragraphs as simple HTML (<p> tags, <strong> for emphasis)
+- Always direct the customer to call (847) 908-5665 or reply to this email
 - End with something like "If you have any questions, don't hesitate to reach out."
-
-CRITICAL RULES — FOLLOW THESE EXACTLY:
-- The ONLY phone number you may include is the agency number: (847) 908-5665. NEVER use any other phone number.
-- Do NOT include any phone number from the original email/report — those are the CUSTOMER'S personal phone numbers, NOT the agency number.
-- Do NOT mention any producer, agent, or employee by name (e.g. "Joseph Rivera", "Evan Larson"). Just say "our team" or "we".
-- Do NOT tell the customer that someone specific will be reaching out. Instead, ask the customer to contact US at (847) 908-5665.
-- Do NOT include premium amounts or dollar figures in the email body.
-- Always direct the customer to call the agency at (847) 908-5665 or reply to this email.
-
-Also provide a subject line separately.
 
 Respond with JSON (no markdown):
 {{
@@ -302,6 +312,39 @@ async def classify_email(
         return {"error": str(e), "category": "other", "sensitivity": "sensitive"}
 
 
+AGENCY_PHONE_CLEAN = "8479085665"
+AGENCY_PHONE_DISPLAY = "(847) 908-5665"
+
+def _sanitize_draft(result: dict) -> dict:
+    """
+    Post-processing safety check on AI-drafted emails.
+    Replaces any phone number that isn't the agency number with the agency number.
+    Removes producer/agent name references.
+    """
+    import re as _re
+
+    # Phone pattern: matches (xxx) xxx-xxxx, xxx-xxx-xxxx, xxx.xxx.xxxx, etc.
+    phone_pattern = _re.compile(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}')
+
+    for field in ("body_html", "body_plain"):
+        text = result.get(field, "")
+        if not text:
+            continue
+
+        # Find all phone numbers and replace non-agency ones
+        def replace_phone(match):
+            digits = _re.sub(r'\D', '', match.group())
+            if digits == AGENCY_PHONE_CLEAN or digits == "1" + AGENCY_PHONE_CLEAN:
+                return match.group()  # Keep agency number as-is
+            logger.warning(f"Sanitized non-agency phone from draft: {match.group()}")
+            return AGENCY_PHONE_DISPLAY
+
+        text = phone_pattern.sub(replace_phone, text)
+        result[field] = text
+
+    return result
+
+
 async def draft_response(
     summary: str,
     category: str,
@@ -355,6 +398,10 @@ async def draft_response(
             text = re.sub(r"\s*```$", "", text)
 
         result = json.loads(text)
+
+        # SAFETY: Sanitize the AI output — replace any non-agency phone numbers
+        result = _sanitize_draft(result)
+
         # Wrap the AI-generated body in the branded email template
         if result.get("body_html"):
             result["body_html"] = wrap_branded_email(
