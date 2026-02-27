@@ -1243,7 +1243,7 @@ async def coverage_analysis(
 
     content_blocks.append({
         "type": "text",
-        "text": """You are an expert insurance analyst at an independent insurance agency. Analyze this declarations page thoroughly.
+        "text": """You are an expert insurance analyst at Better Choice Insurance Group, an independent agency. You're analyzing a customer's declarations page to help them understand their coverage and show why they should let one of our agents review their policy.
 
 Extract and respond with ONLY a JSON object (no markdown, no backticks, no preamble):
 
@@ -1261,21 +1261,41 @@ Extract and respond with ONLY a JSON object (no markdown, no backticks, no pream
     {
       "area": "Specific coverage area name",
       "severity": "high|medium",
-      "detail": "2-3 sentence explanation of WHY this is a gap, what risk it exposes, and what the recommended fix is. Be specific to the actual numbers you see on the dec page."
+      "detail": "2-3 sentence explanation. Be specific to the actual numbers on the dec page."
     }
   ],
   "savings_estimate": "$X - $Y per year",
-  "recommendation": "2-3 sentence personalized recommendation referencing the specific policy details you found. Mention that a licensed agent should review the full policy across 15+ carriers to confirm savings and close any coverage gaps."
+  "recommendation": "2-3 sentence personalized recommendation. ALWAYS mention the premium looks high for a home/vehicle in that specific city/area and recommend an immediate review by one of our licensed agents who can compare across 15+ carriers."
 }
 
-IMPORTANT ANALYSIS RULES:
-- For HOMEOWNERS: Check dwelling coverage vs typical rebuild costs ($200-300/sqft), liability limits (recommend $300K+), medical payments, loss of use, water backup coverage, personal property coverage, deductible amount, and whether replacement cost or ACV.
-- For AUTO: Check liability limits (recommend 100/300/100 minimum), uninsured/underinsured motorist, comprehensive/collision deductibles, rental reimbursement, roadside assistance, and gap coverage if applicable.
-- For RENTERS: Check personal property limits, liability, medical payments, and loss of use.
-- Always identify at least 2-3 genuine coverage gaps based on what you actually see on the page.
-- Be specific with numbers from the dec page in your gap analysis.
-- Savings estimate should be realistic ($200-$1,500 range depending on policy type and premium).
-- If you can see the premium, use it to calibrate your savings estimate (typically 15-35% savings for overpriced policies)."""
+CRITICAL ANALYSIS RULES - READ CAREFULLY:
+
+1. NEVER claim a coverage is missing if you can see it on the declarations page. Read EVERY line carefully. Water backup, sump pump, service line, equipment breakdown — these often appear as endorsements or additional coverages. If they are listed, acknowledge them.
+
+2. HIGH DEDUCTIBLES ARE A SELLING POINT, NOT A GAP. We often recommend higher deductibles ($2,500-$5,000+) as a smart way to LOWER premiums. If the deductible is high, frame it positively: "Your $X deductible is a smart choice that keeps your premium lower. We can model different deductible scenarios to find your ideal balance of premium vs out-of-pocket risk."
+
+3. PREMIUM ALWAYS LOOKS HIGH. No matter what the premium is, your recommendation MUST mention that it appears high for a property/vehicle in that specific city/area. Say something like "At $X/year for a home in [City], this premium appears elevated compared to what we typically see. We strongly recommend an immediate review — our agents often find significant savings by shopping across 15+ carriers."
+
+4. For HOMEOWNERS gaps, focus on:
+   - Liability limits relative to home value (if home is worth $500K+, recommend $500K-$1M liability or umbrella)
+   - Whether replacement cost or ACV (if ACV, flag as HIGH priority)
+   - Loss of use adequacy
+   - Personal property coverage relative to dwelling
+   - Equipment breakdown / service line coverage if not visible
+   - DO NOT flag water backup as missing unless you've carefully confirmed it's truly not listed anywhere on the page
+
+5. For AUTO gaps, focus on:
+   - Liability limits (recommend 100/300/100 minimum)
+   - Uninsured/underinsured motorist matching liability
+   - Rental reimbursement
+   - Roadside assistance
+   - Gap coverage for newer/financed vehicles
+
+6. Always have 2-4 gaps. At least one should be "high" severity.
+
+7. Savings estimate: Be realistic but optimistic. Use 15-30% of current premium as the range. If premium is $3,000+, savings of $500-$1,100 is realistic.
+
+8. The recommendation MUST always end with urgency — "We recommend scheduling a review with one of our agents as soon as possible" or similar."""
     })
 
     try:
