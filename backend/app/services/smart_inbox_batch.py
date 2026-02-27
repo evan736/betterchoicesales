@@ -62,6 +62,22 @@ BATCH_REPORT_PATTERNS = [
         "carrier": "National General",
         "subject_only_match": True,
     },
+    {
+        "name": "progressive_pending_cancel_renewal",
+        "from_pattern": r".*",
+        "subject_pattern": r"(?:policies?\s*)?pending\s*(?:cancel|cancellation|renewal)|cancel\s*(?:or|and)\s*renewal|progressive\s+non[\s-]*pay",
+        "report_type": "multi_sheet_excel",
+        "carrier": "Progressive",
+        "subject_only_match": True,
+    },
+    {
+        "name": "generic_carrier_nonpay_list",
+        "from_pattern": r".*",
+        "subject_pattern": r"non[\s-]*pay(?:ment)?\s+(?:list|report|pending)|pending\s+cancel",
+        "report_type": "multi_sheet_excel",
+        "carrier": "Unknown",
+        "subject_only_match": True,
+    },
 ]
 
 
@@ -122,6 +138,8 @@ def parse_batch_report(
         return _parse_reinstatement(body_html, body_plain, carrier)
     elif report_type == "nonrenewal_excel":
         return _parse_nonrenewal_excel(attachment_data, carrier)
+    elif report_type == "multi_sheet_excel":
+        return _parse_multi_sheet_excel(attachment_data, carrier)
     else:
         logger.warning(f"Unknown batch report type: {report_type}")
         return []
@@ -189,6 +207,149 @@ def _parse_nonrenewal_excel(
             })
 
     logger.info(f"Parsed {len(items)} non-renewal items from Excel attachment")
+    return items
+
+
+def _parse_multi_sheet_excel(
+    attachment_data: Optional[List[Dict]], carrier: str
+) -> List[Dict[str, Any]]:
+    """
+    Parse multi-sheet Excel reports (e.g. Progressive Pending Cancel/Renewal).
+    
+    Handles sheets with names like:
+      - "Non-Payment" → category: non_payment
+      - "Underwriting" → category: underwriting_requirement  
+      - "Pending Renewal" → category: renewal_notice
+      - "Non-Renewal" → category: non_renewal
+    
+    Common columns: Full Name, Policy Number, Email Address, Phone Number,
+    Producer, Product, Cancel Effective Date / Renewal Effective Date, Amount Due
+    """
+    if not attachment_data:
+        logger.warning("No attachment data for multi_sheet_excel parser")
+        return []
+
+    # Map sheet names to categories
+    SHEET_CATEGORY_MAP = {
+        "non-payment": "non_payment",
+        "non payment": "non_payment",
+        "nonpayment": "non_payment",
+        "nonpay": "non_payment",
+        "underwriting": "underwriting_requirement",
+        "uw": "underwriting_requirement",
+        "pending renewal": "renewal_notice",
+        "renewal": "renewal_notice",
+        "non-renewal": "non_renewal",
+        "non renewal": "non_renewal",
+        "nonrenewal": "non_renewal",
+        "cancellation": "cancellation",
+        "cancel": "cancellation",
+    }
+
+    items = []
+    for att in attachment_data:
+        extracted_text = att.get("extracted_text", "")
+        if not extracted_text:
+            continue
+
+        current_sheet = ""
+        current_category = "other"
+
+        for line in extracted_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Detect sheet headers
+            if line.startswith("Excel Sheet:"):
+                current_sheet = line.replace("Excel Sheet:", "").strip()
+                # Match sheet name to category
+                sheet_lower = current_sheet.lower()
+                current_category = "other"
+                for pattern, cat in SHEET_CATEGORY_MAP.items():
+                    if pattern in sheet_lower:
+                        current_category = cat
+                        break
+                logger.info(f"Parsing sheet '{current_sheet}' as category '{current_category}'")
+                continue
+
+            if line.startswith("Columns:"):
+                continue
+
+            # Parse "Key: Value; Key: Value" format
+            fields = {}
+            for pair in line.split("; "):
+                if ": " in pair:
+                    key, val = pair.split(": ", 1)
+                    fields[key.strip()] = val.strip()
+
+            # Extract common fields (handle different column names)
+            full_name = fields.get("Full Name", "").strip()
+            policy = fields.get("Policy Number", "").strip()
+            email = fields.get("Email Address", "").strip()
+            phone = fields.get("Phone Number", "").strip()
+            producer = fields.get("Producer", "").strip()
+            product = fields.get("Product", "").strip()
+            address = fields.get("Address", "").strip()
+            city = fields.get("City", "").strip()
+            state = fields.get("State", fields.get("Policy State", "")).strip()
+
+            # Date field varies by sheet type
+            effective_date = (
+                fields.get("Cancel Effective Date", "") or
+                fields.get("Renewal Effective Date", "") or
+                fields.get("Effective", "") or
+                fields.get("Effective Date", "")
+            ).strip()
+
+            # Amount field varies
+            amount = (
+                fields.get("Amount Due", "") or
+                fields.get("Total Term Premium", "") or
+                fields.get("Premium", "")
+            ).strip()
+
+            cancel_reason = fields.get("Cancel Reason", "").strip()
+
+            if not policy or not full_name:
+                continue
+
+            # Clean name: "Last, First" → "First Last"
+            insured_name = full_name
+            if ", " in full_name:
+                parts = full_name.split(", ", 1)
+                insured_name = f"{parts[1]} {parts[0]}"
+
+            # Build description based on category
+            if current_category == "non_payment":
+                description = f"Non-Payment Cancel — Amount Due: ${amount}" if amount else "Non-Payment Cancel"
+            elif current_category == "underwriting_requirement":
+                description = f"Underwriting Cancel — {cancel_reason}" if cancel_reason else "Underwriting Cancel"
+            elif current_category == "renewal_notice":
+                description = f"Pending Renewal — Premium: ${amount}" if amount else "Pending Renewal"
+            elif current_category == "non_renewal":
+                description = "Non-Renewal"
+            else:
+                description = current_sheet
+
+            items.append({
+                "policy_number": policy,
+                "insured_name": insured_name,
+                "email": email if email and email != "0" else "",
+                "phone": phone if phone and phone != "0" else "",
+                "carrier": carrier,
+                "category": current_category,
+                "description": description,
+                "effective_date": effective_date,
+                "amount": amount,
+                "producer": producer,
+                "product": product,
+                "address": f"{address}, {city}, {state}" if address else "",
+                "action": f"{current_category}_notice",
+                "sheet_name": current_sheet,
+            })
+
+    logger.info(f"Parsed {len(items)} items from multi-sheet Excel ({len(set(i['category'] for i in items))} categories)")
     return items
 
 
