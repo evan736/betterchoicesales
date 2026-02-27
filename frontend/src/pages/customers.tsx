@@ -315,6 +315,7 @@ export default function CustomersPage() {
     </div>
   );
   const isAdmin = user.role?.toLowerCase() === 'admin';
+  const canNonPay = isAdmin || ['retention_specialist', 'manager'].includes(user.role?.toLowerCase() || '');
   const fmt = (n: number) => n?.toLocaleString('en-US') ?? '0';
   const fmtMoney = (n: number) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -356,11 +357,13 @@ export default function CustomersPage() {
                 <span className="hidden sm:inline">NowCerts</span> {ncStatus.connected ? 'Connected' : ncStatus.configured ? 'Auth Error' : 'Not Configured'}
               </div>
             )}
+            {canNonPay && (
+              <button onClick={openNonPay} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200">
+                <Ban size={14} /> Non-Pay
+              </button>
+            )}
             {isAdmin && (
               <>
-                <button onClick={openNonPay} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200">
-                  <Ban size={14} /> Non-Pay
-                </button>
                 <button onClick={loadDuplicates} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200">
                   <AlertTriangle size={14} /> <span className="hidden sm:inline">Duplicates</span><span className="sm:hidden">Dups</span>
                 </button>
