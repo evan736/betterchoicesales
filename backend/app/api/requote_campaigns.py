@@ -1103,6 +1103,17 @@ async def capture_landing_lead(request: Request, db: Session = Depends(get_db)):
 
     # Send alert email to Evan
     if MAILGUN_API_KEY:
+        # Pre-compute values outside f-string (Python 3.11 doesn't allow backslashes in f-string expressions)
+        phone_digits = phone.replace('(','').replace(')','').replace('-','').replace(' ','')
+        first_name_only = name.split()[0] if name else 'Lead'
+
+        email_row = f"<tr><td style='padding:8px 0;color:#64748b;'>Email</td><td style='padding:8px 0;'>{email}</td></tr>" if email else ""
+        policy_row = f"<tr><td style='padding:8px 0;color:#64748b;'>Policy Type</td><td style='padding:8px 0;'>{policy_type}</td></tr>" if policy_type else ""
+        carrier_row = f"<tr><td style='padding:8px 0;color:#64748b;'>Current Carrier</td><td style='padding:8px 0;'>{current_carrier}</td></tr>" if current_carrier else ""
+        renewal_row = f"<tr><td style='padding:8px 0;color:#64748b;'>Renewal Date</td><td style='padding:8px 0;'>{renewal_date}</td></tr>" if renewal_date else ""
+        utm_row = f"<tr><td style='padding:8px 0;color:#64748b;'>UTM Campaign</td><td style='padding:8px 0;font-size:12px;color:#94a3b8;'>{utm_campaign}</td></tr>" if utm_campaign else ""
+        message_block = f'<div style="margin:16px 0;padding:12px 16px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;"><p style="margin:0;font-size:13px;color:#0369a1;"><strong>Message:</strong> {message}</p></div>' if message else ""
+
         alert_html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;margin:0;padding:20px;background:#f1f5f9;">
         <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
             <div style="background:linear-gradient(135deg,#059669,#10b981);padding:20px 28px;">
@@ -1112,17 +1123,17 @@ async def capture_landing_lead(request: Request, db: Session = Depends(get_db)):
                 <table style="width:100%;font-size:14px;color:#334155;" cellpadding="0" cellspacing="0">
                     <tr><td style="padding:8px 0;color:#64748b;width:130px;">Name</td><td style="padding:8px 0;font-weight:700;">{name}</td></tr>
                     <tr><td style="padding:8px 0;color:#64748b;">Phone</td><td style="padding:8px 0;font-weight:700;">{phone}</td></tr>
-                    {"<tr><td style='padding:8px 0;color:#64748b;'>Email</td><td style='padding:8px 0;'>" + email + "</td></tr>" if email else ""}
-                    {"<tr><td style='padding:8px 0;color:#64748b;'>Policy Type</td><td style='padding:8px 0;'>" + policy_type + "</td></tr>" if policy_type else ""}
-                    {"<tr><td style='padding:8px 0;color:#64748b;'>Current Carrier</td><td style='padding:8px 0;'>" + current_carrier + "</td></tr>" if current_carrier else ""}
-                    {"<tr><td style='padding:8px 0;color:#64748b;'>Renewal Date</td><td style='padding:8px 0;'>" + renewal_date + "</td></tr>" if renewal_date else ""}
-                    {"<tr><td style='padding:8px 0;color:#64748b;'>UTM Campaign</td><td style='padding:8px 0;font-size:12px;color:#94a3b8;'>" + utm_campaign + "</td></tr>" if utm_campaign else ""}
+                    {email_row}
+                    {policy_row}
+                    {carrier_row}
+                    {renewal_row}
+                    {utm_row}
                 </table>
-                {"<div style='margin:16px 0;padding:12px 16px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;'><p style=\"margin:0;font-size:13px;color:#0369a1;\"><strong>Message:</strong> " + message + "</p></div>" if message else ""}
+                {message_block}
                 <div style="margin-top:20px;">
-                    <a href="tel:{phone.replace('(','').replace(')','').replace('-','').replace(' ','')}" 
+                    <a href="tel:{phone_digits}"
                        style="display:inline-block;background:#2563eb;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px;">
-                        📞 Call {name.split()[0] if name else 'Lead'} Now
+                        📞 Call {first_name_only} Now
                     </a>
                 </div>
             </div>
