@@ -253,6 +253,92 @@ def _generate_summary(content: str, title: str) -> str:
         return ""
 
 
+def _generate_smart_title(content: str, carrier: str, filename: str) -> str:
+    """Generate a meaningful title from PDF/document content."""
+    first_500 = content[:500].upper()
+    
+    # Detect state
+    STATES = [
+        'ALABAMA', 'ALASKA', 'ARIZONA', 'ARKANSAS', 'CALIFORNIA', 'COLORADO',
+        'CONNECTICUT', 'DELAWARE', 'FLORIDA', 'GEORGIA', 'HAWAII', 'IDAHO',
+        'ILLINOIS', 'INDIANA', 'IOWA', 'KANSAS', 'KENTUCKY', 'LOUISIANA',
+        'MAINE', 'MARYLAND', 'MASSACHUSETTS', 'MICHIGAN', 'MINNESOTA',
+        'MISSISSIPPI', 'MISSOURI', 'MONTANA', 'NEBRASKA', 'NEVADA',
+        'NEW HAMPSHIRE', 'NEW JERSEY', 'NEW MEXICO', 'NEW YORK',
+        'NORTH CAROLINA', 'NORTH DAKOTA', 'OHIO', 'OKLAHOMA', 'OREGON',
+        'PENNSYLVANIA', 'RHODE ISLAND', 'SOUTH CAROLINA', 'SOUTH DAKOTA',
+        'TENNESSEE', 'TEXAS', 'UTAH', 'VERMONT', 'VIRGINIA', 'WASHINGTON',
+        'WEST VIRGINIA', 'WISCONSIN', 'WYOMING', 'COUNTRYWIDE',
+    ]
+    state = ""
+    for s in STATES:
+        if s in first_500:
+            state = s.title()
+            break
+    
+    # Detect product type
+    content_lower = content[:2000].lower()
+    product = ""
+    if 'personal auto' in content_lower and 'rv' in content_lower:
+        product = "Auto & RV"
+    elif 'personal auto' in content_lower:
+        product = "Auto"
+    elif 'homeowner' in content_lower and 'auto' in content_lower:
+        product = "Auto & Home"
+    elif 'homeowner' in content_lower or 'dwelling' in content_lower:
+        product = "Home"
+    elif 'rv' in content_lower or 'motorhome' in content_lower:
+        product = "RV"
+    elif 'motorcycle' in content_lower:
+        product = "Motorcycle"
+    elif 'commercial' in content_lower:
+        product = "Commercial"
+    
+    # Detect carrier from content if not provided
+    carrier_label = carrier or _detect_carrier_from_content(content)
+    
+    # Build carrier short name
+    CARRIER_SHORT = {
+        'national general': 'NatGen', 'travelers': 'Travelers', 'safeco': 'Safeco',
+        'progressive': 'Progressive', 'grange': 'Grange', 'geico': 'GEICO',
+        'hartford': 'Hartford', 'openly': 'Openly', 'foremost': 'Foremost',
+    }
+    short = carrier_label
+    for full, abbr in CARRIER_SHORT.items():
+        if full in carrier_label.lower():
+            short = abbr
+            break
+    
+    parts = [p for p in [short, state, product, "Guidelines"] if p]
+    title = " ".join(parts) if len(parts) > 1 else filename.rsplit(".", 1)[0].replace("_", " ").title()
+    return title[:120]
+
+
+def _detect_carrier_from_content(content: str) -> str:
+    """Try to detect carrier name from document content."""
+    first_1000 = content[:1000].lower()
+    CARRIERS = {
+        'national general': 'National General',
+        'integon': 'National General',
+        'encompass': 'National General',
+        'new south insurance': 'National General',
+        'imperial fire': 'National General',
+        'travelers': 'Travelers',
+        'safeco': 'Safeco',
+        'progressive': 'Progressive',
+        'grange': 'Grange',
+        'geico': 'GEICO',
+        'hartford': 'Hartford',
+        'openly': 'Openly',
+        'foremost': 'Foremost',
+        'bristol west': 'Bristol West',
+    }
+    for pattern, name in CARRIERS.items():
+        if pattern in first_1000:
+            return name
+    return ""
+
+
 # ── Knowledge Retrieval (used by BEACON) ─────────────────────────
 
 def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
@@ -497,9 +583,21 @@ async def upload_knowledge(
     else:
         return {"error": f"Unsupported file type: {content_type or filename}. Supported: PDF, images (PNG/JPG), Excel (XLSX/XLS), CSV, text files."}
     
-    # Auto-generate title if not provided
-    if not title:
+    # Auto-generate title if not provided or if filename is generic
+    is_generic_filename = (
+        not title or 
+        title.lower().startswith("download") or 
+        title.lower().startswith("untitled") or
+        re.match(r'^[\d\s\(\)]+$', title)
+    )
+    if is_generic_filename:
+        title = _generate_smart_title(content, carrier, filename)
+    elif not title:
         title = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").title()
+    
+    # Auto-detect carrier from content if not provided
+    if not carrier:
+        carrier = _detect_carrier_from_content(content)
     
     # Generate summary
     summary = _generate_summary(content, title)
