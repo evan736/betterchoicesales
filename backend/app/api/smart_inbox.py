@@ -236,6 +236,72 @@ async def _send_evan_alert(inbound: InboundEmail, outbound: Optional[OutboundQue
 
 # ── Background Processing Pipeline ──────────────────────────────────────────
 
+def _check_nonpay_throttle(
+    db: Session,
+    customer_email: str,
+    policy_number: Optional[str],
+    cancellation_date_str: Optional[str],
+) -> bool:
+    """
+    Check if we should throttle a non-payment email.
+    Rules:
+      - Max 2 emails per 7 days normally
+      - Allow daily emails when within 3 days of cancellation date
+    Returns True if email should be throttled (skipped).
+    """
+    from datetime import datetime, timedelta
+
+    # Check if we're within 3 days of cancellation
+    within_3_days = False
+    if cancellation_date_str:
+        try:
+            # Try common date formats
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+                try:
+                    cancel_date = datetime.strptime(cancellation_date_str, fmt)
+                    days_until = (cancel_date - datetime.utcnow()).days
+                    if days_until <= 3:
+                        within_3_days = True
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+
+    # Look for recent non-payment outbound emails to this customer
+    lookback = timedelta(days=1 if within_3_days else 7)
+    max_emails = 1 if within_3_days else 2  # daily=1 per day, normal=2 per 7 days
+
+    recent_query = (
+        db.query(OutboundQueue)
+        .join(InboundEmail, OutboundQueue.inbound_email_id == InboundEmail.id)
+        .filter(
+            OutboundQueue.to_email == customer_email,
+            InboundEmail.category == "non_payment",
+            OutboundQueue.created_at >= datetime.utcnow() - lookback,
+            OutboundQueue.status.in_(["auto_sent", "sent", "pending_approval"]),
+        )
+    )
+
+    # Also filter by policy number if we have one
+    if policy_number:
+        recent_query = recent_query.filter(
+            InboundEmail.extracted_policy_number == policy_number
+        )
+
+    recent_count = recent_query.count()
+
+    if recent_count >= max_emails:
+        logger.info(
+            f"Non-payment throttle: {customer_email} has {recent_count} emails "
+            f"in last {'1 day' if within_3_days else '7 days'} "
+            f"(limit: {max_emails}, cancel_date: {cancellation_date_str})"
+        )
+        return True
+
+    return False
+
+
 async def process_inbound_email(email_id: int, db_url: str):
     """
     Full async pipeline: classify → match customer → log note → draft response → send/queue.
@@ -356,59 +422,73 @@ async def process_inbound_email(email_id: int, db_url: str):
 
             if "error" not in draft:
                 if email.customer_email:
-                    # Have email — normal send/queue flow
-                    auto_send = determine_auto_send(
-                        category=email.category or "other",
-                        sensitivity=email.sensitivity or "sensitive",
-                    )
-                    outbound = OutboundQueue(
-                        inbound_email_id=email.id,
-                        to_email=email.customer_email,
-                        to_name=customer_name,
-                        subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
-                        body_html=draft.get("body_html", ""),
-                        body_plain=draft.get("body_plain", ""),
-                        ai_rationale=draft.get("rationale"),
-                        sensitivity=email.sensitivity,
-                        status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
-                    )
-                    db.add(outbound)
-                    db.commit()
-
-                    if auto_send:
-                        msg_id = await _send_via_mailgun(
-                            to=outbound.to_email,
-                            subject=outbound.subject,
-                            html=outbound.body_html,
+                    # Check frequency throttle for non-payment emails
+                    should_throttle = False
+                    if email.category == "non_payment":
+                        should_throttle = _check_nonpay_throttle(
+                            db, email.customer_email, email.extracted_policy_number,
+                            str(email.extracted_due_date) if email.extracted_due_date else None,
                         )
-                        if msg_id:
-                            outbound.sent_at = datetime.utcnow()
-                            outbound.mailgun_message_id = msg_id
-                            email.status = ProcessingStatus.OUTBOUND_SENT
-                            email.is_archived = True  # Auto-archive once sent
 
-                            if email.customer_name:
-                                out_note = format_outbound_note(
-                                    to_email=outbound.to_email,
-                                    subject=outbound.subject,
-                                    status="sent",
-                                    body_preview=outbound.body_plain or "",
-                                )
-                                await log_note_to_customer(
-                                    insured_id=email.nowcerts_insured_id or "",
-                                    subject=f"Smart Inbox: Sent — {outbound.subject}",
-                                    note_body=out_note,
-                                    customer_name=email.customer_name or "",
-                                    customer_email=email.customer_email or "",
-                                )
-                        else:
-                            outbound.send_error = "Mailgun send failed"
-                            outbound.status = OutboundStatus.PENDING_APPROVAL
+                    if should_throttle:
+                        email.status = ProcessingStatus.SKIPPED
+                        email.processing_notes = "Throttled: non-payment email already sent within frequency limit"
+                        db.commit()
+                        logger.info(f"Throttled non-payment email to {email.customer_email} — too recent")
                     else:
-                        email.status = ProcessingStatus.OUTBOUND_QUEUED
-                        if email.sensitivity in ("sensitive", "critical"):
-                            await _send_evan_alert(email, outbound)
-                    db.commit()
+                        # Have email — normal send/queue flow
+                        auto_send = determine_auto_send(
+                            category=email.category or "other",
+                            sensitivity=email.sensitivity or "sensitive",
+                        )
+                        outbound = OutboundQueue(
+                            inbound_email_id=email.id,
+                            to_email=email.customer_email,
+                            to_name=customer_name,
+                            subject=draft.get("subject", f"Update on your policy — {email.extracted_policy_number or ''}"),
+                            body_html=draft.get("body_html", ""),
+                            body_plain=draft.get("body_plain", ""),
+                            ai_rationale=draft.get("rationale"),
+                            sensitivity=email.sensitivity,
+                            status=OutboundStatus.AUTO_SENT if auto_send else OutboundStatus.PENDING_APPROVAL,
+                        )
+                        db.add(outbound)
+                        db.commit()
+
+                        if auto_send:
+                            msg_id = await _send_via_mailgun(
+                                to=outbound.to_email,
+                                subject=outbound.subject,
+                                html=outbound.body_html,
+                            )
+                            if msg_id:
+                                outbound.sent_at = datetime.utcnow()
+                                outbound.mailgun_message_id = msg_id
+                                email.status = ProcessingStatus.OUTBOUND_SENT
+                                email.is_archived = True  # Auto-archive once sent
+
+                                if email.customer_name:
+                                    out_note = format_outbound_note(
+                                        to_email=outbound.to_email,
+                                        subject=outbound.subject,
+                                        status="sent",
+                                        body_preview=outbound.body_plain or "",
+                                    )
+                                    await log_note_to_customer(
+                                        insured_id=email.nowcerts_insured_id or "",
+                                        subject=f"Smart Inbox: Sent — {outbound.subject}",
+                                        note_body=out_note,
+                                        customer_name=email.customer_name or "",
+                                        customer_email=email.customer_email or "",
+                                    )
+                            else:
+                                outbound.send_error = "Mailgun send failed"
+                                outbound.status = OutboundStatus.PENDING_APPROVAL
+                        else:
+                            email.status = ProcessingStatus.OUTBOUND_QUEUED
+                            if email.sensitivity in ("sensitive", "critical"):
+                                await _send_evan_alert(email, outbound)
+                        db.commit()
                 else:
                     # No email — queue with NEEDS_EMAIL for manual resolution
                     outbound = OutboundQueue(
