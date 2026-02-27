@@ -158,6 +158,67 @@ def _extract_text_from_image(image_bytes: bytes, media_type: str = "image/png") 
         return f"[Image extraction error: {str(e)[:100]}]"
 
 
+def _extract_text_from_excel(file_bytes: bytes, filename: str = "") -> str:
+    """Extract text from Excel files (.xlsx/.xls)."""
+    try:
+        import openpyxl
+        import io
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        parts = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+            headers = [str(h) if h is not None else "" for h in rows[0]]
+            parts.append(f"=== Sheet: {sheet_name} ===")
+            parts.append(f"Columns: {', '.join(h for h in headers if h)}")
+            parts.append("")
+            for row in rows[1:]:
+                row_data = "; ".join(
+                    f"{headers[j]}: {row[j]}"
+                    for j in range(len(row))
+                    if j < len(headers) and headers[j] and row[j] is not None
+                )
+                if row_data.strip():
+                    parts.append(row_data)
+            parts.append("")
+        wb.close()
+        return "\n".join(parts)
+    except ImportError:
+        logger.warning("openpyxl not installed — cannot parse Excel")
+        return ""
+    except Exception as e:
+        logger.error(f"Excel extraction failed: {e}")
+        return ""
+
+
+def _extract_text_from_csv(file_bytes: bytes) -> str:
+    """Extract text from CSV files."""
+    try:
+        import csv
+        import io
+        text = file_bytes.decode("utf-8", errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        rows = list(reader)
+        if not rows:
+            return ""
+        headers = rows[0]
+        parts = [f"Columns: {', '.join(headers)}", ""]
+        for row in rows[1:]:
+            row_data = "; ".join(
+                f"{headers[j]}: {row[j]}"
+                for j in range(len(row))
+                if j < len(headers) and row[j]
+            )
+            if row_data.strip():
+                parts.append(row_data)
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"CSV extraction failed: {e}")
+        return ""
+
+
 def _generate_summary(content: str, title: str) -> str:
     """Generate a short summary + tags using AI."""
     if not ANTHROPIC_API_KEY or len(content) < 50:
@@ -198,13 +259,23 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
     """Search approved knowledge entries relevant to a query.
     Returns formatted context string to inject into BEACON's prompt."""
     
-    # Get all approved entries
+    # Get all approved entries (exclude superseded)
     entries = db.query(BeaconKnowledge).filter(
         BeaconKnowledge.status == "approved"
-    ).all()
+    ).order_by(BeaconKnowledge.created_at.desc()).all()
     
     if not entries:
         return ""
+    
+    # Deduplicate: if multiple entries have the same title+carrier, keep only the newest
+    seen_titles = {}
+    deduped = []
+    for entry in entries:
+        dedup_key = f"{(entry.title or '').lower()}|{(entry.carrier or '').lower()}"
+        if dedup_key not in seen_titles:
+            seen_titles[dedup_key] = True
+            deduped.append(entry)
+    entries = deduped
     
     # Simple keyword matching (fast, no vector DB needed)
     query_lower = query.lower()
@@ -254,6 +325,8 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
             "screenshot": "📸 Screenshot",
             "correction": "✏️ Correction",
             "conversation": "💬 Learned",
+            "spreadsheet": "📊 Spreadsheet",
+            "document": "📝 Document",
         }.get(entry.source_type, "📝 Note")
         
         parts.append(f"### {source_label}: {entry.title}")
@@ -282,10 +355,24 @@ async def upload_knowledge(
     file_bytes = await file.read()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     
-    # Check for duplicate
+    # Check for exact duplicate (same file hash)
     existing = db.query(BeaconKnowledge).filter(BeaconKnowledge.file_hash == file_hash).first()
     if existing:
-        return {"error": "This file has already been uploaded", "existing_id": existing.id}
+        return {"error": "This exact file has already been uploaded", "existing_id": existing.id}
+    
+    # Check for superseding — same title+carrier means this is an updated version
+    # Mark older entries as superseded so only the newest is used
+    if title and carrier:
+        older = db.query(BeaconKnowledge).filter(
+            BeaconKnowledge.title == title,
+            BeaconKnowledge.carrier == carrier,
+            BeaconKnowledge.status.in_(["approved", "pending"]),
+        ).all()
+        for old in older:
+            old.status = "superseded"
+            logger.info(f"Superseded older knowledge entry: {old.title} (id={old.id})")
+        if older:
+            db.commit()
     
     filename = file.filename or "upload"
     content_type = file.content_type or ""
@@ -302,8 +389,23 @@ async def upload_knowledge(
         content = _extract_text_from_image(file_bytes, media)
         if not content or content.startswith("["):
             return {"error": "Could not extract information from image."}
+    elif filename.lower().endswith((".xlsx", ".xls")) or "spreadsheet" in content_type or "excel" in content_type:
+        source_type = "spreadsheet"
+        content = _extract_text_from_excel(file_bytes, filename)
+        if not content:
+            return {"error": "Could not extract data from Excel file."}
+    elif filename.lower().endswith(".csv") or "csv" in content_type:
+        source_type = "spreadsheet"
+        content = _extract_text_from_csv(file_bytes)
+        if not content:
+            return {"error": "Could not extract data from CSV file."}
+    elif filename.lower().endswith((".txt", ".md", ".text")):
+        source_type = "document"
+        content = file_bytes.decode("utf-8", errors="replace")
+        if not content.strip():
+            return {"error": "Text file is empty."}
     else:
-        return {"error": f"Unsupported file type: {content_type}. Upload PDFs or images (PNG/JPG)."}
+        return {"error": f"Unsupported file type: {content_type or filename}. Supported: PDF, images (PNG/JPG), Excel (XLSX/XLS), CSV, text files."}
     
     # Auto-generate title if not provided
     if not title:
@@ -452,6 +554,7 @@ def list_entries(
             (BeaconKnowledge.status == "approved") |
             (BeaconKnowledge.submitted_by == current_user.id)
         )
+    # Managers see everything including superseded
     
     entries = q.order_by(BeaconKnowledge.created_at.desc()).limit(100).all()
     
@@ -579,12 +682,13 @@ def kb_stats(
     db: Session = Depends(get_db),
 ):
     """Get knowledge base statistics."""
-    total = db.query(BeaconKnowledge).count()
+    total = db.query(BeaconKnowledge).filter(BeaconKnowledge.status != "superseded").count()
     approved = db.query(BeaconKnowledge).filter(BeaconKnowledge.status == "approved").count()
     pending = db.query(BeaconKnowledge).filter(BeaconKnowledge.status == "pending").count()
+    superseded = db.query(BeaconKnowledge).filter(BeaconKnowledge.status == "superseded").count()
     
     by_type = {}
-    for st in ("pdf", "screenshot", "correction", "conversation"):
+    for st in ("pdf", "screenshot", "correction", "conversation", "spreadsheet", "document"):
         by_type[st] = db.query(BeaconKnowledge).filter(
             BeaconKnowledge.source_type == st,
             BeaconKnowledge.status == "approved",
@@ -594,5 +698,6 @@ def kb_stats(
         "total": total,
         "approved": approved,
         "pending": pending,
+        "superseded": superseded,
         "by_type": by_type,
     }
