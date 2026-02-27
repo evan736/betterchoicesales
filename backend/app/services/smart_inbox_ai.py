@@ -114,7 +114,8 @@ ORIGINAL EMAIL CONTENT (that triggered this):
 3. DO NOT say someone specific will reach out or call them. Instead, ask the CUSTOMER to 
    contact US at (847) 908-5665 or reply to this email.
 
-4. DOLLAR AMOUNTS: Do NOT include premium amounts, payment amounts, or any dollar figures.
+4. DOLLAR AMOUNTS: Do NOT include premium amounts or total policy cost. 
+   EXCEPTION: For non-payment or billing emails, you MAY include the specific payment amount due if it was in the original email.
 
 5. PERSONAL INFO: Do NOT include the customer's phone number, SSN, DOB, or other personal details.
 
