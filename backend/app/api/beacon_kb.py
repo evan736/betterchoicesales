@@ -770,16 +770,16 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         parts.append(f"### {source_label}: {entry.title}")
         
         content = entry.content
-        if len(content) <= 6000:
+        if len(content) <= 12000:
             parts.append(content)
         else:
             # Use enriched search words for chunk extraction
-            chunks = _extract_relevant_chunks(content, all_search_words, max_total=8000)
+            chunks = _extract_relevant_chunks(content, all_search_words, max_total=15000)
             if chunks:
                 parts.append(f"[Relevant sections from {len(content):,} character document]\n")
                 parts.append(chunks)
             else:
-                parts.append(content[:4000] + "\n[... document continues, use specific questions to find more]")
+                parts.append(content[:6000] + "\n[... document continues, use specific questions to find more]")
         parts.append("")
     
     return "\n".join(parts)
@@ -867,12 +867,12 @@ def _extract_relevant_chunks(content: str, query_words: set, max_total: int = 80
     
     scored_lines.sort(key=lambda x: x[1], reverse=True)
     
-    CONTEXT_LINES = 20
+    CONTEXT_LINES = 30
     chunks = []
     used_lines = set()
     total_chars = 0
     
-    for line_idx, score in scored_lines[:15]:
+    for line_idx, score in scored_lines[:25]:
         start = max(0, line_idx - CONTEXT_LINES)
         end = min(len(lines), line_idx + CONTEXT_LINES + 1)
         overlap = sum(1 for i in range(start, end) if i in used_lines)

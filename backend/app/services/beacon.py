@@ -184,12 +184,14 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
     if not ANTHROPIC_API_KEY:
         return "⚠️ BEACON is not configured — missing ANTHROPIC_API_KEY.", "none"
     
-    # Smart routing
+    # Smart routing — start with complexity check
     use_complex = _is_complex_query(user_message)
     model = SONNET_MODEL if use_complex else HAIKU_MODEL
     
     # Build system prompt with knowledge base context + live ORBIT data
     system = SYSTEM_PROMPT
+    kb_was_injected = False
+    
     if db_session:
         # Live ORBIT data (carriers, sales stats, team)
         try:
@@ -205,6 +207,7 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
             from app.api.beacon_kb import get_relevant_knowledge
             kb_context = get_relevant_knowledge(user_message, db_session)
             if kb_context:
+                kb_was_injected = True
                 system = system + "\n" + kb_context + "\n\nCRITICAL: The knowledge base entries above are your team's actual reference documents. Search through ALL the content carefully — the answer to the user's question may be in a specific line or entry within a larger document. ALWAYS use this data before saying you don't have information. Prioritize knowledge base entries over your built-in defaults when they conflict."
         except Exception as e:
             logger.warning(f"Knowledge base lookup failed: {e}")
@@ -221,11 +224,17 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
                     if prop_context:
                         system = system + "\n" + prop_context
                         system = system + "\n\nYou just looked up property data for this address. Present the findings clearly to the agent, including any insurance-relevant observations (roof age, flood zone risk, carrier recommendations based on property characteristics). If a Street View URL is available, mention the agent can check the property visually. If a Zillow link is available, mention it for additional details."
-                        # Property lookups should use Sonnet for better analysis
                         use_complex = True
                         model = SONNET_MODEL
         except Exception as e:
             logger.warning(f"Property lookup failed: {e}")
+    
+    # ── Model upgrade: ALWAYS use Sonnet when KB content was injected ──
+    # KB questions require reading through large document chunks and reasoning
+    # about insurance guidelines — Haiku isn't strong enough for this
+    if kb_was_injected:
+        model = SONNET_MODEL
+        logger.info(f"BEACON: Upgraded to Sonnet — KB content injected for query: {user_message[:60]}...")
     
     # Build messages
     messages = []
@@ -241,7 +250,13 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
     messages.append({"role": "user", "content": user_message})
     
     try:
-        with httpx.Client(timeout=60.0) as client:
+        # Sonnet needs more time when processing large KB context
+        timeout = 90.0 if model == SONNET_MODEL else 60.0
+        max_tokens = 3000 if model == SONNET_MODEL else 2048
+        
+        logger.info(f"BEACON calling {model} (timeout={timeout}s, max_tokens={max_tokens})")
+        
+        with httpx.Client(timeout=timeout) as client:
             resp = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -251,7 +266,7 @@ def get_beacon_response(user_message: str, conversation_history: list = None, db
                 },
                 json={
                     "model": model,
-                    "max_tokens": 2048,
+                    "max_tokens": max_tokens,
                     "system": system,
                     "messages": messages,
                 },
