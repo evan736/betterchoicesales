@@ -402,7 +402,7 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
         <!-- Contact -->
         <tr><td style="padding:0 32px 24px;">
           <p style="font-size:14px;color:#666;line-height:1.5;text-align:center;">
-            📞 (630) 448-6011 &nbsp;|&nbsp; ✉️ service@betterchoiceins.com<br>
+            📞 (847) 908-5665 &nbsp;|&nbsp; ✉️ service@betterchoiceins.com<br>
             🌐 www.betterchoiceins.com
           </p>
         </td></tr>
