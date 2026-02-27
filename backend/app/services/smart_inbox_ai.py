@@ -119,6 +119,11 @@ ORIGINAL EMAIL CONTENT (that triggered this):
 
 5. PERSONAL INFO: Do NOT include the customer's phone number, SSN, DOB, or other personal details.
 
+6. ATTACHMENTS: Do NOT say "please review the attached document", "see attached", or reference any 
+   attachment UNLESS the category is underwriting_requirement or inspection-related. 
+   We do NOT attach PDFs to billing, non-payment, non-renewal, cancellation, or general emails.
+   Only mention attachments for inspection reports or underwriting requirement documents.
+
 === END MANDATORY RULES ===
 
 TONE AND STYLE BY CATEGORY:
