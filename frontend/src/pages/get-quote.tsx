@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, Play, X, ChevronDown } from 'lucide-react';
+import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, ChevronDown } from 'lucide-react';
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -26,8 +26,7 @@ const PHONE = '(847) 908-5665';
 const PHONE_DIGITS = '8479085665';
 const EMAIL = 'service@betterchoiceins.com';
 
-// TODO: Replace with your actual video URL (YouTube embed, Vimeo, or direct mp4)
-const VIDEO_URL = ''; // e.g. 'https://www.youtube.com/embed/YOUR_VIDEO_ID'
+// Video section removed — no longer needed
 
 export default function GetQuotePage() {
   const router = useRouter();
@@ -37,7 +36,6 @@ export default function GetQuotePage() {
   const currentCarrier = (carrier as string) || '';
   const renewalDate = (xdate as string) || '';
 
-  const [showVideo, setShowVideo] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', message: '' });
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -223,68 +221,6 @@ export default function GetQuotePage() {
           </div>
         </section>
 
-        {/* ═══ VIDEO SECTION ═══ */}
-        <section style={{ background: '#f0f4f8', padding: '64px 24px' }}>
-          <div style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' as const }}>
-            <p style={{ color: '#2563eb', fontSize: '13px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase' as const, margin: '0 0 8px' }}>
-              See Why Customers Love Us
-            </p>
-            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '32px', fontWeight: 700, margin: '0 0 12px', color: '#0f172a' }}>
-              Your Insurance, Our Expertise
-            </h2>
-            <p style={{ color: '#64748b', fontSize: '16px', margin: '0 0 32px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
-              Learn how Better Choice Insurance saves families hundreds by shopping 15+ carriers for the perfect policy.
-            </p>
-
-            {/* Video thumbnail / player */}
-            <div style={{
-              position: 'relative', borderRadius: '16px', overflow: 'hidden',
-              background: 'linear-gradient(135deg, #0a1628 0%, #1a3a5c 100%)',
-              aspectRatio: '16/9', maxWidth: '760px', margin: '0 auto',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-              cursor: VIDEO_URL ? 'pointer' : 'default',
-            }}
-            onClick={() => { if (VIDEO_URL) setShowVideo(true); }}
-            >
-              {showVideo && VIDEO_URL ? (
-                <iframe
-                  src={`${VIDEO_URL}?autoplay=1`}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="autoplay; fullscreen"
-                  allowFullScreen
-                />
-              ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center' }}>
-                  {/* Grid overlay */}
-                  <div style={{
-                    position: 'absolute', inset: 0, opacity: 0.06,
-                    backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)',
-                    backgroundSize: '40px 40px',
-                  }} />
-                  {/* BCI Logo watermark */}
-                  <img src="/carrier-logos/bci_header_white.png" alt="" style={{ height: '28px', marginBottom: '24px', opacity: 0.4 }} />
-                  {/* Play button */}
-                  <div style={{
-                    width: '80px', height: '80px', borderRadius: '50%',
-                    background: 'rgba(37,99,235,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    boxShadow: '0 0 0 12px rgba(37,99,235,0.2), 0 8px 32px rgba(0,0,0,0.3)',
-                  }}>
-                    <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: '4px' }} />
-                  </div>
-                  <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '16px', fontWeight: 500 }}>
-                    {VIDEO_URL ? 'Watch Our Story' : 'Video Coming Soon'}
-                  </p>
-                  {!VIDEO_URL && (
-                    <p style={{ color: '#475569', fontSize: '12px', marginTop: '4px' }}>
-                      Add your video URL in the code to activate this section
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
         {/* ═══ HOW IT WORKS ═══ */}
         <section style={{ background: '#fff', padding: '72px 24px' }}>
           <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -380,9 +316,9 @@ export default function GetQuotePage() {
             </div>
             <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' as const, justifyContent: 'center' }}>
               {[
-                { name: 'Maria T.', location: 'Chicago, IL', quote: "Better Choice saved us over $800 a year on our home and auto. I couldn't believe the difference — same coverage, way less money.", stars: 5 },
-                { name: 'James K.', location: 'Naperville, IL', quote: "They shopped my renewal and found me a better rate in 15 minutes. Super easy and Evan was great to work with.", stars: 5 },
-                { name: 'Linda S.', location: 'Aurora, IL', quote: "After my old agent retired, I was lost. Better Choice took over everything and actually improved my coverage while lowering my bill.", stars: 5 },
+                { name: 'Maria T.', location: 'Chicago, IL', quote: "Better Choice saved us over $800 a year on our home and auto bundle. Same great coverage, way less money. I honestly couldn't believe the difference until I saw it side by side.", stars: 5 },
+                { name: 'James K.', location: 'Naperville, IL', quote: "They shopped my renewal across a dozen carriers and found me a better rate in 15 minutes flat. Super easy process and Evan really took the time to explain every option.", stars: 5 },
+                { name: 'Linda S.', location: 'Aurora, IL', quote: "After my old agent retired, I felt completely lost. Better Choice took over everything seamlessly and actually improved my coverage while lowering my monthly bill. Lifesavers.", stars: 5 },
               ].map((t, i) => (
                 <div key={i} style={{
                   flex: '1 1 280px', maxWidth: '320px', padding: '28px',
