@@ -4,6 +4,7 @@ import os
 import re
 import base64
 import hashlib
+import json
 from datetime import datetime
 from typing import Optional, List
 
@@ -341,8 +342,88 @@ def _detect_carrier_from_content(content: str) -> str:
 
 # ── Knowledge Retrieval (used by BEACON) ─────────────────────────
 
+def _ai_extract_intent(query: str, available_titles: list[str]) -> dict:
+    """Use a fast Haiku call to understand what the user is actually asking about.
+    
+    Returns structured intent:
+    {
+        "carriers": ["national general"],
+        "states": ["oklahoma"],
+        "products": ["home", "homeowners"],
+        "topics": ["claims", "loss history", "eligibility", "maximum claims"],
+        "search_terms": ["claims limit", "loss history", "chargeable losses", "homeowners eligibility"],
+        "best_titles": ["NatGen Oklahoma Auto RV & Home Guidelines"]
+    }
+    """
+    if not ANTHROPIC_API_KEY:
+        return {}
+    
+    import httpx
+    
+    titles_list = "\n".join(f"- {t}" for t in available_titles[:40])  # Cap at 40 titles
+    
+    prompt = f"""You are an insurance knowledge base search assistant. An insurance agent asked a question, and you need to extract their intent so we can find the right documents.
+
+Available documents in our knowledge base:
+{titles_list}
+
+Agent's question: "{query}"
+
+Extract the following as JSON (no markdown, no explanation, just valid JSON):
+{{
+  "carriers": ["full carrier names mentioned or implied, e.g. national general, travelers, safeco, grange, geico, progressive"],
+  "states": ["full state names, expand abbreviations: OK=oklahoma, IL=illinois, etc."],
+  "products": ["product lines: home, homeowners, auto, rv, renters, condo, umbrella, motorcycle, flood, life"],
+  "topics": ["specific underwriting topics: claims, loss history, eligibility, deductible, coverage limits, binding, cancellation, non-renewal, roof age, credit score, trampoline, pool, breed restrictions, prior insurance, lapse in coverage, etc."],
+  "search_terms": ["5-10 keywords and phrases to search for in documents, including insurance jargon equivalents of what the agent asked. Think about what words would actually appear in an underwriting guidelines PDF for this topic."],
+  "best_titles": ["pick 1-3 document titles from the list above that are MOST likely to contain the answer, in order of relevance. If none seem relevant, return empty array."]
+}}
+
+IMPORTANT: 
+- Always expand state abbreviations to full names (OK → oklahoma, IL → illinois, OH → ohio, etc.)
+- "NatGen" = "National General", "Travelers" = "Travelers", etc.
+- Think about what the underwriting guidelines PDF would actually say. If someone asks "how many claims can I have", the PDF probably says "loss history", "chargeable losses", "claims count", "experience period", "ineligible if X or more losses"
+- For product lines, "home" and "homeowners" are interchangeable. Include both.
+- Return ONLY valid JSON, nothing else."""
+
+    try:
+        haiku_model = os.getenv("BEACON_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": haiku_model,
+                    "max_tokens": 512,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data.get("content", [{}])[0].get("text", "")
+                # Strip markdown fences if present
+                text = text.strip()
+                if text.startswith("```"):
+                    text = re.sub(r'^```(?:json)?\s*', '', text)
+                    text = re.sub(r'\s*```$', '', text)
+                intent = json.loads(text)
+                logger.info(f"AI intent extraction for '{query[:60]}': carriers={intent.get('carriers')}, states={intent.get('states')}, products={intent.get('products')}, topics={intent.get('topics', [])[:3]}")
+                return intent
+            else:
+                logger.warning(f"AI intent extraction failed: {resp.status_code}")
+                return {}
+    except Exception as e:
+        logger.warning(f"AI intent extraction error: {e}")
+        return {}
+
+
 def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
     """Search approved knowledge entries relevant to a query.
+    Uses AI intent extraction for smart retrieval, with keyword fallback.
     Returns formatted context string to inject into BEACON's prompt."""
     
     # Get all approved entries (exclude superseded)
@@ -363,12 +444,23 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
             deduped.append(entry)
     entries = deduped
     
-    # Simple keyword matching (fast, no vector DB needed)
+    # ── Phase 1: AI Intent Extraction ──
+    # Ask Haiku to understand what the agent is really asking about
+    available_titles = [e.title for e in entries if e.title]
+    intent = _ai_extract_intent(query, available_titles)
+    
+    ai_carriers = [c.lower() for c in intent.get("carriers", [])]
+    ai_states = [s.lower() for s in intent.get("states", [])]
+    ai_products = [p.lower() for p in intent.get("products", [])]
+    ai_topics = [t.lower() for t in intent.get("topics", [])]
+    ai_search_terms = [t.lower() for t in intent.get("search_terms", [])]
+    ai_best_titles = [t.lower() for t in intent.get("best_titles", [])]
+    
+    # ── Phase 2: Keyword fallback (always runs alongside AI) ──
     query_lower = query.lower()
     query_words = set(re.findall(r'\w+', query_lower))
     
-    # ── State abbreviation expansion ──
-    # Users often say "OK" instead of "Oklahoma", "IL" instead of "Illinois", etc.
+    # State abbreviation expansion (fast fallback)
     STATE_ABBREVS = {
         'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
         'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
@@ -384,17 +476,15 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
         'wi': 'wisconsin', 'wy': 'wyoming',
     }
-    # Also reverse: full name → abbreviation
     STATE_NAMES = {v: k for k, v in STATE_ABBREVS.items()}
     
     expanded_query_words = set(query_words)
-    detected_state_names = set()  # Full state names found/expanded from query
+    detected_state_names = set(ai_states)  # Start with AI-detected states
     for word in query_words:
         word_l = word.lower()
         if word_l in STATE_ABBREVS:
             full_name = STATE_ABBREVS[word_l]
             expanded_query_words.add(full_name)
-            # Add individual words for multi-word states
             for part in full_name.split():
                 expanded_query_words.add(part)
             detected_state_names.add(full_name)
@@ -402,14 +492,17 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
             expanded_query_words.add(STATE_NAMES[word_l])
             detected_state_names.add(word_l)
     
-    # Also check for multi-word state names in the query
     for state_name in STATE_NAMES:
-        if ' ' not in state_name and state_name in query_lower:
-            detected_state_names.add(state_name)
-        elif ' ' in state_name and state_name in query_lower:
+        if state_name in query_lower:
             detected_state_names.add(state_name)
     
-    # ── Product type keywords for title matching ──
+    # Add AI search terms to expanded words
+    for term in ai_search_terms:
+        for word in re.findall(r'\w+', term):
+            if len(word) >= 3:
+                expanded_query_words.add(word)
+    
+    # Merge AI products with keyword detection
     PRODUCT_KEYWORDS = {
         'home': ['home', 'homeowner', 'homeowners', 'dwelling', 'ho3', 'ho5', 'ho6'],
         'auto': ['auto', 'automobile', 'vehicle', 'car', 'driver'],
@@ -417,51 +510,101 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         'renters': ['renter', 'renters', 'tenant'],
         'condo': ['condo', 'condominium'],
         'umbrella': ['umbrella', 'excess liability'],
+        'motorcycle': ['motorcycle'],
+        'flood': ['flood'],
+        'life': ['life', 'term life', 'whole life'],
     }
-    detected_products = set()
+    detected_products = set(ai_products)
     for product, keywords in PRODUCT_KEYWORDS.items():
         for kw in keywords:
             if kw in query_lower:
                 detected_products.add(product)
                 break
     
+    # ── Phase 3: Score each entry using combined AI + keyword signals ──
     scored = []
     for entry in entries:
         score = 0
         title_lower = (entry.title or '').lower()
+        carrier_lower = (entry.carrier or '').lower()
         searchable = f"{entry.title} {entry.content} {entry.tags or ''} {entry.carrier or ''} {entry.summary or ''}".lower()
         
-        # Exact phrase fragments (use expanded words including state full names)
-        for word in expanded_query_words:
-            if len(word) >= 3:  # Skip tiny words
-                count = searchable.count(word)
-                score += count * 2
+        # ── AI Title Match (strongest signal) ──
+        # If AI explicitly picked this doc as most relevant, massive boost
+        for i, best_title in enumerate(ai_best_titles):
+            if best_title == title_lower:
+                score += 50 - (i * 10)  # 50 for #1 pick, 40 for #2, 30 for #3
+                break
+            # Fuzzy: check if AI title is contained in actual title or vice versa
+            elif best_title in title_lower or title_lower in best_title:
+                score += 40 - (i * 10)
+                break
         
-        # Carrier name match (big boost)
-        if entry.carrier and entry.carrier.lower() in query_lower:
-            score += 20
+        # ── AI Carrier Match ──
+        for ai_carrier in ai_carriers:
+            if ai_carrier in carrier_lower or carrier_lower in ai_carrier:
+                score += 20
+                break
+            # Handle aliases: "natgen" = "national general"
+            carrier_aliases = {
+                'national general': ['natgen', 'national general', 'integon', 'encompass'],
+                'travelers': ['travelers'],
+                'safeco': ['safeco'],
+                'grange': ['grange'],
+                'progressive': ['progressive'],
+                'geico': ['geico'],
+            }
+            for canonical, aliases in carrier_aliases.items():
+                if any(a in ai_carrier for a in aliases) and any(a in carrier_lower for a in aliases):
+                    score += 20
+                    break
         
-        # ── State match in title (BIG boost) ──
-        # If user asked about Oklahoma and the title says "Oklahoma", that's highly relevant
+        # ── AI State Match in Title ──
         for state_name in detected_state_names:
             if state_name in title_lower:
-                score += 30  # Strong signal — right state doc
-            # Also check abbreviation in title
+                score += 30
             if state_name in STATE_NAMES:
                 abbrev = STATE_NAMES[state_name]
                 if f" {abbrev} " in f" {title_lower} " or title_lower.endswith(f" {abbrev}"):
                     score += 30
         
-        # ── Product type match in title (significant boost) ──
-        # If user asked about "home" and title says "Home Guidelines", prefer it
+        # ── AI Product Match in Title ──
         for product in detected_products:
             if product in title_lower:
                 score += 15
-            # Also check synonyms in title
             for kw in PRODUCT_KEYWORDS.get(product, []):
                 if kw in title_lower:
                     score += 10
                     break
+        
+        # ── AI Search Terms in Content (deeper semantic matching) ──
+        for term in ai_search_terms:
+            term_words = term.split()
+            if len(term_words) > 1:
+                # Multi-word phrase — check if full phrase exists in content
+                if term in searchable:
+                    score += 8
+            else:
+                if len(term) >= 3 and term in searchable:
+                    score += 3
+        
+        # ── AI Topics in Content ──
+        for topic in ai_topics:
+            topic_words = topic.split()
+            if len(topic_words) > 1 and topic in searchable:
+                score += 5
+            elif len(topic) >= 3 and topic in searchable:
+                score += 2
+        
+        # ── Original keyword matching (ensures we don't miss anything) ──
+        for word in expanded_query_words:
+            if len(word) >= 3:
+                count = searchable.count(word)
+                score += count * 1  # Reduced weight since AI signals are stronger
+        
+        # Carrier name from original query
+        if entry.carrier and entry.carrier.lower() in query_lower:
+            score += 15
         
         # Tag matches
         if entry.tags:
@@ -470,7 +613,7 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
                 if tag and tag in query_lower:
                     score += 10
         
-        # Correction entries get a boost (they're specific fixes)
+        # Correction entries get a boost
         if entry.source_type == "correction":
             score += 5
         
@@ -484,7 +627,18 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
     if not top:
         return ""
     
-    # Format as context
+    # Log scoring results for debugging
+    for score, entry in top[:3]:
+        logger.info(f"KB match: score={score} title='{entry.title}'")
+    
+    # ── Phase 4: Format context with AI-enhanced chunk extraction ──
+    # Combine original query words + AI search terms for better chunk extraction
+    all_search_words = expanded_query_words.copy()
+    for term in ai_search_terms + ai_topics:
+        for word in re.findall(r'\w+', term):
+            if len(word) >= 3:
+                all_search_words.add(word)
+    
     parts = ["\n## Agency Knowledge Base (approved entries from your team)\n"]
     for score, entry in top:
         source_label = {
@@ -500,16 +654,14 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         
         content = entry.content
         if len(content) <= 6000:
-            # Small enough to send whole
             parts.append(content)
         else:
-            # Large document — extract relevant chunks around query keywords
-            chunks = _extract_relevant_chunks(content, query_words, max_total=8000)
+            # Use enriched search words for chunk extraction
+            chunks = _extract_relevant_chunks(content, all_search_words, max_total=8000)
             if chunks:
                 parts.append(f"[Relevant sections from {len(content):,} character document]\n")
                 parts.append(chunks)
             else:
-                # Fallback: first chunk for context
                 parts.append(content[:4000] + "\n[... document continues, use specific questions to find more]")
         parts.append("")
     
