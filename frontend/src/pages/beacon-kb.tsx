@@ -51,12 +51,12 @@ export default function BeaconKnowledgeBase() {
 
   // Upload modal
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadCarrier, setUploadCarrier] = useState('');
   const [uploadTags, setUploadTags] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [uploadQueue, setUploadQueue] = useState<{file: File, status: 'pending'|'uploading'|'done'|'error', error?: string}[]>([]);
+  const [dragOver, setDragOver] = useState(false);
 
   // Correction modal
   const [showCorrection, setShowCorrection] = useState(false);
@@ -102,30 +102,53 @@ export default function BeaconKnowledgeBase() {
   useEffect(() => { loadEntries(); }, [statusFilter, typeFilter, searchQuery]);
 
   const handleUpload = async () => {
-    if (!uploadFile) return;
+    if (uploadFiles.length === 0) return;
     setUploading(true);
-    setUploadResult(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', uploadFile);
-      if (uploadTitle) fd.append('title', uploadTitle);
-      if (uploadCarrier) fd.append('carrier', uploadCarrier);
-      if (uploadTags) fd.append('tags', uploadTags);
-      const res = await axios.post(`${API}/api/beacon-kb/upload`, fd, { headers: headers() });
-      if (res.data.error) {
-        setUploadResult({ error: res.data.error });
-      } else {
-        setUploadResult({ success: true, entry: res.data });
-        setUploadFile(null);
-        setUploadTitle('');
-        setUploadCarrier('');
-        setUploadTags('');
-        loadEntries();
-        loadStats();
+    const queue = uploadFiles.map(f => ({ file: f, status: 'pending' as const }));
+    setUploadQueue(queue);
+
+    for (let i = 0; i < queue.length; i++) {
+      setUploadQueue(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'uploading' } : item));
+      try {
+        const fd = new FormData();
+        fd.append('file', queue[i].file);
+        // Auto-generate title from filename
+        const title = queue[i].file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+        fd.append('title', title);
+        if (uploadCarrier) fd.append('carrier', uploadCarrier);
+        if (uploadTags) fd.append('tags', uploadTags);
+        const res = await axios.post(`${API}/api/beacon-kb/upload`, fd, { headers: headers() });
+        if (res.data.error) {
+          setUploadQueue(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', error: res.data.error } : item));
+        } else {
+          setUploadQueue(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'done' } : item));
+        }
+      } catch (e: any) {
+        setUploadQueue(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error', error: e.response?.data?.detail || 'Failed' } : item));
       }
-    } catch (e: any) {
-      setUploadResult({ error: e.response?.data?.detail || 'Upload failed' });
-    } finally { setUploading(false); }
+    }
+
+    setUploading(false);
+    loadEntries();
+    loadStats();
+  };
+
+  const addFiles = (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    setUploadFiles(prev => [...prev, ...arr]);
+    setUploadQueue([]);
+  };
+
+  const removeFile = (idx: number) => {
+    setUploadFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
   };
 
   const handleCorrection = async () => {
@@ -506,91 +529,114 @@ export default function BeaconKnowledgeBase() {
 
       {/* Upload Modal */}
       {showUpload && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowUpload(false)}>
-          <div className="bg-slate-900 border border-white/10 rounded-2xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => { if (!uploading) { setShowUpload(false); setUploadFiles([]); setUploadQueue([]); } }}>
+          <div className="bg-slate-900 border border-white/10 rounded-2xl max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <Upload size={18} className="text-cyan-400" />
                 Upload Knowledge
               </h2>
-              <button onClick={() => setShowUpload(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => { if (!uploading) { setShowUpload(false); setUploadFiles([]); setUploadQueue([]); } }} className="text-slate-400 hover:text-white">
                 <X size={18} />
               </button>
             </div>
 
             <p className="text-xs text-slate-400 mb-4">
-              Upload a carrier PDF or screenshot. BEACON will extract the text and learn from it.
-              {!isManager && ' A manager will need to approve it before BEACON uses it.'}
+              Drag & drop files or click to select. Supports PDF, images, Excel, CSV, and text files.
+              {!isManager && ' A manager will need to approve before BEACON uses them.'}
             </p>
 
-            {/* File drop zone */}
+            {/* Drop zone */}
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-white/10 hover:border-cyan-500/30 rounded-xl p-6 text-center cursor-pointer transition mb-4"
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition mb-4 ${
+                dragOver ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/10 hover:border-cyan-500/30'
+              }`}
             >
-              {uploadFile ? (
-                <div className="flex items-center justify-center gap-2">
-                  {uploadFile.type.includes('pdf') ? <FileText size={20} className="text-red-400" /> : <Image size={20} className="text-blue-400" />}
-                  <span className="text-sm text-white">{uploadFile.name}</span>
-                  <span className="text-[10px] text-slate-500">({(uploadFile.size / 1024).toFixed(0)} KB)</span>
-                </div>
-              ) : (
-                <>
-                  <Upload size={24} className="mx-auto text-slate-500 mb-2" />
-                  <p className="text-sm text-slate-400">Click to select a PDF or image</p>
-                  <p className="text-[10px] text-slate-600 mt-1">Supports: PDF, PNG, JPG, WEBP</p>
-                </>
-              )}
+              <Upload size={24} className={`mx-auto mb-2 ${dragOver ? 'text-cyan-400' : 'text-slate-500'}`} />
+              <p className="text-sm text-slate-400">{dragOver ? 'Drop files here' : 'Drag & drop files or click to browse'}</p>
+              <p className="text-[10px] text-slate-600 mt-1">PDF, PNG, JPG, XLSX, CSV, TXT — multiple files OK</p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp"
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv,.txt,.md"
+                multiple
                 className="hidden"
-                onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
               />
             </div>
 
-            <input
-              type="text"
-              placeholder="Title (optional — auto-generated from filename)"
-              value={uploadTitle}
-              onChange={e => setUploadTitle(e.target.value)}
-              className="w-full px-3 py-2 mb-3 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
-            />
-            <div className="flex gap-3 mb-4">
-              <input
-                type="text"
-                placeholder="Carrier (e.g. NatGen)"
-                value={uploadCarrier}
-                onChange={e => setUploadCarrier(e.target.value)}
-                className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
-              />
-              <input
-                type="text"
-                placeholder="Tags (comma sep)"
-                value={uploadTags}
-                onChange={e => setUploadTags(e.target.value)}
-                className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
-              />
-            </div>
-
-            {uploadResult?.error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-3 text-xs text-red-300 flex items-center gap-2">
-                <AlertTriangle size={14} /> {uploadResult.error}
+            {/* File list */}
+            {uploadFiles.length > 0 && (
+              <div className="space-y-1.5 mb-4 max-h-48 overflow-y-auto">
+                {uploadFiles.map((f, i) => {
+                  const queueItem = uploadQueue[i];
+                  const status = queueItem?.status || 'pending';
+                  return (
+                    <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                      status === 'done' ? 'bg-emerald-500/10 border border-emerald-500/20' :
+                      status === 'error' ? 'bg-red-500/10 border border-red-500/20' :
+                      status === 'uploading' ? 'bg-cyan-500/10 border border-cyan-500/20' :
+                      'bg-white/[0.03] border border-white/[0.06]'
+                    }`}>
+                      {status === 'done' && <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />}
+                      {status === 'error' && <XCircle size={14} className="text-red-400 flex-shrink-0" />}
+                      {status === 'uploading' && <span className="animate-spin flex-shrink-0">⏳</span>}
+                      {status === 'pending' && <FileText size={14} className="text-slate-400 flex-shrink-0" />}
+                      <span className={`flex-1 truncate ${status === 'done' ? 'text-emerald-300' : status === 'error' ? 'text-red-300' : 'text-white'}`}>
+                        {f.name}
+                      </span>
+                      <span className="text-slate-500">{(f.size / 1024).toFixed(0)}KB</span>
+                      {status === 'error' && <span className="text-red-400 truncate max-w-[120px]" title={queueItem?.error}>{queueItem?.error}</span>}
+                      {!uploading && status !== 'done' && (
+                        <button onClick={() => removeFile(i)} className="text-slate-500 hover:text-red-400"><X size={12} /></button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {uploadResult?.success && (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-3 text-xs text-emerald-300 flex items-center gap-2">
-                <CheckCircle size={14} /> Uploaded! {isManager ? 'Auto-approved.' : 'Pending manager approval.'}
+
+            {/* Carrier & Tags — apply to all files */}
+            {uploadFiles.length > 0 && (
+              <div className="flex gap-3 mb-4">
+                <input
+                  type="text"
+                  placeholder="Carrier for all (optional)"
+                  value={uploadCarrier}
+                  onChange={e => setUploadCarrier(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
+                />
+                <input
+                  type="text"
+                  placeholder="Tags (comma sep)"
+                  value={uploadTags}
+                  onChange={e => setUploadTags(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/40"
+                />
+              </div>
+            )}
+
+            {/* Upload progress summary */}
+            {uploadQueue.length > 0 && (
+              <div className="text-xs text-slate-400 mb-3 text-center">
+                {uploadQueue.filter(q => q.status === 'done').length} / {uploadQueue.length} complete
+                {uploadQueue.some(q => q.status === 'error') && (
+                  <span className="text-red-400 ml-2">({uploadQueue.filter(q => q.status === 'error').length} failed)</span>
+                )}
               </div>
             )}
 
             <button
               onClick={handleUpload}
-              disabled={!uploadFile || uploading}
+              disabled={uploadFiles.length === 0 || uploading}
               className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-semibold text-white transition"
             >
-              {uploading ? 'Processing...' : 'Upload & Extract'}
+              {uploading ? `Processing ${uploadQueue.filter(q => q.status === 'uploading').length > 0 ? uploadQueue.findIndex(q => q.status === 'uploading') + 1 : '...'} of ${uploadFiles.length}...` : 
+               `Upload ${uploadFiles.length} file${uploadFiles.length !== 1 ? 's' : ''}`}
             </button>
           </div>
         </div>
