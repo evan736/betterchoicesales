@@ -330,20 +330,104 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
         }.get(entry.source_type, "📝 Note")
         
         parts.append(f"### {source_label}: {entry.title}")
-        # Send full content for high-scoring matches, truncate low-scoring ones
+        
         content = entry.content
-        if score >= 10:
-            # High relevance — send full content (up to 8000 chars)
-            if len(content) > 8000:
-                content = content[:8000] + "\n[... truncated, full entry available in knowledge base]"
+        if len(content) <= 6000:
+            # Small enough to send whole
+            parts.append(content)
         else:
-            # Lower relevance — summarize
-            if len(content) > 3000:
-                content = content[:3000] + "\n[... truncated]"
-        parts.append(content)
+            # Large document — extract relevant chunks around query keywords
+            chunks = _extract_relevant_chunks(content, query_words, max_total=8000)
+            if chunks:
+                parts.append(f"[Relevant sections from {len(content):,} character document]\n")
+                parts.append(chunks)
+            else:
+                # Fallback: first chunk for context
+                parts.append(content[:4000] + "\n[... document continues, use specific questions to find more]")
         parts.append("")
     
     return "\n".join(parts)
+
+
+def _extract_relevant_chunks(content: str, query_words: set, max_total: int = 8000) -> str:
+    """Extract sections of a large document that contain query keywords.
+    Uses synonym expansion, phrase matching, and section awareness."""
+    
+    lines = content.split('\n')
+    
+    # Synonym expansions for insurance terms
+    SYNONYMS = {
+        'claim': ['claim', 'claims', 'loss', 'losses', 'chargeable', 'loss history'],
+        'limit': ['limit', 'limits', 'maximum', 'max', 'exceed', 'exceeding', 'ineligible'],
+        'many': ['many', 'number', 'count', 'how many', 'maximum'],
+        'home': ['home', 'homeowner', 'homeowners', 'dwelling', 'residence'],
+        'auto': ['auto', 'automobile', 'vehicle', 'car', 'driver'],
+        'cancel': ['cancel', 'cancellation', 'non-renewal', 'nonrenewal'],
+        'cover': ['cover', 'coverage', 'covered', 'covers'],
+        'deduct': ['deduct', 'deductible', 'deductibles'],
+        'eligible': ['eligible', 'eligibility', 'ineligible', 'qualify', 'acceptable'],
+        'require': ['require', 'requirement', 'requirements', 'required'],
+    }
+    
+    expanded = set(query_words)
+    for word in query_words:
+        for key, syns in SYNONYMS.items():
+            if word.startswith(key) or key.startswith(word):
+                expanded.update(syns)
+    
+    scored_lines = []
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        if not line_lower.strip():
+            continue
+        score = 0
+        matched = set()
+        for word in expanded:
+            if len(word) >= 3 and word in line_lower:
+                score += 2
+                matched.add(word)
+        # Section header bonus
+        stripped = line.strip()
+        if stripped and (stripped.isupper() or stripped.startswith(('I.', 'II.', 'III.', 'IV.', 'A.', 'B.', 'C.', 'D.'))):
+            if matched:
+                score += 5
+        # Multi-word proximity bonus
+        if len(matched) >= 3:
+            score += 10
+        elif len(matched) >= 2:
+            score += 5
+        # Key phrase bonus
+        for phrase in ['ineligible', 'loss history', 'claim count', 'exceeding', 'chargeable loss', 'experience period', 'not eligible']:
+            if phrase in line_lower:
+                score += 8
+        if score > 0:
+            scored_lines.append((i, score))
+    
+    if not scored_lines:
+        return ""
+    
+    scored_lines.sort(key=lambda x: x[1], reverse=True)
+    
+    CONTEXT_LINES = 20
+    chunks = []
+    used_lines = set()
+    total_chars = 0
+    
+    for line_idx, score in scored_lines[:15]:
+        start = max(0, line_idx - CONTEXT_LINES)
+        end = min(len(lines), line_idx + CONTEXT_LINES + 1)
+        overlap = sum(1 for i in range(start, end) if i in used_lines)
+        if overlap > (end - start) * 0.5:
+            continue
+        chunk_text = '\n'.join(lines[start:end])
+        if total_chars + len(chunk_text) > max_total:
+            break
+        chunks.append(f"[...section near line {start+1}...]\n{chunk_text}")
+        used_lines.update(range(start, end))
+        total_chars += len(chunk_text)
+    
+    return "\n\n".join(chunks)
+
 
 
 # ── API Endpoints ────────────────────────────────────────────────
