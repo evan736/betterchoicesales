@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, Upload, FileText, Zap, Brain, AlertTriangle, TrendingDown } from 'lucide-react';
+import dynamic from 'next/dynamic';
+const QuoteIntakeForm = dynamic(() => import('../components/QuoteIntakeForm'), { ssr: false });
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -45,10 +47,6 @@ export default function GetQuotePage() {
   const currentCarrier = (carrier as string) || '';
   const renewalDate = (xdate as string) || '';
 
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', message: '', address: '', policyTypes: '' });
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
   // AI Coverage Review state
   const [decFile, setDecFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -71,27 +69,6 @@ export default function GetQuotePage() {
   }, [firstName]);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
-
-  const handleQuoteSubmit = async () => {
-    if (!formData.name || !formData.phone) return;
-    setSubmitting(true);
-    try {
-      await fetch(`${API}/api/campaigns/landing-lead`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          policy_type: formData.policyTypes || policyType,
-          current_carrier: currentCarrier,
-          renewal_date: renewalDate,
-          utm_campaign: utm_campaign || '',
-          source: 'requote_landing_page',
-        }),
-      });
-    } catch (e) { /* follow up manually */ }
-    setSubmitted(true);
-    setSubmitting(false);
-  };
 
   const handleDecUpload = async (file: File) => {
     setDecFile(file);
@@ -489,69 +466,23 @@ export default function GetQuotePage() {
         {/* ═══ QUOTE FORM ═══ */}
         <section id="get-quote" style={{ background: 'linear-gradient(145deg, #0a1628 0%, #132042 40%, #1a3a5c 100%)', padding: '72px 24px', position: 'relative' }}>
           <div style={{ position: 'absolute', inset: 0, opacity: 0.04, backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
-          <div style={{ maxWidth: '600px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
+          <div style={{ maxWidth: '650px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
             <div style={{ textAlign: 'center' as const, marginBottom: '36px' }}>
               <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '32px', fontWeight: 700, margin: '0 0 12px', color: '#fff' }}>Start Your Quote</h2>
               <p style={{ color: '#94a3b8', fontSize: '16px', margin: 0, lineHeight: 1.6 }}>
-                Fill out the form below and we&apos;ll get back to you within one business day with your personalized quote comparison.
+                Answer a few quick questions and we&apos;ll compare rates from 15+ carriers to find your best deal.
               </p>
             </div>
 
-            {!submitted ? (
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '16px', padding: '32px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(10px)' }}>
-                {[
-                  { label: 'Your Name', key: 'name', type: 'text', placeholder: 'John Smith', required: true },
-                  { label: 'Phone Number', key: 'phone', type: 'tel', placeholder: '(555) 123-4567', required: true },
-                  { label: 'Email', key: 'email', type: 'email', placeholder: 'john@example.com', required: false },
-                  { label: 'Address', key: 'address', type: 'text', placeholder: '123 Main St, City, State', required: false },
-                ].map((field, i) => (
-                  <div key={i} style={{ marginBottom: '16px' }}>
-                    <label style={lS}>{field.label} {field.required && <span style={{ color: '#f87171' }}>*</span>}</label>
-                    <input type={field.type} placeholder={field.placeholder}
-                      value={(formData as any)[field.key]}
-                      onChange={(e) => setFormData(p => ({ ...p, [field.key]: e.target.value }))}
-                      style={iS} />
-                  </div>
-                ))}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={lS}>What type of insurance do you need?</label>
-                  <input type="text" placeholder="e.g. Home, Auto, Bundle, Renters, Landlord..."
-                    value={formData.policyTypes}
-                    onChange={(e) => setFormData(p => ({ ...p, policyTypes: e.target.value }))}
-                    style={iS} />
-                </div>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={lS}>Anything else we should know?</label>
-                  <textarea rows={3} placeholder="e.g. Current premium, renewal date, specific coverage needs..."
-                    value={formData.message}
-                    onChange={(e) => setFormData(p => ({ ...p, message: e.target.value }))}
-                    style={{ ...iS, resize: 'vertical' as const, minHeight: '80px' }} />
-                </div>
-                <button onClick={handleQuoteSubmit}
-                  disabled={submitting || !formData.name || !formData.phone}
-                  style={{
-                    width: '100%', padding: '16px', fontSize: '16px', fontWeight: 700,
-                    background: (!formData.name || !formData.phone) ? '#475569' : '#2563eb',
-                    color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer',
-                    boxShadow: '0 4px 20px rgba(37,99,235,0.3)', opacity: submitting ? 0.7 : 1,
-                    fontFamily: "'DM Sans', sans-serif",
-                  }}>
-                  {submitting ? 'Submitting...' : 'Start Your Quote →'}
-                </button>
-                <p style={{ textAlign: 'center' as const, color: '#64748b', fontSize: '12px', marginTop: '12px' }}>No spam. No obligation. Just savings.</p>
-              </div>
-            ) : (
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '16px', padding: '48px 32px', border: '1px solid rgba(34,197,94,0.3)', textAlign: 'center' as const }}>
-                <CheckCircle size={48} color="#22c55e" style={{ marginBottom: '16px' }} />
-                <h3 style={{ color: '#fff', fontSize: '22px', fontWeight: 700, margin: '0 0 8px' }}>We&apos;re on it!</h3>
-                <p style={{ color: '#94a3b8', fontSize: '16px', margin: '0 0 24px', lineHeight: 1.6 }}>
-                  Our team will review your information and get back to you within one business day with your personalized quote comparison.
-                </p>
-                <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>
-                  Need faster help? Call us at <a href={`tel:${PHONE_DIGITS}`} style={{ color: '#60a5fa', fontWeight: 700, textDecoration: 'none' }}>{PHONE}</a>
-                </p>
-              </div>
-            )}
+            <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '16px', padding: '32px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(10px)' }}>
+              <QuoteIntakeForm
+                initialName={firstName}
+                policyType={policyType}
+                currentCarrier={currentCarrier}
+                renewalDate={renewalDate}
+                utmCampaign={utm_campaign as string}
+              />
+            </div>
 
             <div style={{ textAlign: 'center' as const, marginTop: '24px' }}>
               <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 8px' }}>Prefer to talk to a person?</p>
