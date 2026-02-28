@@ -434,7 +434,6 @@ export default function GetQuotePage() {
                 { icon: <Brain size={24} />, title: 'AI-Powered Analysis', desc: "Our AI reviews your coverage in seconds, identifying gaps and savings opportunities that manual reviews miss." },
                 { icon: <Shield size={24} />, title: 'Independent Agency', desc: "We don't work for one carrier — we work for you. We shop the market to find the best coverage at the best price." },
                 { icon: <DollarSign size={24} />, title: '$1,150+ Avg. Savings', desc: "Our customers save an average of $1,150 per year. We find the best rate across 15+ carriers — at no cost to you." },
-                { icon: <Users size={24} />, title: 'Personal Service', desc: "You'll always talk to a real person who knows your name and policies — backed by cutting-edge technology." },
                 { icon: <CheckCircle size={24} />, title: 'Claims Advocacy', desc: "When you need to file a claim, we go to bat for you. We advocate on your behalf and guide you through the process." },
                 { icon: <Star size={24} />, title: 'Ongoing Reviews', desc: "We proactively review your policies at renewal with AI + agent expertise to keep you protected and saving." },
               ].map((item, i) => (
