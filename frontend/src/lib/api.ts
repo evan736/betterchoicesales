@@ -254,6 +254,14 @@ export const customersAPI = {
   drivers: (id: number) => api.get(`/api/customers/${id}/drivers`),
   update: (id: number, fields: Record<string, string>, pushToNowCerts: boolean) =>
     api.patch(`/api/customers/${id}`, { fields, push_to_nowcerts: pushToNowCerts }),
+  notes: (customerId: number, limit = 5) =>
+    api.get(`/api/customers/${customerId}/notes?limit=${limit}`),
+  addNote: (customerId: number, subject: string, body: string) => {
+    const fd = new FormData();
+    fd.append('subject', subject);
+    fd.append('body', body);
+    return api.post(`/api/customers/${customerId}/notes`, fd);
+  },
   quickEmail: (data: { to_email: string; to_name?: string; cc_emails?: string; subject: string; body: string; send_as?: string; customer_id?: number; attachments?: File[] }) => {
     const fd = new FormData();
     fd.append('to_email', data.to_email);

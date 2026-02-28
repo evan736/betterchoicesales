@@ -1512,6 +1512,108 @@ def _log_email_to_nowcerts(
 
         nc.insert_note(note_data)
         logger.info(f"NowCerts note logged for {customer_email}: {direction} email - {subject[:60]}")
+
+        # Also save locally for Recent Notes display
+        try:
+            from app.models.customer_notes import CustomerNote
+            local_note = CustomerNote(
+                customer_id=customer_id,
+                nowcerts_insured_id=str(customer.nowcerts_insured_id) if customer and customer.nowcerts_insured_id else None,
+                customer_name=customer_name,
+                customer_email=customer_email,
+                subject=note_subject[:200],
+                body=note_text[:1000],
+                source="email",
+                created_by=sender,
+                pushed_to_nowcerts="yes",
+            )
+            db.add(local_note)
+            db.commit()
+        except Exception as le:
+            logger.warning(f"Failed to save local note: {le}")
     except Exception as e:
         # Don't fail the email send if note logging fails
         logger.error(f"Failed to log email to NowCerts: {e}")
+
+
+# ── Customer Notes ──
+
+@router.get("/{customer_id}/notes")
+def get_customer_notes(
+    customer_id: int,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get recent notes for a customer."""
+    from app.models.customer_notes import CustomerNote
+
+    notes = (
+        db.query(CustomerNote)
+        .filter(CustomerNote.customer_id == customer_id)
+        .order_by(CustomerNote.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": n.id,
+            "subject": n.subject,
+            "body": n.body,
+            "source": n.source,
+            "created_by": n.created_by,
+            "pushed_to_nowcerts": n.pushed_to_nowcerts,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notes
+    ]
+
+
+@router.post("/{customer_id}/notes")
+def add_customer_note(
+    customer_id: int,
+    subject: str = Form(...),
+    body: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a manual note to a customer and push to NowCerts."""
+    from app.models.customer_notes import CustomerNote
+    from app.models.customer import CustomerPolicy
+
+    # Find customer
+    customer = db.query(CustomerPolicy).filter(CustomerPolicy.id == customer_id).first()
+
+    note = CustomerNote(
+        customer_id=customer_id,
+        nowcerts_insured_id=customer.nowcerts_insured_id if customer else None,
+        customer_name=customer.full_name if customer else None,
+        customer_email=customer.email if customer else None,
+        subject=subject,
+        body=body,
+        source="manual",
+        created_by=current_user.username,
+        pushed_to_nowcerts="pending",
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+
+    # Push to NowCerts
+    try:
+        from app.services.nowcerts import NowCertsClient
+        nc = NowCertsClient()
+        nc.push_note(
+            customer_email=customer.email if customer else None,
+            customer_name=customer.full_name if customer else None,
+            subject=subject,
+            body=body,
+        )
+        note.pushed_to_nowcerts = "yes"
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to push note to NowCerts: {e}")
+        note.pushed_to_nowcerts = "failed"
+        db.commit()
+
+    return {"id": note.id, "subject": note.subject, "pushed_to_nowcerts": note.pushed_to_nowcerts}
