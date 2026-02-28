@@ -388,39 +388,34 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
             month_name = now.strftime("%B")
             season = "winter" if now.month in [12,1,2] else "spring" if now.month in [3,4,5] else "summer" if now.month in [6,7,8] else "fall"
 
-            ai_prompt = f"""You are the email copywriter for Better Choice Insurance Group, an independent insurance agency. Write a personalized requote campaign email.
+            ai_prompt = f"""You are writing a marketing email for Better Choice Insurance Group. Match our website brand voice: clean, professional, confident, agency-focused.
 
-CONTEXT:
-- Customer first name: {first_name}
+LEAD INFO:
+- First name: {first_name}
 - Policy type: {policy_label}
-- Renewal/X-date: {x_date or 'upcoming'}
-- City/State: {city or 'their area'}, {state or ''}
-- Current premium: {'$' + str(int(premium)) + '/year' if premium else 'unknown'}
-- Touch number: {touch_number} (1 = first outreach, 2 = follow-up reminder)
-- Retarget round: {retarget_round} (0 = first campaign, 1+ = re-engagement)
-- Current month: {month_name} ({season})
+- Renewal date: {x_date or 'upcoming'}
+- Location: {city or ''} {state or ''}
+- Touch: {touch_number} ({'first outreach' if touch_number == 1 else 'follow-up'})
+- Retarget round: {retarget_round}
+- Season: {month_name} ({season})
 
-BRAND VOICE:
-- Friendly, professional, not pushy
-- We're independent agents who shop 15+ carriers
-- Emphasize savings (customers save avg $1,150/year)
-- We do the work for them — just need their dec page
-- Phone: (847) 908-5665
-- NEVER mention or reference a specific carrier by name — we don't know who they're currently with
-- Local midwest agency, relatable
+BRAND RULES (MUST FOLLOW):
+- Write FROM "Better Choice Insurance" as a company, NOT from an individual agent
+- NEVER use "[Agent Name]" or any placeholder name — the email is from the agency team
+- NEVER mention a specific carrier name
+- NEVER mention "self-service", "portal", "app", or "online account"
+- Sign off as "The Better Choice Team" or "Better Choice Insurance Group"
+- Tone: professional, friendly, concise — like a premium brand, not a local sales pitch
+- Key value props: Compare rates from 15+ top carriers. Customers save avg $1,150/year. Free, fast, zero obligation.
+- CTA: Reply with your declarations page, call (847) 908-5665, or click the button below
+- Keep it SHORT: 2-3 short paragraphs max. Every sentence earns its place. No filler.
+- Do NOT use the word "unsubscribe"
 
-EMAIL RULES:
-{"- This is a FOLLOW-UP email (touch 2). Be shorter, more urgent. Reference that you reached out recently. Mention their renewal is coming up very soon." if touch_number == 2 else "- This is the FIRST outreach. Introduce yourself, explain the value proposition, be warm and inviting."}
-{"- This is a RE-ENGAGEMENT email (round " + str(retarget_round) + "). They've seen previous campaigns. Use a fresh angle: mention new carriers you've added, rate changes in their area, seasonal factors (" + season + " rates), or new discounts. Do NOT repeat the same pitch." if retarget_round > 0 else ""}
-- Keep it conversational, 3-4 paragraphs max
-- End with a clear call to action (reply with dec page, or call us)
-- Do NOT use the word "unsubscribe" anywhere in the body
-- Make it feel like it's from a real person, not a marketing blast
+{"FOLLOW-UP: Touch 2. Be shorter and more direct. Reference that we recently reached out. Gentle urgency around their renewal." if touch_number == 2 else "FIRST OUTREACH: Introduce what Better Choice does and why it matters for them."}
+{"RE-ENGAGEMENT round " + str(retarget_round) + ": Fresh angle — rate changes, new carrier partners, or " + season + " seasonal factors." if retarget_round > 0 else ""}
 
-{"- Mention " + season + "-specific angle: " + ("winter weather damage/heating costs/frozen pipes" if season == "winter" else "spring storm season/hail damage/tornado risk" if season == "spring" else "summer travel/vacation homes/added drivers" if season == "summer" else "fall renewal season/back to school/rate reviews") if retarget_round > 0 else ""}
-
-Respond with ONLY a JSON object (no markdown, no backticks):
-{{"subject": "email subject line (personalized, not generic)", "body": "full email body in HTML paragraphs using <p> tags with inline styles (font-size:16px;color:#333;line-height:1.6). Use <strong> for emphasis."}}"""
+Respond ONLY with a JSON object (no markdown, no backticks):
+{{"subject": "short specific subject line", "body": "HTML <p> tags with inline styles (font-size:16px;color:#333;line-height:1.6). <strong> for key stats only."}}"""
 
             response = client.messages.create(
                 model=os.environ.get("SMART_INBOX_MODEL", "claude-sonnet-4-5-20250929"),
