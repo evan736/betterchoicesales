@@ -1545,9 +1545,33 @@ def get_customer_notes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get recent notes for a customer."""
+    """Get recent notes for a customer — pulls from NowCerts first, falls back to local."""
     from app.models.customer_notes import CustomerNote
 
+    # Try NowCerts first
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if customer and customer.nowcerts_insured_id:
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+            if nc and nc.is_configured:
+                nc_notes = nc.get_insured_notes([str(customer.nowcerts_insured_id)], top=limit)
+                if nc_notes:
+                    return [
+                        {
+                            "id": i,
+                            "subject": n.get("subject", "(No subject)"),
+                            "body": n.get("description", ""),
+                            "source": n.get("type") or n.get("creator_name") or "NowCerts",
+                            "created_by": n.get("creator_name", ""),
+                            "created_at": n.get("date_created", ""),
+                        }
+                        for i, n in enumerate(nc_notes)
+                    ]
+        except Exception as e:
+            logger.warning(f"NowCerts notes fetch failed for customer {customer_id}: {e}")
+
+    # Fallback to local notes
     notes = (
         db.query(CustomerNote)
         .filter(CustomerNote.customer_id == customer_id)
@@ -1562,7 +1586,6 @@ def get_customer_notes(
             "body": n.body,
             "source": n.source,
             "created_by": n.created_by,
-            "pushed_to_nowcerts": n.pushed_to_nowcerts,
             "created_at": n.created_at.isoformat() if n.created_at else None,
         }
         for n in notes

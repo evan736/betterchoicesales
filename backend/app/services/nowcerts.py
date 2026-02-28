@@ -430,6 +430,37 @@ class NowCertsClient:
             logger.error("NowCerts get insured contacts failed: %s", e)
             return []
 
+    def get_insured_notes(self, insured_database_ids: list[str], top: int = 5) -> list[dict]:
+        """Get notes for given insured database IDs via POST /api/Insured/InsuredNotes."""
+        if not insured_database_ids:
+            return []
+        try:
+            data = self._post("/api/Insured/InsuredNotes", {
+                "insuredDataBaseId": insured_database_ids
+            })
+            notes = data if isinstance(data, list) else data.get("data", data.get("notes", []))
+            if not isinstance(notes, list):
+                notes = []
+            # Sort by date descending and take top N
+            result = []
+            for n in notes:
+                result.append({
+                    "database_id": n.get("databaseId", ""),
+                    "subject": n.get("subject", ""),
+                    "description": n.get("description", ""),
+                    "type": n.get("type", ""),
+                    "creator_name": n.get("creatorName", ""),
+                    "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date", ""),
+                    "origin": n.get("origin", 0),
+                    "insured_database_id": n.get("insuredDatabaseId", ""),
+                })
+            # Sort by date descending
+            result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+            return result[:top]
+        except Exception as e:
+            logger.error("NowCerts get insured notes failed: %s", e)
+            return []
+
     def get_insured_policies(self, insured_database_id: str) -> list[dict]:
         """Get policies for a specific insured."""
         try:
