@@ -657,6 +657,56 @@ def list_campaigns(
     return {"campaigns": [_serialize_campaign(c) for c in campaigns]}
 
 
+@router.get("/preview-email")
+def preview_email(
+    first_name: str = Query("Sarah"),
+    policy_type: str = Query("homeowners"),
+    carrier: str = Query("State Farm"),
+    x_date: str = Query("April 15, 2026"),
+    touch: int = Query(1),
+    retarget_round: int = Query(0),
+    city: str = Query("Elgin"),
+    state: str = Query("IL"),
+    current_user: User = Depends(get_current_user),
+):
+    """Preview what a campaign email will look like — uses AI generation."""
+    unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
+    subject, html = _requote_email_html(
+        first_name, policy_type, carrier, x_date, touch, unsub_url,
+        retarget_round=retarget_round, city=city, state=state,
+    )
+    return {"subject": subject, "html": html}
+
+
+@router.post("/send-preview-emails")
+async def send_preview_emails(
+    to_email: str = Query("evan@betterchoiceins.com"),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate and send 5 sample AI-powered campaign emails to preview the system."""
+    scenarios = [
+        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 1, "retarget_round": 0, "city": "Naperville", "state": "IL"},
+        {"first_name": "Mike", "policy_type": "auto", "carrier": "GEICO", "x_date": "May 1, 2026", "touch": 2, "retarget_round": 0, "city": "Schaumburg", "state": "IL"},
+        {"first_name": "Jennifer", "policy_type": "homeowners", "carrier": "Allstate", "x_date": "June 10, 2026", "touch": 1, "retarget_round": 1, "city": "Elgin", "state": "IL"},
+        {"first_name": "David", "policy_type": "home", "carrier": "Travelers", "x_date": "March 20, 2026", "touch": 1, "retarget_round": 2, "city": "Aurora", "state": "IL"},
+        {"first_name": "Lisa", "policy_type": "bundle", "carrier": "Liberty Mutual", "x_date": "April 30, 2026", "touch": 2, "retarget_round": 1, "city": "St Charles", "state": "IL"},
+    ]
+
+    unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
+    sent = []
+    for s in scenarios:
+        subject, html = _requote_email_html(
+            s["first_name"], s["policy_type"], s["carrier"], s["x_date"],
+            s["touch"], unsub_url,
+            retarget_round=s["retarget_round"], city=s["city"], state=s["state"],
+        )
+        label = f"[PREVIEW T{s['touch']}/R{s['retarget_round']}] {subject}"
+        if _send_campaign_email(to_email, label, html):
+            sent.append({"to": s["first_name"], "subject": label[:80]})
+
+    return {"sent": len(sent), "emails": sent, "message": f"Sent {len(sent)} preview emails to {to_email}"}
+
+
 @router.get("/{campaign_id}")
 def get_campaign(
     campaign_id: int,
@@ -1726,31 +1776,6 @@ def pipeline_stats(
         "global_opt_outs": global_optouts,
         "campaigns": campaigns,
     }
-
-
-# ═══════════════════════════════════════════════════════════════════
-# EMAIL PREVIEW — See what the email looks like before sending
-# ═══════════════════════════════════════════════════════════════════
-
-@router.get("/preview-email")
-def preview_email(
-    first_name: str = Query("Sarah"),
-    policy_type: str = Query("homeowners"),
-    carrier: str = Query("State Farm"),
-    x_date: str = Query("April 15, 2026"),
-    touch: int = Query(1),
-    retarget_round: int = Query(0),
-    city: str = Query("Elgin"),
-    state: str = Query("IL"),
-    current_user: User = Depends(get_current_user),
-):
-    """Preview what a campaign email will look like — uses AI generation."""
-    unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
-    subject, html = _requote_email_html(
-        first_name, policy_type, carrier, x_date, touch, unsub_url,
-        retarget_round=retarget_round, city=city, state=state,
-    )
-    return {"subject": subject, "html": html}
 
 
 # ═══════════════════════════════════════════════════════════════════
