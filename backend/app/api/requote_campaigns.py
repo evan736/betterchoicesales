@@ -370,7 +370,6 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
     landing_params = urllib.parse.urlencode({
         'name': first_name,
         'type': policy_type or 'insurance',
-        'carrier': carrier or '',
         'xdate': x_date or '',
         'utm_campaign': f'requote_r{retarget_round}_t{touch_number}',
     })
@@ -394,7 +393,6 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
 CONTEXT:
 - Customer first name: {first_name}
 - Policy type: {policy_label}
-- Current/former carrier: {carrier_label}
 - Renewal/X-date: {x_date or 'upcoming'}
 - City/State: {city or 'their area'}, {state or ''}
 - Current premium: {'$' + str(int(premium)) + '/year' if premium else 'unknown'}
@@ -408,6 +406,7 @@ BRAND VOICE:
 - Emphasize savings (customers save avg $1,150/year)
 - We do the work for them — just need their dec page
 - Phone: (847) 908-5665
+- NEVER mention or reference a specific carrier by name — we don't know who they're currently with
 - Local midwest agency, relatable
 
 EMAIL RULES:
@@ -474,7 +473,7 @@ Respond with ONLY a JSON object (no markdown, no backticks):
                 body_content = f"""
                 <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
                 <p style="font-size:16px;color:#333;line-height:1.6;">
-                    Your {policy_label} policy{' with ' + carrier_label if carrier else ''} is coming up for renewal 
+                    Your {policy_label} policy is coming up for renewal 
                     around <strong>{x_date}</strong>. Insurance rates change every year, and many of our customers 
                     are surprised to find they can save significantly by shopping their renewal.
                 </p>
