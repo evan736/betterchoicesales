@@ -879,10 +879,32 @@ export default function CustomersPage() {
                                         </div>
                                         {/* Attachments */}
                                         <div>
+                                          {emailFiles.length > 0 && (
+                                            <div className="mb-2 space-y-1.5 bg-slate-800/40 rounded-lg p-2.5 border border-slate-600/30">
+                                              <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider px-1">📎 Attachments ({emailFiles.length})</p>
+                                              {emailFiles.map((f, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-xs bg-slate-700/50 rounded-lg px-2.5 py-2 border border-slate-600/20">
+                                                  {f.type === 'application/pdf' ? (
+                                                    <div className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-red-400" /></div>
+                                                  ) : f.type?.startsWith('image/') ? (
+                                                    <img src={URL.createObjectURL(f)} alt={f.name} className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                                                  ) : (
+                                                    <div className="w-8 h-8 rounded bg-slate-600/50 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-slate-400" /></div>
+                                                  )}
+                                                  <div className="flex-1 min-w-0">
+                                                    <p className="font-medium text-slate-200 truncate">{f.name}</p>
+                                                    <p className="text-[10px] text-slate-400">{f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(0)} KB` : `${(f.size / (1024 * 1024)).toFixed(1)} MB`}</p>
+                                                  </div>
+                                                  <button onClick={() => setEmailFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-500 hover:text-red-400 flex-shrink-0 p-1"><X size={14} /></button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
                                           <input
                                             ref={emailFileRef}
                                             type="file"
                                             multiple
+                                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif"
                                             className="hidden"
                                             onChange={e => {
                                               if (e.target.files) setEmailFiles(prev => [...prev, ...Array.from(e.target.files!)]);
@@ -896,27 +918,6 @@ export default function CustomersPage() {
                                             <Paperclip size={13} />
                                             {emailFiles.length > 0 ? `Add More Files (${emailFiles.length} attached)` : 'Attach Files'}
                                           </button>
-                                          {emailFiles.length > 0 && (
-                                            <div className="mt-2 space-y-1.5 bg-slate-50 rounded-lg p-2">
-                                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Attachments ({emailFiles.length})</p>
-                                              {emailFiles.map((f, i) => (
-                                                <div key={i} className="flex items-center gap-2 text-xs bg-white rounded-lg px-2.5 py-2 border border-slate-100">
-                                                  {f.type?.startsWith('image/') ? (
-                                                    <img src={URL.createObjectURL(f)} alt={f.name} className="w-8 h-8 rounded object-cover flex-shrink-0" />
-                                                  ) : f.type === 'application/pdf' ? (
-                                                    <div className="w-8 h-8 rounded bg-red-50 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-red-500" /></div>
-                                                  ) : (
-                                                    <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-slate-400" /></div>
-                                                  )}
-                                                  <div className="flex-1 min-w-0">
-                                                    <p className="font-medium text-slate-700 truncate">{f.name}</p>
-                                                    <p className="text-[10px] text-slate-400">{f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(0)} KB` : `${(f.size / (1024 * 1024)).toFixed(1)} MB`}</p>
-                                                  </div>
-                                                  <button onClick={() => setEmailFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-red-500 flex-shrink-0 p-1"><X size={14} /></button>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
                                         </div>
                                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-2">
                                           <span className="text-[10px] text-slate-400 text-center sm:text-left">Better Choice Insurance · (847) 908-5665</span>
