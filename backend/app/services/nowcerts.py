@@ -431,35 +431,91 @@ class NowCertsClient:
             return []
 
     def get_insured_notes(self, insured_database_ids: list[str], top: int = 5) -> list[dict]:
-        """Get notes for given insured database IDs via POST /api/Insured/InsuredNotes."""
+        """Get notes for given insured database IDs.
+        Tries multiple NowCerts API approaches:
+        1. POST /api/Insured/InsuredNotes (like InsuredContacts pattern)
+        2. OData NoteList filtered by insured ID
+        3. OData ActivityList filtered by insured ID
+        """
         if not insured_database_ids:
             return []
+
+        insured_id = insured_database_ids[0]
+
+        # Approach 1: POST /api/Insured/InsuredNotes (mirrors InsuredContacts pattern)
         try:
             data = self._post("/api/Insured/InsuredNotes", {
                 "insuredDataBaseId": insured_database_ids
             })
             notes = data if isinstance(data, list) else data.get("data", data.get("notes", []))
-            if not isinstance(notes, list):
-                notes = []
-            # Sort by date descending and take top N
-            result = []
-            for n in notes:
-                result.append({
-                    "database_id": n.get("databaseId", ""),
-                    "subject": n.get("subject", ""),
-                    "description": n.get("description", ""),
-                    "type": n.get("type", ""),
-                    "creator_name": n.get("creatorName", ""),
-                    "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date", ""),
-                    "origin": n.get("origin", 0),
-                    "insured_database_id": n.get("insuredDatabaseId", ""),
-                })
-            # Sort by date descending
-            result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
-            return result[:top]
+            if isinstance(notes, list) and len(notes) > 0:
+                logger.info("NowCerts InsuredNotes returned %d notes for insured %s", len(notes), insured_id)
+                result = []
+                for n in notes:
+                    result.append({
+                        "database_id": n.get("databaseId", ""),
+                        "subject": n.get("subject", ""),
+                        "description": n.get("description", ""),
+                        "type": n.get("type", ""),
+                        "creator_name": n.get("creatorName", n.get("creator", "")),
+                        "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date") or n.get("changeDate", ""),
+                        "origin": n.get("origin", 0),
+                    })
+                result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+                return result[:top]
         except Exception as e:
-            logger.error("NowCerts get insured notes failed: %s", e)
-            return []
+            logger.info("NowCerts InsuredNotes not available: %s", e)
+
+        # Approach 2: OData NoteList filtered by insured
+        try:
+            filter_expr = f"insuredDatabaseId eq {insured_id}"
+            data = self._odata_get("NoteList", skip=0, top=top, filter_expr=filter_expr,
+                                   orderby="changeDate desc")
+            items = data.get("value", data.get("items", []))
+            if isinstance(items, list) and len(items) > 0:
+                logger.info("NowCerts OData NoteList returned %d notes", len(items))
+                return [
+                    {
+                        "database_id": n.get("id", n.get("databaseId", "")),
+                        "subject": n.get("subject", ""),
+                        "description": n.get("description", ""),
+                        "type": n.get("type", ""),
+                        "creator_name": n.get("creatorName", n.get("userName", "")),
+                        "date_created": n.get("changeDate") or n.get("insertDate") or n.get("dateCreated", ""),
+                        "origin": n.get("origin", 0),
+                    }
+                    for n in items[:top]
+                ]
+        except Exception as e:
+            logger.info("NowCerts OData NoteList not available: %s", e)
+
+        # Approach 3: Activity/ViewHistory with tableNames filter for Notes
+        try:
+            data = self._post("/api/Activities/GetViewHistory", {
+                "insuredDatabaseIds": insured_database_ids,
+                "tableNames": ["Note"],
+                "skip": 0,
+                "top": top,
+            })
+            if isinstance(data, list) and len(data) > 0:
+                logger.info("NowCerts Activities returned %d note activities", len(data))
+                return [
+                    {
+                        "database_id": a.get("objectDatabaseId", ""),
+                        "subject": f"Activity: {a.get('tableName', 'Note')}",
+                        "description": a.get("url", ""),
+                        "type": "Activity",
+                        "creator_name": a.get("userEmail", ""),
+                        "date_created": a.get("date", ""),
+                        "origin": 0,
+                    }
+                    for a in data[:top]
+                ]
+        except Exception as e:
+            logger.info("NowCerts Activities not available: %s", e)
+
+        logger.warning("No NowCerts notes endpoints returned data for insured %s", insured_id)
+        return []
 
     def get_insured_policies(self, insured_database_id: str) -> list[dict]:
         """Get policies for a specific insured."""

@@ -1545,10 +1545,12 @@ def get_customer_notes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get recent notes for a customer — pulls from NowCerts first, falls back to local."""
+    """Get recent notes — pulls from NowCerts + local, merged and deduped."""
     from app.models.customer_notes import CustomerNote
 
-    # Try NowCerts first
+    all_notes = []
+
+    # 1. Try pulling from NowCerts
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if customer and customer.nowcerts_insured_id:
         try:
@@ -1556,40 +1558,48 @@ def get_customer_notes(
             nc = get_nowcerts_client()
             if nc and nc.is_configured:
                 nc_notes = nc.get_insured_notes([str(customer.nowcerts_insured_id)], top=limit)
-                if nc_notes:
-                    return [
-                        {
-                            "id": i,
-                            "subject": n.get("subject", "(No subject)"),
-                            "body": n.get("description", ""),
-                            "source": n.get("type") or n.get("creator_name") or "NowCerts",
-                            "created_by": n.get("creator_name", ""),
-                            "created_at": n.get("date_created", ""),
-                        }
-                        for i, n in enumerate(nc_notes)
-                    ]
+                for n in nc_notes:
+                    all_notes.append({
+                        "id": f"nc_{n.get('database_id', '')}",
+                        "subject": n.get("subject", "(No subject)"),
+                        "body": n.get("description", ""),
+                        "source": "NowCerts",
+                        "created_by": n.get("creator_name", ""),
+                        "created_at": n.get("date_created", ""),
+                    })
         except Exception as e:
             logger.warning(f"NowCerts notes fetch failed for customer {customer_id}: {e}")
 
-    # Fallback to local notes
-    notes = (
+    # 2. Get local notes (includes notes pushed from ORBIT that may not have synced to NowCerts yet)
+    local_notes = (
         db.query(CustomerNote)
         .filter(CustomerNote.customer_id == customer_id)
         .order_by(CustomerNote.created_at.desc())
         .limit(limit)
         .all()
     )
-    return [
-        {
+    for n in local_notes:
+        all_notes.append({
             "id": n.id,
             "subject": n.subject,
             "body": n.body,
-            "source": n.source,
+            "source": n.source or "ORBIT",
             "created_by": n.created_by,
             "created_at": n.created_at.isoformat() if n.created_at else None,
-        }
-        for n in notes
-    ]
+        })
+
+    # 3. Deduplicate by subject similarity (NowCerts + local may have same note)
+    seen_subjects = set()
+    deduped = []
+    for note in all_notes:
+        key = (note.get("subject", "")[:50], str(note.get("created_at", ""))[:10])
+        if key not in seen_subjects:
+            seen_subjects.add(key)
+            deduped.append(note)
+
+    # 4. Sort by date descending, take top N
+    deduped.sort(key=lambda x: x.get("created_at", "") or "", reverse=True)
+    return deduped[:limit]
 
 
 @router.post("/{customer_id}/notes")
