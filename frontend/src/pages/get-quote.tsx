@@ -62,7 +62,6 @@ export default function GetQuotePage() {
 
   useEffect(() => {
     if (firstName) {
-      setFormData(prev => ({ ...prev, name: firstName }));
       setAnalysisFormData(prev => ({ ...prev, name: firstName }));
     }
   }, [firstName]);
