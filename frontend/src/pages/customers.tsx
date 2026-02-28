@@ -53,6 +53,12 @@ export default function CustomersPage() {
   const emailFileRef = useRef<HTMLInputElement>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [customerNotes, setCustomerNotes] = useState<any[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [addingNote, setAddingNote] = useState(false);
+  const [noteSubject, setNoteSubject] = useState('');
+  const [noteBody, setNoteBody] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [dupsLoading, setDupsLoading] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -145,14 +151,20 @@ export default function CustomersPage() {
 
   const handleExpand = async (customer: any) => {
     const key = customer.id || customer.nowcerts_insured_id;
-    if (expandedId === key) { setExpandedId(null); setDetail(null); setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null); return; }
+    if (expandedId === key) { setExpandedId(null); setDetail(null); setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null); setCustomerNotes([]); setAddingNote(false); return; }
     setExpandedId(key);
-    setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null);
+    setDriversData(null); setDriversOpen(false); setEditing(false); setEditMsg(null); setCustomerNotes([]); setAddingNote(false);
     if (customer.id) {
       setDetailLoading(true);
       try { const r = await customersAPI.get(customer.id); setDetail(r.data); } catch {}
       setDetailLoading(false);
+      // Load notes
+      try { const nr = await customersAPI.notes(customer.id, 3); setCustomerNotes(nr.data || []); } catch {}
     }
+  };
+
+  const loadNotes = async (customerId: number) => {
+    try { const nr = await customersAPI.notes(customerId, 3); setCustomerNotes(nr.data || []); } catch {}
   };
 
   // Auto-expand first result when arriving from navbar search
@@ -709,83 +721,69 @@ export default function CustomersPage() {
                             })()}
 
                             {/* Recent Notes */}
-                            {detail.customer?.id && (() => {
-                              const [notes, setNotes] = React.useState<any[]>([]);
-                              const [notesLoaded, setNotesLoaded] = React.useState(false);
-                              const [addingNote, setAddingNote] = React.useState(false);
-                              const [noteSubject, setNoteSubject] = React.useState('');
-                              const [noteBody, setNoteBody] = React.useState('');
-                              const [noteSaving, setNoteSaving] = React.useState(false);
-
-                              React.useEffect(() => {
-                                if (!notesLoaded) {
-                                  customersAPI.notes(detail.customer.id, 3).then(r => { setNotes(r.data || []); setNotesLoaded(true); }).catch(() => setNotesLoaded(true));
-                                }
-                              }, [notesLoaded]);
-
-                              return (
-                                <div className="mt-4 border-t border-slate-200 pt-4">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h4 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                                      <FileText size={14} className="text-blue-500" />
-                                      Recent Notes
-                                    </h4>
-                                    <button onClick={() => setAddingNote(!addingNote)} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
-                                      {addingNote ? 'Cancel' : '+ Add Note'}
+                            {detail.customer?.id && (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                                    <FileText size={14} className="text-blue-500" />
+                                    Recent Notes
+                                  </h4>
+                                  <button onClick={() => setAddingNote(!addingNote)} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+                                    {addingNote ? 'Cancel' : '+ Add Note'}
+                                  </button>
+                                </div>
+                                {addingNote && (
+                                  <div className="mb-3 space-y-2 bg-slate-800/30 rounded-lg p-3 border border-slate-600/20">
+                                    <input
+                                      value={noteSubject} onChange={e => setNoteSubject(e.target.value)}
+                                      placeholder="Subject (e.g. Called about renewal)"
+                                      className="w-full text-xs bg-slate-700/50 border border-slate-600/30 rounded px-2.5 py-1.5 text-slate-200 placeholder-slate-500"
+                                    />
+                                    <textarea
+                                      value={noteBody} onChange={e => setNoteBody(e.target.value)}
+                                      placeholder="Note details..."
+                                      rows={2}
+                                      className="w-full text-xs bg-slate-700/50 border border-slate-600/30 rounded px-2.5 py-1.5 text-slate-200 placeholder-slate-500 resize-none"
+                                    />
+                                    <button
+                                      disabled={!noteSubject.trim() || noteSaving}
+                                      onClick={async () => {
+                                        setNoteSaving(true);
+                                        try {
+                                          await customersAPI.addNote(detail.customer.id, noteSubject, noteBody);
+                                          setNoteSubject(''); setNoteBody(''); setAddingNote(false);
+                                          loadNotes(detail.customer.id);
+                                        } catch { alert('Failed to save note'); }
+                                        setNoteSaving(false);
+                                      }}
+                                      className="text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded disabled:opacity-40"
+                                    >
+                                      {noteSaving ? 'Saving...' : 'Save & Push to NowCerts'}
                                     </button>
                                   </div>
-                                  {addingNote && (
-                                    <div className="mb-3 space-y-2 bg-slate-800/30 rounded-lg p-3 border border-slate-600/20">
-                                      <input
-                                        value={noteSubject} onChange={e => setNoteSubject(e.target.value)}
-                                        placeholder="Subject (e.g. Called about renewal)"
-                                        className="w-full text-xs bg-slate-700/50 border border-slate-600/30 rounded px-2.5 py-1.5 text-slate-200 placeholder-slate-500"
-                                      />
-                                      <textarea
-                                        value={noteBody} onChange={e => setNoteBody(e.target.value)}
-                                        placeholder="Note details..."
-                                        rows={2}
-                                        className="w-full text-xs bg-slate-700/50 border border-slate-600/30 rounded px-2.5 py-1.5 text-slate-200 placeholder-slate-500 resize-none"
-                                      />
-                                      <button
-                                        disabled={!noteSubject.trim() || noteSaving}
-                                        onClick={async () => {
-                                          setNoteSaving(true);
-                                          try {
-                                            await customersAPI.addNote(detail.customer.id, noteSubject, noteBody);
-                                            setNoteSubject(''); setNoteBody(''); setAddingNote(false); setNotesLoaded(false);
-                                          } catch { alert('Failed to save note'); }
-                                          setNoteSaving(false);
-                                        }}
-                                        className="text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded disabled:opacity-40"
-                                      >
-                                        {noteSaving ? 'Saving...' : 'Save & Push to NowCerts'}
-                                      </button>
-                                    </div>
-                                  )}
-                                  {notes.length === 0 && notesLoaded ? (
-                                    <p className="text-xs text-slate-500 italic">No notes yet</p>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      {notes.map((n: any) => (
-                                        <div key={n.id} className="bg-slate-800/20 rounded-lg px-3 py-2.5 border border-slate-700/30">
-                                          <div className="flex items-start justify-between gap-2">
-                                            <div className="flex-1 min-w-0">
-                                              <p className="text-xs font-semibold text-slate-300 truncate">{n.subject}</p>
-                                              {n.body && <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>}
-                                            </div>
-                                            <div className="text-right flex-shrink-0">
-                                              <p className="text-[10px] text-slate-500">{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</p>
-                                              <p className="text-[10px] text-slate-600">{n.source}</p>
-                                            </div>
+                                )}
+                                {customerNotes.length === 0 ? (
+                                  <p className="text-xs text-slate-500 italic">No notes yet</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {customerNotes.map((n: any) => (
+                                      <div key={n.id} className="bg-slate-800/20 rounded-lg px-3 py-2.5 border border-slate-700/30">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-slate-300 truncate">{n.subject}</p>
+                                            {n.body && <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>}
+                                          </div>
+                                          <div className="text-right flex-shrink-0">
+                                            <p className="text-[10px] text-slate-500">{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</p>
+                                            <p className="text-[10px] text-slate-600">{n.source}</p>
                                           </div>
                                         </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             {/* Drivers & Contacts from NowCerts */}
                             {detail.customer?.id && (
@@ -979,24 +977,23 @@ export default function CustomersPage() {
                                               ))}
                                             </div>
                                           )}
-                                          <input
-                                            ref={emailFileRef}
-                                            type="file"
-                                            multiple
-                                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif"
-                                            className="hidden"
-                                            onChange={e => {
-                                              if (e.target.files) setEmailFiles(prev => [...prev, ...Array.from(e.target.files!)]);
-                                              e.target.value = '';
-                                            }}
-                                          />
-                                          <button
-                                            onClick={() => emailFileRef.current?.click()}
-                                            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors border border-dashed border-slate-300 rounded-lg px-3 py-2 w-full justify-center hover:border-brand-400 hover:bg-brand-50"
-                                          >
+                                          <label className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 font-semibold transition-colors border border-dashed border-slate-300 rounded-lg px-3 py-2 w-full justify-center hover:border-brand-400 hover:bg-brand-50 cursor-pointer">
                                             <Paperclip size={13} />
                                             {emailFiles.length > 0 ? `Add More Files (${emailFiles.length} attached)` : 'Attach Files'}
-                                          </button>
+                                            <input
+                                              type="file"
+                                              multiple
+                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif"
+                                              className="hidden"
+                                              onChange={e => {
+                                                const files = e.target.files;
+                                                if (files && files.length > 0) {
+                                                  setEmailFiles(prev => [...prev, ...Array.from(files)]);
+                                                }
+                                                e.target.value = '';
+                                              }}
+                                            />
+                                          </label>
                                         </div>
                                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-2">
                                           <span className="text-[10px] text-slate-400 text-center sm:text-left">Better Choice Insurance · (847) 908-5665</span>
