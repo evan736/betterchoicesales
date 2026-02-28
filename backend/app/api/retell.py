@@ -261,20 +261,26 @@ CARRIER_SELF_SERVICE = {
 def build_self_service_info(carrier_list: str) -> str:
     """Build self-service info string from the carrier list.
     
-    Returns something like:
-    'Grange: website is grangeinsurance.com, app is "Grange Insurance". Progressive: website is progressive.com, app is "Progressive".'
+    Includes explicit wrong-URL warnings to prevent LLM hallucination.
     """
     if not carrier_list:
         return ""
+    
+    # Known wrong URLs the LLM hallucinates from training data
+    WRONG_URLS = {
+        "grange": "mygrange.com is WRONG. ",
+    }
+    
     parts = []
     for carrier_name in carrier_list.split(", "):
         key = carrier_name.strip().lower()
         info = CARRIER_SELF_SERVICE.get(key)
         if info:
+            warning = WRONG_URLS.get(key, "")
             parts.append(
-                f"{carrier_name}: website is {info['website']}, app is \"{info['app']}\""
+                f"{carrier_name}: website is {info['website']}, app is \"{info['app']}\". {warning}Use ONLY {info['website']}"
             )
-    return ". ".join(parts) + "." if parts else ""
+    return " | ".join(parts) if parts else ""
 
 
 def send_mailgun_email(to: str, subject: str, html: str) -> bool:
