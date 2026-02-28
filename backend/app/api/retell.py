@@ -611,32 +611,17 @@ async def inbound_call_webhook(request: Request):
                     f"from our team call you back as a priority. What can I help you with?"
                 )
             elif is_open:
-                if dynamic_variables["policy_summary"]:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                        f"How can I help you today?"
-                    )
-                else:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}! How can I help you today?"
-                    )
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}! How can I help you today?"
+                )
             else:
-                # After hours — greet normally; Mia will mention office
-                # is closed AFTER hearing what the caller needs (so they
-                # don't hang up before asking for a carrier transfer/payment)
-                if dynamic_variables["policy_summary"]:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                        f"How can I help you today?"
-                    )
-                else:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}! How can I help you today?"
-                    )
+                # After hours — greet normally; Mia mentions office
+                # closed AFTER hearing their request
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}! How can I help you today?"
+                )
         else:
             if is_repeat_30min:
                 begin_msg = (
@@ -865,31 +850,17 @@ async def frontend_inbound_webhook(request: Request):
                 )
             elif is_open:
                 # Business hours — standard greeting
-                if dynamic_variables["policy_summary"]:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                        f"How can I help you today?"
-                    )
-                else:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}! How can I help you today?"
-                    )
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}! How can I help you today?"
+                )
             else:
                 # After hours — greet normally; Mia mentions office
                 # closed AFTER hearing their request
-                if dynamic_variables["policy_summary"]:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                        f"How can I help you today?"
-                    )
-                else:
-                    begin_msg = (
-                        f"Thank you for calling Better Choice Insurance Group! "
-                        f"Hi {name}! How can I help you today?"
-                    )
+                begin_msg = (
+                    f"Thank you for calling Better Choice Insurance Group! "
+                    f"Hi {name}! How can I help you today?"
+                )
         else:
             if is_repeat_30min:
                 begin_msg = (
