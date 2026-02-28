@@ -51,7 +51,7 @@ const CustomerQuickSearch: React.FC = () => {
         });
         const data = r.data;
         // Handle both {results: [...]} and direct array responses
-        const arr = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+        const arr = Array.isArray(data) ? data : Array.isArray(data?.customers) ? data.customers : Array.isArray(data?.results) ? data.results : [];
         setResults(arr);
       } catch (e) {
         console.error('Customer search error:', e);

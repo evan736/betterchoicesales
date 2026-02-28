@@ -157,9 +157,9 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="p-3 bg-slate-50 rounded-lg">
-            <div className="text-xs text-slate-500 font-medium mb-1">{periodLabel} Premium</div>
-            <div className="text-xl font-bold text-slate-900">{fmt(data.current_premium)}</div>
+          <div className="p-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>{periodLabel} Premium</div>
+            <div className="text-xl font-bold" style={{ color: '#fff' }}>{fmt(data.current_premium)}</div>
           </div>
           {isLastYear ? (
             <div className="p-3 bg-slate-50 rounded-lg">
@@ -167,9 +167,9 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
               <div className="text-xl font-bold text-slate-900">{data.total_sales || 0}</div>
             </div>
           ) : (
-            <div className="p-3 bg-brand-50 rounded-lg border border-brand-100">
-              <div className="text-xs text-brand-600 font-medium mb-1">Projected by {targetLabel}</div>
-              <div className="text-xl font-bold text-brand-700">{fmt(data.projected_premium)}</div>
+            <div className="p-3 rounded-lg" style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)' }}>
+              <div className="text-xs font-medium mb-1" style={{ color: '#22d3ee' }}>Projected by {targetLabel}</div>
+              <div className="text-xl font-bold" style={{ color: '#fff' }}>{fmt(data.projected_premium)}</div>
             </div>
           )}
         </div>
@@ -177,16 +177,16 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
         {!isLastYear && (
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
-              <div className="text-lg font-bold text-slate-900">{fmt(data.daily_pace)}</div>
-              <div className="text-xs text-slate-500">Daily Pace</div>
+              <div className="text-lg font-bold" style={{ color: '#fff' }}>{fmt(data.daily_pace)}</div>
+              <div className="text-xs" style={{ color: '#94a3b8' }}>Daily Pace</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-slate-900">{data.biz_days_elapsed}</div>
-              <div className="text-xs text-slate-500">Biz Days In</div>
+              <div className="text-lg font-bold" style={{ color: '#fff' }}>{data.biz_days_elapsed}</div>
+              <div className="text-xs" style={{ color: '#94a3b8' }}>Biz Days In</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-slate-900">{data.biz_days_remaining}</div>
-              <div className="text-xs text-slate-500">Biz Days Left</div>
+              <div className="text-lg font-bold" style={{ color: '#fff' }}>{data.biz_days_remaining}</div>
+              <div className="text-xs" style={{ color: '#94a3b8' }}>Biz Days Left</div>
             </div>
           </div>
         )}
