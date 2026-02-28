@@ -503,9 +503,9 @@ Respond ONLY with a JSON object (no markdown, no backticks):
     SITE = "https://better-choice-web.onrender.com"
     logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
     # Top 8 carrier logos for the strip
-    carrier_logos = ["travelers", "progressive", "safeco", "national_general", "grange", "geico", "hippo", "branch"]
+    carrier_logos = ["travelers", "progressive", "safeco", "grange", "hippo"]
     carrier_imgs = "".join(
-        f'<img src="{SITE}/carrier-logos/{c}.png" alt="{c}" style="height:28px;max-width:80px;display:inline-block;margin:0 8px;opacity:0.7;" />'
+        f'<img src="{SITE}/carrier-logos/{c}.png" alt="{c}" style="height:22px;max-width:90px;display:inline-block;margin:0 12px;opacity:0.6;" />'
         for c in carrier_logos
     )
 
