@@ -8,10 +8,134 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox, MessageCircle, Zap, BookOpen, Bug,
+  Inbox, MessageCircle, Zap, BookOpen, Bug, Search,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+
+// ── Global Customer Search Component ──
+const CustomerQuickSearch: React.FC = () => {
+  const router = useRouter();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Hide on customers page
+  if (router.pathname === '/customers') return null;
+
+  const searchCustomers = async (q: string) => {
+    if (q.trim().length < 2) { setResults([]); return; }
+    setLoading(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+      const r = await axios.get(`${API_BASE}/api/customers/search`, {
+        params: { q: q.trim(), source: 'local', page_size: 8 },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setResults(r.data?.results || r.data || []);
+    } catch { setResults([]); }
+    setLoading(false);
+  };
+
+  const handleChange = (val: string) => {
+    setQuery(val);
+    setShow(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => searchCustomers(val), 300);
+  };
+
+  const handleSelect = (customer: any) => {
+    setQuery('');
+    setResults([]);
+    setShow(false);
+    router.push(`/customers?search=${encodeURIComponent(customer.full_name || customer.name || '')}`);
+  };
+
+  // Close on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setShow(false);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  // Close on route change
+  useEffect(() => { setShow(false); setQuery(''); }, [router.asPath]);
+
+  return (
+    <div className="relative hidden sm:block" ref={ref} style={{ minWidth: '220px', maxWidth: '320px', flex: '1' }}>
+      <div className="relative">
+        <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        <input
+          type="text"
+          value={query}
+          onChange={e => handleChange(e.target.value)}
+          onFocus={() => { if (query.length >= 2) setShow(true); }}
+          placeholder="Search customers..."
+          className="w-full pl-8 pr-3 py-1.5 rounded-lg text-sm border transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            borderColor: 'rgba(255,255,255,0.12)',
+            color: 'var(--mc-text, #e2e8f0)',
+            outline: 'none',
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { setShow(false); setQuery(''); }
+          }}
+        />
+        {loading && (
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+            <div className="w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
+
+      {show && query.length >= 2 && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 rounded-xl shadow-2xl border z-[200] overflow-hidden max-h-[400px] overflow-y-auto"
+          style={{
+            background: 'var(--mc-panel-bg, #1a2235)',
+            borderColor: 'rgba(255,255,255,0.1)',
+          }}
+        >
+          {results.length === 0 && !loading ? (
+            <div className="px-4 py-3 text-sm text-slate-400 text-center">
+              {query.length < 2 ? 'Type 2+ characters...' : 'No customers found'}
+            </div>
+          ) : (
+            results.slice(0, 8).map((c: any, i: number) => (
+              <button
+                key={c.id || i}
+                onClick={() => handleSelect(c)}
+                className="w-full text-left px-4 py-2.5 hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--mc-text, #e2e8f0)' }}>
+                      {c.full_name || c.name}
+                    </p>
+                    <p className="text-xs text-slate-400" style={{ marginTop: '1px' }}>
+                      {[c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info'}
+                    </p>
+                  </div>
+                  {c.policy_count > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-semibold">
+                      {c.policy_count} {c.policy_count === 1 ? 'policy' : 'policies'}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -265,9 +389,11 @@ const Navbar: React.FC = () => {
             )}
           </div>
 
-          {/* Right: Theme + User + Logout */}
+          {/* Right: Search + Theme + User + Logout */}
           {user && (
-            <div className="flex items-center space-x-1.5">
+            <div className="flex items-center space-x-2">
+              {/* Customer Quick Search */}
+              <CustomerQuickSearch />
               {/* Theme Picker */}
               <div className="relative" ref={pickerRef}>
                 <button
