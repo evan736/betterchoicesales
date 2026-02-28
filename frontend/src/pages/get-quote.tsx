@@ -436,7 +436,7 @@ export default function GetQuotePage() {
                 { icon: <DollarSign size={24} />, title: '$1,150+ Avg. Savings', desc: "Our customers save an average of $1,150 per year. We find the best rate across 15+ carriers — at no cost to you." },
                 { icon: <CheckCircle size={24} />, title: 'Claims Advocacy', desc: "When you need to file a claim, we go to bat for you. We advocate on your behalf and guide you through the process." },
                 { icon: <Star size={24} />, title: 'Ongoing Reviews', desc: "We proactively review your policies at renewal with AI + agent expertise to keep you protected and saving." },
-                { icon: <Clock size={24} />, title: 'Fast & Free', desc: "Get your personalized rate comparison in as little as 24 hours. Our service is 100% free — we're paid by the carriers, not by you." },
+                { icon: <Clock size={24} />, title: 'Fast & Free', desc: "Our service is completely free — we're paid by the carriers, never by you. No fees, no obligations." },
               ].map((item, i) => (
                 <div key={i} style={{ padding: '28px', background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', gap: '16px' }}>
                   <div style={{ width: '44px', height: '44px', borderRadius: '10px', flexShrink: 0, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>{item.icon}</div>
