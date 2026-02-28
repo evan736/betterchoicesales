@@ -20,6 +20,73 @@ from typing import Optional
 
 # US Central Time offset (CT = UTC-6, CDT = UTC-5)
 # For simplicity we use America/Chicago via a fixed check
+def _get_observed_holidays(year: int) -> dict:
+    """Return a dict of {date: holiday_name} for federal/bank holidays.
+    
+    Covers all federal holidays observed by banks and insurance carriers.
+    When a holiday falls on Saturday, observed Friday. Sunday, observed Monday.
+    """
+    from datetime import date
+
+    holidays = {}
+
+    # Fixed-date holidays
+    fixed = [
+        (1, 1, "New Year's Day"),
+        (6, 19, "Juneteenth"),
+        (7, 4, "Independence Day"),
+        (11, 11, "Veterans Day"),
+        (12, 25, "Christmas Day"),
+    ]
+    for month, day, name in fixed:
+        d = date(year, month, day)
+        if d.weekday() == 5:  # Saturday → observe Friday
+            d = d - timedelta(days=1)
+        elif d.weekday() == 6:  # Sunday → observe Monday
+            d = d + timedelta(days=1)
+        holidays[d] = name
+
+    # Nth-weekday holidays
+    def nth_weekday(year, month, weekday, n):
+        """Get the nth occurrence of a weekday in a month (1-indexed)."""
+        d = date(year, month, 1)
+        count = 0
+        while True:
+            if d.weekday() == weekday:
+                count += 1
+                if count == n:
+                    return d
+            d += timedelta(days=1)
+
+    def last_weekday(year, month, weekday):
+        """Get the last occurrence of a weekday in a month."""
+        if month == 12:
+            d = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            d = date(year, month + 1, 1) - timedelta(days=1)
+        while d.weekday() != weekday:
+            d -= timedelta(days=1)
+        return d
+
+    # MLK Day: 3rd Monday of January
+    holidays[nth_weekday(year, 1, 0, 3)] = "Martin Luther King Jr. Day"
+    # Presidents Day: 3rd Monday of February
+    holidays[nth_weekday(year, 2, 0, 3)] = "Presidents' Day"
+    # Memorial Day: Last Monday of May
+    holidays[last_weekday(year, 5, 0)] = "Memorial Day"
+    # Labor Day: 1st Monday of September
+    holidays[nth_weekday(year, 9, 0, 1)] = "Labor Day"
+    # Columbus Day: 2nd Monday of October
+    holidays[nth_weekday(year, 10, 0, 2)] = "Columbus Day"
+    # Thanksgiving: 4th Thursday of November
+    holidays[nth_weekday(year, 11, 3, 4)] = "Thanksgiving Day"
+    # Day after Thanksgiving (many insurance offices close)
+    thanksgiving = nth_weekday(year, 11, 3, 4)
+    holidays[thanksgiving + timedelta(days=1)] = "Day After Thanksgiving"
+
+    return holidays
+
+
 def _get_business_hours_info() -> dict:
     """Return current time info in Central Time and whether it's business hours."""
     try:
@@ -36,16 +103,29 @@ def _get_business_hours_info() -> dict:
     
     is_weekday = weekday < 5  # Mon-Fri
     is_in_hours = 9 <= hour < 18  # 9 AM - 6 PM
-    is_business_hours = is_weekday and is_in_hours
+
+    # Check for holidays
+    today = ct.date()
+    holidays = _get_observed_holidays(today.year)
+    is_holiday = today in holidays
+    holiday_name = holidays.get(today, "")
+
+    is_business_hours = is_weekday and is_in_hours and not is_holiday
     
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     time_str = ct.strftime("%I:%M %p CT")
     
-    return {
+    result = {
         "is_business_hours": "true" if is_business_hours else "false",
         "current_time": time_str,
         "current_day": day_names[weekday],
     }
+
+    if is_holiday:
+        result["holiday_name"] = holiday_name
+        logger.info("HOLIDAY DETECTED: %s — office closed", holiday_name)
+
+    return result
 
 import requests
 from fastapi import APIRouter, Request, Response, HTTPException
@@ -515,6 +595,7 @@ async def inbound_call_webhook(request: Request):
             "is_business_hours": bh_info["is_business_hours"],
             "current_time": bh_info["current_time"],
             "current_day": bh_info["current_day"],
+            "holiday_name": bh_info.get("holiday_name", ""),
         }
 
         # Check for repeat caller
@@ -768,6 +849,7 @@ async def frontend_inbound_webhook(request: Request):
                         "is_business_hours": bh_info["is_business_hours"],
                         "current_time": bh_info["current_time"],
                         "current_day": bh_info["current_day"],
+            "holiday_name": bh_info.get("holiday_name", ""),
                     },
                     "agent_override": {
                         "retell_llm": {
@@ -803,6 +885,7 @@ async def frontend_inbound_webhook(request: Request):
             "is_business_hours": bh_info["is_business_hours"],
             "current_time": bh_info["current_time"],
             "current_day": bh_info["current_day"],
+            "holiday_name": bh_info.get("holiday_name", ""),
         }
 
         repeat_info = {"is_repeat": False, "is_repeat_30min": False, "calls_30min": 1, "calls_24hr": 1}
