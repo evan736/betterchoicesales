@@ -266,19 +266,13 @@ def build_self_service_info(carrier_list: str) -> str:
     if not carrier_list:
         return ""
     
-    # Known wrong URLs the LLM hallucinates from training data
-    WRONG_URLS = {
-        "grange": "mygrange.com is WRONG. ",
-    }
-    
     parts = []
     for carrier_name in carrier_list.split(", "):
         key = carrier_name.strip().lower()
         info = CARRIER_SELF_SERVICE.get(key)
         if info:
-            warning = WRONG_URLS.get(key, "")
             parts.append(
-                f"{carrier_name}: website is {info['website']}, app is \"{info['app']}\". {warning}Use ONLY {info['website']}"
+                f"{carrier_name}: say \"{info['website']}\" and \"{info['app']} app\""
             )
     return " | ".join(parts) if parts else ""
 
