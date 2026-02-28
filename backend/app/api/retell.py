@@ -33,10 +33,9 @@ def _get_observed_holidays(year: int) -> dict:
     # Fixed-date holidays
     fixed = [
         (1, 1, "New Year's Day"),
-        (6, 19, "Juneteenth"),
         (7, 4, "Independence Day"),
-        (11, 11, "Veterans Day"),
         (12, 25, "Christmas Day"),
+        (12, 31, "New Year's Eve"),
     ]
     for month, day, name in fixed:
         d = date(year, month, day)
@@ -70,14 +69,10 @@ def _get_observed_holidays(year: int) -> dict:
 
     # MLK Day: 3rd Monday of January
     holidays[nth_weekday(year, 1, 0, 3)] = "Martin Luther King Jr. Day"
-    # Presidents Day: 3rd Monday of February
-    holidays[nth_weekday(year, 2, 0, 3)] = "Presidents' Day"
     # Memorial Day: Last Monday of May
     holidays[last_weekday(year, 5, 0)] = "Memorial Day"
     # Labor Day: 1st Monday of September
     holidays[nth_weekday(year, 9, 0, 1)] = "Labor Day"
-    # Columbus Day: 2nd Monday of October
-    holidays[nth_weekday(year, 10, 0, 2)] = "Columbus Day"
     # Thanksgiving: 4th Thursday of November
     holidays[nth_weekday(year, 11, 3, 4)] = "Thanksgiving Day"
     # Day after Thanksgiving (many insurance offices close)
