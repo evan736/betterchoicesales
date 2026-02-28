@@ -356,68 +356,155 @@ def _check_nowcerts_customer(email: str, first_name: str = "", last_name: str = 
 # ═══════════════════════════════════════════════════════════════════
 
 def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date: str, 
-                         touch_number: int, unsubscribe_url: str) -> str:
-    """Generate branded requote campaign email."""
+                         touch_number: int, unsubscribe_url: str,
+                         retarget_round: int = 0, city: str = "", state: str = "",
+                         premium: float = None, use_ai: bool = True) -> str:
+    """Generate branded requote campaign email — AI-powered with static fallback."""
+    
     policy_label = (policy_type or 'insurance').replace('_', ' ').title()
     carrier_label = (carrier or 'your current carrier').title()
 
-    if touch_number == 1:
-        subject = f"{first_name}, your {policy_label} policy is renewing soon — let's make sure you're getting the best rate"
-        headline = "Your Policy is Renewing Soon"
-        body = f"""
-        <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            Your {policy_label} policy{' with ' + carrier_label if carrier else ''} is coming up for renewal 
-            around <strong>{x_date}</strong>. Insurance rates change every year, and many of our customers 
-            are surprised to find they can save significantly by shopping their renewal.
-        </p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            As an independent agency, we represent over 10 carriers and can compare rates to find you the 
-            best coverage at the best price — at no cost to you.
-        </p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            <strong>Want us to run a quick comparison?</strong> Simply reply to this email or give us a call. 
-            We just need your current declarations page and we'll do the rest.
-        </p>
-        """
-    else:
-        subject = f"Quick reminder: Your {policy_label} renewal is {15} days away, {first_name}"
-        headline = "Don't Miss Your Renewal Window"
-        body = f"""
-        <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            Just a friendly reminder — your {policy_label} policy is renewing around <strong>{x_date}</strong>. 
-            That's just a couple weeks away!
-        </p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            If you'd like us to shop your renewal and make sure you're getting the best rate, now is the 
-            perfect time. We can often find savings of 15-30% by comparing multiple carriers.
-        </p>
-        <p style="font-size:16px;color:#333;line-height:1.6;">
-            Just reply to this email with your current declarations page, or call us and we'll take care of everything.
-        </p>
-        """
-
-    # Build landing page URL with personalized params
-    import urllib.parse
-    landing_params = urllib.parse.urlencode({
-        k: v for k, v in {
-            'name': first_name, 'type': policy_type, 'carrier': carrier, 'xdate': x_date,
-        }.items() if v
-    })
-    landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
-
-    # Build landing page URL with personalized query params
+    # Build landing page URL
     import urllib.parse
     landing_params = urllib.parse.urlencode({
         'name': first_name,
         'type': policy_type or 'insurance',
         'carrier': carrier or '',
         'xdate': x_date or '',
-        'utm_campaign': 'requote',
+        'utm_campaign': f'requote_r{retarget_round}_t{touch_number}',
     })
     landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
 
+    subject = ""
+    body_content = ""
+
+    # ── AI Generation ──
+    if use_ai and ANTHROPIC_API_KEY:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+            now = datetime.utcnow()
+            month_name = now.strftime("%B")
+            season = "winter" if now.month in [12,1,2] else "spring" if now.month in [3,4,5] else "summer" if now.month in [6,7,8] else "fall"
+
+            ai_prompt = f"""You are the email copywriter for Better Choice Insurance Group, an independent insurance agency. Write a personalized requote campaign email.
+
+CONTEXT:
+- Customer first name: {first_name}
+- Policy type: {policy_label}
+- Current/former carrier: {carrier_label}
+- Renewal/X-date: {x_date or 'upcoming'}
+- City/State: {city or 'their area'}, {state or ''}
+- Current premium: {'$' + str(int(premium)) + '/year' if premium else 'unknown'}
+- Touch number: {touch_number} (1 = first outreach, 2 = follow-up reminder)
+- Retarget round: {retarget_round} (0 = first campaign, 1+ = re-engagement)
+- Current month: {month_name} ({season})
+
+BRAND VOICE:
+- Friendly, professional, not pushy
+- We're independent agents who shop 15+ carriers
+- Emphasize savings (customers save avg $1,150/year)
+- We do the work for them — just need their dec page
+- Phone: (847) 908-5665
+- Local midwest agency, relatable
+
+EMAIL RULES:
+{"- This is a FOLLOW-UP email (touch 2). Be shorter, more urgent. Reference that you reached out recently. Mention their renewal is coming up very soon." if touch_number == 2 else "- This is the FIRST outreach. Introduce yourself, explain the value proposition, be warm and inviting."}
+{"- This is a RE-ENGAGEMENT email (round " + str(retarget_round) + "). They've seen previous campaigns. Use a fresh angle: mention new carriers you've added, rate changes in their area, seasonal factors (" + season + " rates), or new discounts. Do NOT repeat the same pitch." if retarget_round > 0 else ""}
+- Keep it conversational, 3-4 paragraphs max
+- End with a clear call to action (reply with dec page, or call us)
+- Do NOT use the word "unsubscribe" anywhere in the body
+- Make it feel like it's from a real person, not a marketing blast
+
+{"- Mention " + season + "-specific angle: " + ("winter weather damage/heating costs/frozen pipes" if season == "winter" else "spring storm season/hail damage/tornado risk" if season == "spring" else "summer travel/vacation homes/added drivers" if season == "summer" else "fall renewal season/back to school/rate reviews") if retarget_round > 0 else ""}
+
+Respond with ONLY a JSON object (no markdown, no backticks):
+{{"subject": "email subject line (personalized, not generic)", "body": "full email body in HTML paragraphs using <p> tags with inline styles (font-size:16px;color:#333;line-height:1.6). Use <strong> for emphasis."}}"""
+
+            response = client.messages.create(
+                model=os.environ.get("SMART_INBOX_MODEL", "claude-sonnet-4-5-20250929"),
+                max_tokens=800,
+                messages=[{"role": "user", "content": ai_prompt}],
+            )
+            
+            import json
+            response_text = response.content[0].text.strip()
+            if response_text.startswith("```"):
+                response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            
+            ai_result = json.loads(response_text.strip())
+            subject = ai_result.get("subject", "")
+            body_content = ai_result.get("body", "")
+            
+            if subject and body_content:
+                logger.info(f"AI generated email for {first_name} (touch {touch_number}, round {retarget_round})")
+        except Exception as e:
+            logger.warning(f"AI email generation failed, using fallback: {e}")
+            subject = ""
+            body_content = ""
+
+    # ── Static Fallback ──
+    if not subject or not body_content:
+        if touch_number == 1:
+            if retarget_round > 0:
+                subject = f"{first_name}, insurance rates in your area have changed — time for a fresh look?"
+                headline = "Rates Have Changed in Your Area"
+                body_content = f"""
+                <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    We wanted to reach out again because insurance rates in your area have shifted since we last connected.
+                    Many carriers have adjusted their pricing, and we've added new partners to our network — which means
+                    fresh opportunities to save on your {policy_label} coverage.
+                </p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    As an independent agency representing 15+ carriers, we can run a quick comparison to see if there's
+                    a better deal available for you. Our customers save an average of $1,150 per year.
+                </p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    <strong>Want us to take a look?</strong> Just reply with your current declarations page or call us at (847) 908-5665.
+                </p>
+                """
+            else:
+                subject = f"{first_name}, your {policy_label} policy is renewing soon — let's make sure you're getting the best rate"
+                headline = "Your Policy is Renewing Soon"
+                body_content = f"""
+                <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    Your {policy_label} policy{' with ' + carrier_label if carrier else ''} is coming up for renewal 
+                    around <strong>{x_date}</strong>. Insurance rates change every year, and many of our customers 
+                    are surprised to find they can save significantly by shopping their renewal.
+                </p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    As an independent agency, we represent over 15 carriers and can compare rates to find you the 
+                    best coverage at the best price — at no cost to you.
+                </p>
+                <p style="font-size:16px;color:#333;line-height:1.6;">
+                    <strong>Want us to run a quick comparison?</strong> Simply reply to this email or give us a call. 
+                    We just need your current declarations page and we'll do the rest.
+                </p>
+                """
+        else:
+            subject = f"Quick reminder: Your {policy_label} renewal is coming up, {first_name}"
+            headline = "Don't Miss Your Renewal Window"
+            body_content = f"""
+            <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                Just a friendly reminder — your {policy_label} policy is renewing {'around <strong>' + x_date + '</strong>' if x_date else 'soon'}.
+                {'That renewal is right around the corner!' if touch_number == 2 else ''}
+            </p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                If you'd like us to shop your renewal and make sure you're getting the best rate, now is the 
+                perfect time. We can often find savings of 15-30% by comparing multiple carriers.
+            </p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                Just reply to this email with your current declarations page, or call us and we'll take care of everything.
+            </p>
+            """
+
+    # ── Wrap in branded HTML template ──
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -430,12 +517,8 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
           <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">Better Choice Insurance</h1>
           <p style="margin:4px 0 0;color:#8bb8e8;font-size:13px;">Your Independent Insurance Advisor</p>
         </td></tr>
-        <!-- Headline -->
-        <tr><td style="padding:28px 32px 0;">
-          <h2 style="margin:0;color:#0a1628;font-size:22px;font-weight:700;">{headline}</h2>
-        </td></tr>
         <!-- Body -->
-        <tr><td style="padding:16px 32px 0;">{body}</td></tr>
+        <tr><td style="padding:28px 32px 0;">{body_content}</td></tr>
         <!-- CTA -->
         <tr><td style="padding:24px 32px;" align="center">
           <a href="{landing_url}" 
@@ -983,9 +1066,13 @@ async def send_due_emails(
     for lead in touch1_due:
         x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
         unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+        retarget_round = getattr(lead, 'retarget_round', 0) or 0
         subject, html = _requote_email_html(
             lead.first_name or "Valued Customer",
             lead.policy_type, lead.carrier, x_date_str, 1, unsub_url,
+            retarget_round=retarget_round,
+            city=lead.city or "", state=lead.state or "",
+            premium=float(lead.premium) if lead.premium else None,
         )
         if _send_campaign_email(lead.email, subject, html):
             lead.touch1_sent = True
@@ -1010,9 +1097,13 @@ async def send_due_emails(
     for lead in touch2_due:
         x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
         unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+        retarget_round = getattr(lead, 'retarget_round', 0) or 0
         subject, html = _requote_email_html(
             lead.first_name or "Valued Customer",
             lead.policy_type, lead.carrier, x_date_str, 2, unsub_url,
+            retarget_round=retarget_round,
+            city=lead.city or "", state=lead.state or "",
+            premium=float(lead.premium) if lead.premium else None,
         )
         if _send_campaign_email(lead.email, subject, html):
             lead.touch2_sent = True
@@ -1648,11 +1739,17 @@ def preview_email(
     carrier: str = Query("State Farm"),
     x_date: str = Query("April 15, 2026"),
     touch: int = Query(1),
+    retarget_round: int = Query(0),
+    city: str = Query("Elgin"),
+    state: str = Query("IL"),
     current_user: User = Depends(get_current_user),
 ):
-    """Preview what a campaign email will look like."""
+    """Preview what a campaign email will look like — uses AI generation."""
     unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
-    subject, html = _requote_email_html(first_name, policy_type, carrier, x_date, touch, unsub_url)
+    subject, html = _requote_email_html(
+        first_name, policy_type, carrier, x_date, touch, unsub_url,
+        retarget_round=retarget_round, city=city, state=state,
+    )
     return {"subject": subject, "html": html}
 
 
@@ -1701,4 +1798,153 @@ async def recheck_nowcerts_all(
         "total_checked": total_checked,
         "new_customers_found": new_customers,
         "message": f"Checked {total_checked} leads across {len(active_campaigns)} campaigns. Found {new_customers} new customers to exclude.",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTO-RETARGET — Bi-annual re-engagement for unconverted leads
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/auto-retarget")
+async def auto_retarget(
+    min_age_days: int = Query(180, description="Min days since last campaign to retarget"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Auto-create retarget campaigns from completed campaigns with unconverted leads.
+    
+    Runs bi-annually (every 6 months). For each completed campaign older than min_age_days:
+    1. Find leads that completed both touches but didn't respond/convert
+    2. Re-check NowCerts — skip anyone who became a customer
+    3. Check global opt-out — skip permanently opted-out emails
+    4. Create a new campaign with fresh X-dates (6 months from now)
+    5. AI will generate completely new email content for each lead
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=min_age_days)
+
+    # Find campaigns that are old enough and have unconverted leads
+    eligible_campaigns = db.query(RequoteCampaign).filter(
+        RequoteCampaign.status.in_(["active", "completed"]),
+        RequoteCampaign.created_at <= cutoff,
+    ).all()
+
+    created_campaigns = []
+
+    for old_campaign in eligible_campaigns:
+        # Find unconverted leads: both touches sent, not responded/requoted/opted_out
+        unconverted = db.query(RequoteLead).filter(
+            RequoteLead.campaign_id == old_campaign.id,
+            RequoteLead.is_current_customer == False,
+            RequoteLead.opted_out == False,
+            RequoteLead.status.in_(["touch1_sent", "touch2_sent"]),
+        ).all()
+
+        if not unconverted:
+            continue
+
+        # Filter out global opt-outs and re-check NowCerts
+        retarget_leads = []
+        for lead in unconverted:
+            email = (lead.email or "").lower()
+            if not email:
+                continue
+
+            # Check global opt-out
+            if db.query(GlobalOptOut).filter(GlobalOptOut.email == email).first():
+                lead.opted_out = True
+                lead.status = "opted_out"
+                continue
+
+            # Re-check NowCerts
+            nc_result = _check_nowcerts_customer(email, lead.first_name or "", lead.last_name or "")
+            if nc_result["is_customer"]:
+                lead.is_current_customer = True
+                lead.nowcerts_match_name = nc_result.get("match_name")
+                lead.status = "skipped"
+                continue
+
+            retarget_leads.append(lead)
+
+        if not retarget_leads:
+            db.commit()
+            continue
+
+        # Determine retarget round
+        max_round = max((getattr(l, 'retarget_round', 0) or 0) for l in retarget_leads)
+        new_round = max_round + 1
+
+        # Create new retarget campaign
+        new_campaign = RequoteCampaign(
+            name=f"Retarget R{new_round} — {old_campaign.name}",
+            description=f"Auto-generated bi-annual retarget from '{old_campaign.name}' (round {new_round})",
+            original_filename=old_campaign.original_filename,
+            touch1_days_before=45,
+            touch2_days_before=15,
+            total_uploaded=len(retarget_leads),
+            status="draft",  # Always draft — Evan reviews before activating
+            created_by=current_user.id,
+            created_by_name="ORBIT Auto-Retarget",
+        )
+        db.add(new_campaign)
+        db.flush()
+
+        valid = 0
+        for old_lead in retarget_leads:
+            # Set new X-date to 6 months from now
+            new_xdate = now + timedelta(days=180)
+            touch1_date = new_xdate - timedelta(days=45)
+            touch2_date = new_xdate - timedelta(days=15)
+
+            unsub_token = hashlib.sha256(f"{old_lead.email}:{new_campaign.id}:{os.urandom(8).hex()}".encode()).hexdigest()[:24]
+
+            new_lead = RequoteLead(
+                campaign_id=new_campaign.id,
+                first_name=old_lead.first_name,
+                last_name=old_lead.last_name,
+                email=old_lead.email,
+                phone=old_lead.phone,
+                address=old_lead.address,
+                city=old_lead.city,
+                state=old_lead.state,
+                zip_code=old_lead.zip_code,
+                policy_type=old_lead.policy_type,
+                carrier=old_lead.carrier,
+                premium=old_lead.premium,
+                agent_name=old_lead.agent_name,
+                x_date=new_xdate,
+                status="touch1_scheduled",
+                touch1_scheduled_date=touch1_date,
+                touch2_scheduled_date=touch2_date,
+                unsubscribe_token=unsub_token,
+            )
+            # Set retarget tracking
+            try:
+                new_lead.retarget_round = new_round
+                new_lead.original_lead_id = old_lead.id
+            except Exception:
+                pass  # columns may not exist yet
+
+            db.add(new_lead)
+            valid += 1
+
+        new_campaign.total_valid = valid
+        db.commit()
+
+        # Mark old campaign as completed
+        old_campaign.status = "completed"
+        db.commit()
+
+        created_campaigns.append({
+            "campaign_id": new_campaign.id,
+            "campaign_name": new_campaign.name,
+            "leads": valid,
+            "retarget_round": new_round,
+            "source_campaign": old_campaign.name,
+        })
+
+    return {
+        "retarget_campaigns_created": len(created_campaigns),
+        "campaigns": created_campaigns,
+        "message": f"Created {len(created_campaigns)} retarget campaigns in draft mode. Review and activate when ready.",
     }

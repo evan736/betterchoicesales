@@ -58,6 +58,7 @@ export default function CampaignsPage() {
   const [emailPreviewSubject, setEmailPreviewSubject] = useState('');
   const [previewTouch, setPreviewTouch] = useState(1);
   const [recheckingNowCerts, setRecheckingNowCerts] = useState(false);
+  const [retargeting, setRetargeting] = useState(false);
 
   // Upload modal
   const [showUpload, setShowUpload] = useState(false);
@@ -120,6 +121,20 @@ export default function CampaignsPage() {
       loadCampaigns();
     } catch (e: any) { alert(e.response?.data?.detail || 'Recheck failed'); }
     finally { setRecheckingNowCerts(false); }
+  };
+
+  const handleAutoRetarget = async () => {
+    setRetargeting(true);
+    try {
+      const res = await axios.post(`${API}/api/campaigns/auto-retarget`, {}, { headers: headers() });
+      if (res.data.retarget_campaigns_created > 0) {
+        alert(`Created ${res.data.retarget_campaigns_created} retarget campaign(s) in draft mode:\n\n${res.data.campaigns.map((c: any) => `• ${c.campaign_name} — ${c.leads} leads (Round ${c.retarget_round})`).join('\n')}\n\nReview and activate when ready.`);
+      } else {
+        alert('No campaigns eligible for retargeting yet. Campaigns must be 180+ days old with unconverted leads.');
+      }
+      loadCampaigns();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Retarget failed'); }
+    finally { setRetargeting(false); }
   };
 
   const loadCampaignDetail = async (id: number) => {
@@ -306,6 +321,11 @@ export default function CampaignsPage() {
                         className="text-xs px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 font-semibold transition disabled:opacity-50">
                         <RefreshCw size={12} className={`inline mr-1 ${recheckingNowCerts ? 'animate-spin' : ''}`} />
                         {recheckingNowCerts ? 'Checking...' : 'Re-check NowCerts'}
+                      </button>
+                      <button onClick={handleAutoRetarget} disabled={retargeting}
+                        className="text-xs px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg text-emerald-300 font-semibold transition disabled:opacity-50">
+                        <Target size={12} className={`inline mr-1 ${retargeting ? 'animate-spin' : ''}`} />
+                        {retargeting ? 'Creating...' : 'Auto-Retarget'}
                       </button>
                     </div>
                   </div>
