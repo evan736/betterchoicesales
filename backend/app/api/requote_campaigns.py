@@ -504,7 +504,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
     logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
     # Top 8 carrier logos for the strip
     carrier_row1 = ["safeco", "grange", "geico"]
-    carrier_row2 = ["travelers", "progressive", "hippo"]
+    carrier_row2 = ["travelers", "branch", "hippo"]
     def logo_img(c):
         return f'<img src="{SITE}/carrier-logos/{c}.png" alt="{c}" style="height:22px;max-width:90px;display:inline-block;margin:0 14px;opacity:0.6;" />'
     row1_html = "".join(logo_img(c) for c in carrier_row1)
