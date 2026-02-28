@@ -199,7 +199,7 @@ export default function GetQuotePage() {
                   { stat: '15+', label: 'Insurance Carriers', sub: 'We shop, you save' },
                   { stat: '$1,150+', label: 'Avg. Annual Savings', sub: 'For new customers' },
                   { stat: 'AI', label: 'Coverage Analysis', sub: 'Instant gap detection' },
-                  { stat: '2,500+', label: 'Happy Customers', sub: 'TX · IL · AZ · MN · IN · OH' },
+                  { stat: '2,500+', label: 'Happy Customers', sub: 'And Growing' },
                 ].map((s, i) => (
                   <div key={i} style={{ display: 'flex', gap: '14px', marginBottom: i < 3 ? '16px' : '0', alignItems: 'center' }}>
                     <div style={{ fontSize: '22px', fontWeight: 800, color: '#60a5fa', minWidth: '70px' }}>{s.stat}</div>
@@ -454,7 +454,7 @@ export default function GetQuotePage() {
           <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
             <div style={{ textAlign: 'center' as const, marginBottom: '40px' }}>
               <p style={{ color: '#2563eb', fontSize: '13px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase' as const, margin: '0 0 8px' }}>
-                2,500+ Happy Customers Across 6 States
+                2,500+ Happy Customers and Growing
               </p>
               <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '32px', fontWeight: 700, margin: '0', color: '#0f172a' }}>What Our Customers Say</h2>
             </div>
