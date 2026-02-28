@@ -163,7 +163,7 @@ def build_carrier_list(policies: list[dict]) -> str:
 
 
 def send_mailgun_email(to: str, subject: str, html: str) -> bool:
-    """Send email via Mailgun."""
+    """Send email via Mailgun. `to` can be a comma-separated list."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         logger.warning("Mailgun not configured, skipping email")
         return False
@@ -184,6 +184,78 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
     except Exception as e:
         logger.error("Mailgun send failed: %s", e)
         return False
+
+
+# ── EMAIL ROUTING ─────────────────────────────────────────────────
+# Determines who should receive the email based on request context.
+# service@ always gets a copy. Staff get CC'd based on rules.
+
+STAFF_EMAILS = {
+    "evan": "evan@betterchoiceins.com",
+    "salma": "salma@betterchoiceins.com",
+    "giulian": "giulian@betterchoiceins.com",
+    "joseph": "joseph@betterchoiceins.com",
+    "michelle": "michelle@betterchoiceins.com",
+}
+
+SERVICE_EMAIL = "service@betterchoiceins.com"
+
+# Quote requests go to the sales team
+QUOTE_TEAM = ["joseph", "giulian", "evan"]
+
+
+def _get_email_recipients(
+    request_type: str = "",
+    staff_requested: str = "",
+    urgency: str = "normal",
+    reason: str = "",
+) -> str:
+    """Return comma-separated email recipients based on routing rules.
+
+    Rules (service@ is ALWAYS included):
+    1. staff_requested by name → add that person's email
+    2. quote_request → add Joseph, Giulian, Evan
+    3. cancellation + urgent → add Evan
+    4. urgency=urgent (non-cancellation) → add Evan
+    5. premium_complaint / reshop → add Evan
+    """
+    recipients = {SERVICE_EMAIL}
+
+    # Rule 1: Specific staff requested
+    if staff_requested:
+        staff_key = staff_requested.strip().lower()
+        if staff_key in STAFF_EMAILS:
+            recipients.add(STAFF_EMAILS[staff_key])
+            logger.info("Email routing: +%s (staff requested)", staff_key)
+
+    # Rule 2: Quote requests → sales team
+    if request_type.lower() in ("quote_request", "quote"):
+        for name in QUOTE_TEAM:
+            recipients.add(STAFF_EMAILS[name])
+        logger.info("Email routing: +quote team (joseph, giulian, evan)")
+
+    # Rule 3: Cancellations → Evan
+    is_cancellation = (
+        request_type.lower() == "cancellation"
+        or "CANCELLATION" in reason.upper()
+    )
+    if is_cancellation:
+        recipients.add(STAFF_EMAILS["evan"])
+        logger.info("Email routing: +evan (cancellation)")
+
+    # Rule 4: Urgent requests → Evan
+    if urgency.lower() == "urgent":
+        recipients.add(STAFF_EMAILS["evan"])
+        logger.info("Email routing: +evan (urgent)")
+
+    # Rule 5: Premium complaints / reshop → Evan
+    if request_type.lower() in ("premium_complaint", "reshop"):
+        recipients.add(STAFF_EMAILS["evan"])
+        logger.info("Email routing: +evan (premium/reshop)")
+
+    result = ", ".join(sorted(recipients))
+    logger.info("Email recipients: %s", result)
+    return result
 
 
 # ── 1. INBOUND CALL WEBHOOK ───────────────────────────────────────
@@ -969,7 +1041,12 @@ async def callback_request(request: Request):
             </div>
             """
             send_mailgun_email(
-                "service@betterchoiceins.com",
+                _get_email_recipients(
+                    request_type="cancellation",
+                    staff_requested=staff_requested,
+                    urgency="urgent",
+                    reason=reason,
+                ),
                 f"🔴 CANCELLATION — {caller_name} ({caller_phone}) — Transferring NOW",
                 cancel_html
             )
@@ -1313,7 +1390,19 @@ async def post_call_webhook(request: Request):
                 subject = f"📊 MIA Call — {customer_name} — {req_type_for_subject} — {resolution_badge}"
             else:
                 subject = f"📊 MIA Call — {customer_name} — {resolution_badge}"
-            send_mailgun_email("service@betterchoiceins.com", subject, html)
+
+            # Smart email routing based on request context
+            if has_request:
+                first_req = pending_reqs[0]
+                email_to = _get_email_recipients(
+                    request_type=first_req.get("request_type", ""),
+                    staff_requested=first_req.get("staff_requested", ""),
+                    urgency=first_req.get("urgency", "normal"),
+                    reason=first_req.get("reason", ""),
+                )
+            else:
+                email_to = SERVICE_EMAIL
+            send_mailgun_email(email_to, subject, html)
 
             # Send SMS confirmation to caller if a request was taken
             if has_request and from_number:
