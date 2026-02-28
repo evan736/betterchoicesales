@@ -23,9 +23,6 @@ const CustomerQuickSearch: React.FC = () => {
   const ref = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Hide on customers page
-  if (router.pathname === '/customers') return null;
-
   const searchCustomers = async (q: string) => {
     if (q.trim().length < 2) { setResults([]); return; }
     setLoading(true);
@@ -65,6 +62,9 @@ const CustomerQuickSearch: React.FC = () => {
 
   // Close on route change
   useEffect(() => { setShow(false); setQuery(''); }, [router.asPath]);
+
+  // Hide on customers page (AFTER all hooks)
+  if (router.pathname === '/customers') return null;
 
   return (
     <div className="relative hidden sm:block" ref={ref} style={{ minWidth: '220px', maxWidth: '320px', flex: '1' }}>
