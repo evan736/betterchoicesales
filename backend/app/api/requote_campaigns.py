@@ -130,7 +130,15 @@ class RequoteLead(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=sqlfunc.now())
 
 
-# ═══════════════════════════════════════════════════════════════════
+class GlobalOptOut(Base):
+    """Permanent email blocklist — opted-out emails are NEVER emailed again across any campaign."""
+    __tablename__ = "global_opt_outs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    reason = Column(String, default="unsubscribe")  # unsubscribe, manual, complaint
+    source_campaign_id = Column(Integer, nullable=True)
+    opted_out_at = Column(DateTime(timezone=True), server_default=sqlfunc.now())
 # SELF-HEALING MIGRATION
 # ═══════════════════════════════════════════════════════════════════
 
@@ -139,9 +147,25 @@ def run_migration(engine):
     try:
         RequoteCampaign.__table__.create(engine, checkfirst=True)
         RequoteLead.__table__.create(engine, checkfirst=True)
-        logger.info("Requote campaign tables ready")
+        GlobalOptOut.__table__.create(engine, checkfirst=True)
+        logger.info("Requote campaign tables ready (including global_opt_outs)")
     except Exception as e:
         logger.warning(f"Requote migration note: {e}")
+
+    # Self-healing: add missing columns
+    from sqlalchemy import inspect as sa_inspect, text
+    try:
+        insp = sa_inspect(engine)
+        existing_cols = {c["name"] for c in insp.get_columns("requote_leads")} if insp.has_table("requote_leads") else set()
+        with engine.connect() as conn:
+            if "retarget_round" not in existing_cols:
+                conn.execute(text("ALTER TABLE requote_leads ADD COLUMN retarget_round INTEGER DEFAULT 0"))
+                conn.commit()
+            if "original_lead_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE requote_leads ADD COLUMN original_lead_id INTEGER"))
+                conn.commit()
+    except Exception as e:
+        logger.warning(f"Column migration note: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -673,6 +697,11 @@ async def upload_leads(
             continue
         seen_emails.add(email)
 
+        # Check global opt-out blocklist FIRST
+        if db.query(GlobalOptOut).filter(GlobalOptOut.email == email).first():
+            skipped_count += 1
+            continue
+
         # Also dedupe against existing leads in other active campaigns
         existing = db.query(RequoteLead).filter(
             RequoteLead.email == email,
@@ -1011,22 +1040,49 @@ async def send_due_emails(
 
 @router.get("/unsubscribe/{token}")
 def unsubscribe(token: str, db: Session = Depends(get_db)):
-    """Handle email unsubscribe."""
+    """Handle email unsubscribe — adds to GLOBAL blocklist so they're never emailed again."""
     lead = db.query(RequoteLead).filter(RequoteLead.unsubscribe_token == token).first()
     if not lead:
-        return {"message": "Invalid or expired unsubscribe link."}
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content="""
+        <html><body style="font-family:Arial;text-align:center;padding:60px;">
+        <h2>Invalid or expired link</h2>
+        <p>If you need help, contact us at service@betterchoiceins.com</p>
+        </body></html>
+        """)
 
     lead.opted_out = True
     lead.opted_out_at = datetime.utcnow()
     lead.status = "opted_out"
+
+    # Add to GLOBAL opt-out blocklist — this email will never be emailed again
+    if lead.email:
+        existing = db.query(GlobalOptOut).filter(GlobalOptOut.email == lead.email.lower()).first()
+        if not existing:
+            db.add(GlobalOptOut(
+                email=lead.email.lower(),
+                reason="unsubscribe",
+                source_campaign_id=lead.campaign_id,
+            ))
+
+        # Also opt out this email from ALL other active campaigns
+        other_leads = db.query(RequoteLead).filter(
+            RequoteLead.email == lead.email,
+            RequoteLead.id != lead.id,
+            RequoteLead.opted_out == False,
+        ).all()
+        for ol in other_leads:
+            ol.opted_out = True
+            ol.opted_out_at = datetime.utcnow()
+            ol.status = "opted_out"
+
     db.commit()
 
-    # Return a simple HTML page
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <html><body style="font-family:Arial;text-align:center;padding:60px;">
     <h2>You've been unsubscribed</h2>
-    <p>You won't receive any more emails from this campaign.</p>
+    <p>You won't receive any more emails from Better Choice Insurance campaigns.</p>
     <p style="color:#666;font-size:14px;">If this was a mistake, please contact us at service@betterchoiceins.com</p>
     </body></html>
     """)
@@ -1507,3 +1563,142 @@ CRITICAL ANALYSIS RULES - READ CAREFULLY:
     except Exception as e:
         logger.error(f"AI coverage analysis failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PIPELINE STATS — Where leads are in the system
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/pipeline/stats")
+def pipeline_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a system-wide view of where all leads are across all campaigns."""
+    from sqlalchemy import case
+
+    total = db.query(RequoteLead).count()
+
+    # Status breakdown
+    statuses = db.query(
+        RequoteLead.status,
+        sqlfunc.count(RequoteLead.id),
+    ).group_by(RequoteLead.status).all()
+
+    status_map = {s: c for s, c in statuses}
+
+    # Current customers
+    current_customers = db.query(RequoteLead).filter(RequoteLead.is_current_customer == True).count()
+
+    # Global opt-outs
+    global_optouts = db.query(GlobalOptOut).count()
+
+    # Leads by campaign (active only)
+    campaign_breakdown = db.query(
+        RequoteCampaign.id,
+        RequoteCampaign.name,
+        RequoteCampaign.status,
+        sqlfunc.count(RequoteLead.id).label("total_leads"),
+        sqlfunc.sum(case((RequoteLead.status.in_(["touch1_sent", "touch2_sent"]), 1), else_=0)).label("emails_sent"),
+        sqlfunc.sum(case((RequoteLead.status == "responded", 1), else_=0)).label("responded"),
+        sqlfunc.sum(case((RequoteLead.status == "requoted", 1), else_=0)).label("requoted"),
+        sqlfunc.sum(case((RequoteLead.is_current_customer == True, 1), else_=0)).label("current_customers"),
+        sqlfunc.sum(case((RequoteLead.opted_out == True, 1), else_=0)).label("opted_out"),
+    ).join(RequoteLead, RequoteLead.campaign_id == RequoteCampaign.id).group_by(
+        RequoteCampaign.id, RequoteCampaign.name, RequoteCampaign.status,
+    ).order_by(RequoteCampaign.created_at.desc()).limit(20).all()
+
+    campaigns = []
+    for c in campaign_breakdown:
+        campaigns.append({
+            "id": c.id, "name": c.name, "status": c.status,
+            "total_leads": c.total_leads, "emails_sent": c.emails_sent,
+            "responded": c.responded, "requoted": c.requoted,
+            "current_customers": c.current_customers, "opted_out": c.opted_out,
+        })
+
+    return {
+        "total_leads": total,
+        "pipeline": {
+            "pending": status_map.get("pending", 0),
+            "touch1_scheduled": status_map.get("touch1_scheduled", 0),
+            "touch1_sent": status_map.get("touch1_sent", 0),
+            "touch2_scheduled": status_map.get("touch2_scheduled", 0),
+            "touch2_sent": status_map.get("touch2_sent", 0),
+            "responded": status_map.get("responded", 0),
+            "requoted": status_map.get("requoted", 0),
+            "opted_out": status_map.get("opted_out", 0),
+            "skipped": status_map.get("skipped", 0),
+            "past_xdate": status_map.get("past_xdate", 0),
+        },
+        "current_customers_excluded": current_customers,
+        "global_opt_outs": global_optouts,
+        "campaigns": campaigns,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# EMAIL PREVIEW — See what the email looks like before sending
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/preview-email")
+def preview_email(
+    first_name: str = Query("Sarah"),
+    policy_type: str = Query("homeowners"),
+    carrier: str = Query("State Farm"),
+    x_date: str = Query("April 15, 2026"),
+    touch: int = Query(1),
+    current_user: User = Depends(get_current_user),
+):
+    """Preview what a campaign email will look like."""
+    unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
+    subject, html = _requote_email_html(first_name, policy_type, carrier, x_date, touch, unsub_url)
+    return {"subject": subject, "html": html}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RE-CHECK NOWCERTS — Sweep active campaigns for new customers
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/recheck-nowcerts")
+async def recheck_nowcerts_all(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-check all active campaign leads against NowCerts. Remove any that became customers."""
+    active_campaigns = db.query(RequoteCampaign).filter(
+        RequoteCampaign.status.in_(["active", "draft"]),
+    ).all()
+
+    total_checked = 0
+    new_customers = 0
+
+    for campaign in active_campaigns:
+        leads = db.query(RequoteLead).filter(
+            RequoteLead.campaign_id == campaign.id,
+            RequoteLead.is_current_customer == False,
+            RequoteLead.opted_out == False,
+            RequoteLead.status.notin_(["skipped", "opted_out"]),
+        ).limit(500).all()
+
+        for lead in leads:
+            result = _check_nowcerts_customer(
+                lead.email or "",
+                lead.first_name or "",
+                lead.last_name or "",
+            )
+            if result["is_customer"]:
+                lead.is_current_customer = True
+                lead.nowcerts_match_name = result.get("match_name")
+                lead.nowcerts_match_id = result.get("match_id")
+                lead.status = "skipped"
+                new_customers += 1
+            total_checked += 1
+
+    db.commit()
+
+    return {
+        "total_checked": total_checked,
+        "new_customers_found": new_customers,
+        "message": f"Checked {total_checked} leads across {len(active_campaigns)} campaigns. Found {new_customers} new customers to exclude.",
+    }

@@ -51,6 +51,14 @@ export default function CampaignsPage() {
   const [leadsPage, setLeadsPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
+  // Pipeline stats
+  const [pipelineStats, setPipelineStats] = useState<any>(null);
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState('');
+  const [emailPreviewSubject, setEmailPreviewSubject] = useState('');
+  const [previewTouch, setPreviewTouch] = useState(1);
+  const [recheckingNowCerts, setRecheckingNowCerts] = useState(false);
+
   // Upload modal
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -85,6 +93,33 @@ export default function CampaignsPage() {
       setCampaigns(res.data.campaigns || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+    // Also load pipeline stats
+    try {
+      const ps = await axios.get(`${API}/api/campaigns/pipeline/stats`, { headers: headers() });
+      setPipelineStats(ps.data);
+    } catch (e) { console.error(e); }
+  };
+
+  const loadEmailPreview = async (touch: number) => {
+    try {
+      const res = await axios.get(`${API}/api/campaigns/preview-email`, {
+        headers: headers(), params: { touch },
+      });
+      setEmailPreviewSubject(res.data.subject);
+      setEmailPreviewHtml(res.data.html);
+      setPreviewTouch(touch);
+      setShowEmailPreview(true);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleRecheckNowCerts = async () => {
+    setRecheckingNowCerts(true);
+    try {
+      const res = await axios.post(`${API}/api/campaigns/recheck-nowcerts`, {}, { headers: headers() });
+      alert(`${res.data.message}`);
+      loadCampaigns();
+    } catch (e: any) { alert(e.response?.data?.detail || 'Recheck failed'); }
+    finally { setRecheckingNowCerts(false); }
   };
 
   const loadCampaignDetail = async (id: number) => {
@@ -251,6 +286,107 @@ export default function CampaignsPage() {
         {/* ── CAMPAIGN LIST VIEW ── */}
         {view === 'list' && (
           <>
+            {/* ── PIPELINE DASHBOARD ── */}
+            {pipelineStats && (
+              <div className="mb-6 space-y-4">
+                {/* Lead funnel */}
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-slate-300">Lead Pipeline — All Campaigns</h3>
+                    <div className="flex gap-2">
+                      <button onClick={() => loadEmailPreview(1)}
+                        className="text-xs px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg text-blue-300 font-semibold transition">
+                        <Eye size={12} className="inline mr-1" /> Preview Touch 1
+                      </button>
+                      <button onClick={() => loadEmailPreview(2)}
+                        className="text-xs px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-lg text-indigo-300 font-semibold transition">
+                        <Eye size={12} className="inline mr-1" /> Preview Touch 2
+                      </button>
+                      <button onClick={handleRecheckNowCerts} disabled={recheckingNowCerts}
+                        className="text-xs px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 font-semibold transition disabled:opacity-50">
+                        <RefreshCw size={12} className={`inline mr-1 ${recheckingNowCerts ? 'animate-spin' : ''}`} />
+                        {recheckingNowCerts ? 'Checking...' : 'Re-check NowCerts'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Funnel bars */}
+                  <div className="grid grid-cols-7 gap-2">
+                    {[
+                      { label: 'Pending', count: pipelineStats.pipeline.pending, color: 'bg-slate-500', text: 'text-slate-300' },
+                      { label: 'Touch 1 Queued', count: pipelineStats.pipeline.touch1_scheduled, color: 'bg-blue-500', text: 'text-blue-300' },
+                      { label: 'Touch 1 Sent', count: pipelineStats.pipeline.touch1_sent, color: 'bg-cyan-500', text: 'text-cyan-300' },
+                      { label: 'Touch 2 Queued', count: pipelineStats.pipeline.touch2_scheduled, color: 'bg-indigo-500', text: 'text-indigo-300' },
+                      { label: 'Touch 2 Sent', count: pipelineStats.pipeline.touch2_sent, color: 'bg-purple-500', text: 'text-purple-300' },
+                      { label: 'Responded', count: pipelineStats.pipeline.responded, color: 'bg-emerald-500', text: 'text-emerald-300' },
+                      { label: 'Requoted', count: pipelineStats.pipeline.requoted, color: 'bg-green-500', text: 'text-green-300' },
+                    ].map((s, i) => {
+                      const maxCount = Math.max(pipelineStats.pipeline.pending || 1, pipelineStats.pipeline.touch1_scheduled || 1, 1);
+                      const pct = Math.max(8, (s.count / maxCount) * 100);
+                      return (
+                        <div key={i} className="text-center">
+                          <div className={`text-lg font-bold ${s.text}`}>{s.count}</div>
+                          <div className="h-2 bg-white/[0.04] rounded-full mt-1 overflow-hidden">
+                            <div className={`h-full ${s.color} rounded-full transition-all`} style={{ width: `${pct}%`, opacity: 0.7 }} />
+                          </div>
+                          <div className="text-[9px] text-slate-500 mt-1 font-semibold">{s.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bottom stats */}
+                  <div className="flex gap-4 mt-4 pt-3 border-t border-white/[0.04]">
+                    <div className="text-xs"><span className="text-slate-500">Total Leads: </span><span className="text-white font-bold">{pipelineStats.total_leads}</span></div>
+                    <div className="text-xs"><span className="text-slate-500">Current Customers: </span><span className="text-amber-400 font-bold">{pipelineStats.current_customers_excluded}</span></div>
+                    <div className="text-xs"><span className="text-slate-500">Global Opt-Outs: </span><span className="text-red-400 font-bold">{pipelineStats.global_opt_outs}</span></div>
+                    <div className="text-xs"><span className="text-slate-500">Opted Out: </span><span className="text-red-300 font-bold">{pipelineStats.pipeline.opted_out}</span></div>
+                    <div className="text-xs"><span className="text-slate-500">Past X-Date: </span><span className="text-slate-400 font-bold">{pipelineStats.pipeline.past_xdate}</span></div>
+                  </div>
+                </div>
+
+                {/* Per-campaign breakdown */}
+                {pipelineStats.campaigns?.length > 0 && (
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-white/[0.06]">
+                          <th className="text-left px-4 py-2.5 text-slate-500 font-semibold">Campaign</th>
+                          <th className="text-center px-2 py-2.5 text-slate-500 font-semibold">Status</th>
+                          <th className="text-center px-2 py-2.5 text-slate-500 font-semibold">Leads</th>
+                          <th className="text-center px-2 py-2.5 text-slate-500 font-semibold">Emailed</th>
+                          <th className="text-center px-2 py-2.5 text-slate-500 font-semibold">Responded</th>
+                          <th className="text-center px-2 py-2.5 text-slate-500 font-semibold">Requoted</th>
+                          <th className="text-center px-2 py-2.5 text-amber-500/60 font-semibold">Customers</th>
+                          <th className="text-center px-2 py-2.5 text-red-500/60 font-semibold">Opted Out</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pipelineStats.campaigns.map((c: any) => (
+                          <tr key={c.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] cursor-pointer" onClick={() => loadCampaignDetail(c.id)}>
+                            <td className="px-4 py-2 text-slate-300 font-medium">{c.name}</td>
+                            <td className="px-2 py-2 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                c.status === 'active' ? 'bg-emerald-500/15 text-emerald-300' :
+                                c.status === 'draft' ? 'bg-blue-500/15 text-blue-300' :
+                                c.status === 'paused' ? 'bg-amber-500/15 text-amber-300' : 'bg-slate-500/15 text-slate-400'
+                              }`}>{c.status}</span>
+                            </td>
+                            <td className="px-2 py-2 text-center text-slate-400">{c.total_leads}</td>
+                            <td className="px-2 py-2 text-center text-cyan-400">{c.emails_sent}</td>
+                            <td className="px-2 py-2 text-center text-emerald-400">{c.responded}</td>
+                            <td className="px-2 py-2 text-center text-green-400 font-bold">{c.requoted}</td>
+                            <td className="px-2 py-2 text-center text-amber-400">{c.current_customers}</td>
+                            <td className="px-2 py-2 text-center text-red-400">{c.opted_out}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
             {campaigns.length === 0 ? (
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-12 text-center">
                 <Target className="mx-auto text-slate-600 mb-3" size={48} />
@@ -273,6 +409,7 @@ export default function CampaignsPage() {
                           <h3 className="text-base font-semibold group-hover:text-cyan-300 transition">{c.name}</h3>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                             c.status === 'active' ? 'bg-emerald-500/15 text-emerald-300' :
+                            c.status === 'draft' ? 'bg-blue-500/15 text-blue-300' :
                             c.status === 'paused' ? 'bg-amber-500/15 text-amber-300' :
                             'bg-slate-500/15 text-slate-400'
                           }`}>{c.status.toUpperCase()}</span>
@@ -281,7 +418,7 @@ export default function CampaignsPage() {
                           {c.original_filename} · {c.total_valid} leads · Created {fmtDate(c.created_at)} by {c.created_by_name}
                         </p>
                       </div>
-                      <div className="flex gap-6 text-center">
+                      <div className="flex gap-5 text-center">
                         <div>
                           <div className="text-lg font-bold text-white">{c.total_valid}</div>
                           <div className="text-[10px] text-slate-500">LEADS</div>
@@ -291,7 +428,11 @@ export default function CampaignsPage() {
                           <div className="text-[10px] text-slate-500">SENT</div>
                         </div>
                         <div>
-                          <div className="text-lg font-bold text-emerald-400">{c.requotes_generated || 0}</div>
+                          <div className="text-lg font-bold text-emerald-400">{c.responses_received || 0}</div>
+                          <div className="text-[10px] text-slate-500">RESPONDED</div>
+                        </div>
+                        <div>
+                          <div className="text-lg font-bold text-green-400">{c.requotes_generated || 0}</div>
                           <div className="text-[10px] text-slate-500">REQUOTED</div>
                         </div>
                       </div>
@@ -656,6 +797,31 @@ export default function CampaignsPage() {
                     </button>
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── EMAIL PREVIEW MODAL ── */}
+        {showEmailPreview && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget) setShowEmailPreview(false); }}>
+            <div className="bg-[#0f1729] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+                <div>
+                  <h2 className="text-lg font-semibold">Email Preview — Touch {previewTouch}</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Subject: {emailPreviewSubject}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => loadEmailPreview(previewTouch === 1 ? 2 : 1)}
+                    className="text-xs px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-300 font-semibold transition">
+                    Switch to Touch {previewTouch === 1 ? '2' : '1'}
+                  </button>
+                  <button onClick={() => setShowEmailPreview(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto bg-[#f4f4f4]">
+                <div dangerouslySetInnerHTML={{ __html: emailPreviewHtml }} />
               </div>
             </div>
           </div>
