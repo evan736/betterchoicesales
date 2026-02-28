@@ -591,6 +591,7 @@ async def inbound_call_webhook(request: Request):
         is_repeat = repeat_info["is_repeat"]
         is_repeat_30min = repeat_info.get("is_repeat_30min", False)
         call_count = repeat_info["calls_24hr"]
+        is_open = bh_info["is_business_hours"] == "true"
 
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
             name = dynamic_variables["customer_name"].split()[0]  # First name only
@@ -609,16 +610,27 @@ async def inbound_call_webhook(request: Request):
                     f"you get the help you need. Let me take down your information and have someone "
                     f"from our team call you back as a priority. What can I help you with?"
                 )
-            elif dynamic_variables["policy_summary"]:
-                begin_msg = (
-                    f"Thank you for calling Better Choice Insurance Group! "
-                    f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                    f"How can I help you today?"
-                )
+            elif is_open:
+                if dynamic_variables["policy_summary"]:
+                    begin_msg = (
+                        f"Thank you for calling Better Choice Insurance Group! "
+                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
+                        f"How can I help you today?"
+                    )
+                else:
+                    begin_msg = (
+                        f"Thank you for calling Better Choice Insurance Group! "
+                        f"Hi {name}! How can I help you today?"
+                    )
             else:
+                # After hours
                 begin_msg = (
-                    f"Thank you for calling Better Choice Insurance Group! "
-                    f"Hi {name}! How can I help you today?"
+                    f"Thank you for calling Better Choice Insurance Group. "
+                    f"Hi {name}! Our office is currently closed — our hours are "
+                    f"Monday through Friday, 9 AM to 5 PM Central Time. "
+                    f"I can still help you though! I can transfer you directly to "
+                    f"your insurance carrier or take a detailed message for our team "
+                    f"to follow up on the next business day. What can I help you with?"
                 )
         else:
             if is_repeat_30min:
@@ -627,10 +639,19 @@ async def inbound_call_webhook(request: Request):
                     "I see you just called — let's make sure we get this handled. "
                     "How can I help?"
                 )
-            else:
+            elif is_open:
                 begin_msg = (
                     "Thank you for calling Better Choice Insurance Group! "
-                    "My name is Mia. How can I help you today?"
+                    "My name is Mia. What are you calling about today?"
+                )
+            else:
+                begin_msg = (
+                    "Thank you for calling Better Choice Insurance Group. "
+                    "Our office is currently closed — our hours are "
+                    "Monday through Friday, 9 AM to 5 PM Central Time. "
+                    "I can still help you though! I can transfer you directly to "
+                    "your insurance carrier or take a detailed message for our team "
+                    "to follow up on the next business day. What can I help you with?"
                 )
 
         dynamic_variables["greeting_message"] = begin_msg
@@ -819,10 +840,11 @@ async def frontend_inbound_webhook(request: Request):
                     dynamic_variables["policy_summary"] = build_policy_summary(policies)
                     dynamic_variables["carrier_list"] = build_carrier_list(policies)
 
-        # Build greeting
+        # Build greeting — MUST account for business hours
         is_repeat = repeat_info["is_repeat"]
         is_repeat_30min = repeat_info.get("is_repeat_30min", False)
         call_count = repeat_info["calls_24hr"]
+        is_open = bh_info["is_business_hours"] == "true"
 
         if dynamic_variables["customer_found"] == "true" and dynamic_variables["customer_name"]:
             name = dynamic_variables["customer_name"].split()[0]
@@ -839,16 +861,28 @@ async def frontend_inbound_webhook(request: Request):
                     f"you get the help you need. Let me take down your information and have someone "
                     f"from our team call you back as a priority. What can I help you with?"
                 )
-            elif dynamic_variables["policy_summary"]:
-                begin_msg = (
-                    f"Thank you for calling Better Choice Insurance Group! "
-                    f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
-                    f"How can I help you today?"
-                )
+            elif is_open:
+                # Business hours — standard greeting
+                if dynamic_variables["policy_summary"]:
+                    begin_msg = (
+                        f"Thank you for calling Better Choice Insurance Group! "
+                        f"Hi {name}, I see you have {dynamic_variables['policy_summary']}. "
+                        f"How can I help you today?"
+                    )
+                else:
+                    begin_msg = (
+                        f"Thank you for calling Better Choice Insurance Group! "
+                        f"Hi {name}! How can I help you today?"
+                    )
             else:
+                # After hours — mention office is closed
                 begin_msg = (
-                    f"Thank you for calling Better Choice Insurance Group! "
-                    f"Hi {name}! How can I help you today?"
+                    f"Thank you for calling Better Choice Insurance Group. "
+                    f"Hi {name}! Our office is currently closed — our hours are "
+                    f"Monday through Friday, 9 AM to 5 PM Central Time. "
+                    f"I can still help you though! I can transfer you directly to "
+                    f"your insurance carrier or take a detailed message for our team "
+                    f"to follow up on the next business day. What can I help you with?"
                 )
         else:
             if is_repeat_30min:
@@ -857,10 +891,19 @@ async def frontend_inbound_webhook(request: Request):
                     "I see you just called — let's make sure we get this handled. "
                     "How can I help?"
                 )
-            else:
+            elif is_open:
                 begin_msg = (
                     "Thank you for calling Better Choice Insurance Group! "
-                    "My name is Mia. How can I help you today?"
+                    "My name is Mia. What are you calling about today?"
+                )
+            else:
+                begin_msg = (
+                    "Thank you for calling Better Choice Insurance Group. "
+                    "Our office is currently closed — our hours are "
+                    "Monday through Friday, 9 AM to 5 PM Central Time. "
+                    "I can still help you though! I can transfer you directly to "
+                    "your insurance carrier or take a detailed message for our team "
+                    "to follow up on the next business day. What can I help you with?"
                 )
 
         dynamic_variables["greeting_message"] = begin_msg
