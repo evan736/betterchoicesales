@@ -878,7 +878,7 @@ async def frontend_inbound_webhook(request: Request):
                         "bypass_reason": bypass_result["reason"],
                         "policy_summary": "",
                         "carrier_list": "",
-            "self_service_info": "",
+                        "self_service_info": "",
                         "nowcerts_insured_id": "",
                         "customer_email": "",
                         "is_repeat_caller": "false",
