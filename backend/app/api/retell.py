@@ -237,6 +237,46 @@ def build_carrier_list(policies: list[dict]) -> str:
     return ", ".join(sorted(carriers))
 
 
+# Correct self-service info per carrier — injected as dynamic variables
+# so the LLM reads these instead of hallucinating from training data
+CARRIER_SELF_SERVICE = {
+    "progressive":      {"website": "progressive.com",       "app": "Progressive"},
+    "national general": {"website": "nationalgeneral.com",   "app": "National General"},
+    "natgen":           {"website": "nationalgeneral.com",   "app": "National General"},
+    "allstate":         {"website": "nationalgeneral.com",   "app": "National General"},
+    "encompass":        {"website": "nationalgeneral.com",   "app": "National General"},
+    "safeco":           {"website": "safeco.com",            "app": "Safeco"},
+    "grange":           {"website": "grangeinsurance.com",   "app": "Grange Insurance"},
+    "integrity":        {"website": "grangeinsurance.com",   "app": "Grange Insurance"},
+    "travelers":        {"website": "travelers.com",         "app": "MyTravelers"},
+    "geico":            {"website": "geico.com",             "app": "GEICO"},
+    "american modern":  {"website": "amig.com",              "app": "American Modern"},
+    "branch":           {"website": "ourbranch.com",         "app": "Branch"},
+    "hagerty":          {"website": "hagerty.com",           "app": "Hagerty"},
+    "openly":           {"website": "openly.com",            "app": "Openly"},
+    "steadily":         {"website": "steadily.com",          "app": "Steadily"},
+}
+
+
+def build_self_service_info(carrier_list: str) -> str:
+    """Build self-service info string from the carrier list.
+    
+    Returns something like:
+    'Grange: website is grangeinsurance.com, app is "Grange Insurance". Progressive: website is progressive.com, app is "Progressive".'
+    """
+    if not carrier_list:
+        return ""
+    parts = []
+    for carrier_name in carrier_list.split(", "):
+        key = carrier_name.strip().lower()
+        info = CARRIER_SELF_SERVICE.get(key)
+        if info:
+            parts.append(
+                f"{carrier_name}: website is {info['website']}, app is \"{info['app']}\""
+            )
+    return ". ".join(parts) + "." if parts else ""
+
+
 def send_mailgun_email(to: str, subject: str, html: str) -> bool:
     """Send email via Mailgun. `to` can be a comma-separated list."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
@@ -581,6 +621,7 @@ async def inbound_call_webhook(request: Request):
             "customer_name": "",
             "policy_summary": "",
             "carrier_list": "",
+            "self_service_info": "",
             "customer_phone": from_number,
             "nowcerts_insured_id": "",
             "customer_found": "false",
@@ -653,6 +694,7 @@ async def inbound_call_webhook(request: Request):
                 if policies:
                     dynamic_variables["policy_summary"] = build_policy_summary(policies)
                     dynamic_variables["carrier_list"] = build_carrier_list(policies)
+                    dynamic_variables["self_service_info"] = build_self_service_info(dynamic_variables["carrier_list"])
 
                 logger.info(
                     "Customer match: name=%s, id=%s, carriers=%s, source=%s",
@@ -836,6 +878,7 @@ async def frontend_inbound_webhook(request: Request):
                         "bypass_reason": bypass_result["reason"],
                         "policy_summary": "",
                         "carrier_list": "",
+            "self_service_info": "",
                         "nowcerts_insured_id": "",
                         "customer_email": "",
                         "is_repeat_caller": "false",
@@ -869,6 +912,7 @@ async def frontend_inbound_webhook(request: Request):
             "customer_name": "",
             "policy_summary": "",
             "carrier_list": "",
+            "self_service_info": "",
             "customer_phone": from_number,
             "nowcerts_insured_id": "",
             "customer_found": "false",
@@ -935,6 +979,7 @@ async def frontend_inbound_webhook(request: Request):
                 if policies:
                     dynamic_variables["policy_summary"] = build_policy_summary(policies)
                     dynamic_variables["carrier_list"] = build_carrier_list(policies)
+                    dynamic_variables["self_service_info"] = build_self_service_info(dynamic_variables["carrier_list"])
 
         # Build greeting — MUST account for business hours
         is_repeat = repeat_info["is_repeat"]
@@ -1731,6 +1776,7 @@ async def debug_lookup(phone: str):
                         results["raw_policies"] = policies[:5]  # First 5
                         results["policy_summary"] = build_policy_summary(policies)
                         results["carrier_list"] = build_carrier_list(policies)
+                        results["self_service_info"] = build_self_service_info(results["carrier_list"])
                     except Exception as e:
                         results["policy_error"] = str(e)
             else:
