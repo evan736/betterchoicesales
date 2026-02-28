@@ -501,7 +501,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
 
     # ── Wrap in branded HTML template (matches landing page design) ──
     SITE = "https://better-choice-web.onrender.com"
-    logo_url = f"{SITE}/carrier-logos/bci_logo_v2.png"
+    logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
     # Top 8 carrier logos for the strip
     carrier_row1 = ["safeco", "grange", "geico"]
     carrier_row2 = ["travelers", "branch", "hippo"]
