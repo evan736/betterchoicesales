@@ -603,8 +603,39 @@ async def inbound_call_webhook(request: Request):
                     f"I want to make sure we get this taken care of for you. "
                     f"How can I help?"
                 )
+            elif is_repeat and call_count >= 3 and is_open:
+                # 3+ calls today during BH — auto-transfer to office
+                logger.info(
+                    "REPEAT CALLER AUTO-TRANSFER: %s has called %d times — connecting to office",
+                    name, call_count
+                )
+                spoken = (
+                    f"Hi {name}, I can see you've called a few times today. "
+                    f"Let me connect you directly with our team right now."
+                )
+                dynamic_variables["is_repeat_caller"] = "true"
+                dynamic_variables["repeat_call_count"] = str(call_count)
+                dynamic_variables["bypass_active"] = "true"
+                dynamic_variables["bypass_reason"] = f"repeat_caller_{call_count}_calls"
+
+                return {
+                    "call_inbound": {
+                        "dynamic_variables": dynamic_variables,
+                        "agent_override": {
+                            "retell_llm": {
+                                "begin_message": spoken,
+                            },
+                            "reminder_trigger_ms": 2000,
+                            "reminder_max_count": 1,
+                        },
+                        "metadata": {
+                            "source": "repeat_caller_auto_transfer",
+                            "call_count": call_count,
+                        }
+                    }
+                }
             elif is_repeat and call_count >= 3:
-                # 3+ calls today — escalate tone
+                # 3+ calls after hours — take urgent message
                 begin_msg = (
                     f"Hi {name}, I can see you've called a few times today and I want to make sure "
                     f"you get the help you need. Let me take down your information and have someone "
@@ -842,7 +873,39 @@ async def frontend_inbound_webhook(request: Request):
                     f"I want to make sure we get this taken care of for you. "
                     f"How can I help?"
                 )
+            elif is_repeat and call_count >= 3 and is_open:
+                # 3+ calls today during BH — auto-transfer to office
+                logger.info(
+                    "REPEAT CALLER AUTO-TRANSFER (frontend): %s has called %d times — connecting to office",
+                    name, call_count
+                )
+                spoken = (
+                    f"Hi {name}, I can see you've called a few times today. "
+                    f"Let me connect you directly with our team right now."
+                )
+                dynamic_variables["is_repeat_caller"] = "true"
+                dynamic_variables["repeat_call_count"] = str(call_count)
+                dynamic_variables["bypass_active"] = "true"
+                dynamic_variables["bypass_reason"] = f"repeat_caller_{call_count}_calls"
+
+                return {
+                    "call_inbound": {
+                        "dynamic_variables": dynamic_variables,
+                        "agent_override": {
+                            "retell_llm": {
+                                "begin_message": spoken,
+                            },
+                            "reminder_trigger_ms": 2000,
+                            "reminder_max_count": 1,
+                        },
+                        "metadata": {
+                            "source": "repeat_caller_auto_transfer",
+                            "call_count": call_count,
+                        }
+                    }
+                }
             elif is_repeat and call_count >= 3:
+                # 3+ calls after hours — take urgent message
                 begin_msg = (
                     f"Hi {name}, I can see you've called a few times today and I want to make sure "
                     f"you get the help you need. Let me take down your information and have someone "
