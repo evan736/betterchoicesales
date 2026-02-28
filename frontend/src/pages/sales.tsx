@@ -57,12 +57,20 @@ export default function Sales() {
   const [loadingSales, setLoadingSales] = useState(true);
   const [dropdownOptions, setDropdownOptions] = useState<any>({ lead_sources: [], carriers: [] });
 
-  // Date filter state
-  const [activePreset, setActivePreset] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  // Date filter state — default to This Month
   const monthPresets = useMemo(() => getMonthPresets(), []);
+  const thisMonthRange = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m + 1, 0);
+    return { from: fmt(start), to: fmt(end) };
+  }, []);
+  const [activePreset, setActivePreset] = useState('this_month');
+  const [dateFrom, setDateFrom] = useState(thisMonthRange.from);
+  const [dateTo, setDateTo] = useState(thisMonthRange.to);
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
