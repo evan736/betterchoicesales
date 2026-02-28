@@ -501,7 +501,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
 
     # ── Wrap in branded HTML template (matches landing page design) ──
     SITE = "https://better-choice-web.onrender.com"
-    logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
+    logo_url = f"{SITE}/carrier-logos/bci_logo_full.png"
     # Top 8 carrier logos for the strip
     carrier_row1 = ["safeco", "grange", "geico"]
     carrier_row2 = ["travelers", "branch", "hippo"]
@@ -519,9 +519,8 @@ Respond ONLY with a JSON object (no markdown, no backticks):
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.3);">
         <!-- Header with Logo -->
-        <tr><td style="background:linear-gradient(135deg, #0a1628 0%, #1a2d4a 100%);padding:32px 32px 24px;text-align:center;">
-          <img src="{logo_url}" alt="Better Choice Insurance" style="height:48px;display:inline-block;margin-bottom:8px;" />
-          <p style="margin:0;color:#64a5d4;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;">Your Independent Insurance Advisor</p>
+        <tr><td style="background:linear-gradient(135deg, #0a1628 0%, #1a2d4a 100%);padding:32px 32px 28px;text-align:center;">
+          <img src="{logo_url}" alt="Better Choice Insurance Group" style="height:56px;display:inline-block;" />
         </td></tr>
         <!-- Body -->
         <tr><td style="padding:32px 32px 16px;">{body_content}</td></tr>
