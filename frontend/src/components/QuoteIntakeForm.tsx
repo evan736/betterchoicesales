@@ -331,6 +331,24 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
           <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Property Details</h3>
           <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>These help us find the most competitive rates. Skip any you don&apos;t know.</p>
 
+          {/* Roof savings highlight - always visible */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.1) 0%, rgba(37,99,235,0.08) 100%)',
+            border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: '12px', padding: '14px 18px', marginBottom: '20px',
+            display: 'flex', alignItems: 'center', gap: '12px',
+          }}>
+            <span style={{ fontSize: '28px' }}>🏠</span>
+            <div>
+              <p style={{ color: '#34d399', fontSize: '15px', fontWeight: 700, margin: '0 0 2px' }}>
+                Newer roof? You could save 15-30% on your premium!
+              </p>
+              <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>
+                Homes with roofs under 10 years old qualify for significant discounts with most carriers. Enter your roof year below to see your savings potential.
+              </p>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
             <div style={{ flex: 1 }}>
               <label style={lS}>Year Roof Installed/Replaced</label>
