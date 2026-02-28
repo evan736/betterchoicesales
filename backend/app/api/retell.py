@@ -15,8 +15,37 @@ import re
 import json
 import hmac
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+# US Central Time offset (CT = UTC-6, CDT = UTC-5)
+# For simplicity we use America/Chicago via a fixed check
+def _get_business_hours_info() -> dict:
+    """Return current time info in Central Time and whether it's business hours."""
+    try:
+        import zoneinfo
+        ct = datetime.now(zoneinfo.ZoneInfo("America/Chicago"))
+    except Exception:
+        # Fallback: assume CDT (UTC-5) March-Nov, CST (UTC-6) Nov-March
+        utc_now = datetime.now(timezone.utc)
+        ct = utc_now - timedelta(hours=6)  # CST as safe default
+
+    weekday = ct.weekday()  # 0=Monday, 6=Sunday
+    hour = ct.hour
+    minute = ct.minute
+    
+    is_weekday = weekday < 5  # Mon-Fri
+    is_in_hours = 9 <= hour < 17  # 9 AM - 5 PM
+    is_business_hours = is_weekday and is_in_hours
+    
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    time_str = ct.strftime("%I:%M %p CT")
+    
+    return {
+        "is_business_hours": "true" if is_business_hours else "false",
+        "current_time": time_str,
+        "current_day": day_names[weekday],
+    }
 
 import requests
 from fastapi import APIRouter, Request, Response, HTTPException
@@ -400,6 +429,7 @@ async def inbound_call_webhook(request: Request):
         )
 
         # Default response — no customer found
+        bh_info = _get_business_hours_info()
         dynamic_variables = {
             "customer_name": "",
             "policy_summary": "",
@@ -410,6 +440,9 @@ async def inbound_call_webhook(request: Request):
             "is_repeat_caller": "false",
             "repeat_call_count": "1",
             "customer_email": "",
+            "is_business_hours": bh_info["is_business_hours"],
+            "current_time": bh_info["current_time"],
+            "current_day": bh_info["current_day"],
         }
 
         # Check for repeat caller
@@ -605,6 +638,7 @@ async def frontend_inbound_webhook(request: Request):
                 "One moment please, I'm connecting you to the office now."
             )
 
+            bh_info = _get_business_hours_info()
             return {
                 "call_inbound": {
                     "dynamic_variables": {
@@ -620,6 +654,9 @@ async def frontend_inbound_webhook(request: Request):
                         "is_repeat_caller": "false",
                         "repeat_call_count": "1",
                         "greeting_message": spoken_greeting,
+                        "is_business_hours": bh_info["is_business_hours"],
+                        "current_time": bh_info["current_time"],
+                        "current_day": bh_info["current_day"],
                     },
                     "agent_override": {
                         "retell_llm": {
@@ -639,6 +676,7 @@ async def frontend_inbound_webhook(request: Request):
 
         # ── NO BYPASS — proceed with normal NowCerts lookup ───
         # (Same logic as the overflow webhook)
+        bh_info = _get_business_hours_info()
         dynamic_variables = {
             "customer_name": "",
             "policy_summary": "",
@@ -651,6 +689,9 @@ async def frontend_inbound_webhook(request: Request):
             "is_repeat_caller": "false",
             "repeat_call_count": "1",
             "customer_email": "",
+            "is_business_hours": bh_info["is_business_hours"],
+            "current_time": bh_info["current_time"],
+            "current_day": bh_info["current_day"],
         }
 
         repeat_info = {"is_repeat": False, "is_repeat_30min": False, "calls_30min": 1, "calls_24hr": 1}
