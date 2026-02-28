@@ -503,11 +503,13 @@ Respond ONLY with a JSON object (no markdown, no backticks):
     SITE = "https://better-choice-web.onrender.com"
     logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
     # Top 8 carrier logos for the strip
-    carrier_logos = ["travelers", "progressive", "safeco", "grange", "hippo"]
-    carrier_imgs = "".join(
-        f'<img src="{SITE}/carrier-logos/{c}.png" alt="{c}" style="height:22px;max-width:90px;display:inline-block;margin:0 12px;opacity:0.6;" />'
-        for c in carrier_logos
-    )
+    carrier_row1 = ["safeco", "grange", "geico"]
+    carrier_row2 = ["travelers", "progressive", "hippo"]
+    def logo_img(c):
+        return f'<img src="{SITE}/carrier-logos/{c}.png" alt="{c}" style="height:22px;max-width:90px;display:inline-block;margin:0 14px;opacity:0.6;" />'
+    row1_html = "".join(logo_img(c) for c in carrier_row1)
+    row2_html = "".join(logo_img(c) for c in carrier_row2)
+    carrier_imgs = f'{row1_html}<br style="line-height:32px;" />{row2_html}'
 
     html = f"""<!DOCTYPE html>
 <html>
