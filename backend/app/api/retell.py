@@ -1069,15 +1069,35 @@ async def callback_request(request: Request):
             )
 
         # Return success message that MIA will read to caller
+        # Use business-hours-aware language so MIA doesn't say "as soon as possible" on weekends
+        bh_info = _get_business_hours_info()
+        if bh_info["is_business_hours"] == "true":
+            followup_timing = "as soon as possible"
+        else:
+            # Figure out next business day
+            day = bh_info["current_day"]
+            if day in ("Friday", "Saturday"):
+                followup_timing = "on Monday, the next business day"
+            elif day == "Sunday":
+                followup_timing = "on Monday, the next business day"
+            else:
+                followup_timing = "on the next business day"
+
         return {
-            "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} as soon as possible."
+            "result": f"Message recorded successfully. The service team has been notified and will reach out to {caller_name} {followup_timing}."
         }
 
     except Exception as e:
         logger.error("Callback request error: %s", e)
-        return {
-            "result": "I've noted your request. Our service team will follow up with you shortly."
-        }
+        bh_info = _get_business_hours_info()
+        if bh_info["is_business_hours"] == "true":
+            return {
+                "result": "I've noted your request. Our service team will follow up with you shortly."
+            }
+        else:
+            return {
+                "result": "I've noted your request. Our service team will follow up with you on the next business day."
+            }
 
 
 # ── 2b. LOOKUP CUSTOMER (mid-call tool) ───────────────────────────
