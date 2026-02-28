@@ -174,7 +174,6 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
   };
 
   const handleNext = () => {
-    if (step === 1) sendLead(); // partial lead after contact
     if (step < totalSteps - 1) setStep(s => s + 1);
   };
 
