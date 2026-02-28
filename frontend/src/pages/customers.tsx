@@ -158,13 +158,25 @@ export default function CustomersPage() {
       setDetailLoading(true);
       try { const r = await customersAPI.get(customer.id); setDetail(r.data); } catch {}
       setDetailLoading(false);
-      // Load notes
-      try { const nr = await customersAPI.notes(customer.id, 3); setCustomerNotes(nr.data || []); } catch {}
+      // Load notes from NowCerts + local
+      try {
+        const nr = await customersAPI.notes(customer.id, 3);
+        console.log('Notes response:', nr.data);
+        setCustomerNotes(nr.data || []);
+      } catch (e) {
+        console.error('Notes fetch error:', e);
+      }
     }
   };
 
   const loadNotes = async (customerId: number) => {
-    try { const nr = await customersAPI.notes(customerId, 3); setCustomerNotes(nr.data || []); } catch {}
+    try {
+      const nr = await customersAPI.notes(customerId, 3);
+      console.log('Notes refresh:', nr.data);
+      setCustomerNotes(nr.data || []);
+    } catch (e) {
+      console.error('Notes refresh error:', e);
+    }
   };
 
   // Auto-expand first result when arriving from navbar search
