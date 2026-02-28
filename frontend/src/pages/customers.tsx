@@ -87,6 +87,24 @@ export default function CustomersPage() {
     else if (user) { loadStatus(); loadStats(); }
   }, [user, authLoading]);
 
+  // Read ?search= query param from URL (from navbar quick search)
+  const [autoExpandPending, setAutoExpandPending] = useState(false);
+  useEffect(() => {
+    if (!user || !router.isReady) return;
+    const q = router.query.search as string;
+    if (q && q.trim()) {
+      setSearchQuery(q.trim());
+      setPage(1);
+      setAutoExpandPending(true);
+      doSearch(q.trim(), 1);
+      // Clean the URL so refresh doesn't re-trigger
+      router.replace('/customers', undefined, { shallow: true });
+    }
+  }, [user, router.isReady, router.query.search]);
+
+  // Auto-expand first result when arriving from navbar search
+  // (moved to after handleExpand definition below)
+
   // SSE live updates
   useEffect(() => {
     if (!user) return;
@@ -136,6 +154,16 @@ export default function CustomersPage() {
       setDetailLoading(false);
     }
   };
+
+  // Auto-expand first result when arriving from navbar search
+  useEffect(() => {
+    if (autoExpandPending && !loading && customers.length > 0) {
+      setAutoExpandPending(false);
+      if (customers.length <= 3) {
+        handleExpand(customers[0]);
+      }
+    }
+  }, [autoExpandPending, loading, customers]);
 
   const loadDrivers = async (customerId: number) => {
     setDriversLoading(true);
