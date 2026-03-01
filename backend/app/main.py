@@ -41,7 +41,6 @@ def init_database():
     from app.models.commission import CommissionTier
     from app.models.timeclock import TimeClockEntry  # ensure table is created
     from app.models.nonpay import NonPayNotice, NonPayEmail  # ensure tables created
-    from app.models.customer_notes import CustomerNote  # ensure table created
     from app.models.task import Task, NonRenewalNotification  # ensure task tables created
     from app.models.compliance_reminder import ComplianceReminder  # ensure reminder table created
     from app.models.campaign import (  # ensure campaign tables created
