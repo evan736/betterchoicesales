@@ -1497,7 +1497,7 @@ def bind_confirmation_page(quote_id: int):
 
 <script>
 function formatPhone(el) {{
-  let v = el.value.replace(/\\D/g, '');
+  let v = el.value.replace(/[^0-9]/g, '');
   if (v.length > 10) v = v.slice(0, 10);
   if (v.length >= 7) el.value = '(' + v.slice(0,3) + ') ' + v.slice(3,6) + '-' + v.slice(6);
   else if (v.length >= 4) el.value = '(' + v.slice(0,3) + ') ' + v.slice(3);
@@ -1509,7 +1509,7 @@ async function confirmBind() {{
   const btn = document.getElementById('bindBtn');
   const phone = document.getElementById('phoneInput').value.trim();
   
-  if (!phone || phone.replace(/\\D/g, '').length < 10) {{
+  if (!phone || phone.replace(/[^0-9]/g, '').length < 10) {{
     document.getElementById('phoneInput').style.borderColor = '#EF4444';
     document.getElementById('phoneInput').focus();
     return;
