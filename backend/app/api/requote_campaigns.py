@@ -825,13 +825,11 @@ async def send_preview_emails(
     to_email: str = Query("evan@betterchoiceins.com"),
     current_user: User = Depends(get_current_user),
 ):
-    """Generate and send 5 sample AI-powered campaign emails to preview the system."""
+    """Generate and send sample AI-powered campaign emails to preview the system."""
     scenarios = [
         {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 1, "retarget_round": 0, "city": "Naperville", "state": "IL"},
-        {"first_name": "Mike", "policy_type": "auto", "carrier": "GEICO", "x_date": "May 1, 2026", "touch": 2, "retarget_round": 0, "city": "Schaumburg", "state": "IL"},
-        {"first_name": "Jennifer", "policy_type": "homeowners", "carrier": "Allstate", "x_date": "June 10, 2026", "touch": 1, "retarget_round": 1, "city": "Elgin", "state": "IL"},
-        {"first_name": "David", "policy_type": "home", "carrier": "Travelers", "x_date": "March 20, 2026", "touch": 1, "retarget_round": 2, "city": "Aurora", "state": "IL"},
-        {"first_name": "Lisa", "policy_type": "bundle", "carrier": "Liberty Mutual", "x_date": "April 30, 2026", "touch": 2, "retarget_round": 1, "city": "St Charles", "state": "IL"},
+        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 2, "retarget_round": 0, "city": "Naperville", "state": "IL"},
+        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 3, "retarget_round": 0, "city": "Naperville", "state": "IL"},
     ]
 
     unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
