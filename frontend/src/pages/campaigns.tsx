@@ -734,6 +734,19 @@ export default function CampaignsPage() {
                     </div>
                   )}
 
+                  {/* Unchecked leads — need to run Dedup */}
+                  {uploadResult.nowcerts_unchecked > 0 && (
+                    <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle size={16} className="text-blue-400" />
+                          <span className="text-sm font-semibold text-blue-300">{uploadResult.nowcerts_unchecked} leads still need NowCerts check</span>
+                        </div>
+                        <span className="text-xs text-slate-500">Run Dedup after confirming campaign</span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Sample leads preview */}
                   {uploadResult.sample_leads?.length > 0 && (
                     <div>

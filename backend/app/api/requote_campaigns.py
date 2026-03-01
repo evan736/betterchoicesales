@@ -182,14 +182,14 @@ COLUMN_MAP = {
     'mobile': [r'mobile', r'cell', r'cell.?phone'],
     'address': [r'street', r'address', r'street.?address', r'mailing.?address'],
     'city': [r'^city$'],
-    'state': [r'^state$', r'^st$'],
+    'state': [r'^state$', r'^st$', r'state.?code'],
     'zip_code': [r'^zip', r'postal', r'zip.?code'],
-    'policy_type': [r'policy.?type', r'line.?of.?business', r'lob', r'product'],
+    'policy_type': [r'policy.?type', r'line.?of.?business', r'lob', r'product', r'lead.?type'],
     'carrier': [r'carrier', r'company', r'insurance.?company', r'insurer'],
     'premium': [r'premium', r'annual.?premium', r'current.?premium'],
     'quote_premium': [r'quote.?premium', r'quoted'],
     'agent_name': [r'agent', r'producer', r'assigned', r'csr'],
-    'x_date': [r'x.?date', r'expir', r'renewal.?date', r'eff.*date', r'policy.?exp'],
+    'x_date': [r'x.?date', r'expir', r'renewal.?date', r'eff.*date', r'policy.?exp', r'received.?date'],
     'follow_up_date': [r'follow.?up', r'callback', r'next.?contact'],
     'status': [r'^status$', r'lead.?status', r'disposition'],
 }
@@ -948,11 +948,14 @@ async def upload_leads(
     # ── Auto-run NowCerts dedup ──
     nowcerts_results = {"checked": 0, "current_customers": 0, "current_customer_list": []}
 
+    # Only auto-check first 50 leads during upload to avoid timeout on large files.
+    # For larger lists, use the separate /dedup endpoint to check in batches.
+    UPLOAD_NOWCERTS_LIMIT = 50
     if check_nowcerts:
         leads_to_check = db.query(RequoteLead).filter(
             RequoteLead.campaign_id == campaign.id,
             RequoteLead.dedup_checked == False,
-        ).all()
+        ).limit(UPLOAD_NOWCERTS_LIMIT).all()
 
         for lead in leads_to_check:
             result = _check_nowcerts_customer(
@@ -995,6 +998,11 @@ async def upload_leads(
         RequoteLead.status == "past_xdate",
     ).count()
 
+    unchecked = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign.id,
+        RequoteLead.dedup_checked == False,
+    ).count()
+
     return {
         "campaign_id": campaign.id,
         "campaign_name": campaign.name,
@@ -1006,8 +1014,9 @@ async def upload_leads(
         "would_receive_email": sendable,
         "past_xdate": past_xdate,
         "nowcerts_check": nowcerts_results,
+        "nowcerts_unchecked": unchecked,
         "sample_leads": sample_leads,
-        "message": f"Campaign created in DRAFT mode. {sendable} leads would receive emails. {nowcerts_results['current_customers']} current customers excluded.",
+        "message": f"Campaign created in DRAFT mode. {sendable} leads would receive emails. {nowcerts_results['current_customers']} current customers excluded." + (f" {unchecked} leads still need NowCerts check — run Dedup to finish." if unchecked > 0 else ""),
     }
 
 
