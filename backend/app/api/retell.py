@@ -1451,13 +1451,27 @@ async def post_call_webhook(request: Request):
 
         # Extract call analysis data (available on call_analyzed, may be on call_ended too)
         call_analysis = call.get("call_analysis", {})
-        call_summary = call_analysis.get("call_summary", "")
-        call_type = call_analysis.get("call_type", "")
-        carrier = call_analysis.get("carrier", "")
-        department = call_analysis.get("department", "")
-        sentiment = call_analysis.get("caller_sentiment", call_analysis.get("user_sentiment", ""))
-        resolution = call_analysis.get("resolution", "")
-        follow_up = call_analysis.get("follow_up_needed", "")
+        custom = call_analysis.get("custom_analysis_data", {})
+        if isinstance(custom, str):
+            try:
+                custom = json.loads(custom)
+            except Exception:
+                custom = {}
+        
+        # call_summary and user_sentiment are top-level in call_analysis
+        # Everything else is inside custom_analysis_data
+        call_summary = call_analysis.get("call_summary", "") or custom.get("call_summary", "")
+        call_type = custom.get("call_type", "") or call_analysis.get("call_type", "")
+        carrier = custom.get("carrier", "") or call_analysis.get("carrier", "")
+        department = custom.get("department", "") or call_analysis.get("department", "")
+        sentiment = custom.get("caller_sentiment", "") or call_analysis.get("user_sentiment", "")
+        resolution = custom.get("resolution", "") or call_analysis.get("resolution", "")
+        follow_up = custom.get("follow_up_needed", "") or call_analysis.get("follow_up_needed", "")
+        
+        logger.info(
+            "Post-call analysis: type=%s carrier=%s resolution=%s sentiment=%s",
+            call_type, carrier, resolution, sentiment
+        )
 
         # Log note to NowCerts on call_analyzed (has summary + analysis data)
         if insured_id and event == "call_analyzed":
