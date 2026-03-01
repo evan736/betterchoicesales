@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import {
   Upload, Search, Users, Mail, Calendar, BarChart2, Play, Pause,
-  CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle,
+  CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, Trash2,
   Target, Send, UserX, UserCheck, Filter, RefreshCw, Eye, MailOpen,
 } from 'lucide-react';
 import axios from 'axios';
@@ -227,6 +227,19 @@ export default function CampaignsPage() {
     } catch (e) { console.error(e); }
   };
 
+  const deleteCampaign = async () => {
+    if (!selectedCampaign) return;
+    if (!confirm(`Delete campaign "${selectedCampaign.name}" and all its leads? This cannot be undone.`)) return;
+    try {
+      await axios.post(`${API}/api/campaigns/${selectedCampaign.id}/delete`, {}, { headers: headers() });
+      setView('list');
+      setSelectedCampaign(null);
+      loadCampaigns();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Delete failed');
+    }
+  };
+
   useEffect(() => {
     if (selectedCampaign) loadLeads(selectedCampaign.id, 1);
   }, [leadFilter, searchQuery]);
@@ -291,6 +304,10 @@ export default function CampaignsPage() {
                 <button onClick={toggleCampaignStatus}
                   className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-slate-300 text-xs font-semibold transition">
                   {selectedCampaign?.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Resume</>}
+                </button>
+                <button onClick={deleteCampaign}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg text-red-400 text-xs font-semibold transition">
+                  <Trash2 size={14} /> Delete
                 </button>
               </>
             )}

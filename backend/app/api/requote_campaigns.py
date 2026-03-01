@@ -1383,6 +1383,21 @@ def delete_draft(campaign_id: int, current_user: User = Depends(get_current_user
     db.commit()
     return {"message": "Draft campaign deleted."}
 
+
+@router.post("/{campaign_id}/delete")
+def delete_campaign(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete any campaign and all its leads. Requires manager/admin role."""
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Only managers and admins can delete campaigns")
+    campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    db.query(RequoteLead).filter(RequoteLead.campaign_id == campaign_id).delete()
+    db.delete(campaign)
+    db.commit()
+    return {"message": f"Campaign '{campaign.name}' deleted."}
+
+
 @router.post("/{campaign_id}/pause")
 def pause_campaign(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
