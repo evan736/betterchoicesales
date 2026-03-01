@@ -897,20 +897,33 @@ async def upload_leads(
         # Parse premium
         premium = _parse_premium(raw.get('premium'))
 
-        # Calculate drip schedule based on X-date
+        # Calculate drip schedule based on X-date (received/quote date).
+        # The X-date represents when they shopped — target the same window annually.
+        # Roll the date forward to the next upcoming anniversary year.
         touch1_date = None
         touch2_date = None
         lead_status = "pending"
 
         if x_date:
-            touch1_date = x_date - timedelta(days=touch1_days)
-            touch2_date = x_date - timedelta(days=touch2_days)
             now = datetime.utcnow()
-            if touch1_date < now:
-                # X-date is past or imminent — lead is ready to email now
-                lead_status = "pending"
-            elif touch2_date < now:
-                lead_status = "touch2_scheduled"
+            # Find the next annual anniversary of the x_date
+            # Handle Feb 29 → Feb 28 for non-leap years
+            try:
+                annual_xdate = x_date.replace(year=now.year)
+            except ValueError:
+                annual_xdate = x_date.replace(year=now.year, day=28)
+            # Only roll to next year if the anniversary date itself has passed
+            if annual_xdate < now:
+                try:
+                    annual_xdate = x_date.replace(year=now.year + 1)
+                except ValueError:
+                    annual_xdate = x_date.replace(year=now.year + 1, day=28)
+
+            touch1_date = annual_xdate - timedelta(days=touch1_days)
+            touch2_date = annual_xdate - timedelta(days=touch2_days)
+
+            if touch1_date <= now:
+                lead_status = "touch1_scheduled"  # Ready to send touch 1 now
             else:
                 lead_status = "touch1_scheduled"
 
