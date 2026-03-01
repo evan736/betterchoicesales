@@ -499,6 +499,7 @@ BRAND RULES (MUST FOLLOW):
 - NEVER mention a specific carrier name
 - NEVER mention "self-service", "portal", "app", or "online account"
 - NEVER reference specific dates like "April 15th" or "May 1st" — use relative language like "coming up soon", "just around the corner", "in the next few weeks"
+- NEVER say "Midwest" — Better Choice serves customers NATIONALLY across all 50 states
 - Sign off as "The Better Choice Team" or "Better Choice Insurance Group"
 - Tone: professional, friendly, concise — like a premium brand, not a local sales pitch
 - Key value props: Compare rates from 15+ top carriers. Customers save avg $1,150/year when bundling home & auto. Free, fast, zero obligation.

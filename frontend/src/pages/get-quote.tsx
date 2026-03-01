@@ -55,7 +55,7 @@ export default function GetQuotePage() {
   const [decFile, setDecFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
-  const [analysisFormData, setAnalysisFormData] = useState({ name: '', phone: '', email: '' });
+  const [analysisFormData, setAnalysisFormData] = useState({ name: '', phone: '', email: '', address: '', city: '', state: '', zip: '' });
   const [analysisSent, setAnalysisSent] = useState(false);
   const [aiContactCollected, setAiContactCollected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,9 +73,13 @@ export default function GetQuotePage() {
         name: fullName || prev.name,
         email: leadEmail || prev.email,
         phone: leadPhone || prev.phone,
+        address: leadAddress || prev.address,
+        city: leadCity || prev.city,
+        state: leadState || prev.state,
+        zip: leadZip || prev.zip,
       }));
     }
-  }, [fullName, leadEmail, leadPhone]);
+  }, [fullName, leadEmail, leadPhone, leadAddress, leadCity, leadState, leadZip]);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 
@@ -282,6 +286,32 @@ export default function GetQuotePage() {
                     <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
                       type="email" value={analysisFormData.email} placeholder="john@example.com"
                       onChange={e => setAnalysisFormData(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Address</label>
+                    <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                      value={analysisFormData.address} placeholder="123 Main St"
+                      onChange={e => setAnalysisFormData(p => ({ ...p, address: e.target.value }))} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>City</label>
+                      <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                        value={analysisFormData.city} placeholder="Chicago"
+                        onChange={e => setAnalysisFormData(p => ({ ...p, city: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>State</label>
+                      <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                        value={analysisFormData.state} placeholder="IL" maxLength={2}
+                        onChange={e => setAnalysisFormData(p => ({ ...p, state: e.target.value.toUpperCase() }))} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', color: '#94a3b8', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Zip</label>
+                      <input style={{ width: '100%', padding: '12px 16px', fontSize: '15px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', outline: 'none', boxSizing: 'border-box' as const, fontFamily: "'DM Sans', sans-serif" }}
+                        value={analysisFormData.zip} placeholder="60601"
+                        onChange={e => setAnalysisFormData(p => ({ ...p, zip: e.target.value }))} />
+                    </div>
                   </div>
                   <button onClick={() => setAiContactCollected(true)}
                     disabled={!analysisFormData.name || !analysisFormData.phone || !analysisFormData.email}
