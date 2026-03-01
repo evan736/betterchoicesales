@@ -8,6 +8,12 @@ interface Driver {
   relationship: string;
 }
 
+interface Vehicle {
+  year: string;
+  make: string;
+  model: string;
+}
+
 interface QuoteFormData {
   products: string[];
   firstName: string;
@@ -23,6 +29,7 @@ interface QuoteFormData {
   homeYear: string;
   sqft: string;
   drivers: Driver[];
+  vehicles: Vehicle[];
   currentCarrier: string;
   currentPremium: string;
   privacyConsent: boolean;
@@ -34,6 +41,7 @@ const INITIAL: QuoteFormData = {
   address: '', city: '', state: '', zip: '',
   roofYear: '', homeYear: '', sqft: '',
   drivers: [{ name: '', dob: '', relationship: 'Self' }],
+  vehicles: [{ year: '', make: '', model: '' }],
   currentCarrier: '', currentPremium: '',
   privacyConsent: false,
 };
@@ -90,7 +98,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
     'contact',
     'address',
     ...(needsHome ? ['property'] : []),
-    ...(needsAuto ? ['drivers'] : []),
+    ...(needsAuto ? ['drivers', 'vehicles'] : []),
     'coverage',
   ];
   const totalSteps = steps.length;
@@ -115,6 +123,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
     if (!form.firstName && !form.phone) return;
     try {
       const driverInfo = form.drivers.filter(d => d.name).map(d => `${d.name} (DOB: ${d.dob || 'N/A'}, ${d.relationship || 'N/A'})`).join('; ');
+      const vehicleInfo = form.vehicles.filter(v => v.year || v.make || v.model).map(v => `${v.year} ${v.make} ${v.model}`.trim()).join('; ');
       await fetch(`${API}/api/campaigns/landing-lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,6 +138,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
             `Address: ${form.address}, ${form.city}, ${form.state} ${form.zip}`,
             needsHome ? `Roof: ${form.roofYear || 'N/A'}, Built: ${form.homeYear || 'N/A'}, Sqft: ${form.sqft || 'N/A'}` : '',
             needsAuto ? `Drivers: ${driverInfo || 'N/A'}` : '',
+            needsAuto ? `Vehicles: ${vehicleInfo || 'N/A'}` : '',
             `Current carrier: ${form.currentCarrier || 'N/A'}`,
             `Current premium: ${form.currentPremium ? '$' + form.currentPremium : 'N/A'}/yr`,
           ].filter(Boolean).join('\n'),
@@ -189,6 +199,11 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
 
   const addDriver = () => setForm(p => ({ ...p, drivers: [...p.drivers, { name: '', dob: '', relationship: '' }] }));
   const removeDriver = (i: number) => { if (i > 0) setForm(p => ({ ...p, drivers: p.drivers.filter((_, j) => j !== i) })); };
+  const addVehicle = () => setForm(p => ({ ...p, vehicles: [...p.vehicles, { year: '', make: '', model: '' }] }));
+  const removeVehicle = (i: number) => { if (i > 0) setForm(p => ({ ...p, vehicles: p.vehicles.filter((_, j) => j !== i) })); };
+  const updateVehicle = (i: number, field: keyof Vehicle, val: string) => {
+    setForm(p => ({ ...p, vehicles: p.vehicles.map((v, j) => j === i ? { ...v, [field]: val } : v) }));
+  };
   const updateDriver = (i: number, f: keyof Driver, v: string) => {
     setForm(p => { const d = [...p.drivers]; d[i] = { ...d[i], [f]: v }; return { ...p, drivers: d }; });
   };
@@ -361,28 +376,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
             </div>
           </div>
 
-          {/* Roof age discount callout */}
-          {roofAge !== null && !isNaN(roofAge) && roofAge >= 0 && (
-            <div style={{
-              background: roofAge <= 10 ? 'rgba(16,185,129,0.12)' : roofAge <= 15 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.08)',
-              border: `1px solid ${roofAge <= 10 ? 'rgba(16,185,129,0.3)' : roofAge <= 15 ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.2)'}`,
-              borderRadius: '10px', padding: '12px 16px', marginBottom: '16px',
-            }}>
-              {roofAge <= 10 ? (
-                <p style={{ color: '#34d399', fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  🎉 Great news! Your {roofAge}-year-old roof qualifies for significant discounts with most carriers. Newer roofs can save you 15-30% on your homeowners premium!
-                </p>
-              ) : roofAge <= 15 ? (
-                <p style={{ color: '#fbbf24', fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  Your roof is {roofAge} years old. Many carriers offer better rates for roofs under 15 years. If you&apos;ve had recent updates, let us know — it could mean extra savings.
-                </p>
-              ) : (
-                <p style={{ color: '#f87171', fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  Your roof is {roofAge} years old. Some carriers may restrict coverage or increase rates for older roofs. We&apos;ll shop carriers that are roof-age friendly to find you the best deal.
-                </p>
-              )}
-            </div>
-          )}
+          {/* Roof age info removed — agents handle this */}
 
           <div style={{ marginBottom: '16px' }}>
             <label style={lS}>Square Footage (approx.)</label>
@@ -449,6 +443,53 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
             color: '#60a5fa', fontSize: '14px', fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center',
           }}>
             <Plus size={16} /> Add Another Driver
+          </button>
+        </div>
+      )}
+
+      {/* ── Vehicles ── */}
+      {currentStepType === 'vehicles' && (
+        <div>
+          <h3 style={{ color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 4px' }}>Vehicles in the Household</h3>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: '0 0 24px' }}>List all vehicles you&apos;d like quoted. We&apos;ll find the best rate for each.</p>
+          {form.vehicles.map((vehicle, idx) => (
+            <div key={idx} style={{
+              background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '16px',
+              border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px', position: 'relative',
+            }}>
+              {idx > 0 && (
+                <button onClick={() => removeVehicle(idx)} style={{ position: 'absolute', top: '8px', right: '8px', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}>
+                  <X size={16} />
+                </button>
+              )}
+              <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 700, marginBottom: '10px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
+                Vehicle {idx + 1}
+              </div>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' as const }}>
+                <div style={{ flex: '1 1 80px' }}>
+                  <label style={lS}>Year</label>
+                  <input style={iS} value={vehicle.year} placeholder="e.g. 2021" maxLength={4}
+                    onChange={e => updateVehicle(idx, 'year', e.target.value)} />
+                </div>
+                <div style={{ flex: '2 1 120px' }}>
+                  <label style={lS}>Make</label>
+                  <input style={iS} value={vehicle.make} placeholder="e.g. Toyota"
+                    onChange={e => updateVehicle(idx, 'make', e.target.value)} />
+                </div>
+                <div style={{ flex: '2 1 120px' }}>
+                  <label style={lS}>Model</label>
+                  <input style={iS} value={vehicle.model} placeholder="e.g. Camry"
+                    onChange={e => updateVehicle(idx, 'model', e.target.value)} />
+                </div>
+              </div>
+            </div>
+          ))}
+          <button onClick={addVehicle} style={{
+            display: 'flex', alignItems: 'center', gap: '6px', background: 'none',
+            border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '8px', padding: '10px 16px',
+            color: '#60a5fa', fontSize: '14px', fontWeight: 600, cursor: 'pointer', width: '100%', justifyContent: 'center',
+          }}>
+            <Plus size={16} /> Add Another Vehicle
           </button>
         </div>
       )}
