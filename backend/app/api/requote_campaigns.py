@@ -493,7 +493,7 @@ BRAND RULES (MUST FOLLOW):
 - NEVER reference specific dates like "April 15th" or "May 1st" — use relative language like "coming up soon", "just around the corner", "in the next few weeks"
 - Sign off as "The Better Choice Team" or "Better Choice Insurance Group"
 - Tone: professional, friendly, concise — like a premium brand, not a local sales pitch
-- Key value props: Compare rates from 15+ top carriers. Customers save avg $1,150/year. Free, fast, zero obligation.
+- Key value props: Compare rates from 15+ top carriers. Customers save avg $1,150/year when bundling home & auto. Free, fast, zero obligation.
 - CTA: Reply with your declarations page, call (847) 908-5665, or click the button below
 - Keep it SHORT: 2-3 short paragraphs max. Every sentence earns its place. No filler.
 - Do NOT use the word "unsubscribe"
@@ -543,7 +543,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
                 </p>
                 <p style="font-size:16px;color:#333;line-height:1.6;">
                     As an independent agency representing 15+ carriers, we can run a quick comparison to see if there's
-                    a better deal available for you. Our customers save an average of $1,150 per year.
+                    a better deal available for you. Our customers save an average of $1,150 per year when bundling home &amp; auto.
                 </p>
                 <p style="font-size:16px;color:#333;line-height:1.6;">
                     <strong>Want us to take a look?</strong> Just reply with your current declarations page or call us at (847) 908-5665.
@@ -579,7 +579,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
                 All we need is your current declarations page and we'll compare rates across 15+ carriers. 
-                Our customers save an average of <strong>$1,150 per year</strong> — and there's zero obligation.
+                Our customers save an average of <strong>$1,150 per year</strong> when bundling home &amp; auto — and there's zero obligation.
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
                 Reply to this email, call us at <strong>(847) 908-5665</strong>, or click below to get started.
@@ -652,7 +652,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
               </td>
               <td width="34%" style="text-align:center;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
                 <p style="margin:0;font-size:22px;font-weight:800;color:#0a1628;">$1,150+</p>
-                <p style="margin:2px 0 0;font-size:11px;color:#94a3b8;">Avg. Savings</p>
+                <p style="margin:2px 0 0;font-size:11px;color:#94a3b8;">Avg. Bundle Savings</p>
               </td>
               <td width="33%" style="text-align:center;">
                 <p style="margin:0;font-size:22px;font-weight:800;color:#0a1628;">2,500+</p>
