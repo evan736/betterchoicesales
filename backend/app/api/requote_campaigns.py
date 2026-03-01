@@ -340,9 +340,6 @@ def _check_current_customer(db_session, email: str, first_name: str = "", last_n
                 Customer.is_active == True,
             ).first()
 
-        # 3. Fallback: phone match (strip non-digits)
-        # (skipped for now — email + name should catch most)
-
         if not match:
             return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
 
@@ -361,6 +358,63 @@ def _check_current_customer(db_session, email: str, first_name: str = "", last_n
 
     except Exception as e:
         logger.warning(f"Customer dedup check failed for {email}: {e}")
+        return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
+
+
+def _build_customer_lookup(db_session) -> dict:
+    """Pre-load all active customers into memory for fast bulk dedup.
+    Returns dict with email_map, name_map, and active_policy_ids set.
+    """
+    from app.models.customer import Customer, CustomerPolicy
+    from sqlalchemy import func as sqlfunc
+
+    # Load all active customers in one query
+    customers = db_session.query(Customer).filter(Customer.is_active == True).all()
+
+    email_map = {}  # lowercase email -> customer
+    name_map = {}   # (lowercase first, lowercase last) -> customer
+
+    for c in customers:
+        if c.email:
+            email_map[c.email.lower().strip()] = c
+        if c.first_name and c.last_name:
+            key = (c.first_name.lower().strip(), c.last_name.lower().strip())
+            name_map[key] = c
+
+    # Load all active policy customer IDs in one query
+    active_policy_ids = set()
+    active_policies = db_session.query(CustomerPolicy.customer_id).filter(
+        sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+    ).distinct().all()
+    for (cid,) in active_policies:
+        active_policy_ids.add(cid)
+
+    return {"email_map": email_map, "name_map": name_map, "active_policy_ids": active_policy_ids}
+
+
+def _check_customer_fast(lookup: dict, email: str, first_name: str = "", last_name: str = "") -> dict:
+    """Fast in-memory customer check using pre-loaded lookup tables. Zero DB queries."""
+    try:
+        match = None
+
+        if email:
+            match = lookup["email_map"].get(email.lower().strip())
+
+        if not match and first_name and last_name:
+            key = (first_name.lower().strip(), last_name.lower().strip())
+            match = lookup["name_map"].get(key)
+
+        if not match:
+            return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
+
+        return {
+            "is_customer": True,
+            "match_name": match.full_name or f"{match.first_name or ''} {match.last_name or ''}".strip(),
+            "match_id": str(match.id),
+            "has_active_policy": match.id in lookup["active_policy_ids"],
+        }
+    except Exception as e:
+        logger.warning(f"Fast customer check failed for {email}: {e}")
         return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
 
 
@@ -974,15 +1028,17 @@ async def upload_leads(
     # ── Auto-run NowCerts dedup ──
     nowcerts_results = {"checked": 0, "current_customers": 0, "current_customer_list": []}
 
-    # Check all leads against local customer database (instant — no external API calls)
+    # Check all leads against local customer database using bulk pre-load (2 DB queries total, not per-lead)
     if check_nowcerts:
+        lookup = _build_customer_lookup(db)
+
         leads_to_check = db.query(RequoteLead).filter(
             RequoteLead.campaign_id == campaign.id,
             RequoteLead.dedup_checked == False,
         ).all()
 
         for lead in leads_to_check:
-            result = _check_current_customer(db, 
+            result = _check_customer_fast(lookup,
                 lead.email or "",
                 lead.first_name or "",
                 lead.last_name or "",
@@ -1057,10 +1113,12 @@ async def run_dedup(
         RequoteLead.dedup_checked == False,
     ).all()
 
+    lookup = _build_customer_lookup(db)
+
     checked = 0
     matched = 0
     for lead in leads:
-        result = _check_current_customer(db, 
+        result = _check_customer_fast(lookup,
             lead.email or "",
             lead.first_name or "",
             lead.last_name or "",
@@ -1870,6 +1928,7 @@ async def recheck_nowcerts_all(
 
     total_checked = 0
     new_customers = 0
+    lookup = _build_customer_lookup(db)
 
     for campaign in active_campaigns:
         leads = db.query(RequoteLead).filter(
@@ -1880,7 +1939,7 @@ async def recheck_nowcerts_all(
         ).limit(500).all()
 
         for lead in leads:
-            result = _check_current_customer(db, 
+            result = _check_customer_fast(lookup,
                 lead.email or "",
                 lead.first_name or "",
                 lead.last_name or "",
@@ -1946,6 +2005,7 @@ async def auto_retarget(
 
         # Filter out global opt-outs and re-check NowCerts
         retarget_leads = []
+        lookup = _build_customer_lookup(db)
         for lead in unconverted:
             email = (lead.email or "").lower()
             if not email:
@@ -1958,7 +2018,7 @@ async def auto_retarget(
                 continue
 
             # Re-check NowCerts
-            nc_result = _check_current_customer(db, email, lead.first_name or "", lead.last_name or "")
+            nc_result = _check_customer_fast(lookup, email, lead.first_name or "", lead.last_name or "")
             if nc_result["is_customer"]:
                 lead.is_current_customer = True
                 lead.nowcerts_match_name = nc_result.get("match_name")
