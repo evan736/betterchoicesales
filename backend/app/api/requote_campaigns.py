@@ -836,7 +836,7 @@ async def upload_leads(
         total_uploaded=len(raw_leads),
         status="draft",
         created_by=current_user.id,
-        created_by_name=f"{current_user.first_name or ''} {current_user.last_name or ''}".strip() or current_user.username,
+        created_by_name=current_user.full_name or current_user.username,
     )
     db.add(campaign)
     db.flush()
