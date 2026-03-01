@@ -490,6 +490,7 @@ BRAND RULES (MUST FOLLOW):
 - NEVER use "[Agent Name]" or any placeholder name — the email is from the agency team
 - NEVER mention a specific carrier name
 - NEVER mention "self-service", "portal", "app", or "online account"
+- NEVER reference specific dates like "April 15th" or "May 1st" — use relative language like "coming up soon", "just around the corner", "in the next few weeks"
 - Sign off as "The Better Choice Team" or "Better Choice Insurance Group"
 - Tone: professional, friendly, concise — like a premium brand, not a local sales pitch
 - Key value props: Compare rates from 15+ top carriers. Customers save avg $1,150/year. Free, fast, zero obligation.
@@ -555,7 +556,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
                 <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
                 <p style="font-size:16px;color:#333;line-height:1.6;">
                     Your {policy_label} policy is coming up for renewal 
-                    around <strong>{x_date}</strong>. Insurance rates change every year, and many of our customers 
+                    soon. Insurance rates change every year, and many of our customers 
                     are surprised to find they can save significantly by shopping their renewal.
                 </p>
                 <p style="font-size:16px;color:#333;line-height:1.6;">
@@ -573,8 +574,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
             body_content = f"""
             <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
-                We recently reached out about your upcoming {policy_label} renewal
-                {'around <strong>' + x_date + '</strong>' if x_date else ''}. Just wanted to follow up — 
+                We recently reached out about your upcoming {policy_label} renewal. Just wanted to follow up — 
                 getting a comparison quote is quick and completely free.
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
@@ -591,7 +591,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
             body_content = f"""
             <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
-                Your {policy_label} policy is renewing {'<strong>' + x_date + '</strong>' if x_date else 'very soon'} — 
+                Your {policy_label} policy is renewing very soon — 
                 there's still time to make sure you're getting the best rate.
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
