@@ -443,7 +443,13 @@ class NowCertsClient:
             })
             notes = data if isinstance(data, list) else data.get("data", data.get("notes", []))
             if isinstance(notes, list) and len(notes) > 0:
-                logger.info("NowCerts InsuredNotes returned %d notes", len(notes))
+                logger.info("NowCerts InsuredNotes returned %d total notes for insured %s", len(notes), insured_id)
+                # Log first note's keys and a sample to understand the schema
+                if notes:
+                    logger.info("NowCerts note sample keys: %s", list(notes[0].keys()) if isinstance(notes[0], dict) else type(notes[0]))
+                    logger.info("NowCerts first note: %s", str(notes[0])[:500])
+                    if len(notes) > 1:
+                        logger.info("NowCerts last note: %s", str(notes[-1])[:500])
                 result = []
                 for n in notes:
                     result.append({
@@ -454,6 +460,9 @@ class NowCertsClient:
                         "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date") or n.get("changeDate", ""),
                     })
                 result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+                logger.info("NowCerts notes after sort - newest: %s | oldest: %s",
+                           result[0].get("subject", "")[:50] if result else "none",
+                           result[-1].get("subject", "")[:50] if result else "none")
                 return result[:top]
         except Exception as e:
             logger.info("NowCerts InsuredNotes not available: %s", e)
