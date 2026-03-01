@@ -311,48 +311,57 @@ def _parse_file(file_bytes: bytes, filename: str) -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# NOWCERTS DEDUP — Check if lead is a current customer
+# CUSTOMER DEDUP — Check local DB (synced from NowCerts) for active customers
 # ═══════════════════════════════════════════════════════════════════
 
-def _check_nowcerts_customer(email: str, first_name: str = "", last_name: str = "") -> dict:
-    """Check NowCerts for active customer with this email.
-    Returns {"is_customer": bool, "match_name": str, "match_id": str}."""
+def _check_current_customer(db_session, email: str, first_name: str = "", last_name: str = "") -> dict:
+    """Check local customer database for an active customer match.
+    Uses the locally-synced NowCerts data (customers + customer_policies tables).
+    Returns {"is_customer": bool, "match_name": str, "match_id": str, "has_active_policy": bool}.
+    """
+    from app.models.customer import Customer, CustomerPolicy
+    from sqlalchemy import func as sqlfunc
+
     try:
-        from app.services.nowcerts import NowCertsClient
-        nc = NowCertsClient()
-        if not nc.is_configured():
-            return {"is_customer": False, "match_name": None, "match_id": None}
+        match = None
 
-        # Search by email first (most reliable)
+        # 1. Search by email (most reliable)
         if email:
-            results = nc.search_insureds(email, limit=5)
-            for r in results:
-                r_email = (r.get('email') or '').lower().strip()
-                if r_email == email.lower().strip():
-                    return {
-                        "is_customer": True,
-                        "match_name": r.get('commercial_name') or f"{r.get('first_name', '')} {r.get('last_name', '')}".strip(),
-                        "match_id": r.get('database_id') or r.get('id'),
-                    }
+            match = db_session.query(Customer).filter(
+                sqlfunc.lower(Customer.email) == email.lower().strip(),
+                Customer.is_active == True,
+            ).first()
 
-        # Fallback: search by name
-        if first_name and last_name:
-            name_query = f"{last_name}"
-            results = nc.search_insureds(name_query, limit=10)
-            for r in results:
-                r_first = (r.get('first_name') or '').lower().strip()
-                r_last = (r.get('last_name') or '').lower().strip()
-                if r_last == last_name.lower().strip() and r_first == first_name.lower().strip():
-                    return {
-                        "is_customer": True,
-                        "match_name": r.get('commercial_name') or f"{r.get('first_name', '')} {r.get('last_name', '')}".strip(),
-                        "match_id": r.get('database_id') or r.get('id'),
-                    }
+        # 2. Fallback: exact first + last name match
+        if not match and first_name and last_name:
+            match = db_session.query(Customer).filter(
+                sqlfunc.lower(Customer.first_name) == first_name.lower().strip(),
+                sqlfunc.lower(Customer.last_name) == last_name.lower().strip(),
+                Customer.is_active == True,
+            ).first()
 
-        return {"is_customer": False, "match_name": None, "match_id": None}
+        # 3. Fallback: phone match (strip non-digits)
+        # (skipped for now — email + name should catch most)
+
+        if not match:
+            return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
+
+        # Check if they have an active policy
+        active_policy = db_session.query(CustomerPolicy).filter(
+            CustomerPolicy.customer_id == match.id,
+            sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+        ).first()
+
+        return {
+            "is_customer": True,
+            "match_name": match.full_name or f"{match.first_name or ''} {match.last_name or ''}".strip(),
+            "match_id": str(match.id),
+            "has_active_policy": active_policy is not None,
+        }
+
     except Exception as e:
-        logger.warning(f"NowCerts dedup check failed for {email}: {e}")
-        return {"is_customer": False, "match_name": None, "match_id": None}
+        logger.warning(f"Customer dedup check failed for {email}: {e}")
+        return {"is_customer": False, "match_name": None, "match_id": None, "has_active_policy": False}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -951,17 +960,15 @@ async def upload_leads(
     # ── Auto-run NowCerts dedup ──
     nowcerts_results = {"checked": 0, "current_customers": 0, "current_customer_list": []}
 
-    # Only auto-check first 50 leads during upload to avoid timeout on large files.
-    # For larger lists, use the separate /dedup endpoint to check in batches.
-    UPLOAD_NOWCERTS_LIMIT = 50
+    # Check all leads against local customer database (instant — no external API calls)
     if check_nowcerts:
         leads_to_check = db.query(RequoteLead).filter(
             RequoteLead.campaign_id == campaign.id,
             RequoteLead.dedup_checked == False,
-        ).limit(UPLOAD_NOWCERTS_LIMIT).all()
+        ).all()
 
         for lead in leads_to_check:
-            result = _check_nowcerts_customer(
+            result = _check_current_customer(db, 
                 lead.email or "",
                 lead.first_name or "",
                 lead.last_name or "",
@@ -1044,7 +1051,7 @@ async def run_dedup(
     checked = 0
     matched = 0
     for lead in leads:
-        result = _check_nowcerts_customer(
+        result = _check_current_customer(db, 
             lead.email or "",
             lead.first_name or "",
             lead.last_name or "",
@@ -1850,7 +1857,7 @@ async def recheck_nowcerts_all(
         ).limit(500).all()
 
         for lead in leads:
-            result = _check_nowcerts_customer(
+            result = _check_current_customer(db, 
                 lead.email or "",
                 lead.first_name or "",
                 lead.last_name or "",
@@ -1928,7 +1935,7 @@ async def auto_retarget(
                 continue
 
             # Re-check NowCerts
-            nc_result = _check_nowcerts_customer(email, lead.first_name or "", lead.last_name or "")
+            nc_result = _check_current_customer(db, email, lead.first_name or "", lead.last_name or "")
             if nc_result["is_customer"]:
                 lead.is_current_customer = True
                 lead.nowcerts_match_name = nc_result.get("match_name")
