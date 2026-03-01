@@ -29,6 +29,9 @@ MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "betterchoiceins.com")
 AGENCY_FROM_EMAIL = os.getenv("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AGENCY_REPLY_TO = os.getenv("AGENCY_REPLY_TO", "service@betterchoiceins.com")
+# Campaign-specific: separate from/reply-to for requote outreach
+CAMPAIGN_FROM_EMAIL = os.getenv("CAMPAIGN_FROM_EMAIL", "sales@betterchoiceins.com")
+CAMPAIGN_REPLY_TO = os.getenv("CAMPAIGN_REPLY_TO", "sales@betterchoiceins.com")
 NOWCERTS_USERNAME = os.getenv("NOWCERTS_USERNAME", "")
 NOWCERTS_PASSWORD = os.getenv("NOWCERTS_PASSWORD", "")
 
@@ -598,11 +601,11 @@ def _send_campaign_email(to_email: str, subject: str, html: str,
             f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
             auth=("api", MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance <{AGENCY_FROM_EMAIL}>",
+                "from": f"Better Choice Insurance <{CAMPAIGN_FROM_EMAIL}>",
                 "to": to_email,
                 "subject": subject,
                 "html": html,
-                "h:Reply-To": reply_to or AGENCY_REPLY_TO,
+                "h:Reply-To": reply_to or CAMPAIGN_REPLY_TO,
                 "o:tag": ["requote-campaign"],
             },
         )
