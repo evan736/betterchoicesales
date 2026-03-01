@@ -445,7 +445,9 @@ def _check_customer_fast(lookup: dict, email: str, first_name: str = "", last_na
 def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date: str, 
                          touch_number: int, unsubscribe_url: str,
                          retarget_round: int = 0, city: str = "", state: str = "",
-                         premium: float = None, use_ai: bool = True) -> str:
+                         premium: float = None, use_ai: bool = True,
+                         last_name: str = "", email: str = "", phone: str = "",
+                         address: str = "", zip_code: str = "") -> str:
     """Generate branded requote campaign email — AI-powered with static fallback."""
     
     policy_label = (policy_type or 'insurance').replace('_', ' ').title()
@@ -453,12 +455,18 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
 
     # Build landing page URL
     import urllib.parse
-    landing_params = urllib.parse.urlencode({
-        'name': first_name,
+    landing_params = urllib.parse.urlencode({k: v for k, v in {
+        'first_name': first_name,
+        'last_name': last_name,
+        'email': email,
+        'phone': phone,
+        'address': address,
+        'city': city,
+        'state': state,
+        'zip': zip_code,
         'type': policy_type or 'insurance',
-        'xdate': x_date or '',
         'utm_campaign': f'requote_r{retarget_round}_t{touch_number}',
-    })
+    }.items() if v})
     landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
 
     subject = ""
@@ -674,7 +682,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
         <!-- Footer -->
         <tr><td style="background:#f1f5f9;padding:16px 32px;border-top:1px solid #e2e8f0;">
           <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;">
-            Better Choice Insurance Group &middot; Serving families across the Midwest<br>
+            Better Choice Insurance Group &middot; Serving families nationwide<br>
             <a href="{unsubscribe_url}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a>
           </p>
         </td></tr>
@@ -827,9 +835,9 @@ async def send_preview_emails(
 ):
     """Generate and send sample AI-powered campaign emails to preview the system."""
     scenarios = [
-        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 1, "retarget_round": 0, "city": "Naperville", "state": "IL"},
-        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 2, "retarget_round": 0, "city": "Naperville", "state": "IL"},
-        {"first_name": "Sarah", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 3, "retarget_round": 0, "city": "Naperville", "state": "IL"},
+        {"first_name": "Sarah", "last_name": "Johnson", "email": "sarah.johnson@email.com", "phone": "630-555-1234", "address": "425 Main St", "zip_code": "60540", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 1, "retarget_round": 0, "city": "Naperville", "state": "IL"},
+        {"first_name": "Sarah", "last_name": "Johnson", "email": "sarah.johnson@email.com", "phone": "630-555-1234", "address": "425 Main St", "zip_code": "60540", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 2, "retarget_round": 0, "city": "Naperville", "state": "IL"},
+        {"first_name": "Sarah", "last_name": "Johnson", "email": "sarah.johnson@email.com", "phone": "630-555-1234", "address": "425 Main St", "zip_code": "60540", "policy_type": "homeowners", "carrier": "State Farm", "x_date": "April 15, 2026", "touch": 3, "retarget_round": 0, "city": "Naperville", "state": "IL"},
     ]
 
     unsub_url = "https://better-choice-api.onrender.com/api/campaigns/unsubscribe/PREVIEW"
@@ -839,6 +847,8 @@ async def send_preview_emails(
             s["first_name"], s["policy_type"], s["carrier"], s["x_date"],
             s["touch"], unsub_url,
             retarget_round=s["retarget_round"], city=s["city"], state=s["state"],
+            last_name=s.get("last_name", ""), email=s.get("email", ""),
+            phone=s.get("phone", ""), address=s.get("address", ""), zip_code=s.get("zip_code", ""),
         )
         label = f"[PREVIEW T{s['touch']}/R{s['retarget_round']}] {subject}"
         if _send_campaign_email(to_email, label, html):
@@ -1294,6 +1304,8 @@ async def send_due_emails(
             retarget_round=retarget_round,
             city=lead.city or "", state=lead.state or "",
             premium=float(lead.premium) if lead.premium else None,
+            last_name=lead.last_name or "", email=lead.email or "",
+            phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
         )
         if _send_campaign_email(lead.email, subject, html):
             lead.touch1_sent = True
@@ -1325,6 +1337,8 @@ async def send_due_emails(
             retarget_round=retarget_round,
             city=lead.city or "", state=lead.state or "",
             premium=float(lead.premium) if lead.premium else None,
+            last_name=lead.last_name or "", email=lead.email or "",
+            phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
         )
         if _send_campaign_email(lead.email, subject, html):
             lead.touch2_sent = True
@@ -1356,6 +1370,8 @@ async def send_due_emails(
             retarget_round=retarget_round,
             city=lead.city or "", state=lead.state or "",
             premium=float(lead.premium) if lead.premium else None,
+            last_name=lead.last_name or "", email=lead.email or "",
+            phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
         )
         if _send_campaign_email(lead.email, subject, html):
             lead.touch3_sent = True

@@ -39,11 +39,17 @@ const TESTIMONIALS = [
 
 export default function GetQuotePage() {
   const router = useRouter();
-  const { name, type, carrier, xdate, utm_campaign } = router.query;
-  const firstName = (name as string) || '';
+  const { first_name, last_name, email, phone, address, city, state, zip, type, utm_campaign } = router.query;
+  const firstName = (first_name as string) || '';
+  const lastName = (last_name as string) || '';
+  const leadEmail = (email as string) || '';
+  const leadPhone = (phone as string) || '';
+  const leadAddress = (address as string) || '';
+  const leadCity = (city as string) || '';
+  const leadState = (state as string) || '';
+  const leadZip = (zip as string) || '';
   const policyType = ((type as string) || 'insurance').replace(/_/g, ' ');
-  const currentCarrier = (carrier as string) || '';
-  const renewalDate = (xdate as string) || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
   // AI Coverage Review state
   const [decFile, setDecFile] = useState<File | null>(null);
@@ -61,10 +67,15 @@ export default function GetQuotePage() {
   const visibleTestimonials = TESTIMONIALS.slice(tPage * perPage, tPage * perPage + perPage);
 
   useEffect(() => {
-    if (firstName) {
-      setAnalysisFormData(prev => ({ ...prev, name: firstName }));
+    if (fullName || leadEmail || leadPhone) {
+      setAnalysisFormData(prev => ({
+        ...prev,
+        name: fullName || prev.name,
+        email: leadEmail || prev.email,
+        phone: leadPhone || prev.phone,
+      }));
     }
-  }, [firstName]);
+  }, [fullName, leadEmail, leadPhone]);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 
@@ -155,9 +166,9 @@ export default function GetQuotePage() {
 
             <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexWrap: 'wrap' as const }}>
               <div style={{ flex: '1 1 480px', minWidth: '300px' }}>
-                {firstName && (
+                {fullName && (
                   <p style={{ color: '#60a5fa', fontSize: '15px', fontWeight: 600, margin: '0 0 12px' }}>
-                    {firstName}, your {policyType} renewal is coming up
+                    {fullName}, your {policyType} renewal is coming up
                   </p>
                 )}
                 <h1 style={{ fontFamily: "'Playfair Display', serif", color: '#ffffff', fontSize: 'clamp(32px, 5vw, 48px)', lineHeight: 1.15, fontWeight: 700, margin: '0 0 20px' }}>
