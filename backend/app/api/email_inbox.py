@@ -1133,9 +1133,40 @@ def _build_branded_email(body_html: str, sender_name: str, sender_email: str) ->
     
     Used by ALL outbound emails from ORBIT — replies, quick emails, automations.
     Matches the agency's brand: navy header, clean white body, professional footer.
+    
+    When sending from service@betterchoiceins.com, the signature shows the agency
+    name rather than an individual agent name.
     """
-    app_url = "https://better-choice-api.onrender.com"
-    logo_url = f"{app_url}/carrier-logos/bci_header_white.png"
+    frontend_url = "https://better-choice-web.onrender.com"
+    logo_url = f"{frontend_url}/carrier-logos/bci_header_white.png"
+    
+    # When sending from the generic service address, show agency name, not agent name
+    is_service = sender_email and "service@" in sender_email.lower()
+    display_name = "Better Choice Insurance" if is_service else sender_name
+    display_initial = "B" if is_service else (sender_name[0] if sender_name else "B")
+    
+    # Build signature block — agency-level for service@, individual for agent emails
+    if is_service:
+        sig_block = f"""
+        <td style="vertical-align:top;">
+          <p style="margin:0 0 1px 0; font-weight:600; color:#1f2937; font-size:13px;">Better Choice Insurance Group</p>
+          <p style="margin:0; color:#6b7280; font-size:11px;">
+            <a href="tel:+18479085665" style="color:#1e40af; text-decoration:none;">(847) 908-5665</a>
+            &nbsp;·&nbsp;
+            <a href="mailto:service@betterchoiceins.com" style="color:#1e40af; text-decoration:none;">service@betterchoiceins.com</a>
+          </p>
+        </td>"""
+    else:
+        sig_block = f"""
+        <td style="vertical-align:top;">
+          <p style="margin:0 0 1px 0; font-weight:600; color:#1f2937; font-size:13px;">{sender_name}</p>
+          <p style="margin:0 0 1px 0; color:#6b7280; font-size:11px;">Better Choice Insurance Group</p>
+          <p style="margin:0; color:#6b7280; font-size:11px;">
+            <a href="tel:+18479085665" style="color:#1e40af; text-decoration:none;">(847) 908-5665</a>
+            &nbsp;·&nbsp;
+            <a href="mailto:{sender_email}" style="color:#1e40af; text-decoration:none;">{sender_email}</a>
+          </p>
+        </td>"""
     
     return f"""<!DOCTYPE html>
 <html>
@@ -1162,18 +1193,10 @@ def _build_branded_email(body_html: str, sender_name: str, sender_email: str) ->
       <tr>
         <td style="padding-right:16px; vertical-align:top;">
           <div style="width:48px; height:48px; border-radius:50%; background:linear-gradient(135deg, #1e3a6e, #1e40af); display:flex; align-items:center; justify-content:center;">
-            <span style="color:#ffffff; font-size:16px; font-weight:700;">{sender_name[0] if sender_name else 'B'}</span>
+            <span style="color:#ffffff; font-size:16px; font-weight:700;">{display_initial}</span>
           </div>
         </td>
-        <td style="vertical-align:top;">
-          <p style="margin:0 0 1px 0; font-weight:600; color:#1f2937; font-size:13px;">{sender_name}</p>
-          <p style="margin:0 0 1px 0; color:#6b7280; font-size:11px;">Better Choice Insurance Group</p>
-          <p style="margin:0; color:#6b7280; font-size:11px;">
-            <a href="tel:+18479085665" style="color:#1e40af; text-decoration:none;">(847) 908-5665</a>
-            &nbsp;·&nbsp;
-            <a href="mailto:{sender_email}" style="color:#1e40af; text-decoration:none;">{sender_email}</a>
-          </p>
-        </td>
+        {sig_block}
       </tr>
     </table>
   </div>
@@ -1181,7 +1204,7 @@ def _build_branded_email(body_html: str, sender_name: str, sender_email: str) ->
   <!-- Footer -->
   <div style="padding:16px 32px; background:#f4f5f7; border-top:1px solid #e5e7eb; text-align:center;">
     <p style="margin:0 0 4px 0; color:#9ca3af; font-size:10px;">
-      Better Choice Insurance Group · 225 E Dundee Rd, Palatine, IL 60074
+      Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175
     </p>
     <p style="margin:0; color:#9ca3af; font-size:10px;">
       <a href="https://betterchoiceins.com" style="color:#6b7280; text-decoration:none;">betterchoiceins.com</a>
