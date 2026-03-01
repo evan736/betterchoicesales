@@ -28,7 +28,9 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
   touch1_scheduled: { color: 'text-blue-300', bg: 'bg-blue-500/15', label: 'Touch 1 Scheduled' },
   touch1_sent: { color: 'text-cyan-300', bg: 'bg-cyan-500/15', label: 'Touch 1 Sent' },
   touch2_scheduled: { color: 'text-indigo-300', bg: 'bg-indigo-500/15', label: 'Touch 2 Scheduled' },
-  touch2_sent: { color: 'text-emerald-300', bg: 'bg-emerald-500/15', label: 'Both Sent' },
+  touch2_sent: { color: 'text-violet-300', bg: 'bg-violet-500/15', label: 'Touch 2 Sent' },
+  touch3_scheduled: { color: 'text-purple-300', bg: 'bg-purple-500/15', label: 'Touch 3 Scheduled' },
+  touch3_sent: { color: 'text-emerald-300', bg: 'bg-emerald-500/15', label: 'All Sent' },
   responded: { color: 'text-amber-300', bg: 'bg-amber-500/15', label: 'Responded' },
   requoted: { color: 'text-green-300', bg: 'bg-green-500/15', label: 'Requoted' },
   converted: { color: 'text-emerald-300', bg: 'bg-emerald-500/15', label: 'Converted!' },
@@ -64,7 +66,8 @@ export default function CampaignsPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [campaignName, setCampaignName] = useState('');
   const [touch1Days, setTouch1Days] = useState(45);
-  const [touch2Days, setTouch2Days] = useState(15);
+  const [touch2Days, setTouch2Days] = useState(28);
+  const [touch3Days, setTouch3Days] = useState(15);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
 
@@ -168,6 +171,7 @@ export default function CampaignsPage() {
       formData.append('campaign_name', campaignName);
       formData.append('touch1_days', String(touch1Days));
       formData.append('touch2_days', String(touch2Days));
+      formData.append('touch3_days', String(touch3Days));
       const res = await axios.post(`${API}/api/campaigns/upload`, formData, { headers: headers() });
       setUploadResult(res.data);
       loadCampaigns();
@@ -333,6 +337,10 @@ export default function CampaignsPage() {
                         className="text-xs px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-lg text-indigo-300 font-semibold transition">
                         <Eye size={12} className="inline mr-1" /> Preview Touch 2
                       </button>
+                      <button onClick={() => loadEmailPreview(3)}
+                        className="text-xs px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg text-purple-300 font-semibold transition">
+                        <Eye size={12} className="inline mr-1" /> Preview Touch 3
+                      </button>
                       <button onClick={handleRecheckNowCerts} disabled={recheckingNowCerts}
                         className="text-xs px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 font-semibold transition disabled:opacity-50">
                         <RefreshCw size={12} className={`inline mr-1 ${recheckingNowCerts ? 'animate-spin' : ''}`} />
@@ -354,6 +362,8 @@ export default function CampaignsPage() {
                       { label: 'Touch 1 Sent', count: pipelineStats.pipeline.touch1_sent, color: 'bg-cyan-500', text: 'text-cyan-300' },
                       { label: 'Touch 2 Queued', count: pipelineStats.pipeline.touch2_scheduled, color: 'bg-indigo-500', text: 'text-indigo-300' },
                       { label: 'Touch 2 Sent', count: pipelineStats.pipeline.touch2_sent, color: 'bg-purple-500', text: 'text-purple-300' },
+                      { label: 'Touch 3 Queued', count: pipelineStats.pipeline.touch3_scheduled || 0, color: 'bg-violet-500', text: 'text-violet-300' },
+                      { label: 'Touch 3 Sent', count: pipelineStats.pipeline.touch3_sent || 0, color: 'bg-fuchsia-500', text: 'text-fuchsia-300' },
                       { label: 'Responded', count: pipelineStats.pipeline.responded, color: 'bg-emerald-500', text: 'text-emerald-300' },
                       { label: 'Requoted', count: pipelineStats.pipeline.requoted, color: 'bg-green-500', text: 'text-green-300' },
                     ].map((s, i) => {
@@ -489,6 +499,7 @@ export default function CampaignsPage() {
                 { label: 'Pending', value: selectedCampaign.stats?.pending || 0, color: 'text-slate-400' },
                 { label: 'Touch 1 Sent', value: selectedCampaign.stats?.touch1_sent || 0, color: 'text-cyan-400' },
                 { label: 'Touch 2 Sent', value: selectedCampaign.stats?.touch2_sent || 0, color: 'text-blue-400' },
+                { label: 'Touch 3 Sent', value: selectedCampaign.stats?.touch3_sent || 0, color: 'text-purple-400' },
                 { label: 'Current Cust.', value: selectedCampaign.stats?.current_customers || 0, color: 'text-red-400' },
                 { label: 'Opted Out', value: selectedCampaign.stats?.opted_out || 0, color: 'text-red-300' },
                 { label: 'Next 7 Days', value: selectedCampaign.stats?.upcoming_7_days || 0, color: 'text-amber-400' },
@@ -526,7 +537,8 @@ export default function CampaignsPage() {
                 <option value="">All Leads</option>
                 <option value="ready">Ready to Send</option>
                 <option value="touch1_sent">Touch 1 Sent</option>
-                <option value="touch2_sent">Both Sent</option>
+                <option value="touch2_sent">Touch 2 Sent</option>
+                <option value="touch3_sent">All Sent</option>
                 <option value="responded">Responded</option>
                 <option value="requoted">Requoted</option>
                 <option value="current_customer">Current Customers</option>
@@ -549,6 +561,7 @@ export default function CampaignsPage() {
                       <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Status</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Touch 1</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Touch 2</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Touch 3</th>
                       <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Actions</th>
                     </tr>
                   </thead>
@@ -592,6 +605,13 @@ export default function CampaignsPage() {
                               <span className="text-emerald-400 flex items-center gap-1"><CheckCircle size={12} /> Sent</span>
                             ) : lead.touch2_scheduled_date ? (
                               <span className="text-slate-500">{fmtDate(lead.touch2_scheduled_date)}</span>
+                            ) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            {lead.touch3_sent ? (
+                              <span className="text-emerald-400 flex items-center gap-1"><CheckCircle size={12} /> Sent</span>
+                            ) : lead.touch3_scheduled_date ? (
+                              <span className="text-slate-500">{fmtDate(lead.touch3_scheduled_date)}</span>
                             ) : '—'}
                           </td>
                           <td className="px-4 py-3">
@@ -693,6 +713,12 @@ export default function CampaignsPage() {
                     <div>
                       <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 2 (days before X-date)</label>
                       <input type="number" value={touch2Days} onChange={e => setTouch2Days(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold mb-1 block">Touch 3 (days before X-date)</label>
+                      <input type="number" value={touch3Days} onChange={e => setTouch3Days(Number(e.target.value))}
                         className="w-full px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500/40"
                       />
                     </div>

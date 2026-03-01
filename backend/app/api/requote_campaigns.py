@@ -58,7 +58,8 @@ class RequoteCampaign(Base):
 
     # Drip config
     touch1_days_before = Column(Integer, default=45)  # First email X days before X-date
-    touch2_days_before = Column(Integer, default=15)  # Second email X days before X-date
+    touch2_days_before = Column(Integer, default=28)  # Second email X days before X-date
+    touch3_days_before = Column(Integer, default=15)  # Third email X days before X-date
 
     # Stats
     emails_sent = Column(Integer, default=0)
@@ -116,11 +117,17 @@ class RequoteLead(Base):
     touch1_sent_at = Column(DateTime(timezone=True), nullable=True)
     touch1_opened = Column(Boolean, default=False)
 
-    # Touch 2 (15 days before X-date)
+    # Touch 2 (28 days before X-date)
     touch2_scheduled_date = Column(DateTime, nullable=True)
     touch2_sent = Column(Boolean, default=False)
     touch2_sent_at = Column(DateTime(timezone=True), nullable=True)
     touch2_opened = Column(Boolean, default=False)
+
+    # Touch 3 (15 days before X-date)
+    touch3_scheduled_date = Column(DateTime, nullable=True)
+    touch3_sent = Column(Boolean, default=False)
+    touch3_sent_at = Column(DateTime(timezone=True), nullable=True)
+    touch3_opened = Column(Boolean, default=False)
 
     # Opt-out
     unsubscribe_token = Column(String, nullable=True, index=True)
@@ -161,12 +168,25 @@ def run_migration(engine):
     try:
         insp = sa_inspect(engine)
         existing_cols = {c["name"] for c in insp.get_columns("requote_leads")} if insp.has_table("requote_leads") else set()
+        campaign_cols = {c["name"] for c in insp.get_columns("requote_campaigns")} if insp.has_table("requote_campaigns") else set()
         with engine.connect() as conn:
             if "retarget_round" not in existing_cols:
                 conn.execute(text("ALTER TABLE requote_leads ADD COLUMN retarget_round INTEGER DEFAULT 0"))
                 conn.commit()
             if "original_lead_id" not in existing_cols:
                 conn.execute(text("ALTER TABLE requote_leads ADD COLUMN original_lead_id INTEGER"))
+                conn.commit()
+            # Touch 3 columns
+            for col in ["touch3_scheduled_date", "touch3_sent_at"]:
+                if col not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE requote_leads ADD COLUMN {col} TIMESTAMP"))
+                    conn.commit()
+            for col in ["touch3_sent", "touch3_opened"]:
+                if col not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE requote_leads ADD COLUMN {col} BOOLEAN DEFAULT FALSE"))
+                    conn.commit()
+            if "touch3_days_before" not in campaign_cols:
+                conn.execute(text("ALTER TABLE requote_campaigns ADD COLUMN touch3_days_before INTEGER DEFAULT 15"))
                 conn.commit()
     except Exception as e:
         logger.warning(f"Column migration note: {e}")
@@ -477,7 +497,7 @@ BRAND RULES (MUST FOLLOW):
 - Keep it SHORT: 2-3 short paragraphs max. Every sentence earns its place. No filler.
 - Do NOT use the word "unsubscribe"
 
-{"FOLLOW-UP: Touch 2. Be shorter and more direct. Reference that we recently reached out. Gentle urgency around their renewal." if touch_number == 2 else "FIRST OUTREACH: Introduce what Better Choice does and why it matters for them."}
+{"FOLLOW-UP: Touch 2. Reference that we recently reached out. Emphasize the comparison process and ease." if touch_number == 2 else "FINAL TOUCH: Touch 3. Be shorter and more direct. Create gentle urgency — renewal is very close. Last chance framing." if touch_number == 3 else "FIRST OUTREACH: Introduce what Better Choice does and why it matters for them."}
 {"RE-ENGAGEMENT round " + str(retarget_round) + ": Fresh angle — rate changes, new carrier partners, or " + season + " seasonal factors." if retarget_round > 0 else ""}
 
 Respond ONLY with a JSON object (no markdown, no backticks):
@@ -547,21 +567,39 @@ Respond ONLY with a JSON object (no markdown, no backticks):
                     We just need your current declarations page and we'll do the rest.
                 </p>
                 """
-        else:
-            subject = f"Quick reminder: Your {policy_label} renewal is coming up, {first_name}"
-            headline = "Don't Miss Your Renewal Window"
+        elif touch_number == 2:
+            subject = f"Quick follow-up: We can compare {policy_label} rates for you, {first_name}"
+            headline = "A Quick Comparison Could Save You Hundreds"
             body_content = f"""
             <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
-                Just a friendly reminder — your {policy_label} policy is renewing {'around <strong>' + x_date + '</strong>' if x_date else 'soon'}.
-                {'That renewal is right around the corner!' if touch_number == 2 else ''}
+                We recently reached out about your upcoming {policy_label} renewal
+                {'around <strong>' + x_date + '</strong>' if x_date else ''}. Just wanted to follow up — 
+                getting a comparison quote is quick and completely free.
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
-                If you'd like us to shop your renewal and make sure you're getting the best rate, now is the 
-                perfect time. We can often find savings of 15-30% by comparing multiple carriers.
+                All we need is your current declarations page and we'll compare rates across 15+ carriers. 
+                Our customers save an average of <strong>$1,150 per year</strong> — and there's zero obligation.
             </p>
             <p style="font-size:16px;color:#333;line-height:1.6;">
-                Just reply to this email with your current declarations page, or call us and we'll take care of everything.
+                Reply to this email, call us at <strong>(847) 908-5665</strong>, or click below to get started.
+            </p>
+            """
+        else:
+            subject = f"Last chance before renewal: Let us shop your {policy_label} rate, {first_name}"
+            headline = "Your Renewal Is Right Around the Corner"
+            body_content = f"""
+            <p style="font-size:16px;color:#333;line-height:1.6;">Hi {first_name},</p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                Your {policy_label} policy is renewing {'<strong>' + x_date + '</strong>' if x_date else 'very soon'} — 
+                there's still time to make sure you're getting the best rate.
+            </p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                We can often find savings of 15-30% by comparing multiple carriers. It takes just a few minutes 
+                and there's no obligation.
+            </p>
+            <p style="font-size:16px;color:#333;line-height:1.6;">
+                Just reply with your current declarations page or call us at <strong>(847) 908-5665</strong>.
             </p>
             """
 
@@ -700,6 +738,7 @@ def _serialize_campaign(c: RequoteCampaign) -> dict:
         "total_deduped": c.total_deduped,
         "touch1_days_before": c.touch1_days_before,
         "touch2_days_before": c.touch2_days_before,
+        "touch3_days_before": getattr(c, 'touch3_days_before', 15),
         "emails_sent": c.emails_sent,
         "emails_opened": c.emails_opened,
         "responses_received": c.responses_received,
@@ -736,6 +775,9 @@ def _serialize_lead(l: RequoteLead) -> dict:
         "touch2_scheduled_date": l.touch2_scheduled_date.isoformat() if l.touch2_scheduled_date else None,
         "touch2_sent": l.touch2_sent,
         "touch2_sent_at": l.touch2_sent_at.isoformat() if l.touch2_sent_at else None,
+        "touch3_scheduled_date": l.touch3_scheduled_date.isoformat() if getattr(l, 'touch3_scheduled_date', None) else None,
+        "touch3_sent": getattr(l, 'touch3_sent', False),
+        "touch3_sent_at": l.touch3_sent_at.isoformat() if getattr(l, 'touch3_sent_at', None) else None,
         "opted_out": l.opted_out,
         "created_at": l.created_at.isoformat() if l.created_at else None,
     }
@@ -832,6 +874,10 @@ def get_campaign(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.touch2_sent == True,
     ).count()
+    touch3_sent = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.touch3_sent == True,
+    ).count()
     current_customers = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.is_current_customer == True,
@@ -853,6 +899,8 @@ def get_campaign(
                  RequoteLead.touch1_scheduled_date <= week_ahead),
             and_(RequoteLead.touch2_sent == False, RequoteLead.touch2_scheduled_date != None,
                  RequoteLead.touch2_scheduled_date <= week_ahead),
+            and_(RequoteLead.touch3_sent == False, RequoteLead.touch3_scheduled_date != None,
+                 RequoteLead.touch3_scheduled_date <= week_ahead),
         ),
     ).count()
 
@@ -862,6 +910,7 @@ def get_campaign(
         "pending": pending,
         "touch1_sent": touch1_sent,
         "touch2_sent": touch2_sent,
+        "touch3_sent": touch3_sent,
         "current_customers": current_customers,
         "opted_out": opted_out,
         "upcoming_7_days": upcoming,
@@ -876,7 +925,8 @@ async def upload_leads(
     file: UploadFile = File(...),
     campaign_name: str = Form(""),
     touch1_days: int = Form(45),
-    touch2_days: int = Form(15),
+    touch2_days: int = Form(28),
+    touch3_days: int = Form(15),
     check_nowcerts: bool = Form(True),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -899,6 +949,7 @@ async def upload_leads(
         original_filename=filename,
         touch1_days_before=touch1_days,
         touch2_days_before=touch2_days,
+        touch3_days_before=touch3_days,
         total_uploaded=len(raw_leads),
         status="draft",
         created_by=current_user.id,
@@ -975,6 +1026,7 @@ async def upload_leads(
 
             touch1_date = annual_xdate - timedelta(days=touch1_days)
             touch2_date = annual_xdate - timedelta(days=touch2_days)
+            touch3_date = annual_xdate - timedelta(days=touch3_days)
 
             if touch1_date <= now:
                 lead_status = "touch1_scheduled"  # Ready to send touch 1 now
@@ -1003,6 +1055,7 @@ async def upload_leads(
             status=lead_status,
             touch1_scheduled_date=touch1_date,
             touch2_scheduled_date=touch2_date,
+            touch3_scheduled_date=touch3_date,
             unsubscribe_token=unsub_token,
             source_row=raw.get('source_row'),
         )
@@ -1283,17 +1336,48 @@ async def send_due_emails(
         else:
             errors += 1
 
+    # Touch 3: due today or overdue, touch2 already sent, touch3 not yet sent
+    touch3_due = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.is_current_customer == False,
+        RequoteLead.opted_out == False,
+        RequoteLead.touch2_sent == True,
+        RequoteLead.touch3_sent == False,
+        RequoteLead.touch3_scheduled_date != None,
+        RequoteLead.touch3_scheduled_date <= now,
+        RequoteLead.email != None,
+    ).limit(100).all()
+
+    for lead in touch3_due:
+        x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
+        unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+        retarget_round = getattr(lead, 'retarget_round', 0) or 0
+        subject, html = _requote_email_html(
+            lead.first_name or "Valued Customer",
+            lead.policy_type, lead.carrier, x_date_str, 3, unsub_url,
+            retarget_round=retarget_round,
+            city=lead.city or "", state=lead.state or "",
+            premium=float(lead.premium) if lead.premium else None,
+        )
+        if _send_campaign_email(lead.email, subject, html):
+            lead.touch3_sent = True
+            lead.touch3_sent_at = now
+            lead.status = "touch3_sent"
+            sent_count += 1
+        else:
+            errors += 1
+
     # Update campaign stats
     campaign.emails_sent = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
-        or_(RequoteLead.touch1_sent == True, RequoteLead.touch2_sent == True),
+        or_(RequoteLead.touch1_sent == True, RequoteLead.touch2_sent == True, RequoteLead.touch3_sent == True),
     ).count()
     db.commit()
 
     return {
         "sent": sent_count,
         "errors": errors,
-        "message": f"Sent {sent_count} emails ({len(touch1_due)} touch 1, {len(touch2_due)} touch 2). {f'{errors} failed.' if errors else ''}",
+        "message": f"Sent {sent_count} emails ({len(touch1_due)} touch 1, {len(touch2_due)} touch 2, {len(touch3_due)} touch 3). {f'{errors} failed.' if errors else ''}",
     }
 
 
@@ -1491,16 +1575,20 @@ def campaign_calendar(
         RequoteLead.opted_out == False,
     ).all()
 
-    schedule = {}  # date_str -> {touch1: count, touch2: count}
+    schedule = {}  # date_str -> {touch1: count, touch2: count, touch3: count}
     for lead in leads:
         if lead.touch1_scheduled_date and not lead.touch1_sent:
             d = lead.touch1_scheduled_date.strftime('%Y-%m-%d')
-            schedule.setdefault(d, {"touch1": 0, "touch2": 0, "date": d})
+            schedule.setdefault(d, {"touch1": 0, "touch2": 0, "touch3": 0, "date": d})
             schedule[d]["touch1"] += 1
         if lead.touch2_scheduled_date and not lead.touch2_sent:
             d = lead.touch2_scheduled_date.strftime('%Y-%m-%d')
-            schedule.setdefault(d, {"touch1": 0, "touch2": 0, "date": d})
+            schedule.setdefault(d, {"touch1": 0, "touch2": 0, "touch3": 0, "date": d})
             schedule[d]["touch2"] += 1
+        if getattr(lead, 'touch3_scheduled_date', None) and not getattr(lead, 'touch3_sent', False):
+            d = lead.touch3_scheduled_date.strftime('%Y-%m-%d')
+            schedule.setdefault(d, {"touch1": 0, "touch2": 0, "touch3": 0, "date": d})
+            schedule[d]["touch3"] += 1
 
     return {
         "schedule": sorted(schedule.values(), key=lambda x: x["date"]),
@@ -2041,7 +2129,8 @@ async def auto_retarget(
             description=f"Auto-generated bi-annual retarget from '{old_campaign.name}' (round {new_round})",
             original_filename=old_campaign.original_filename,
             touch1_days_before=45,
-            touch2_days_before=15,
+            touch2_days_before=28,
+            touch3_days_before=15,
             total_uploaded=len(retarget_leads),
             status="draft",  # Always draft — Evan reviews before activating
             created_by=current_user.id,
@@ -2055,7 +2144,8 @@ async def auto_retarget(
             # Set new X-date to 6 months from now
             new_xdate = now + timedelta(days=180)
             touch1_date = new_xdate - timedelta(days=45)
-            touch2_date = new_xdate - timedelta(days=15)
+            touch2_date = new_xdate - timedelta(days=28)
+            touch3_date = new_xdate - timedelta(days=15)
 
             unsub_token = hashlib.sha256(f"{old_lead.email}:{new_campaign.id}:{os.urandom(8).hex()}".encode()).hexdigest()[:24]
 
@@ -2077,6 +2167,7 @@ async def auto_retarget(
                 status="touch1_scheduled",
                 touch1_scheduled_date=touch1_date,
                 touch2_scheduled_date=touch2_date,
+                touch3_scheduled_date=touch3_date,
                 unsubscribe_token=unsub_token,
             )
             # Set retarget tracking
