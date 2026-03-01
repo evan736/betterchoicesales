@@ -906,9 +906,10 @@ async def upload_leads(
             touch1_date = x_date - timedelta(days=touch1_days)
             touch2_date = x_date - timedelta(days=touch2_days)
             now = datetime.utcnow()
-            if touch2_date < now:
-                lead_status = "past_xdate"
-            elif touch1_date < now:
+            if touch1_date < now:
+                # X-date is past or imminent — lead is ready to email now
+                lead_status = "pending"
+            elif touch2_date < now:
                 lead_status = "touch2_scheduled"
             else:
                 lead_status = "touch1_scheduled"
@@ -1003,11 +1004,6 @@ async def upload_leads(
         RequoteLead.status.in_(["pending", "touch1_scheduled", "touch2_scheduled"]),
     ).count()
 
-    past_xdate = db.query(RequoteLead).filter(
-        RequoteLead.campaign_id == campaign.id,
-        RequoteLead.status == "past_xdate",
-    ).count()
-
     unchecked = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign.id,
         RequoteLead.dedup_checked == False,
@@ -1022,7 +1018,7 @@ async def upload_leads(
         "total_skipped": skipped_count,
         "total_deduped": deduped_count,
         "would_receive_email": sendable,
-        "past_xdate": past_xdate,
+
         "nowcerts_check": nowcerts_results,
         "nowcerts_unchecked": unchecked,
         "sample_leads": sample_leads,
@@ -1046,7 +1042,7 @@ async def run_dedup(
     leads = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.dedup_checked == False,
-    ).limit(200).all()  # Process in batches of 200
+    ).all()
 
     checked = 0
     matched = 0
@@ -1823,7 +1819,6 @@ def pipeline_stats(
             "requoted": status_map.get("requoted", 0),
             "opted_out": status_map.get("opted_out", 0),
             "skipped": status_map.get("skipped", 0),
-            "past_xdate": status_map.get("past_xdate", 0),
         },
         "current_customers_excluded": current_customers,
         "global_opt_outs": global_optouts,

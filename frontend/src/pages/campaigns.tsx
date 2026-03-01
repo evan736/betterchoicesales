@@ -34,7 +34,6 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
   converted: { color: 'text-emerald-300', bg: 'bg-emerald-500/15', label: 'Converted!' },
   skipped: { color: 'text-red-300', bg: 'bg-red-500/15', label: 'Skipped (Current)' },
   opted_out: { color: 'text-red-400', bg: 'bg-red-500/15', label: 'Opted Out' },
-  past_xdate: { color: 'text-orange-300', bg: 'bg-orange-500/15', label: 'Past X-Date' },
 };
 
 export default function CampaignsPage() {
@@ -361,7 +360,6 @@ export default function CampaignsPage() {
                     <div className="text-xs"><span className="text-slate-500">Current Customers: </span><span className="text-amber-400 font-bold">{pipelineStats.current_customers_excluded}</span></div>
                     <div className="text-xs"><span className="text-slate-500">Global Opt-Outs: </span><span className="text-red-400 font-bold">{pipelineStats.global_opt_outs}</span></div>
                     <div className="text-xs"><span className="text-slate-500">Opted Out: </span><span className="text-red-300 font-bold">{pipelineStats.pipeline.opted_out}</span></div>
-                    <div className="text-xs"><span className="text-slate-500">Past X-Date: </span><span className="text-slate-400 font-bold">{pipelineStats.pipeline.past_xdate}</span></div>
                   </div>
                 </div>
 
@@ -516,7 +514,6 @@ export default function CampaignsPage() {
                 <option value="requoted">Requoted</option>
                 <option value="current_customer">Current Customers</option>
                 <option value="opted_out">Opted Out</option>
-                <option value="past_xdate">Past X-Date</option>
               </select>
               <span className="text-xs text-slate-500">{leadsTotal} leads</span>
             </div>
@@ -710,7 +707,6 @@ export default function CampaignsPage() {
                     <div className="flex justify-between"><span className="text-slate-400">No email (skipped)</span><span className="text-slate-500">{uploadResult.total_skipped}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">Duplicates removed</span><span className="text-slate-500">{uploadResult.total_deduped}</span></div>
                     <div className="flex justify-between"><span className="text-slate-400">Current customers (NowCerts)</span><span className="text-amber-400 font-semibold">{uploadResult.nowcerts_check?.current_customers || 0}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Past X-date</span><span className="text-slate-500">{uploadResult.past_xdate || 0}</span></div>
                     <div className="flex justify-between border-t border-white/[0.06] pt-2"><span className="text-slate-300 font-semibold">Would receive emails</span><span className="text-emerald-400 font-bold text-base">{uploadResult.would_receive_email}</span></div>
                   </div>
 
