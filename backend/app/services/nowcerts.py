@@ -430,6 +430,57 @@ class NowCertsClient:
             logger.error("NowCerts get insured contacts failed: %s", e)
             return []
 
+    def get_insured_notes(self, insured_database_ids: list[str], top: int = 5) -> list[dict]:
+        """Get notes for given insured database IDs. Tries multiple API approaches."""
+        if not insured_database_ids:
+            return []
+        insured_id = insured_database_ids[0]
+
+        # Approach 1: POST /api/Insured/InsuredNotes (mirrors InsuredContacts pattern)
+        try:
+            data = self._post("/api/Insured/InsuredNotes", {
+                "insuredDataBaseId": insured_database_ids
+            })
+            notes = data if isinstance(data, list) else data.get("data", data.get("notes", []))
+            if isinstance(notes, list) and len(notes) > 0:
+                logger.info("NowCerts InsuredNotes returned %d notes", len(notes))
+                result = []
+                for n in notes:
+                    result.append({
+                        "subject": n.get("subject", ""),
+                        "description": n.get("description", ""),
+                        "type": n.get("type", ""),
+                        "creator_name": n.get("creatorName", n.get("creator", "")),
+                        "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date") or n.get("changeDate", ""),
+                    })
+                result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+                return result[:top]
+        except Exception as e:
+            logger.info("NowCerts InsuredNotes not available: %s", e)
+
+        # Approach 2: OData NoteList
+        try:
+            filter_expr = f"insuredDatabaseId eq {insured_id}"
+            data = self._odata_get("NoteList", skip=0, top=top, orderby="changeDate desc", filter_expr=filter_expr)
+            items = data.get("value", data.get("items", []))
+            if isinstance(items, list) and len(items) > 0:
+                logger.info("NowCerts OData NoteList returned %d notes", len(items))
+                return [
+                    {
+                        "subject": n.get("subject", ""),
+                        "description": n.get("description", ""),
+                        "type": n.get("type", ""),
+                        "creator_name": n.get("creatorName", n.get("userName", "")),
+                        "date_created": n.get("changeDate") or n.get("insertDate", ""),
+                    }
+                    for n in items[:top]
+                ]
+        except Exception as e:
+            logger.info("NowCerts OData NoteList not available: %s", e)
+
+        logger.warning("No NowCerts notes endpoints returned data for insured %s", insured_id)
+        return []
+
     def get_insured_policies(self, insured_database_id: str) -> list[dict]:
         """Get policies for a specific insured."""
         try:

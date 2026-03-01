@@ -1515,3 +1515,83 @@ def _log_email_to_nowcerts(
     except Exception as e:
         # Don't fail the email send if note logging fails
         logger.error(f"Failed to log email to NowCerts: {e}")
+
+
+# ── Customer Notes (2-way NowCerts sync) ──
+
+@router.get("/{customer_id}/notes")
+def get_customer_notes(
+    customer_id: int,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get recent notes from NowCerts for a customer."""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        return []
+
+    if customer.nowcerts_insured_id:
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+            if nc and nc.is_configured:
+                nc_notes = nc.get_insured_notes([str(customer.nowcerts_insured_id)], top=limit)
+                if nc_notes:
+                    return [
+                        {
+                            "id": i,
+                            "subject": n.get("subject", "(No subject)"),
+                            "body": n.get("description", ""),
+                            "source": n.get("type") or "NowCerts",
+                            "created_by": n.get("creator_name", ""),
+                            "created_at": n.get("date_created", ""),
+                        }
+                        for i, n in enumerate(nc_notes)
+                    ]
+        except Exception as e:
+            logger.warning(f"NowCerts notes fetch failed: {e}")
+
+    return []
+
+
+@router.post("/{customer_id}/notes")
+def add_customer_note(
+    customer_id: int,
+    subject: str = Form(...),
+    body: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a note and push to NowCerts."""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    pushed = "failed"
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        if nc and nc.is_configured:
+            name_parts = (customer.full_name or "").strip().split()
+            first_name = name_parts[0] if name_parts else ""
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            note_data = {
+                "subject": subject[:200],
+                "insured_email": customer.email,
+                "insured_first_name": first_name,
+                "insured_last_name": last_name,
+                "insured_commercial_name": customer.full_name,
+                "type": "Note",
+                "description": body,
+                "creator_name": f"ORBIT ({current_user.username})",
+            }
+            if customer.nowcerts_insured_id:
+                note_data["insured_database_id"] = str(customer.nowcerts_insured_id)
+            nc.insert_note(note_data)
+            pushed = "yes"
+            logger.info(f"Note pushed to NowCerts for {customer.full_name}: {subject[:60]}")
+    except Exception as e:
+        logger.warning(f"Failed to push note to NowCerts: {e}")
+
+    return {"subject": subject, "pushed_to_nowcerts": pushed}
