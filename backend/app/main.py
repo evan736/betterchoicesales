@@ -1251,6 +1251,24 @@ app.add_middleware(
 )
 
 
+# ── Request-level safety middleware ──
+@app.middleware("http")
+async def safety_middleware(request, call_next):
+    """Log slow requests and catch any unhandled middleware-level errors."""
+    import time as _time
+    start = _time.time()
+    try:
+        response = await call_next(request)
+        elapsed = _time.time() - start
+        if elapsed > 10:
+            logger.warning(f"SLOW REQUEST: {request.method} {request.url.path} took {elapsed:.1f}s")
+        return response
+    except Exception as e:
+        elapsed = _time.time() - start
+        logger.error(f"MIDDLEWARE ERROR: {request.method} {request.url.path} after {elapsed:.1f}s: {e}")
+        return JSONResponse(status_code=500, content={"detail": f"Server error: {str(e)[:200]}"})
+
+
 @app.get("/health")
 def health_check():
     sse_loaded = False
