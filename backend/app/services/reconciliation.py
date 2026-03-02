@@ -596,17 +596,25 @@ class ReconciliationService:
                     carrier_breakdown[carrier_name] = {
                         "carrier": carrier_name,
                         "premium": Decimal("0"),
+                        "total_premium": Decimal("0"),
                         "carrier_commission": Decimal("0"),
                         "agent_commission": Decimal("0"),
                         "chargebacks": Decimal("0"),
                         "line_count": 0,
+                        "total_line_count": 0,
                     }
-                carrier_breakdown[carrier_name]["premium"] += premium
+                # total_premium tracks ALL lines; premium tracks only commissionable lines
+                carrier_breakdown[carrier_name]["total_premium"] += premium
+                carrier_breakdown[carrier_name]["total_line_count"] += 1
                 carrier_breakdown[carrier_name]["carrier_commission"] += carrier_comm
                 carrier_breakdown[carrier_name]["agent_commission"] += agent_comm
                 if agent_comm < 0:
                     carrier_breakdown[carrier_name]["chargebacks"] += premium
-                carrier_breakdown[carrier_name]["line_count"] += 1
+                    carrier_breakdown[carrier_name]["premium"] += premium
+                    carrier_breakdown[carrier_name]["line_count"] += 1
+                elif agent_comm > 0:
+                    carrier_breakdown[carrier_name]["premium"] += premium
+                    carrier_breakdown[carrier_name]["line_count"] += 1
 
                 agent_total_premium += premium
                 agent_total_commission += agent_comm
@@ -634,7 +642,8 @@ class ReconciliationService:
                 "chargeback_premium": float(agent_chargeback_premium),
                 "chargeback_count": chargeback_count,
                 "net_agent_commission": float(agent_total_commission),
-                "line_count": len(agent_line_list),
+                "line_count": sum(cb["line_count"] for cb in carrier_breakdown.values()),
+                "total_line_count": len(agent_line_list),
                 "carrier_breakdown": [
                     {k: float(v) if isinstance(v, Decimal) else v for k, v in cb.items()}
                     for cb in carrier_breakdown.values()
