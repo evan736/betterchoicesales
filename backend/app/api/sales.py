@@ -669,7 +669,7 @@ async def import_sales_csv(
         total_items = 0
         types_found = []
         for s in group_sales:
-            suffix = s.policy_number.replace(_base_policy(s.policy_number), "").strip(" -")
+            suffix = (s.policy_number or "").replace(_base_policy(s.policy_number or ""), "").strip(" -")
             line = SaleLineItem(
                 sale_id=primary.id,
                 policy_type=s.policy_type or "other",

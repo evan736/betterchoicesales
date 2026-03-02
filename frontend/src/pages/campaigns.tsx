@@ -130,7 +130,7 @@ export default function CampaignsPage() {
     try {
       const res = await axios.post(`${API}/api/campaigns/auto-retarget`, {}, { headers: headers() });
       if (res.data.retarget_campaigns_created > 0) {
-        alert(`Created ${res.data.retarget_campaigns_created} retarget campaign(s) in draft mode:\n\n${res.data.campaigns.map((c: any) => `• ${c.campaign_name} — ${c.leads} leads (Round ${c.retarget_round})`).join('\n')}\n\nReview and activate when ready.`);
+        alert(`Created ${res.data.retarget_campaigns_created} retarget campaign(s) in draft mode:\n\n${res.data.campaigns?.map((c: any) => `• ${c.campaign_name} — ${c.leads} leads (Round ${c.retarget_round})`).join('\n')}\n\nReview and activate when ready.`);
       } else {
         alert('No campaigns eligible for retargeting yet. Campaigns must be 180+ days old with unconverted leads.');
       }

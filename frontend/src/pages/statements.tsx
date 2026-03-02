@@ -869,7 +869,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
       <div>
         <h4 className="font-semibold text-slate-700 text-sm mb-2">Carriers Included</h4>
         <div className="flex flex-wrap gap-2">
-          {data.carriers.map((c: any) => (
+          {data.carriers?.map((c: any) => (
             <span key={c.carrier} className="text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full font-medium">
               {c.carrier.replace('_', ' ').replace(/\b\w/g, (ch: string) => ch.toUpperCase())}
               <span className="text-slate-400 ml-1">({c.matched_rows} matched)</span>
@@ -881,7 +881,7 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
       <div>
         <h4 className="font-semibold text-slate-700 text-sm mb-2">Agent Commission Breakdown — <span className="text-blue-600 font-normal">click an agent for full detail &amp; PDF</span></h4>
         <div className="space-y-3">
-          {data.agent_summaries.map((agent: any) => (
+          {data.agent_summaries?.map((agent: any) => (
             <div
               key={agent.agent_id}
               className="border border-slate-200 rounded-lg p-4 hover:border-green-300 hover:shadow-sm transition-all"
@@ -1513,7 +1513,7 @@ const RevenueTracker: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {data.months.map((m: any) => {
+              {data.months?.map((m: any) => {
                 const hasData = m.line_count > 0;
                 return (
                   <tr key={m.period}
@@ -1570,7 +1570,7 @@ const RevenueTracker: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {data.carriers.map((c: any) => (
+                {data.carriers?.map((c: any) => (
                   <tr key={c.carrier} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-3 font-semibold text-slate-800 capitalize">{c.carrier.replace(/_/g, ' ')}</td>
                     <td className="px-4 py-3 text-right">{fmt(c.total_premium)}</td>

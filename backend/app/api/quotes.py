@@ -160,6 +160,50 @@ def _create_nowcerts_prospect(quote: Quote):
         return None
 
 
+# ── Helper: Convert quote to dict ──
+
+def _quote_to_dict(q: Quote) -> dict:
+    days_since_sent = None
+    if q.email_sent_at:
+        sent = q.email_sent_at.replace(tzinfo=None) if q.email_sent_at.tzinfo else q.email_sent_at
+        days_since_sent = (datetime.utcnow() - sent).days
+
+    return {
+        "id": q.id,
+        "prospect_name": q.prospect_name,
+        "prospect_email": q.prospect_email,
+        "prospect_phone": q.prospect_phone,
+        "prospect_address": q.prospect_address,
+        "prospect_city": q.prospect_city,
+        "prospect_state": q.prospect_state,
+        "prospect_zip": q.prospect_zip,
+        "carrier": q.carrier,
+        "policy_type": q.policy_type,
+        "quoted_premium": float(q.quoted_premium) if q.quoted_premium else None,
+        "effective_date": q.effective_date.isoformat() if q.effective_date else None,
+        "premium_term": q.premium_term or "6 months",
+        "notes": q.notes or "",
+        "policy_lines": json.loads(q.policy_lines) if q.policy_lines else [],
+        "status": q.status,
+        "pdf_uploaded": bool(q.quote_pdf_path),
+        "pdf_filename": q.quote_pdf_filename,
+        "email_sent": q.email_sent,
+        "email_sent_at": q.email_sent_at.isoformat() if q.email_sent_at else None,
+        "days_since_sent": days_since_sent,
+        "followup_3day_sent": q.followup_3day_sent,
+        "followup_7day_sent": q.followup_7day_sent,
+        "followup_14day_sent": q.followup_14day_sent,
+        "followup_disabled": getattr(q, 'followup_disabled', False) or False,
+        "entered_remarket": q.entered_remarket,
+        "converted_sale_id": q.converted_sale_id,
+        "lost_reason": q.lost_reason,
+        "nowcerts_prospect_created": q.nowcerts_prospect_created,
+        "producer_id": q.producer_id,
+        "producer_name": q.producer_name,
+        "created_at": q.created_at.isoformat() if q.created_at else None,
+    }
+
+
 # ── Helper: Find sibling quotes (same prospect bundle) ──
 
 def _find_sibling_quotes(db: Session, quote: Quote):
