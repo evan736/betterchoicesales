@@ -989,14 +989,14 @@ export default function CustomersPage() {
                                               ))}
                                             </div>
                                           )}
-                                          <label className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 font-semibold transition-colors border border-dashed border-cyan-500/40 rounded-lg px-3 py-2 w-full justify-center hover:border-cyan-400 hover:bg-cyan-500/10 cursor-pointer">
+                                          <label className="relative flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 font-semibold transition-colors border border-dashed border-cyan-500/40 rounded-lg px-3 py-2 w-full justify-center hover:border-cyan-400 hover:bg-cyan-500/10 cursor-pointer">
                                             <Paperclip size={13} />
                                             <span>{emailFiles.length > 0 ? `Add More Files (${emailFiles.length} attached)` : 'Attach Files'}</span>
                                             <input
                                               type="file"
                                               multiple
                                               accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif"
-                                              style={{ position: 'absolute', width: '1px', height: '1px', opacity: 0, overflow: 'hidden' }}
+                                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                               onChange={e => {
                                                 const files = e.target.files;
                                                 if (files && files.length > 0) {
@@ -1008,7 +1008,7 @@ export default function CustomersPage() {
                                           </label>
                                         </div>
                                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 gap-2">
-                                          <span className="text-[10px] text-slate-400 text-center sm:text-left">Better Choice Insurance · (847) 908-5665</span>
+                                          <span className="text-[10px] text-slate-400 text-center sm:text-left">Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175 · (847) 908-5665</span>
                                           <div className="flex items-center gap-2 justify-end">
                                             <button onClick={() => setEmailOpen(false)} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">Cancel</button>
                                             <button
