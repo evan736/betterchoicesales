@@ -822,6 +822,42 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Checklist migration: {e}")
 
+    # Self-healing: add missing FK indexes for query performance
+    try:
+        from sqlalchemy import text as _idx_text, inspect as _idx_inspect
+        from app.core.database import engine as _idx_engine
+        inspector = _idx_inspect(_idx_engine)
+        
+        # List of (table, column) pairs that have FKs but no index
+        fk_indexes = [
+            ("requote_leads", "producer_id"),
+            ("chat_channels", "created_by"),
+            ("chat_messages", "reply_to_id"),
+            ("email_templates", "sent_by_id"),
+            ("email_drafts", "created_by_id"),
+            ("payroll_runs", "submitted_by_id"),
+            ("reshop_activities", "user_id"),
+            ("outbound_queue", "inbound_email_id"),
+            ("tasks", "assigned_to_id"),
+            ("timeclock_entries", "excused_by"),
+        ]
+        
+        with _idx_engine.connect() as conn:
+            for table, column in fk_indexes:
+                if not inspector.has_table(table):
+                    continue
+                idx_name = f"ix_{table}_{column}"
+                existing_indexes = {idx['name'] for idx in inspector.get_indexes(table)}
+                if idx_name not in existing_indexes:
+                    try:
+                        conn.execute(_idx_text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({column})"))
+                        conn.commit()
+                        logger.info(f"Created index {idx_name}")
+                    except Exception as ie:
+                        logger.debug(f"Index {idx_name}: {ie}")
+    except Exception as e:
+        logger.warning(f"FK index migration: {e}")
+
     # Self-healing: add PDF storage columns to sales table if missing
     try:
         from sqlalchemy import text as sa_text, inspect as sa_inspect

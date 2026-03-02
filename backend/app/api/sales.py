@@ -699,6 +699,13 @@ async def import_sales_csv(
         db.commit()
         logger.info(f"Merged {merged_count} duplicate policies into bundles")
 
+    # Invalidate cached dashboard data since sales changed
+    try:
+        from app.core.cache import invalidate
+        invalidate()  # Clear all caches
+    except Exception:
+        pass
+
     return {
         "created": created - merged_count,
         "skipped": skipped,

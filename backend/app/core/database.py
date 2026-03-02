@@ -14,8 +14,10 @@ elif db_url.startswith("postgresql://") and "+psycopg" not in db_url:
 engine = create_engine(
     db_url,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=8,
+    max_overflow=15,
+    pool_timeout=30,
+    pool_recycle=1800,  # Recycle connections every 30 min (prevents stale connections on Render)
     echo=False,
 )
 

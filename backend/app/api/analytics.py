@@ -47,6 +47,12 @@ def get_trending_projection(
     Project sales to a target date based on daily business-day pace.
     Supports monthly (current month), annual (this year), and last_year views.
     """
+    from app.core.cache import get as cache_get, set as cache_set
+    cache_key = f"trending:{period}:{producer_id}:{target_date}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     now = datetime.utcnow()
     today = now.date()
 
@@ -244,7 +250,7 @@ def get_trending_projection(
         "progress": min(100, (current_month_premium / goal_100k * 100)),
     })
 
-    return {
+    _trending_result = {
         "mode": period or "monthly",
         "current_premium": current_premium,
         "ytd_premium": ytd_premium,
@@ -262,6 +268,8 @@ def get_trending_projection(
         "goals": goals,
         "period": today.strftime("%Y-%m"),
     }
+    cache_set(cache_key, _trending_result, ttl_seconds=60)
+    return _trending_result
 
 
 @router.get("/summary")

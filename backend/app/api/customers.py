@@ -298,6 +298,11 @@ def agency_stats(
     db: Session = Depends(get_db),
 ):
     """Get agency-level statistics: active customers, total premium, etc."""
+    from app.core.cache import get as cache_get, set as cache_set
+    cached = cache_get("agency_stats")
+    if cached is not None:
+        return cached
+
     from sqlalchemy import distinct
     from decimal import Decimal
 
@@ -369,7 +374,7 @@ def agency_stats(
     except Exception:
         pass
 
-    return {
+    _stats_result = {
         "total_customers": total_customers,
         "active_customers": active_customers,
         "active_policies": active_policies,
@@ -378,6 +383,8 @@ def agency_stats(
         "monthly_customer_growth": monthly_growth,
         "last_sync": last_sync.isoformat() if last_sync else None,
     }
+    cache_set("agency_stats", _stats_result, ttl_seconds=120)
+    return _stats_result
 
 
 @router.post("/capture-snapshot")
