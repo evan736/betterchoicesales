@@ -252,6 +252,7 @@ def revenue_tracker(
     from sqlalchemy import func, extract, case, text
     from app.models.statement import StatementLine, StatementImport
     from datetime import datetime, timedelta
+    from dateutil.relativedelta import relativedelta
     from decimal import Decimal
     from collections import defaultdict
 
@@ -347,9 +348,9 @@ def revenue_tracker(
     rolling_total = Decimal("0")
     rolling_chargebacks = Decimal("0")
 
-    # Generate last 12 months
+    # Generate last 12 months + current month
     for i in range(12, -1, -1):
-        dt = now.replace(day=1) - timedelta(days=i * 30)
+        dt = now.replace(day=1) - relativedelta(months=i)
         period = dt.strftime("%Y-%m")
         m = monthly_data.get(period, {})
 
