@@ -144,6 +144,7 @@ export default function Sales() {
   // Stats
   const totalPremium = sales.reduce((sum, s) => sum + parseFloat(s.written_premium || 0), 0);
   const totalSales = sales.length;
+  const isPrivileged = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'manager';
 
   const [importResult, setImportResult] = useState<any>(null);
   const [importing, setImporting] = useState(false);
@@ -311,22 +312,26 @@ export default function Sales() {
             <div className="text-2xl font-bold text-slate-900">{sales.reduce((sum, s) => sum + (s.item_count || 1), 0)}</div>
             <div className="text-xs text-slate-500">Total Items</div>
           </div>
+          {isPrivileged && (
           <div className="bg-white rounded-lg border border-green-200 p-3 text-center">
             <div className="text-2xl font-bold text-green-700">
               ${sales.filter((s: any) => s.commission_status === 'paid').reduce((sum: number, s: any) => sum + parseFloat(s.written_premium || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}
             </div>
             <div className="text-xs text-green-600">Premium Paid</div>
           </div>
+          )}
+          {isPrivileged && (
           <div className="bg-white rounded-lg border border-amber-200 p-3 text-center">
             <div className="text-2xl font-bold text-amber-600">
               ${sales.filter((s: any) => s.commission_status !== 'paid').reduce((sum: number, s: any) => sum + parseFloat(s.written_premium || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0 })}
             </div>
             <div className="text-xs text-amber-600">Premium Pending</div>
           </div>
+          )}
         </div>
 
-        {/* Premium Paid Progress Bar */}
-        {totalSales > 0 && (() => {
+        {/* Premium Paid Progress Bar - admin/manager only */}
+        {isPrivileged && totalSales > 0 && (() => {
           const paidCount = sales.filter((s: any) => s.commission_status === 'paid').length;
           const paidPct = Math.round((paidCount / totalSales) * 100);
           return (
@@ -361,7 +366,7 @@ export default function Sales() {
         ) : (
           <div className="grid grid-cols-1 gap-4">
             {sales.map((sale) => (
-              <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} />
+              <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} isPrivileged={isPrivileged} />
             ))}
           </div>
         )}
@@ -379,7 +384,7 @@ export default function Sales() {
 }
 
 /* ========== SALE LIST ITEM ========== */
-const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onUpdate }) => {
+const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: boolean }> = ({ sale, onUpdate, isPrivileged = false }) => {
   const [deleting, setDeleting] = useState(false);
   const [sendingSig, setSendingSig] = useState(false);
   const [sigStatus, setSigStatus] = useState(sale.signature_status || 'not_sent');
@@ -540,11 +545,11 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             <span className={`badge ${sale.status === 'active' ? 'badge-success' : sale.status === 'pending' ? 'badge-warning' : 'badge-danger'}`}>
               {sale.status}
             </span>
-            {sale.commission_status === 'paid' ? (
+            {isPrivileged && (sale.commission_status === 'paid' ? (
               <span className="badge bg-green-100 text-green-700">💰 Premium Paid</span>
             ) : (
               <span className="badge bg-amber-100 text-amber-700">⏳ Premium Pending</span>
-            )}
+            ))}
             {sale.welcome_email_sent && (
               <span className="badge bg-purple-100 text-purple-700">📧 Welcome Sent</span>
             )}

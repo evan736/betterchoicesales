@@ -406,7 +406,7 @@ def create_sale(
     return sale
 
 
-@router.get("/", response_model=List[SaleSchema])
+@router.get("/")
 def list_sales(
     skip: int = 0,
     limit: int = 500,
@@ -416,12 +416,11 @@ def list_sales(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List sales - producers see only their own, admins see all"""
+    """List sales - all users see all sales. Commission data hidden for non-admin/manager."""
     query = db.query(Sale)
     
-    if current_user.role.lower() == "producer" or current_user.role.lower() == "retention_specialist":
-        query = query.filter(Sale.producer_id == current_user.id)
-    elif producer_id:
+    # Optional producer filter (for admin/manager filtering UI)
+    if producer_id:
         query = query.filter(Sale.producer_id == producer_id)
     
     if date_from:
@@ -441,7 +440,21 @@ def list_sales(
             pass
     
     sales = query.order_by(Sale.sale_date.desc()).offset(skip).limit(limit).all()
-    return sales
+    
+    # Strip commission fields for non-admin/manager users
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    if is_privileged:
+        return sales
+    
+    # Serialize and remove commission data
+    result = []
+    for sale in sales:
+        sale_dict = SaleSchema.model_validate(sale).model_dump()
+        sale_dict.pop("commission_status", None)
+        sale_dict.pop("commission_paid_date", None)
+        sale_dict.pop("commission_paid_period", None)
+        result.append(sale_dict)
+    return result
 
 
 
