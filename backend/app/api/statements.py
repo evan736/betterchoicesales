@@ -384,3 +384,280 @@ def debug_agent_lines(
         "null_effective_date_count": null_eff_count,
         "lines": sorted(results, key=lambda x: x["carrier"]),
     }
+
+
+# ── Revenue Tracker ──────────────────────────────────────────────────
+
+@router.get("/revenue-tracker")
+def revenue_tracker(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Revenue tracker — projected vs actual commission revenue.
+    Shows monthly breakdown, new vs renewal, chargebacks, and 12-month rolling.
+    """
+    from sqlalchemy import func, extract, case, text
+    from app.models.statement import StatementLine, StatementImport
+    from datetime import datetime, timedelta
+    from decimal import Decimal
+    from collections import defaultdict
+
+    now = datetime.now()
+    # 12-month lookback
+    twelve_months_ago = now.replace(day=1) - timedelta(days=365)
+
+    # ── 1. Actual commissions by month from uploaded statements ──
+    monthly_data = defaultdict(lambda: {
+        "new_business_premium": Decimal("0"),
+        "new_business_commission": Decimal("0"),
+        "renewal_premium": Decimal("0"),
+        "renewal_commission": Decimal("0"),
+        "endorsement_commission": Decimal("0"),
+        "chargeback_commission": Decimal("0"),
+        "other_commission": Decimal("0"),
+        "total_premium": Decimal("0"),
+        "total_commission": Decimal("0"),
+        "statements_uploaded": 0,
+        "carriers": set(),
+        "line_count": 0,
+    })
+
+    # Get all statement lines with their import info
+    lines = db.query(
+        StatementLine,
+        StatementImport.statement_period,
+        StatementImport.carrier,
+    ).join(
+        StatementImport, StatementLine.statement_import_id == StatementImport.id
+    ).filter(
+        StatementImport.statement_period >= twelve_months_ago.strftime("%Y-%m")
+    ).all()
+
+    for line, period, carrier in lines:
+        m = monthly_data[period]
+        m["carriers"].add(carrier)
+        m["line_count"] += 1
+
+        premium = line.premium_amount or Decimal("0")
+        commission = line.commission_amount or Decimal("0")
+        tx_type = (line.transaction_type or "other").lower()
+
+        m["total_premium"] += premium
+        m["total_commission"] += commission
+
+        if tx_type in ("new_business", "new business", "nb"):
+            m["new_business_premium"] += premium
+            m["new_business_commission"] += commission
+        elif tx_type in ("renewal", "ren", "renl"):
+            m["renewal_premium"] += premium
+            m["renewal_commission"] += commission
+        elif tx_type in ("cancellation", "cancel", "can", "cancellation/flat"):
+            m["chargeback_commission"] += commission  # Usually negative
+        elif tx_type in ("endorsement", "end", "endt"):
+            m["endorsement_commission"] += commission
+        else:
+            m["other_commission"] += commission
+
+    # Count statements per period
+    stmt_counts = db.query(
+        StatementImport.statement_period,
+        func.count(StatementImport.id),
+    ).filter(
+        StatementImport.statement_period >= twelve_months_ago.strftime("%Y-%m")
+    ).group_by(StatementImport.statement_period).all()
+
+    for period, count in stmt_counts:
+        monthly_data[period]["statements_uploaded"] = count
+
+    # ── 2. Projected revenue (book of business × 13% avg commission rate) ──
+    # Get total in-force premium from NowCerts customer_policies table
+    projected_monthly_commission = Decimal("0")
+    annual_book_premium = Decimal("0")
+    try:
+        from app.models.customer import CustomerPolicy
+        # Sum all active policy premiums
+        total_premium_result = db.query(
+            func.sum(CustomerPolicy.premium)
+        ).filter(
+            CustomerPolicy.status.in_(["Active", "active", "In Force", "in force"])
+        ).scalar()
+
+        if total_premium_result:
+            annual_book_premium = Decimal(str(total_premium_result))
+            # 13% of annual premium, divided by 12 for monthly
+            projected_monthly_commission = (annual_book_premium * Decimal("0.13")) / Decimal("12")
+    except Exception as e:
+        logger.warning(f"Could not calculate projected revenue: {e}")
+
+    # ── 3. Build month-by-month response ──
+    months = []
+    rolling_total = Decimal("0")
+    rolling_chargebacks = Decimal("0")
+
+    # Generate last 12 months
+    for i in range(12, -1, -1):
+        dt = now.replace(day=1) - timedelta(days=i * 30)
+        period = dt.strftime("%Y-%m")
+        m = monthly_data.get(period, {})
+
+        total_comm = m.get("total_commission", Decimal("0"))
+        chargebacks = m.get("chargeback_commission", Decimal("0"))
+        rolling_total += total_comm
+        rolling_chargebacks += chargebacks
+
+        actual_rate = Decimal("0")
+        if m.get("total_premium") and m["total_premium"] > 0:
+            actual_rate = (m["total_commission"] / m["total_premium"]) * 100
+
+        months.append({
+            "period": period,
+            "month_label": dt.strftime("%b %Y"),
+            "new_business_premium": float(m.get("new_business_premium", 0)),
+            "new_business_commission": float(m.get("new_business_commission", 0)),
+            "renewal_premium": float(m.get("renewal_premium", 0)),
+            "renewal_commission": float(m.get("renewal_commission", 0)),
+            "endorsement_commission": float(m.get("endorsement_commission", 0)),
+            "chargeback_commission": float(chargebacks),
+            "other_commission": float(m.get("other_commission", 0)),
+            "total_premium": float(m.get("total_premium", 0)),
+            "total_commission": float(total_comm),
+            "actual_commission_rate": round(float(actual_rate), 2),
+            "projected_commission": float(projected_monthly_commission),
+            "variance": float(total_comm - projected_monthly_commission),
+            "variance_pct": round(float(
+                ((total_comm - projected_monthly_commission) / projected_monthly_commission * 100)
+                if projected_monthly_commission > 0 else 0
+            ), 1),
+            "statements_uploaded": m.get("statements_uploaded", 0),
+            "carriers": sorted(list(m.get("carriers", set()))),
+            "line_count": m.get("line_count", 0),
+        })
+
+    # ── 4. Carrier breakdown ──
+    carrier_data = defaultdict(lambda: {
+        "total_premium": Decimal("0"), "total_commission": Decimal("0"),
+        "new_commission": Decimal("0"), "renewal_commission": Decimal("0"),
+        "chargebacks": Decimal("0"), "line_count": 0,
+    })
+
+    for line, period, carrier in lines:
+        c = carrier_data[carrier]
+        c["total_premium"] += line.premium_amount or Decimal("0")
+        c["total_commission"] += line.commission_amount or Decimal("0")
+        c["line_count"] += 1
+        tx_type = (line.transaction_type or "other").lower()
+        if tx_type in ("new_business", "new business", "nb"):
+            c["new_commission"] += line.commission_amount or Decimal("0")
+        elif tx_type in ("renewal", "ren", "renl"):
+            c["renewal_commission"] += line.commission_amount or Decimal("0")
+        elif tx_type in ("cancellation", "cancel", "can", "cancellation/flat"):
+            c["chargebacks"] += line.commission_amount or Decimal("0")
+
+    carriers = []
+    for name, c in sorted(carrier_data.items()):
+        rate = (c["total_commission"] / c["total_premium"] * 100) if c["total_premium"] > 0 else Decimal("0")
+        carriers.append({
+            "carrier": name,
+            "total_premium": float(c["total_premium"]),
+            "total_commission": float(c["total_commission"]),
+            "new_commission": float(c["new_commission"]),
+            "renewal_commission": float(c["renewal_commission"]),
+            "chargebacks": float(c["chargebacks"]),
+            "avg_commission_rate": round(float(rate), 2),
+            "line_count": c["line_count"],
+        })
+
+    # ── 5. Policy-level detail for current month ──
+    current_period = now.strftime("%Y-%m")
+    current_lines = db.query(
+        StatementLine,
+        StatementImport.carrier,
+    ).join(
+        StatementImport, StatementLine.statement_import_id == StatementImport.id
+    ).filter(
+        StatementImport.statement_period == current_period
+    ).order_by(StatementLine.commission_amount.desc()).limit(500).all()
+
+    policy_details = []
+    for line, carrier in current_lines:
+        policy_details.append({
+            "id": line.id,
+            "policy_number": line.policy_number,
+            "insured_name": line.insured_name,
+            "carrier": carrier,
+            "transaction_type": line.transaction_type or "unknown",
+            "effective_date": line.effective_date.isoformat() if line.effective_date else None,
+            "premium": float(line.premium_amount or 0),
+            "commission_rate": float(line.commission_rate or 0) * 100 if line.commission_rate else None,
+            "commission": float(line.commission_amount or 0),
+            "product_type": line.product_type,
+            "is_matched": line.is_matched,
+        })
+
+    return {
+        "summary": {
+            "annual_book_premium": float(annual_book_premium),
+            "projected_monthly_commission": float(projected_monthly_commission),
+            "assumed_commission_rate": 13.0,
+            "rolling_12_total_commission": float(rolling_total),
+            "rolling_12_chargebacks": float(rolling_chargebacks),
+            "rolling_12_net_commission": float(rolling_total),  # chargebacks already included in total
+            "avg_monthly_actual": float(rolling_total / 13) if rolling_total else 0,
+        },
+        "months": months,
+        "carriers": carriers,
+        "current_month_policies": policy_details,
+        "current_period": current_period,
+    }
+
+
+@router.get("/revenue-tracker/month/{period}")
+def revenue_tracker_month_detail(
+    period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get policy-level detail for a specific month."""
+    from app.models.statement import StatementLine, StatementImport
+    from decimal import Decimal
+
+    lines_q = db.query(
+        StatementLine,
+        StatementImport.carrier,
+    ).join(
+        StatementImport, StatementLine.statement_import_id == StatementImport.id
+    ).filter(
+        StatementImport.statement_period == period
+    ).order_by(StatementLine.commission_amount.desc()).all()
+
+    policies = []
+    for line, carrier in lines_q:
+        policies.append({
+            "id": line.id,
+            "policy_number": line.policy_number,
+            "insured_name": line.insured_name,
+            "carrier": carrier,
+            "transaction_type": line.transaction_type or "unknown",
+            "transaction_type_raw": line.transaction_type_raw,
+            "effective_date": line.effective_date.isoformat() if line.effective_date else None,
+            "premium": float(line.premium_amount or 0),
+            "commission_rate": round(float(line.commission_rate or 0) * 100, 2) if line.commission_rate else None,
+            "commission": float(line.commission_amount or 0),
+            "product_type": line.product_type,
+            "line_of_business": line.line_of_business,
+            "is_matched": line.is_matched,
+            "producer_name": line.producer_name,
+        })
+
+    total_premium = sum(p["premium"] for p in policies)
+    total_commission = sum(p["commission"] for p in policies)
+
+    return {
+        "period": period,
+        "total_lines": len(policies),
+        "total_premium": total_premium,
+        "total_commission": total_commission,
+        "avg_rate": round((total_commission / total_premium * 100) if total_premium > 0 else 0, 2),
+        "policies": policies,
+    }

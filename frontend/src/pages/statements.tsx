@@ -222,21 +222,43 @@ export default function Statements() {
 
   if (loading || !user || user.role?.toLowerCase() !== 'admin') return null;
 
+  // ── Top-level view toggle ──
+  const [mainView, setMainView] = useState<'reconciliation' | 'revenue'>('reconciliation');
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
+        {/* Header with view toggle */}
         <div className="mb-8">
           <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">
             Commission Reconciliation
           </h1>
-          <p className="text-slate-600">
-            Upload carrier statements, match to policies, and calculate agent commissions
+          <p className="text-slate-600 mb-4">
+            Upload carrier statements, match to policies, and track revenue
           </p>
+          <div className="flex space-x-1 bg-slate-100 rounded-lg p-1 w-fit">
+            {[
+              { key: 'reconciliation', label: 'Statements & Matching' },
+              { key: 'revenue', label: 'Revenue Tracker' },
+            ].map(v => (
+              <button key={v.key}
+                onClick={() => setMainView(v.key as any)}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
+                  mainView === v.key
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >{v.label}</button>
+            ))}
+          </div>
         </div>
 
+        {mainView === 'revenue' ? (
+          <RevenueTracker />
+        ) : (
+        <>
         {/* Upload Card */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
           <h2 className="font-display text-xl font-bold text-slate-900 mb-4">
@@ -459,6 +481,8 @@ export default function Statements() {
             ) : null}
           </div>
         </div>
+        </>
+        )}
       </main>
     </div>
   );
@@ -1384,6 +1408,275 @@ const AgentSheetModal: React.FC<{
           </div>
         ) : null}
       </div>
+    </div>
+  );
+};
+
+
+// ── Revenue Tracker Component ───────────────────────────────────────
+
+const RevenueTracker: React.FC = () => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [drillMonth, setDrillMonth] = useState<string | null>(null);
+  const [drillData, setDrillData] = useState<any>(null);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillSearch, setDrillSearch] = useState('');
+  const [drillTypeFilter, setDrillTypeFilter] = useState('');
+
+  const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+  const headers = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    fetch(`${API}/api/reconciliation/revenue-tracker`, { headers })
+      .then(r => r.json()).then(setData).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  const openMonth = async (period: string) => {
+    setDrillMonth(period);
+    setDrillLoading(true);
+    setDrillSearch('');
+    setDrillTypeFilter('');
+    try {
+      const r = await fetch(`${API}/api/reconciliation/revenue-tracker/month/${period}`, { headers });
+      setDrillData(await r.json());
+    } catch (e) { console.error(e); }
+    setDrillLoading(false);
+  };
+
+  const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  const fmtFull = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+
+  if (loading) return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+      <RefreshCw size={32} className="mx-auto mb-4 animate-spin text-blue-600" />
+      <p className="text-slate-600">Loading revenue data...</p>
+    </div>
+  );
+
+  if (!data) return <div className="text-slate-500 text-center p-8">No data available. Upload commission statements first.</div>;
+
+  const s = data.summary;
+
+  // Filter drill-down policies
+  const filteredPolicies = drillData?.policies?.filter((p: any) => {
+    const matchSearch = !drillSearch || 
+      (p.insured_name || '').toLowerCase().includes(drillSearch.toLowerCase()) ||
+      (p.policy_number || '').toLowerCase().includes(drillSearch.toLowerCase()) ||
+      (p.carrier || '').toLowerCase().includes(drillSearch.toLowerCase());
+    const matchType = !drillTypeFilter || p.transaction_type === drillTypeFilter;
+    return matchSearch && matchType;
+  }) || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Annual Book Premium', value: fmt(s.annual_book_premium), sub: 'Active in-force policies', color: 'text-slate-900' },
+          { label: 'Projected Monthly', value: fmt(s.projected_monthly_commission), sub: `${s.assumed_commission_rate}% avg rate`, color: 'text-blue-700' },
+          { label: '12-Month Rolling Revenue', value: fmt(s.rolling_12_total_commission), sub: `Avg ${fmt(s.avg_monthly_actual)}/mo`, color: 'text-green-700' },
+          { label: '12-Month Chargebacks', value: fmt(s.rolling_12_chargebacks), sub: 'Cancellations & adjustments', color: s.rolling_12_chargebacks < 0 ? 'text-red-600' : 'text-slate-600' },
+        ].map((c, i) => (
+          <div key={i} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <p className="text-xs font-semibold text-slate-500 uppercase mb-1">{c.label}</p>
+            <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+            <p className="text-xs text-slate-400 mt-1">{c.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Monthly Breakdown Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-bold text-slate-900">Monthly Commission Revenue</h2>
+          <p className="text-sm text-slate-500">Click any month to drill down to policy-level detail</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                <th className="px-4 py-3 font-semibold text-slate-600">Month</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">New Biz</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Renewals</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Chargebacks</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Total Comm.</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Avg Rate</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Projected</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Variance</th>
+                <th className="px-4 py-3 font-semibold text-slate-600 text-center">Stmts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.months.map((m: any) => {
+                const hasData = m.line_count > 0;
+                return (
+                  <tr key={m.period}
+                    onClick={() => hasData && openMonth(m.period)}
+                    className={`border-b border-slate-100 transition-colors ${
+                      hasData ? 'hover:bg-blue-50 cursor-pointer' : 'opacity-40'
+                    } ${drillMonth === m.period ? 'bg-blue-50' : ''}`}
+                  >
+                    <td className="px-4 py-3 font-semibold text-slate-800">{m.month_label}</td>
+                    <td className="px-4 py-3 text-right text-green-600">{hasData ? fmt(m.new_business_commission) : '—'}</td>
+                    <td className="px-4 py-3 text-right text-blue-600">{hasData ? fmt(m.renewal_commission) : '—'}</td>
+                    <td className="px-4 py-3 text-right text-red-500">{hasData && m.chargeback_commission ? fmt(m.chargeback_commission) : '—'}</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-900">{hasData ? fmt(m.total_commission) : '—'}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">{hasData ? `${m.actual_commission_rate}%` : '—'}</td>
+                    <td className="px-4 py-3 text-right text-slate-400">{fmt(m.projected_commission)}</td>
+                    <td className={`px-4 py-3 text-right font-semibold ${
+                      !hasData ? 'text-slate-300' : m.variance >= 0 ? 'text-green-600' : 'text-red-500'
+                    }`}>
+                      {hasData ? `${m.variance >= 0 ? '+' : ''}${fmt(m.variance)}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {m.statements_uploaded > 0 ? (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs font-bold">{m.statements_uploaded}</span>
+                      ) : (
+                        <span className="text-slate-300">0</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Carrier Breakdown */}
+      {data.carriers.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h2 className="text-lg font-bold text-slate-900">Commission by Carrier (12-Month Rolling)</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                  <th className="px-4 py-3 font-semibold text-slate-600">Carrier</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Premium</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">New Biz Comm.</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Renewal Comm.</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Chargebacks</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Total Comm.</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Avg Rate</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Policies</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.carriers.map((c: any) => (
+                  <tr key={c.carrier} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-3 font-semibold text-slate-800 capitalize">{c.carrier.replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 text-right">{fmt(c.total_premium)}</td>
+                    <td className="px-4 py-3 text-right text-green-600">{fmt(c.new_commission)}</td>
+                    <td className="px-4 py-3 text-right text-blue-600">{fmt(c.renewal_commission)}</td>
+                    <td className="px-4 py-3 text-right text-red-500">{c.chargebacks ? fmt(c.chargebacks) : '—'}</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-900">{fmt(c.total_commission)}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">{c.avg_commission_rate}%</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{c.line_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Month Drill-Down */}
+      {drillMonth && (
+        <div className="bg-white rounded-xl shadow-sm border-2 border-blue-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Policy Detail — {drillData?.period ? new Date(drillData.period + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : drillMonth}
+              </h2>
+              <p className="text-sm text-slate-500">
+                {drillData ? `${drillData.total_lines} lines · ${fmtFull(drillData.total_premium)} premium · ${fmtFull(drillData.total_commission)} commission · ${drillData.avg_rate}% avg rate` : ''}
+              </p>
+            </div>
+            <button onClick={() => { setDrillMonth(null); setDrillData(null); }}
+              className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+              <X size={20} />
+            </button>
+          </div>
+
+          {drillLoading ? (
+            <div className="p-8 text-center">
+              <RefreshCw size={24} className="mx-auto mb-2 animate-spin text-blue-600" />
+              <p className="text-slate-500 text-sm">Loading policy details...</p>
+            </div>
+          ) : drillData?.policies ? (
+            <>
+              {/* Filters */}
+              <div className="px-6 py-3 border-b border-slate-100 flex gap-3 items-center">
+                <div className="relative flex-1 max-w-xs">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input type="text" placeholder="Search name, policy, carrier..."
+                    value={drillSearch} onChange={e => setDrillSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <select value={drillTypeFilter} onChange={e => setDrillTypeFilter(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
+                  <option value="">All Types</option>
+                  <option value="new_business">New Business</option>
+                  <option value="renewal">Renewal</option>
+                  <option value="endorsement">Endorsement</option>
+                  <option value="cancellation">Cancellation</option>
+                  <option value="other">Other</option>
+                </select>
+                <span className="text-xs text-slate-500">{filteredPolicies.length} lines</span>
+              </div>
+
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                      <th className="px-3 py-2 font-semibold text-slate-600">Policy #</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600">Insured</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600">Carrier</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600">Type</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600 text-right">Premium</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600 text-right">Rate</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600 text-right">Commission</th>
+                      <th className="px-3 py-2 font-semibold text-slate-600">Product</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPolicies.map((p: any) => (
+                      <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="px-3 py-2 font-mono text-xs text-slate-700">{p.policy_number}</td>
+                        <td className="px-3 py-2 text-slate-800">{p.insured_name || '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 capitalize">{(p.carrier || '').replace(/_/g, ' ')}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            p.transaction_type === 'new_business' ? 'bg-green-100 text-green-700' :
+                            p.transaction_type === 'renewal' ? 'bg-blue-100 text-blue-700' :
+                            p.transaction_type === 'cancellation' ? 'bg-red-100 text-red-700' :
+                            p.transaction_type === 'endorsement' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {(p.transaction_type || 'unknown').replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right">{fmtFull(p.premium)}</td>
+                        <td className="px-3 py-2 text-right text-slate-500">{p.commission_rate != null ? `${p.commission_rate}%` : '—'}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${p.commission < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                          {fmtFull(p.commission)}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-500">{p.product_type || p.line_of_business || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="p-8 text-center text-slate-500">No data for this month</div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
