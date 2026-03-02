@@ -1558,6 +1558,24 @@ def force_migrate():
         except Exception as e:
             results.append(f"SKIP: {str(e)[:80]}")
 
+    # Ensure commission_rate_override column on users
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE users ADD COLUMN commission_rate_override NUMERIC(5,4)"))
+            conn.commit()
+        results.append("OK: Added users.commission_rate_override")
+    except Exception as e:
+        results.append(f"SKIP users.commission_rate_override: {str(e)[:80]}")
+
+    # Ensure is_renewal_term column on statement_lines
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE statement_lines ADD COLUMN is_renewal_term BOOLEAN"))
+            conn.commit()
+        results.append("OK: Added statement_lines.is_renewal_term")
+    except Exception as e:
+        results.append(f"SKIP statement_lines.is_renewal_term: {str(e)[:80]}")
+
     # Mark all sales before Jan 2026 as premium paid
     try:
         with engine.connect() as conn:
