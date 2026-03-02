@@ -885,7 +885,7 @@ const ComplianceCenter: React.FC = () => {
   const inspCount = inspectionDrafts.length;
   // Inspection tasks whose draft is still pending stay hidden (shown in Inspection Alerts)
   // Inspection tasks with no pending draft (already sent) show for follow-up tracking
-  const pendingInspPolicies = new Set(inspectionDrafts.map(d => d.policy_number));
+  const pendingInspPolicies = new Set(inspectionDrafts?.map(d => d.policy_number));
   const visibleTasks = tasks.filter(t =>
     t.task_type !== 'inspection' || !pendingInspPolicies.has(t.policy_number)
   );
@@ -988,7 +988,7 @@ const ComplianceCenter: React.FC = () => {
             )}
 
             <div className="divide-y divide-slate-100">
-              {inspectionDrafts.map((draft) => {
+              {inspectionDrafts?.map((draft) => {
                 const isExpanded = expandedDraftId === draft.id;
                 const isEditing = editingDraftId === draft.id;
                 const isActioning = actionLoading === draft.id;
@@ -1071,7 +1071,7 @@ const ComplianceCenter: React.FC = () => {
                             <div className="mt-2">
                               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Issues Found</p>
                               <ul className="text-[12px] text-slate-700 space-y-0.5 pl-4">
-                                {draft.issues_found.map((issue: string, i: number) => (
+                                {draft.issues_found?.map((issue: string, i: number) => (
                                   <li key={i} className="list-disc">{issue}</li>
                                 ))}
                               </ul>
@@ -1082,7 +1082,7 @@ const ComplianceCenter: React.FC = () => {
                             <div className="mt-2">
                               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Attachments</p>
                               <div className="flex flex-wrap gap-2">
-                                {draft.attachment_info.map((a: any, i: number) => (
+                                {draft.attachment_info?.map((a: any, i: number) => (
                                   <button
                                     key={i}
                                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold hover:bg-red-100 transition-colors cursor-pointer"

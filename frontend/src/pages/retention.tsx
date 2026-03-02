@@ -240,7 +240,7 @@ function OverviewTab({
                   }}
                 />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {bucketData.map((_, i) => (
+                  {bucketData?.map((_, i) => (
                     <Cell key={i} fill={bucketColors[i % bucketColors.length]} />
                   ))}
                 </Bar>
@@ -256,7 +256,7 @@ function OverviewTab({
         <div className="rounded-xl border border-white/5 bg-gradient-to-br from-[#0a1224]/95 to-[#0f1932]/90 p-5">
           <SectionHeader>Retention by Carrier</SectionHeader>
           <div className="mt-4 flex flex-col gap-3">
-            {byCarrier.map((c: any) => (
+            {byCarrier?.map((c: any) => (
               <div key={c.carrier} className="flex items-center gap-3">
                 <div className="w-32 truncate text-xs text-slate-300 font-display">{c.carrier}</div>
                 <div className="flex-1">

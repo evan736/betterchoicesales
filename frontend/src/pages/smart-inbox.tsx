@@ -291,17 +291,17 @@ export default function SmartInboxPage() {
   const selAll = () => { if (checked.size===filtered.length) setChecked(new Set()); else setChecked(new Set(filtered.map(e=>e.id))); };
 
   const approve = async (id:number) => {
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/approve`, {}, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); }
-    fetchQueue(); if (sel) fetchDetail(sel.id);
+    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/approve`, {}, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    await fetchQueue(); await fetchEmails(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const reject = async (id:number) => {
     const reason = prompt('Rejection reason (optional):');
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/reject`, null, { headers:hdr, params:{reason} }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); }
-    fetchQueue(); if (sel) fetchDetail(sel.id);
+    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/reject`, null, { headers:hdr, params:{reason} }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const editSend = async (id:number) => {
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); }
-    setEditId(null); fetchQueue(); if (sel) fetchDetail(sel.id);
+    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    setEditId(null); await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const reprocess = async (id:number) => { try { await axios.post(`${API}/api/smart-inbox/reprocess/${id}`, {}, { headers:hdr }); } catch{} fetchEmails(); };
 
@@ -437,7 +437,7 @@ export default function SmartInboxPage() {
                       :vf==='archived'?<><Archive size={32} className="mx-auto text-slate-300 mb-2"/><p className="text-slate-400 text-sm">No archived emails</p></>
                       :<><Inbox size={32} className="mx-auto text-slate-300 mb-2"/><p className="text-slate-400 text-sm">No emails yet</p><p className="text-slate-400 text-xs mt-1">Forward to <strong className="text-cyan-600">process@mail.betterchoiceins.com</strong></p></>}
                     </div>
-                  ) : grouped.map(g=>(
+                  ) : grouped?.map(g=>(
                     <div key={g.label}>
                       <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0 z-10">{g.label}</div>
                       {g.items.map(email=>{
@@ -481,10 +481,10 @@ export default function SmartInboxPage() {
                     <div className="flex-1 min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 leading-snug">{sel.subject}</h3>
                       <p className="text-[11px] text-slate-500 mt-0.5">From: {sel.from_address}</p>
-                      {sel.attachment_names && sel.attachment_names.length>0 && (
+                      {sel?.attachment_names && sel?.attachment_names.length>0 && (
                         <div className="flex items-center gap-1 mt-1 flex-wrap">
                           <Paperclip size={10} className="text-slate-400"/>
-                          {sel.attachment_names.map((n,i)=><span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{n}</span>)}
+                          {sel?.attachment_names?.map((n,i)=><span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{n}</span>)}
                         </div>
                       )}
                     </div>
@@ -516,10 +516,10 @@ export default function SmartInboxPage() {
                         <RotateCw size={13}/> Reprocess {sel.error_message&&<span className="text-[10px] text-red-400 ml-1">({sel.error_message})</span>}
                       </button>
                     )}
-                    {sel.outbound_messages && sel.outbound_messages.length>0 && (
+                    {sel?.outbound_messages && sel?.outbound_messages.length>0 && (
                       <div>
                         <h4 className="text-xs text-slate-500 font-semibold mb-2 flex items-center gap-1.5"><Send size={12}/> Outbound</h4>
-                        {sel.outbound_messages.map(msg=>(
+                        {sel?.outbound_messages?.map(msg=>(
                           <div key={msg.id} className={`rounded-lg border p-3 mb-2 ${msg.status==='pending_approval'?'border-amber-200 bg-amber-50/50':'border-slate-200 bg-slate-50'}`}>
                             <div className="flex justify-between mb-1">
                               <span className="text-[11px] text-slate-500">To: {msg.to_email}</span>
@@ -567,7 +567,7 @@ export default function SmartInboxPage() {
                 <div className="text-center py-16 rounded-lg border border-slate-200 bg-white card">
                   <CheckCircle size={36} className="mx-auto text-emerald-400 mb-2"/><p className="text-emerald-600 font-semibold">All caught up!</p><p className="text-slate-400 text-xs mt-1">No messages waiting.</p>
                 </div>
-              ):queue.map(msg=>{
+              ):queue?.map(msg=>{
                 const needsEmail = msg.to_email === 'NEEDS_EMAIL' || msg.delivery_method === 'pending';
                 const isEditing = editId === msg.id;
                 return (
@@ -634,7 +634,7 @@ export default function SmartInboxPage() {
                 <div className="text-center py-16 rounded-lg border border-slate-200 bg-white card">
                   <Send size={36} className="mx-auto text-slate-300 mb-2"/><p className="text-slate-400 font-semibold">No sent messages yet</p>
                 </div>
-              ):sentItems.map(msg=>(
+              ):sentItems?.map(msg=>(
                 <div key={msg.id} className="card rounded-lg border border-slate-200 bg-white p-4 mb-3" style={{borderLeft:'4px solid #34d399'}}>
                   <div className="flex justify-between mb-1.5">
                     <div><span className="text-sm font-semibold text-slate-900">{msg.subject}</span><p className="text-xs text-slate-500 mt-0.5">To: {msg.to_name||msg.to_email} • {msg.delivery_method==='thanksio'?'📬 Thanks.io Letter':'📧 Email'}</p></div>

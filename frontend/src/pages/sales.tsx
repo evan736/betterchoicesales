@@ -568,7 +568,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void }> = ({ sale, onU
             <div className="mb-2 p-2 bg-slate-800/40 rounded-lg border border-slate-700/50">
               <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">Premium Breakdown</div>
               <div className="flex flex-wrap gap-3">
-                {sale.line_items.map((li: any) => (
+                {sale.line_items?.map((li: any) => (
                   <div key={li.id} className="flex items-center gap-1.5 text-xs">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                       li.policy_type === 'auto' ? 'bg-blue-900/50 text-blue-300' :
@@ -847,7 +847,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
             state: clientInfo.state || undefined,
             lead_source: leadSource,
             effective_date: effectiveDate,
-            lines: groupPols.map(p => ({
+            lines: groupPols?.map(p => ({
               policy_type: p.policy_type || 'other',
               premium: parseFloat(p.written_premium) || 0,
               item_count: parseInt(p.item_count) || 1,
@@ -887,7 +887,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
         if (saleId) createdSaleIds.push(saleId);
         
         const label = groupPols.length > 1 
-          ? `${basePn} (bundle: ${groupPols.map(p => p.policy_type).join(' + ')})`
+          ? `${basePn} (bundle: ${groupPols?.map(p => p.policy_type).join(' + ')})`
           : groupPols[0].policy_number;
         results.push({ success: true, policy: label, household: res.data.household, saleId });
       } catch (err: any) {

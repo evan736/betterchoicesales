@@ -716,7 +716,7 @@ export default function CustomersPage() {
                               return (
                                 <div>
                                   {showPolicies.length > 0 ? (
-                                    <div>{showPolicies.map((p: any, i: number) => <PolicyRow key={p.id || i} p={p} i={i} />)}</div>
+                                    <div>{showPolicies?.map((p: any, i: number) => <PolicyRow key={p.id || i} p={p} i={i} />)}</div>
                                   ) : (
                                     <p className="text-sm text-slate-500 py-4 text-center">No active policies. Try refreshing from NowCerts.</p>
                                   )}
@@ -778,7 +778,7 @@ export default function CustomersPage() {
                                   <p className="text-xs text-slate-500 italic">No notes yet</p>
                                 ) : (
                                   <div className="space-y-2">
-                                    {customerNotes.map((n: any) => (
+                                    {customerNotes?.map((n: any) => (
                                       <div key={n.id} className="bg-slate-800/20 rounded-lg px-3 py-2.5 border border-slate-700/30">
                                         <div className="flex items-start justify-between gap-2">
                                           <div className="flex-1 min-w-0">
@@ -896,7 +896,7 @@ export default function CustomersPage() {
                                         {emailFiles.length > 0 && (
                                           <div className="mt-3 text-left bg-slate-50 rounded-lg p-3">
                                             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Attachments Sent ({emailFiles.length})</p>
-                                            {emailFiles.map((f, i) => (
+                                            {emailFiles?.map((f, i) => (
                                               <div key={i} className="flex items-center gap-2 text-xs text-slate-600 py-0.5">
                                                 <Paperclip size={11} className="text-green-500 flex-shrink-0" />
                                                 <span className="truncate">{f.name}</span>
@@ -971,7 +971,7 @@ export default function CustomersPage() {
                                           {emailFiles.length > 0 && (
                                             <div className="mb-2 space-y-1.5 bg-slate-800/40 rounded-lg p-2.5 border border-slate-600/30">
                                               <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider px-1">📎 Attachments ({emailFiles.length})</p>
-                                              {emailFiles.map((f, i) => (
+                                              {emailFiles?.map((f, i) => (
                                                 <div key={i} className="flex items-center gap-2 text-xs bg-slate-700/50 rounded-lg px-2.5 py-2 border border-slate-600/20">
                                                   {f.type === 'application/pdf' ? (
                                                     <div className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-red-400" /></div>
