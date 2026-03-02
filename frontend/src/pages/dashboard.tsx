@@ -330,7 +330,7 @@ export default function Dashboard() {
               <div className="p-2 rounded-lg bg-white/10"><Award size={20} /></div>
             </div>
             <div className="text-3xl font-bold mb-0.5">{isFlatRate ? '3%' : `Tier ${currentTier}`}</div>
-            <div className="text-sm font-semibold text-blue-100">{isFlatRate ? 'Flat Rate' : `${currentRate} commission`}</div>
+            <div className="text-sm font-semibold text-blue-100">{isFlatRate ? 'Flat Rate' : currentRate === '0%' ? 'No commission yet' : `${currentRate} commission`}</div>
             {!isFlatRate && premiumToNext && premiumToNext > 0 && nextRate && (
               <p className="text-xs text-blue-200 mt-1">${Number(premiumToNext).toLocaleString()} to {nextRate}</p>
             )}

@@ -596,7 +596,7 @@ def init_database():
 
         # Create commission tiers
         tiers = [
-            {"tier_level": 1, "min_written_premium": Decimal("0"), "max_written_premium": Decimal("39999.99"), "commission_rate": Decimal("0.03"), "description": "Under 40K - 3%"},
+            {"tier_level": 1, "min_written_premium": Decimal("0"), "max_written_premium": Decimal("39999.99"), "commission_rate": Decimal("0.00"), "description": "Under 40K - 0%"},
             {"tier_level": 2, "min_written_premium": Decimal("40000"), "max_written_premium": Decimal("49999.99"), "commission_rate": Decimal("0.03"), "description": "40K - 3%"},
             {"tier_level": 3, "min_written_premium": Decimal("50000"), "max_written_premium": Decimal("59999.99"), "commission_rate": Decimal("0.04"), "description": "50K - 4%"},
             {"tier_level": 4, "min_written_premium": Decimal("60000"), "max_written_premium": Decimal("99999.99"), "commission_rate": Decimal("0.05"), "description": "60K - 5%"},
@@ -609,6 +609,17 @@ def init_database():
             if not existing:
                 db.add(CommissionTier(**tier_data))
                 logger.info(f"Created {tier_data['description']}")
+            else:
+                # Update existing tier if rate or thresholds changed
+                changed = False
+                for key, val in tier_data.items():
+                    if key == "tier_level":
+                        continue
+                    if getattr(existing, key, None) != val:
+                        setattr(existing, key, val)
+                        changed = True
+                if changed:
+                    logger.info(f"Updated tier {tier_data['tier_level']}: {tier_data['description']}")
 
         db.commit()
         logger.info("Database seeded successfully")
