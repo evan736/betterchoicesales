@@ -1928,6 +1928,9 @@ async def send_due_emails(
     sent_count = 0
     errors = 0
 
+    # Track leads that get a touch sent in THIS run — don't double-send
+    just_sent_ids = set()
+
     # Touch 1: due today or overdue, not yet sent
     touch1_due = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
@@ -1960,10 +1963,15 @@ async def send_due_emails(
             lead.last_email_html = html
             lead.last_email_touch = 1
             sent_count += 1
+            just_sent_ids.add(lead.id)
         else:
             errors += 1
 
+    # Commit touch 1 before processing touch 2
+    db.commit()
+
     # Touch 2: due today or overdue, touch1 already sent, touch2 not yet sent
+    # EXCLUDE leads that just got touch 1 in this run — they need to wait
     touch2_due = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.is_current_customer == False,
@@ -1973,6 +1981,7 @@ async def send_due_emails(
         RequoteLead.touch2_scheduled_date != None,
         RequoteLead.touch2_scheduled_date <= now,
         RequoteLead.email != None,
+        ~RequoteLead.id.in_(just_sent_ids) if just_sent_ids else True,
     ).limit(batch_size).all()
 
     for lead in touch2_due:
@@ -1996,10 +2005,15 @@ async def send_due_emails(
             lead.last_email_html = html
             lead.last_email_touch = 2
             sent_count += 1
+            just_sent_ids.add(lead.id)
         else:
             errors += 1
 
+    # Commit touch 2 before processing touch 3
+    db.commit()
+
     # Touch 3: due today or overdue, touch2 already sent, touch3 not yet sent
+    # EXCLUDE leads that got touch 1 or 2 in this run
     touch3_due = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.is_current_customer == False,
@@ -2009,6 +2023,7 @@ async def send_due_emails(
         RequoteLead.touch3_scheduled_date != None,
         RequoteLead.touch3_scheduled_date <= now,
         RequoteLead.email != None,
+        ~RequoteLead.id.in_(just_sent_ids) if just_sent_ids else True,
     ).limit(batch_size).all()
 
     for lead in touch3_due:
