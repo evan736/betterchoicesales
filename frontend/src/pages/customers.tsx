@@ -534,8 +534,8 @@ export default function CustomersPage() {
                             {c.is_prospect && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">Prospect</span>}
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4 text-xs text-slate-500 mt-0.5">
-                            {c.email && <span className="flex items-center gap-1 truncate"><Mail size={11} /><span className="truncate">{c.email}</span></span>}
-                            {c.phone && <span className="flex items-center gap-1"><Phone size={11} />{c.phone}</span>}
+                            {c.email && <span onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.email); }} className="flex items-center gap-1 truncate cursor-pointer hover:text-brand-600 transition-colors" title="Click to copy"><Mail size={11} /><span className="truncate">{c.email}</span></span>}
+                            {c.phone && <span onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.phone); }} className="flex items-center gap-1 cursor-pointer hover:text-brand-600 transition-colors" title="Click to copy"><Phone size={11} />{c.phone}</span>}
                             {c.city && c.state && <span className="flex items-center gap-1 hidden sm:flex"><MapPin size={11} />{c.city}, {c.state}</span>}
                           </div>
                         </div>
@@ -1117,9 +1117,31 @@ const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; 
   return (<div className="card p-3 sm:p-4"><div className="flex items-center gap-2 mb-2"><div className={`p-1.5 sm:p-2 rounded-lg ${cls[color] || cls.slate}`}>{icon}</div></div><p className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{value}</p><p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">{label}</p></div>);
 };
 
-const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => (
-  <div className="min-w-0"><div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div><p className="text-sm font-semibold text-slate-800 break-words">{value || '—'}</p></div>
-);
+const InfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string | null | undefined }> = ({ icon, label, value }) => {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = () => {
+    if (!value) return;
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="min-w-0 group relative">
+      <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">{icon}{label}</div>
+      <p
+        onClick={handleCopy}
+        className={`text-sm font-semibold break-words ${value ? 'text-slate-800 cursor-pointer hover:text-brand-600 transition-colors' : 'text-slate-400'}`}
+        title={value ? 'Click to copy' : ''}
+      >
+        {value || '—'}
+        {copied && (
+          <span className="ml-2 inline-flex items-center text-xs font-medium text-emerald-600 animate-pulse">✓ Copied</span>
+        )}
+      </p>
+    </div>
+  );
+};
 
 const EditableField: React.FC<{ icon: React.ReactNode; label: string; value: string; onChange: (v: string) => void; placeholder?: string }> = ({ icon, label, value, onChange, placeholder }) => (
   <div className="min-w-0">
