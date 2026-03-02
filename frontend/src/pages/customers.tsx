@@ -995,7 +995,7 @@ export default function CustomersPage() {
                                             <input
                                               type="file"
                                               multiple
-                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif"
+                                              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.txt,.rtf,.eml,.msg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,image/*"
                                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                               onChange={e => {
                                                 const files = e.target.files;

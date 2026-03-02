@@ -973,9 +973,36 @@ def send_quick_email(
         att_names = []
         logger.info(f"📎 Quick email: {len(attachments)} attachments received")
         for att in attachments:
+            # Skip empty/placeholder upload entries (FastAPI sends empty UploadFile when no files attached)
+            if not att.filename or att.filename == '':
+                continue
+            att.file.seek(0)
             content = att.file.read()
-            logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
-            files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
+            if len(content) == 0:
+                logger.warning(f"📎 Skipping empty file: {att.filename}")
+                continue
+            # Map common extensions to MIME types if content_type is missing/generic
+            ct = att.content_type or "application/octet-stream"
+            if ct == "application/octet-stream" and att.filename:
+                ext = att.filename.rsplit('.', 1)[-1].lower() if '.' in att.filename else ''
+                mime_map = {
+                    'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'xls': 'application/vnd.ms-excel',
+                    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'csv': 'text/csv',
+                    'pdf': 'application/pdf',
+                    'png': 'image/png',
+                    'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg',
+                    'gif': 'image/gif',
+                    'txt': 'text/plain',
+                    'rtf': 'application/rtf',
+                    'eml': 'message/rfc822',
+                }
+                ct = mime_map.get(ext, ct)
+            logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {ct})")
+            files.append(("attachment", (att.filename, content, ct)))
             att_names.append(att.filename)
 
         resp = http_requests.post(
