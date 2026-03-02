@@ -40,6 +40,7 @@ class UpdateEmployeeRequest(BaseModel):
     role: Optional[str] = None
     producer_code: Optional[str] = None
     commission_tier: Optional[int] = None
+    commission_rate_override: Optional[float] = None  # Flat rate (e.g. 0.03 = 3%), null to use tier
     is_active: Optional[bool] = None
 
 class ResetPasswordRequest(BaseModel):
@@ -84,6 +85,7 @@ def list_employees(
             "role": u.role,
             "producer_code": u.producer_code,
             "commission_tier": u.commission_tier,
+            "commission_rate_override": float(u.commission_rate_override) if getattr(u, 'commission_rate_override', None) is not None else None,
             "is_active": u.is_active,
             "is_superuser": u.is_superuser,
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -158,6 +160,9 @@ def update_employee(
         user.producer_code = data.producer_code
     if data.commission_tier is not None:
         user.commission_tier = data.commission_tier
+    if data.commission_rate_override is not None:
+        # Set to 0.0 to clear override (will use tier), or positive value for flat rate
+        user.commission_rate_override = data.commission_rate_override if data.commission_rate_override > 0 else None
     if data.is_active is not None:
         user.is_active = data.is_active
 

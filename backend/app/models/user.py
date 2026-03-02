@@ -28,6 +28,7 @@ class User(Base):
     # Producer-specific fields
     producer_code = Column(String, unique=True, nullable=True, index=True)
     commission_tier = Column(Integer, default=1)  # Default tier
+    commission_rate_override = Column(Numeric(5, 4), nullable=True)  # Flat rate override (e.g. 0.03 = 3%), bypasses tier
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

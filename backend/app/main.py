@@ -210,6 +210,15 @@ def init_database():
             conn.execute(text("""
                 DO $$
                 BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='commission_rate_override') THEN
+                        ALTER TABLE users ADD COLUMN commission_rate_override NUMERIC(5,4);
+                    END IF;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
                     ALTER TABLE sales ALTER COLUMN lead_source TYPE VARCHAR USING lead_source::VARCHAR;
                 EXCEPTION WHEN others THEN NULL;
                 END $$;

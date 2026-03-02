@@ -324,8 +324,14 @@ class ReconciliationService:
 
             tier = self._get_tier_for_premium(current_premium)
 
-            agent_rate = tier.commission_rate if tier else Decimal("0.03")
-            tier_level = tier.tier_level if tier else 1
+            # Check for flat rate override (e.g. Salma/Michelle at 3%)
+            rate_override = getattr(agent, 'commission_rate_override', None)
+            if rate_override is not None:
+                agent_rate = Decimal(str(rate_override))
+                tier_level = 0  # Override — not tier-based
+            else:
+                agent_rate = tier.commission_rate if tier else Decimal("0.03")
+                tier_level = tier.tier_level if tier else 1
 
             # Calculate commission for each line
             agent_total_premium = Decimal("0")
@@ -555,8 +561,15 @@ class ReconciliationService:
             # Determine tier from CURRENT month written premium
             current_premium = self._get_agent_period_premium(agent_id, current_period)
             tier = self._get_tier_for_premium(current_premium)
-            agent_rate = tier.commission_rate if tier else Decimal("0.03")
-            tier_level = tier.tier_level if tier else 1
+            
+            # Check for flat rate override
+            rate_override = getattr(agent, 'commission_rate_override', None)
+            if rate_override is not None:
+                agent_rate = Decimal(str(rate_override))
+                tier_level = 0
+            else:
+                agent_rate = tier.commission_rate if tier else Decimal("0.03")
+                tier_level = tier.tier_level if tier else 1
 
             # Attendance-based commission adjustment — DISABLED pending timeclock schema fix
             attendance_adj = Decimal("0")
@@ -737,8 +750,15 @@ class ReconciliationService:
         # Determine tier from current month written premium
         current_premium = self._get_agent_period_premium(agent_id, current_period)
         tier = self._get_tier_for_premium(current_premium)
-        base_rate = tier.commission_rate if tier else Decimal("0.03")
-        tier_level = tier.tier_level if tier else 1
+        
+        # Check for flat rate override (e.g. Salma/Michelle at 3%)
+        rate_override = getattr(agent, 'commission_rate_override', None)
+        if rate_override is not None:
+            base_rate = Decimal(str(rate_override))
+            tier_level = 0  # Override — not tier-based
+        else:
+            base_rate = tier.commission_rate if tier else Decimal("0.03")
+            tier_level = tier.tier_level if tier else 1
 
         # Apply manual rate adjustment
         adj = Decimal(str(rate_adjustment))
