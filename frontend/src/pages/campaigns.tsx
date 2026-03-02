@@ -211,6 +211,28 @@ export default function CampaignsPage() {
     finally { setSending(false); }
   };
 
+  // Reschedule touch dates
+  const [rescheduling, setRescheduling] = useState(false);
+  const handleReschedule = async (t1: number = 28, t2: number = 14, t3: number = 7) => {
+    if (!selectedCampaign) return;
+    const confirmed = window.confirm(`Reschedule all unsent leads?\n\nTouch 1: ${t1} days before x_date\nTouch 2: ${t2} days before x_date\nTouch 3: ${t3} days before x_date\n\nThis will recalculate all scheduled dates.`);
+    if (!confirmed) return;
+    setRescheduling(true);
+    try {
+      const form = new FormData();
+      form.append('touch1_days', String(t1));
+      form.append('touch2_days', String(t2));
+      form.append('touch3_days', String(t3));
+      const res = await axios.post(`${API}/api/campaigns/${selectedCampaign.id}/reschedule`, form, { headers: headers() });
+      setSendResult(res.data);
+      loadCampaignDetail(selectedCampaign.id);
+      loadLeads(selectedCampaign.id, 1);
+    } catch (e: any) {
+      setSendResult({ error: e.response?.data?.detail || 'Reschedule failed' });
+    }
+    setRescheduling(false);
+  };
+
   // Lead actions
   const markLead = async (leadId: number, action: string) => {
     try {
@@ -300,6 +322,10 @@ export default function CampaignsPage() {
                 <button onClick={handleDedup} disabled={deduping}
                   className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 text-xs font-semibold transition disabled:opacity-50">
                   <UserX size={14} /> {deduping ? 'Checking...' : 'Check NowCerts'}
+                </button>
+                <button onClick={() => handleReschedule(28, 14, 7)} disabled={rescheduling}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg text-blue-300 text-xs font-semibold transition disabled:opacity-50">
+                  <Calendar size={14} /> {rescheduling ? 'Rescheduling...' : 'Reschedule (28d)'}
                 </button>
                 {selectedCampaign?.status === 'active' && (
                   <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-xs font-semibold">
