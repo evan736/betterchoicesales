@@ -444,7 +444,8 @@ class ReconciliationService:
                 "commission_rate": float(line.commission_rate) if line.commission_rate else 0,
                 "producer_name": line.producer_name,
                 "state": line.state,
-                "term_months": line.term_months,
+                "term_months": getattr(line, 'term_months', None),
+                "is_renewal_term": getattr(line, 'is_renewal_term', None),
                 "is_matched": line.is_matched,
                 "match_confidence": line.match_confidence,
             }
