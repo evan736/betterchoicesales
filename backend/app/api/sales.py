@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import extract as sql_extract, func
 from pathlib import Path
 import shutil
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
