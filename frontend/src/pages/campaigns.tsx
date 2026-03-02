@@ -61,6 +61,9 @@ export default function CampaignsPage() {
   const [recheckingNowCerts, setRecheckingNowCerts] = useState(false);
   const [retargeting, setRetargeting] = useState(false);
 
+  // Lead email preview
+  const [leadEmailPreview, setLeadEmailPreview] = useState<any>(null);
+
   // Upload modal
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -653,6 +656,20 @@ export default function CampaignsPage() {
                             ) : '—'}
                           </td>
                           <td className="px-4 py-3">
+                            <div className="flex gap-1">
+                              {lead.has_email_preview && (
+                                <button onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      const res = await axios.get(`${API}/api/campaigns/${selectedCampaign.id}/leads/${lead.id}/email-preview`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+                                      setLeadEmailPreview(res.data);
+                                    } catch { alert('No email preview available'); }
+                                  }}
+                                  title="View sent email"
+                                  className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400/50 hover:text-cyan-300 transition">
+                                  <Eye size={14} />
+                                </button>
+                              )}
                             {!lead.is_current_customer && !lead.opted_out && (
                               <div className="flex gap-1">
                                 {lead.status !== 'responded' && lead.status !== 'requoted' && (
@@ -678,6 +695,7 @@ export default function CampaignsPage() {
                                 )}
                               </div>
                             )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -932,6 +950,31 @@ export default function CampaignsPage() {
               </div>
               <div className="flex-1 overflow-y-auto bg-[#f4f4f4]">
                 <div dangerouslySetInnerHTML={{ __html: emailPreviewHtml }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lead Email Preview Modal */}
+        {leadEmailPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setLeadEmailPreview(null)}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                <div>
+                  <h3 className="font-bold text-slate-900">Email to {leadEmailPreview.name}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Touch {leadEmailPreview.touch} · {leadEmailPreview.email} · {leadEmailPreview.sent_at ? new Date(leadEmailPreview.sent_at).toLocaleDateString() : ''}
+                  </p>
+                </div>
+                <button onClick={() => setLeadEmailPreview(null)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <div className="px-5 py-2 border-b border-slate-100 shrink-0">
+                <p className="text-sm text-slate-700"><strong>Subject:</strong> {leadEmailPreview.subject}</p>
+              </div>
+              <div className="flex-1 overflow-y-auto bg-[#f4f4f4] p-1">
+                <div dangerouslySetInnerHTML={{ __html: leadEmailPreview.html }} />
               </div>
             </div>
           </div>

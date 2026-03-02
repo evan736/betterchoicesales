@@ -134,6 +134,11 @@ class RequoteLead(Base):
     opted_out = Column(Boolean, default=False)
     opted_out_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Stored email content (last sent)
+    last_email_subject = Column(String, nullable=True)
+    last_email_html = Column(Text, nullable=True)
+    last_email_touch = Column(Integer, nullable=True)  # 1, 2, or 3
+
     # Source tracking
     source_row = Column(Integer, nullable=True)  # Row number in original file
 
@@ -788,6 +793,9 @@ def _serialize_lead(l: RequoteLead) -> dict:
         "touch3_sent": getattr(l, 'touch3_sent', False),
         "touch3_sent_at": l.touch3_sent_at.isoformat() if getattr(l, 'touch3_sent_at', None) else None,
         "opted_out": l.opted_out,
+        "last_email_subject": getattr(l, 'last_email_subject', None),
+        "last_email_touch": getattr(l, 'last_email_touch', None),
+        "has_email_preview": bool(getattr(l, 'last_email_html', None)),
         "created_at": l.created_at.isoformat() if l.created_at else None,
     }
 
@@ -1948,6 +1956,9 @@ async def send_due_emails(
             lead.touch1_sent = True
             lead.touch1_sent_at = now
             lead.status = "touch1_sent"
+            lead.last_email_subject = subject
+            lead.last_email_html = html
+            lead.last_email_touch = 1
             sent_count += 1
         else:
             errors += 1
@@ -1981,6 +1992,9 @@ async def send_due_emails(
             lead.touch2_sent = True
             lead.touch2_sent_at = now
             lead.status = "touch2_sent"
+            lead.last_email_subject = subject
+            lead.last_email_html = html
+            lead.last_email_touch = 2
             sent_count += 1
         else:
             errors += 1
@@ -2014,6 +2028,9 @@ async def send_due_emails(
             lead.touch3_sent = True
             lead.touch3_sent_at = now
             lead.status = "touch3_sent"
+            lead.last_email_subject = subject
+            lead.last_email_html = html
+            lead.last_email_touch = 3
             sent_count += 1
         else:
             errors += 1
@@ -2154,6 +2171,38 @@ def mark_requoted(
         campaign.requotes_generated = (campaign.requotes_generated or 0) + 1
     db.commit()
     return {"ok": True}
+
+
+@router.get("/{campaign_id}/leads/{lead_id}/email-preview")
+def get_lead_email_preview(
+    campaign_id: int, lead_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the last email sent to a lead (HTML content for preview)."""
+    lead = db.query(RequoteLead).filter(
+        RequoteLead.id == lead_id, RequoteLead.campaign_id == campaign_id,
+    ).first()
+    if not lead:
+        raise HTTPException(status_code=404)
+    
+    html = getattr(lead, 'last_email_html', None)
+    if not html:
+        raise HTTPException(status_code=404, detail="No email has been sent to this lead yet")
+    
+    return {
+        "lead_id": lead.id,
+        "name": f"{lead.first_name or ''} {lead.last_name or ''}".strip(),
+        "email": lead.email,
+        "subject": getattr(lead, 'last_email_subject', None),
+        "touch": getattr(lead, 'last_email_touch', None),
+        "html": html,
+        "sent_at": (
+            lead.touch3_sent_at or lead.touch2_sent_at or lead.touch1_sent_at
+        ).isoformat() if (
+            getattr(lead, 'touch3_sent_at', None) or lead.touch2_sent_at or lead.touch1_sent_at
+        ) else None,
+    }
 
 
 # ── Campaign Actions ──────────────────────────────────────────────

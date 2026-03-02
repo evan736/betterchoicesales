@@ -471,6 +471,19 @@ def init_database():
             except Exception:
                 pass
 
+        # ── Requote leads: email content storage ──
+        for col_sql in [
+            "ALTER TABLE requote_leads ADD COLUMN last_email_subject VARCHAR",
+            "ALTER TABLE requote_leads ADD COLUMN last_email_html TEXT",
+            "ALTER TABLE requote_leads ADD COLUMN last_email_touch INTEGER",
+        ]:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(col_sql))
+                    conn.commit()
+            except Exception:
+                pass
+
         # ── Life Cross-Sell table ──
         try:
             with engine.connect() as conn:
