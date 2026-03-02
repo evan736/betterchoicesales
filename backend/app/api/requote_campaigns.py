@@ -1240,6 +1240,23 @@ def list_leads(
                 RequoteLead.opted_out == False,
                 RequoteLead.status.in_(["pending", "touch1_scheduled", "touch2_scheduled"]),
             )
+        elif status == "next_7_days":
+            from datetime import timedelta
+            week_ahead = datetime.now() + timedelta(days=7)
+            q = q.filter(
+                RequoteLead.is_current_customer == False,
+                RequoteLead.opted_out == False,
+                or_(
+                    and_(RequoteLead.touch1_sent == False, RequoteLead.touch1_scheduled_date != None,
+                         RequoteLead.touch1_scheduled_date <= week_ahead),
+                    and_(RequoteLead.touch2_sent == False, RequoteLead.touch2_scheduled_date != None,
+                         RequoteLead.touch2_scheduled_date <= week_ahead),
+                    and_(RequoteLead.touch3_sent == False, RequoteLead.touch3_scheduled_date != None,
+                         RequoteLead.touch3_scheduled_date <= week_ahead),
+                ),
+            )
+        elif status == "opted_out":
+            q = q.filter(RequoteLead.opted_out == True)
         else:
             q = q.filter(RequoteLead.status == status)
 

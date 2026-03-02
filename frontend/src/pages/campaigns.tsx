@@ -495,16 +495,19 @@ export default function CampaignsPage() {
             {/* Stats row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
               {[
-                { label: 'Total Leads', value: selectedCampaign.stats?.total_leads || 0, color: 'text-white' },
-                { label: 'Pending', value: selectedCampaign.stats?.pending || 0, color: 'text-slate-400' },
-                { label: 'Touch 1 Sent', value: selectedCampaign.stats?.touch1_sent || 0, color: 'text-cyan-400' },
-                { label: 'Touch 2 Sent', value: selectedCampaign.stats?.touch2_sent || 0, color: 'text-blue-400' },
-                { label: 'Touch 3 Sent', value: selectedCampaign.stats?.touch3_sent || 0, color: 'text-purple-400' },
-                { label: 'Current Cust.', value: selectedCampaign.stats?.current_customers || 0, color: 'text-red-400' },
-                { label: 'Opted Out', value: selectedCampaign.stats?.opted_out || 0, color: 'text-red-300' },
-                { label: 'Next 7 Days', value: selectedCampaign.stats?.upcoming_7_days || 0, color: 'text-amber-400' },
+                { label: 'Total Leads', value: selectedCampaign.stats?.total_leads || 0, color: 'text-white', filter: '' },
+                { label: 'Pending', value: selectedCampaign.stats?.pending || 0, color: 'text-slate-400', filter: 'ready' },
+                { label: 'Touch 1 Sent', value: selectedCampaign.stats?.touch1_sent || 0, color: 'text-cyan-400', filter: 'touch1_sent' },
+                { label: 'Touch 2 Sent', value: selectedCampaign.stats?.touch2_sent || 0, color: 'text-blue-400', filter: 'touch2_sent' },
+                { label: 'Touch 3 Sent', value: selectedCampaign.stats?.touch3_sent || 0, color: 'text-purple-400', filter: 'touch3_sent' },
+                { label: 'Current Cust.', value: selectedCampaign.stats?.current_customers || 0, color: 'text-red-400', filter: 'current_customer' },
+                { label: 'Opted Out', value: selectedCampaign.stats?.opted_out || 0, color: 'text-red-300', filter: 'opted_out' },
+                { label: 'Next 7 Days', value: selectedCampaign.stats?.upcoming_7_days || 0, color: 'text-amber-400', filter: 'next_7_days' },
               ].map((s, i) => (
-                <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 text-center">
+                <div key={i}
+                  onClick={() => setLeadFilter(s.filter)}
+                  className={`bg-white/[0.03] border rounded-xl px-4 py-3 text-center cursor-pointer transition-all hover:bg-white/[0.06] ${leadFilter === s.filter ? 'border-cyan-500/50 bg-cyan-500/[0.06]' : 'border-white/[0.06]'}`}
+                >
                   <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
                   <div className="text-[10px] text-slate-500 uppercase">{s.label}</div>
                 </div>
@@ -535,6 +538,7 @@ export default function CampaignsPage() {
               <select value={leadFilter} onChange={e => setLeadFilter(e.target.value)}
                 className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
                 <option value="">All Leads</option>
+                <option value="next_7_days">Next 7 Days</option>
                 <option value="ready">Ready to Send</option>
                 <option value="touch1_sent">Touch 1 Sent</option>
                 <option value="touch2_sent">Touch 2 Sent</option>
