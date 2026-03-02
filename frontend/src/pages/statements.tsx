@@ -1554,7 +1554,78 @@ const RevenueTracker: React.FC = () => {
         </div>
       </div>
 
-      {/* Carrier Breakdown */}
+      {/* Carrier Monthly Commissions */}
+      {data.carrier_monthly?.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h2 className="text-lg font-bold text-slate-900">Commissions by Carrier — Monthly &amp; YTD</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                  <th className="px-3 py-2.5 font-semibold text-slate-600 sticky left-0 bg-slate-50 z-10 min-w-[120px]">Carrier</th>
+                  {data.month_columns?.map((mc: string) => {
+                    const d = new Date(mc + '-01');
+                    const isCurrentYear = mc.startsWith(String(new Date().getFullYear()));
+                    return (
+                      <th key={mc} className={`px-2 py-2.5 font-semibold text-right min-w-[75px] ${isCurrentYear ? 'text-slate-700' : 'text-slate-400'}`}>
+                        {d.toLocaleDateString('en-US', { month: 'short' })}<br/>
+                        <span className="font-normal text-[10px]">{d.getFullYear()}</span>
+                      </th>
+                    );
+                  })}
+                  <th className="px-3 py-2.5 font-bold text-right text-green-700 min-w-[85px] border-l-2 border-slate-200">YTD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.carrier_monthly.map((c: any) => (
+                  <tr key={c.carrier} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-3 py-2 font-semibold text-slate-800 capitalize sticky left-0 bg-white z-10">{c.carrier.replace(/_/g, ' ')}</td>
+                    {data.month_columns?.map((mc: string) => {
+                      const val = c.months?.[mc] || 0;
+                      return (
+                        <td key={mc} className={`px-2 py-2 text-right tabular-nums ${
+                          val === 0 ? 'text-slate-300' : val < 0 ? 'text-red-500' : 'text-slate-700'
+                        }`}>
+                          {val === 0 ? '—' : `$${Math.abs(val).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                          {val < 0 && val !== 0 ? '' : ''}
+                        </td>
+                      );
+                    })}
+                    <td className={`px-3 py-2 text-right font-bold tabular-nums border-l-2 border-slate-200 ${
+                      c.ytd < 0 ? 'text-red-600' : 'text-green-700'
+                    }`}>
+                      ${Math.abs(c.ytd).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </td>
+                  </tr>
+                ))}
+                {/* Totals row */}
+                <tr className="bg-slate-50 border-t-2 border-slate-300 font-bold">
+                  <td className="px-3 py-2.5 text-slate-800 sticky left-0 bg-slate-50 z-10">Total</td>
+                  {data.month_columns?.map((mc: string) => {
+                    const total = data.carrier_monthly.reduce((sum: number, c: any) => sum + (c.months?.[mc] || 0), 0);
+                    return (
+                      <td key={mc} className={`px-2 py-2.5 text-right tabular-nums ${
+                        total === 0 ? 'text-slate-300' : total < 0 ? 'text-red-600' : 'text-slate-900'
+                      }`}>
+                        {total === 0 ? '—' : `$${Math.abs(total).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                      </td>
+                    );
+                  })}
+                  <td className={`px-3 py-2.5 text-right tabular-nums border-l-2 border-slate-200 ${
+                    data.carrier_monthly.reduce((s: number, c: any) => s + c.ytd, 0) < 0 ? 'text-red-600' : 'text-green-700'
+                  }`}>
+                    ${Math.abs(data.carrier_monthly.reduce((s: number, c: any) => s + c.ytd, 0)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Carrier Breakdown - 12-Month Totals */}
       {data.carriers.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200">

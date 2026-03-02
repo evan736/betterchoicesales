@@ -275,6 +275,7 @@ def revenue_tracker(
         "carriers": set(),
         "line_count": 0,
     })
+    carrier_month_data = {}  # (carrier, period) -> commission total
 
     # Get all statement lines with their import info
     lines = db.query(
@@ -291,6 +292,12 @@ def revenue_tracker(
         m = monthly_data[period]
         m["carriers"].add(carrier)
         m["line_count"] += 1
+
+        # Also track per-carrier-per-month
+        cm_key = (carrier, period)
+        if cm_key not in carrier_month_data:
+            carrier_month_data[cm_key] = Decimal("0")
+        carrier_month_data[cm_key] += line.commission_amount or Decimal("0")
 
         premium = line.premium_amount or Decimal("0")
         commission = line.commission_amount or Decimal("0")
@@ -448,6 +455,33 @@ def revenue_tracker(
             "is_matched": line.is_matched,
         })
 
+    # ── 6. Carrier × Month matrix ──
+    # Build a table: each carrier's commission per month + YTD
+    all_carriers_seen = sorted(set(c for (c, _) in carrier_month_data.keys()))
+    current_year = str(now.year)
+    
+    carrier_monthly = []
+    for carrier_name in all_carriers_seen:
+        monthly_vals = {}
+        ytd_total = Decimal("0")
+        for i in range(12, -1, -1):
+            dt = now.replace(day=1) - relativedelta(months=i)
+            p = dt.strftime("%Y-%m")
+            comm = carrier_month_data.get((carrier_name, p), Decimal("0"))
+            monthly_vals[p] = float(comm)
+            # YTD = only months in current year
+            if p.startswith(current_year):
+                ytd_total += comm
+        
+        carrier_monthly.append({
+            "carrier": carrier_name,
+            "months": monthly_vals,
+            "ytd": float(ytd_total),
+        })
+    
+    # Sort by YTD descending
+    carrier_monthly.sort(key=lambda x: x["ytd"], reverse=True)
+
     return {
         "summary": {
             "annual_book_premium": float(annual_book_premium),
@@ -460,6 +494,11 @@ def revenue_tracker(
         },
         "months": months,
         "carriers": carriers,
+        "carrier_monthly": carrier_monthly,
+        "month_columns": [
+            (now.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
+            for i in range(12, -1, -1)
+        ],
         "current_month_policies": policy_details,
         "current_period": current_period,
     }
