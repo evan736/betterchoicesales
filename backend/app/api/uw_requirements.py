@@ -347,6 +347,7 @@ def list_uw_requirements(
     }
 
 
+@router.get("/types")
 @router.patch("/{req_id}")
 def update_uw_requirement(
     req_id: int,
@@ -405,7 +406,6 @@ def resend_uw_notification(
     return {"sent": sent, "notification_count": req.notification_count}
 
 
-@router.get("/types")
 def list_requirement_types():
     """List available requirement types."""
     return {"types": [{"key": k, "label": v} for k, v in REQUIREMENT_TYPES.items()]}

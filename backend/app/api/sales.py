@@ -409,7 +409,7 @@ def create_sale(
 @router.get("/", response_model=List[SaleSchema])
 def list_sales(
     skip: int = 0,
-    limit: int = 5000,
+    limit: int = 500,
     date_from: str = None,  # "2026-01-01"
     date_to: str = None,    # "2026-01-31"
     producer_id: int = None,
@@ -443,266 +443,6 @@ def list_sales(
     sales = query.order_by(Sale.sale_date.desc()).offset(skip).limit(limit).all()
     return sales
 
-
-@router.get("/{sale_id}", response_model=SaleSchema)
-def get_sale(
-    sale_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get a specific sale"""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    
-    if not sale:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sale not found"
-        )
-    
-    # Producers can only view their own sales
-    if current_user.role == "producer" and sale.producer_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this sale"
-        )
-    
-    return sale
-
-
-@router.patch("/{sale_id}", response_model=SaleSchema)
-def update_sale(
-    sale_id: int,
-    sale_update: SaleUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update a sale"""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    
-    if not sale:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sale not found"
-        )
-    
-    # Producers can only update their own sales
-    if current_user.role == "producer" and sale.producer_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this sale"
-        )
-    
-    # Update fields
-    for field, value in sale_update.model_dump(exclude_unset=True).items():
-        setattr(sale, field, value)
-    
-    db.commit()
-    db.refresh(sale)
-    
-    return sale
-
-
-@router.post("/{sale_id}/upload-application")
-async def upload_application(
-    sale_id: int,
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Upload application PDF for a sale"""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    
-    if not sale:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sale not found"
-        )
-    
-    if current_user.role == "producer" and sale.producer_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized"
-        )
-    
-    # Validate file type
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are allowed"
-        )
-    
-    # Read file bytes
-    pdf_bytes = await file.read()
-    
-    # Save to filesystem (best-effort, may not survive deploys)
-    upload_dir = Path(settings.UPLOAD_DIR) / "applications"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / f"sale_{sale_id}_{file.filename}"
-    with file_path.open("wb") as buffer:
-        buffer.write(pdf_bytes)
-    
-    # Save to database (survives deploys)
-    sale.application_pdf_path = str(file_path)
-    sale.application_pdf_data = pdf_bytes
-    sale.application_pdf_name = file.filename
-    db.commit()
-    
-    return {
-        "message": "File uploaded successfully",
-        "file_path": str(file_path),
-        "sale_id": sale_id
-    }
-
-
-@router.delete("/{sale_id}")
-def delete_sale(
-    sale_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Delete a sale (admin can delete any, producers can delete their own)"""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    
-    if not sale:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sale not found"
-        )
-    
-    # Producers can only delete their own sales
-    if current_user.role == "producer" and sale.producer_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this sale"
-        )
-    
-    db.delete(sale)
-    db.commit()
-    
-    return {"message": "Sale deleted successfully"}
-
-
-@router.post("/{sale_id}/send-for-signature")
-async def send_for_signature_endpoint(
-    sale_id: int,
-    file: UploadFile = File(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Create a BoldSign embedded request for e-signature.
-
-    Uploads the PDF to BoldSign and returns a URL where the agent
-    can place signature fields manually, then hit Send.
-    The frontend should open this URL in a new tab.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-
-    if current_user.role == "producer" and sale.producer_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    if not sale.client_email:
-        raise HTTPException(status_code=400, detail="Client email is required to send for signature")
-
-    # Get PDF bytes — from upload, saved path, or database blob
-    pdf_bytes = None
-    if file and file.filename:
-        logger.info(f"Reading uploaded file: {file.filename}, size={file.size}")
-        pdf_bytes = await file.read()
-        logger.info(f"Read {len(pdf_bytes)} bytes from upload")
-        # Also save to DB for future use
-        sale.application_pdf_data = pdf_bytes
-        sale.application_pdf_name = file.filename
-        sale.application_pdf_path = file.filename
-        db.commit()
-    elif sale.application_pdf_path:
-        pdf_path = Path(sale.application_pdf_path)
-        logger.info(f"Trying saved path: {pdf_path}, exists={pdf_path.exists()}")
-        if pdf_path.exists():
-            pdf_bytes = pdf_path.read_bytes()
-    
-    # Fall back to database-stored PDF (survives Render deploys)
-    if not pdf_bytes and sale.application_pdf_data:
-        logger.info(f"Using DB-stored PDF ({len(sale.application_pdf_data)} bytes)")
-        pdf_bytes = sale.application_pdf_data
-
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF when clicking Send for Signature.")
-
-    logger.info(f"Creating signature request: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
-
-    try:
-        from app.services.esign import create_signature_request
-
-        title = f"Insurance Application - {sale.client_name}"
-        result = await create_signature_request(
-            pdf_bytes=pdf_bytes,
-            signer_name=sale.client_name,
-            signer_email=sale.client_email,
-            title=title,
-            carrier=sale.carrier,
-        )
-
-        logger.info(f"BoldSign embedded request created: {result}")
-
-        # Update sale — status is "draft" until agent places fields and clicks Send
-        sale.signature_request_id = result.get("documentId")
-        sale.signature_status = "draft"
-        db.commit()
-
-        return {
-            "message": "Document ready — place signature fields and click Send",
-            "document_id": result.get("documentId"),
-            "send_url": result.get("sendUrl"),
-            "signer_email": sale.client_email,
-        }
-
-    except ValueError as e:
-        logger.error(f"BoldSign ValueError: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.error(f"BoldSign Exception: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create signature request: {str(e)}")
-
-
-@router.get("/{sale_id}/signature-status")
-async def get_signature_status(
-    sale_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Check the status of a signature request."""
-    sale = db.query(Sale).filter(Sale.id == sale_id).first()
-    if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found")
-
-    if not sale.signature_request_id:
-        return {"status": "not_sent", "message": "No signature request sent yet"}
-
-    try:
-        from app.services.esign import get_document_status
-        doc_status = await get_document_status(sale.signature_request_id)
-
-        bs_status = doc_status.get("status", "").lower()
-        if bs_status in ("completed", "signed"):
-            sale.signature_status = "completed"
-        elif bs_status in ("declined", "revoked", "expired"):
-            sale.signature_status = "declined"
-        elif bs_status in ("inprogress", "sent", "pending"):
-            sale.signature_status = "sent"
-        db.commit()
-
-        return {
-            "status": sale.signature_status,
-            "boldsign_status": bs_status,
-            "document_id": sale.signature_request_id,
-        }
-    except Exception as e:
-        return {"status": sale.signature_status, "error": str(e)}
 
 
 @router.post("/import-csv")
@@ -968,6 +708,7 @@ async def import_sales_csv(
     }
 
 
+
 @router.get("/debug-counts")
 def debug_sale_counts(
     current_user: User = Depends(get_current_user),
@@ -992,6 +733,7 @@ def debug_sale_counts(
     }
 
 
+
 @router.post("/merge-duplicate-policies")
 def merge_duplicate_policies(
     current_user: User = Depends(get_current_user),
@@ -1011,7 +753,7 @@ def merge_duplicate_policies(
     def _base_policy(pn: str) -> str:
         return re.sub(r'[-\s]+(AUT|HOM|HOME|AUTO|RNT|RENT|01|02|03|04|05)$', '', pn.upper()).strip()
 
-    all_sales = db.query(Sale).order_by(Sale.id).all()
+    all_sales = db.query(Sale).order_by(Sale.id).limit(10000).all()  # Capped for safety
 
     from collections import defaultdict
     groups = defaultdict(list)
@@ -1085,3 +827,263 @@ def merge_duplicate_policies(
         "merged_groups": len(merged),
         "details": merged,
     }
+@router.get("/{sale_id}", response_model=SaleSchema)
+def get_sale(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific sale"""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    
+    if not sale:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sale not found"
+        )
+    
+    # Producers can only view their own sales
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this sale"
+        )
+    
+    return sale
+
+
+@router.patch("/{sale_id}", response_model=SaleSchema)
+def update_sale(
+    sale_id: int,
+    sale_update: SaleUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a sale"""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    
+    if not sale:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sale not found"
+        )
+    
+    # Producers can only update their own sales
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this sale"
+        )
+    
+    # Update fields
+    for field, value in sale_update.model_dump(exclude_unset=True).items():
+        setattr(sale, field, value)
+    
+    db.commit()
+    db.refresh(sale)
+    
+    return sale
+
+
+@router.post("/{sale_id}/upload-application")
+async def upload_application(
+    sale_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload application PDF for a sale"""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    
+    if not sale:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sale not found"
+        )
+    
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized"
+        )
+    
+    # Validate file type
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF files are allowed"
+        )
+    
+    # Read file bytes
+    pdf_bytes = await file.read()
+    
+    # Save to filesystem (best-effort, may not survive deploys)
+    upload_dir = Path(settings.UPLOAD_DIR) / "applications"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / f"sale_{sale_id}_{file.filename}"
+    with file_path.open("wb") as buffer:
+        buffer.write(pdf_bytes)
+    
+    # Save to database (survives deploys)
+    sale.application_pdf_path = str(file_path)
+    sale.application_pdf_data = pdf_bytes
+    sale.application_pdf_name = file.filename
+    db.commit()
+    
+    return {
+        "message": "File uploaded successfully",
+        "file_path": str(file_path),
+        "sale_id": sale_id
+    }
+
+
+@router.delete("/{sale_id}")
+def delete_sale(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a sale (admin can delete any, producers can delete their own)"""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    
+    if not sale:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sale not found"
+        )
+    
+    # Producers can only delete their own sales
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this sale"
+        )
+    
+    db.delete(sale)
+    db.commit()
+    
+    return {"message": "Sale deleted successfully"}
+
+
+@router.post("/{sale_id}/send-for-signature")
+async def send_for_signature_endpoint(
+    sale_id: int,
+    file: UploadFile = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a BoldSign embedded request for e-signature.
+
+    Uploads the PDF to BoldSign and returns a URL where the agent
+    can place signature fields manually, then hit Send.
+    The frontend should open this URL in a new tab.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if not sale.client_email:
+        raise HTTPException(status_code=400, detail="Client email is required to send for signature")
+
+    # Get PDF bytes — from upload, saved path, or database blob
+    pdf_bytes = None
+    if file and file.filename:
+        logger.info(f"Reading uploaded file: {file.filename}, size={file.size}")
+        pdf_bytes = await file.read()
+        logger.info(f"Read {len(pdf_bytes)} bytes from upload")
+        # Also save to DB for future use
+        sale.application_pdf_data = pdf_bytes
+        sale.application_pdf_name = file.filename
+        sale.application_pdf_path = file.filename
+        db.commit()
+    elif sale.application_pdf_path:
+        pdf_path = Path(sale.application_pdf_path)
+        logger.info(f"Trying saved path: {pdf_path}, exists={pdf_path.exists()}")
+        if pdf_path.exists():
+            pdf_bytes = pdf_path.read_bytes()
+    
+    # Fall back to database-stored PDF (survives Render deploys)
+    if not pdf_bytes and sale.application_pdf_data:
+        logger.info(f"Using DB-stored PDF ({len(sale.application_pdf_data)} bytes)")
+        pdf_bytes = sale.application_pdf_data
+
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="No PDF available. Please upload the application PDF when clicking Send for Signature.")
+
+    logger.info(f"Creating signature request: sale_id={sale_id}, client={sale.client_name}, email={sale.client_email}, pdf_size={len(pdf_bytes)}")
+
+    try:
+        from app.services.esign import create_signature_request
+
+        title = f"Insurance Application - {sale.client_name}"
+        result = await create_signature_request(
+            pdf_bytes=pdf_bytes,
+            signer_name=sale.client_name,
+            signer_email=sale.client_email,
+            title=title,
+            carrier=sale.carrier,
+        )
+
+        logger.info(f"BoldSign embedded request created: {result}")
+
+        # Update sale — status is "draft" until agent places fields and clicks Send
+        sale.signature_request_id = result.get("documentId")
+        sale.signature_status = "draft"
+        db.commit()
+
+        return {
+            "message": "Document ready — place signature fields and click Send",
+            "document_id": result.get("documentId"),
+            "send_url": result.get("sendUrl"),
+            "signer_email": sale.client_email,
+        }
+
+    except ValueError as e:
+        logger.error(f"BoldSign ValueError: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"BoldSign Exception: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create signature request: {str(e)}")
+
+
+@router.get("/{sale_id}/signature-status")
+async def get_signature_status(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check the status of a signature request."""
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    if not sale.signature_request_id:
+        return {"status": "not_sent", "message": "No signature request sent yet"}
+
+    try:
+        from app.services.esign import get_document_status
+        doc_status = await get_document_status(sale.signature_request_id)
+
+        bs_status = doc_status.get("status", "").lower()
+        if bs_status in ("completed", "signed"):
+            sale.signature_status = "completed"
+        elif bs_status in ("declined", "revoked", "expired"):
+            sale.signature_status = "declined"
+        elif bs_status in ("inprogress", "sent", "pending"):
+            sale.signature_status = "sent"
+        db.commit()
+
+        return {
+            "status": sale.signature_status,
+            "boldsign_status": bs_status,
+            "document_id": sale.signature_request_id,
+        }
+    except Exception as e:
+        return {"status": sale.signature_status, "error": str(e)}
+

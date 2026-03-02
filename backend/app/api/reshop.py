@@ -486,6 +486,43 @@ def create_reshop(
         logger.error("Reshop notification error: %s", e)
 
     return _reshop_to_dict(reshop)
+
+# ── Proactive Detection ──────────────────────────────────────────
+
+@router.delete("/purge-proactive")
+def purge_proactive_reshops(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all proactive reshop entries (for re-scanning with new criteria)."""
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Delete activities for proactive reshops first
+    proactive_ids = [r.id for r in db.query(Reshop.id).filter(Reshop.is_proactive == True).all()]
+    if proactive_ids:
+        db.query(ReshopActivity).filter(ReshopActivity.reshop_id.in_(proactive_ids)).delete(synchronize_session=False)
+    
+    count = db.query(Reshop).filter(Reshop.is_proactive == True).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "ok", "deleted": count}
+
+
+
+@router.post("/detect-proactive")
+def detect_proactive_reshops(
+    days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
+    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
+    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Scan for upcoming renewal terms and flag policies with premium increases."""
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return _run_proactive_scan(db, days_out, increase_threshold, min_annual_premium, current_user.full_name or current_user.username)
+
+
 @router.get("/{reshop_id}")
 def get_reshop(
     reshop_id: int,
@@ -652,28 +689,6 @@ def move_reshop_stage(
     db.commit()
     return _reshop_to_dict(reshop)
 
-
-
-
-# ── Proactive Detection ──────────────────────────────────────────
-
-@router.delete("/purge-proactive")
-def purge_proactive_reshops(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Delete all proactive reshop entries (for re-scanning with new criteria)."""
-    if not _can_manage(current_user):
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    # Delete activities for proactive reshops first
-    proactive_ids = [r.id for r in db.query(Reshop.id).filter(Reshop.is_proactive == True).all()]
-    if proactive_ids:
-        db.query(ReshopActivity).filter(ReshopActivity.reshop_id.in_(proactive_ids)).delete(synchronize_session=False)
-    
-    count = db.query(Reshop).filter(Reshop.is_proactive == True).delete(synchronize_session=False)
-    db.commit()
-    return {"status": "ok", "deleted": count}
 
 
 def _run_proactive_scan(
@@ -859,21 +874,6 @@ def _run_proactive_scan(
             "increase_threshold_pct": increase_threshold,
         },
     }
-
-
-@router.post("/detect-proactive")
-def detect_proactive_reshops(
-    days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
-    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
-    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Scan for upcoming renewal terms and flag policies with premium increases."""
-    if not _can_manage(current_user):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    return _run_proactive_scan(db, days_out, increase_threshold, min_annual_premium, current_user.full_name or current_user.username)
-
 
 # ── Create from Customer Card ────────────────────────────────────
 

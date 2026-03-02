@@ -1430,7 +1430,10 @@ const RevenueTracker: React.FC = () => {
 
   useEffect(() => {
     fetch(`${API}/api/reconciliation/revenue-tracker`, { headers })
-      .then(r => r.json()).then(setData).catch(console.error).finally(() => setLoading(false));
+      .then(r => { if (!r.ok) throw new Error('Failed to load'); return r.json(); })
+      .then(setData)
+      .catch(err => { console.error('Revenue tracker load error:', err); setData(null); })
+      .finally(() => setLoading(false));
   }, []);
 
   const openMonth = async (period: string) => {
@@ -1440,6 +1443,7 @@ const RevenueTracker: React.FC = () => {
     setDrillTypeFilter('');
     try {
       const r = await fetch(`${API}/api/reconciliation/revenue-tracker/month/${period}`, { headers });
+      if (!r.ok) { setDrillData({ policies: [], error: true }); setDrillLoading(false); return; }
       setDrillData(await r.json());
     } catch (e) { console.error(e); }
     setDrillLoading(false);

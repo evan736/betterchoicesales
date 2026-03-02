@@ -450,7 +450,7 @@ def send_quote_email_endpoint(
     premium_term = (data.premium_term if data and data.premium_term else quote.premium_term or "6 months")
     eff_str = ""
     if quote.effective_date:
-        eff_str = quote.effective_date.strftime("%B %d, %Y")
+        eff_str = quote.effective_date.strftime if quote.effective_date else "your upcoming renewal date"; eff_str = quote.effective_date.strftime("%B %d, %Y") if quote.effective_date else "your upcoming renewal date"
 
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
@@ -596,7 +596,7 @@ def preview_quote_email(
     premium_str = f"${float(quote.quoted_premium):,.2f}" if quote.quoted_premium else "$0.00"
     eff_str = ""
     if quote.effective_date:
-        eff_str = quote.effective_date.strftime("%B %d, %Y")
+        eff_str = quote.effective_date.strftime if quote.effective_date else "your upcoming renewal date"; eff_str = quote.effective_date.strftime("%B %d, %Y") if quote.effective_date else "your upcoming renewal date"
 
     producer_name = quote.producer_name or current_user.username
     producer_email = getattr(current_user, 'email', '') or "service@betterchoiceins.com"
@@ -638,6 +638,76 @@ def preview_quote_email(
         "is_bundle": is_multi,
         "line_count": len(lines),
     }
+
+
+@router.post("/check-followups")
+def check_followups(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check for quotes needing follow-up (3/7/14 day) and fire actions."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    results = _check_followups_logic(db)
+    return {"followups_triggered": results}
+
+
+
+@router.get("/stats/summary")
+def quote_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get quote pipeline stats."""
+    # Current month quotes
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    query = db.query(Quote)
+    if current_user.role.lower() not in ("admin", "manager"):
+        query = query.filter(Quote.producer_id == current_user.id)
+
+    all_quotes = query.all()
+    
+    # Strip timezone for comparison
+    month_start_naive = month_start
+    mtd_quotes = []
+    for q in all_quotes:
+        if q.created_at:
+            ca = q.created_at.replace(tzinfo=None) if q.created_at.tzinfo else q.created_at
+            if ca >= month_start_naive:
+                mtd_quotes.append(q)
+
+    total = len(all_quotes)
+    sent = len([q for q in all_quotes if q.email_sent])
+    converted = len([q for q in all_quotes if q.status == "converted"])
+    lost = len([q for q in all_quotes if q.status == "lost"])
+    active = len([q for q in all_quotes if q.status in ("quoted", "sent", "following_up")])
+    remarket = len([q for q in all_quotes if q.status == "remarket"])
+    quoted_count = len([q for q in all_quotes if q.status == "quoted"])
+    sent_count = len([q for q in all_quotes if q.status == "sent"])
+    following_up_count = len([q for q in all_quotes if q.status == "following_up"])
+
+    return {
+        "total_quotes": total,
+        "mtd_quotes": len(mtd_quotes),
+        "sent": sent,
+        "converted": converted,
+        "lost": lost,
+        "active_pipeline": active,
+        "remarket": remarket,
+        "conversion_rate": round(converted / sent * 100, 1) if sent > 0 else 0,
+        "by_status": {
+            "all": total,
+            "quoted": quoted_count,
+            "sent": sent_count,
+            "following_up": following_up_count,
+            "converted": converted,
+            "lost": lost,
+            "remarket": remarket,
+        },
+    }
+
 
 @router.get("/{quote_id}")
 def get_quote(
@@ -821,76 +891,6 @@ def _fire_followup_webhook(quote, days_since):
     except Exception:
         pass
 
-
-@router.post("/check-followups")
-def check_followups(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Check for quotes needing follow-up (3/7/14 day) and fire actions."""
-    if current_user.role.lower() not in ("admin",):
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    results = _check_followups_logic(db)
-    return {"followups_triggered": results}
-
-
-@router.get("/stats/summary")
-def quote_stats(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Get quote pipeline stats."""
-    # Current month quotes
-    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-    query = db.query(Quote)
-    if current_user.role.lower() not in ("admin", "manager"):
-        query = query.filter(Quote.producer_id == current_user.id)
-
-    all_quotes = query.all()
-    
-    # Strip timezone for comparison
-    month_start_naive = month_start
-    mtd_quotes = []
-    for q in all_quotes:
-        if q.created_at:
-            ca = q.created_at.replace(tzinfo=None) if q.created_at.tzinfo else q.created_at
-            if ca >= month_start_naive:
-                mtd_quotes.append(q)
-
-    total = len(all_quotes)
-    sent = len([q for q in all_quotes if q.email_sent])
-    converted = len([q for q in all_quotes if q.status == "converted"])
-    lost = len([q for q in all_quotes if q.status == "lost"])
-    active = len([q for q in all_quotes if q.status in ("quoted", "sent", "following_up")])
-    remarket = len([q for q in all_quotes if q.status == "remarket"])
-    quoted_count = len([q for q in all_quotes if q.status == "quoted"])
-    sent_count = len([q for q in all_quotes if q.status == "sent"])
-    following_up_count = len([q for q in all_quotes if q.status == "following_up"])
-
-    return {
-        "total_quotes": total,
-        "mtd_quotes": len(mtd_quotes),
-        "sent": sent,
-        "converted": converted,
-        "lost": lost,
-        "active_pipeline": active,
-        "remarket": remarket,
-        "conversion_rate": round(converted / sent * 100, 1) if sent > 0 else 0,
-        "by_status": {
-            "all": total,
-            "quoted": quoted_count,
-            "sent": sent_count,
-            "following_up": following_up_count,
-            "converted": converted,
-            "lost": lost,
-            "remarket": remarket,
-        },
-    }
-
-
-def _quote_to_dict(q: Quote) -> dict:
     days_since_sent = None
     if q.email_sent_at:
         sent = q.email_sent_at.replace(tzinfo=None) if q.email_sent_at.tzinfo else q.email_sent_at

@@ -839,6 +839,33 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Sales PDF column migration: {e}")
 
+    # Performance: add missing indexes on frequently-queried columns
+    try:
+        from sqlalchemy import text as _idx_text
+        from app.core.database import engine as _idx_engine
+        with _idx_engine.begin() as conn:
+            for idx_sql in [
+                "CREATE INDEX IF NOT EXISTS ix_sales_sale_date ON sales (sale_date)",
+                "CREATE INDEX IF NOT EXISTS ix_sales_status ON sales (status)",
+                "CREATE INDEX IF NOT EXISTS ix_sales_commission_status ON sales (commission_status)",
+                "CREATE INDEX IF NOT EXISTS ix_statement_lines_policy ON statement_lines (policy_number)",
+                "CREATE INDEX IF NOT EXISTS ix_statement_imports_period ON statement_imports (statement_period)",
+                "CREATE INDEX IF NOT EXISTS ix_requote_leads_campaign ON requote_leads (campaign_id)",
+                "CREATE INDEX IF NOT EXISTS ix_requote_leads_status ON requote_leads (status)",
+                "CREATE INDEX IF NOT EXISTS ix_requote_leads_t1_sched ON requote_leads (touch1_scheduled_date)",
+                "CREATE INDEX IF NOT EXISTS ix_inbound_emails_status ON inbound_emails (processing_status)",
+                "CREATE INDEX IF NOT EXISTS ix_customer_policies_status ON customer_policies (status)",
+            ]:
+                try:
+                    conn.execute(_idx_text(idx_sql))
+                except Exception:
+                    pass  # Index may already exist
+        logger.info("✓ Performance indexes verified")
+    except Exception as e:
+        logger.warning(f"Index migration: {e}")
+    except Exception as e:
+        logger.warning(f"Sales PDF column migration: {e}")
+
     # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
     try:
         from sqlalchemy import text as sa_text

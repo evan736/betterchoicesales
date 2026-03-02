@@ -626,7 +626,7 @@ def find_duplicates(
     if current_user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    all_customers = db.query(Customer).order_by(Customer.full_name).all()
+    all_customers = db.query(Customer).order_by(Customer.full_name).limit(10000).all()  # Capped for safety
 
     name_groups: dict[str, list] = {}
     phone_groups: dict[str, list] = {}
@@ -722,6 +722,287 @@ def merge_customers(
 
 
 # ── Customer Detail ────────────────────────────────────────────────
+
+
+# ── Import from NowCerts (save live result to local cache) ─────────
+
+@router.post("/import-from-nowcerts")
+def import_from_nowcerts(
+    nowcerts_insured_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Import a specific NowCerts insured into the local database."""
+    client = get_nowcerts_client()
+    if not client.is_configured:
+        raise HTTPException(status_code=400, detail="NowCerts not configured")
+
+    # Check if already imported
+    existing = db.query(Customer).filter(
+        Customer.nowcerts_insured_id == nowcerts_insured_id
+    ).first()
+    if existing:
+        return {"customer": _customer_to_dict(existing), "already_existed": True}
+
+    try:
+        raw = client.get_insured(nowcerts_insured_id)
+        if not raw:
+            raise HTTPException(status_code=404, detail="Insured not found in NowCerts")
+
+        normalized = normalize_insured(raw)
+        customer = Customer(**normalized, last_synced_at=datetime.utcnow())
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+
+        # Import policies too
+        raw_policies = client.get_insured_policies(nowcerts_insured_id)
+        for raw_pol in raw_policies:
+            norm = normalize_policy(raw_pol, customer.id)
+            policy = CustomerPolicy(**norm, last_synced_at=datetime.utcnow())
+            db.add(policy)
+        db.commit()
+
+        return {"customer": _customer_to_dict(customer), "already_existed": False}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Import failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"NowCerts import failed: {str(e)}")
+
+
+
+# ── Bulk sync ──────────────────────────────────────────────────────
+
+@router.post("/sync-all")
+def sync_all_customers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pull all insureds + policies from NowCerts and upsert into local cache. Admin only."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    client = get_nowcerts_client()
+    if not client.is_configured:
+        raise HTTPException(status_code=400, detail="NowCerts not configured")
+
+    imported = 0
+    updated = 0
+    policies_imported = 0
+    policies_updated = 0
+    errors = []
+
+    try:
+        # Step 1: Sync all insureds via OData pagination (handles 3000+)
+        logger.info("Starting full NowCerts sync...")
+        all_insureds = client.get_all_insureds_paginated(page_size=200)
+        logger.info("Fetched %d insureds from NowCerts", len(all_insureds))
+
+        for raw in all_insureds:
+            try:
+                normalized = normalize_insured(raw)
+                nc_id = normalized.get("nowcerts_insured_id")
+                if not nc_id:
+                    continue
+
+                existing = db.query(Customer).filter(
+                    Customer.nowcerts_insured_id == nc_id
+                ).first()
+
+                if existing:
+                    for k, v in normalized.items():
+                        if v is not None:
+                            setattr(existing, k, v)
+                    existing.last_synced_at = datetime.utcnow()
+                    updated += 1
+                else:
+                    customer = Customer(**normalized, last_synced_at=datetime.utcnow())
+                    db.add(customer)
+                    imported += 1
+
+                # Commit in batches of 200
+                if (imported + updated) % 200 == 0:
+                    db.commit()
+            except Exception as e:
+                errors.append(f"Insured: {str(e)[:80]}")
+
+        db.commit()
+        logger.info("Insureds synced: %d imported, %d updated", imported, updated)
+
+        # Step 2: Sync policies via OData PolicyDetailList (paginated)
+        try:
+            all_policies = client.get_all_policies_paginated(page_size=200)
+            logger.info("Fetched %d policies from NowCerts PolicyDetailList", len(all_policies))
+
+            for raw_pol in all_policies:
+                try:
+                    iid = raw_pol.get("insuredDatabaseId", "")
+                    if not iid:
+                        continue
+
+                    customer = db.query(Customer).filter(
+                        Customer.nowcerts_insured_id == iid
+                    ).first()
+                    if not customer:
+                        # Create minimal customer from policy's embedded insured data
+                        cust_data = {
+                            "nowcerts_insured_id": iid,
+                            "first_name": raw_pol.get("insuredFirstName", ""),
+                            "last_name": raw_pol.get("insuredLastName", ""),
+                            "full_name": raw_pol.get("insuredCommercialName") or f"{raw_pol.get('insuredFirstName', '')} {raw_pol.get('insuredLastName', '')}".strip() or "Unknown",
+                            "email": raw_pol.get("insuredEmail", ""),
+                            "phone": raw_pol.get("insuredPhoneNumber", ""),
+                            "mobile_phone": raw_pol.get("insuredCellPhone", ""),
+                            "address": raw_pol.get("insuredAddressLine1", ""),
+                            "city": raw_pol.get("insuredCity", ""),
+                            "state": raw_pol.get("insuredState", ""),
+                            "zip_code": raw_pol.get("insuredZipCode", ""),
+                            "last_synced_at": datetime.utcnow(),
+                        }
+                        customer = Customer(**cust_data)
+                        db.add(customer)
+                        db.flush()
+                        imported += 1
+
+                    norm_pol = client._normalize_odata_policy(raw_pol, customer.id)
+                    nc_pol_id = norm_pol.get("nowcerts_policy_id")
+                    if nc_pol_id:
+                        existing_pol = db.query(CustomerPolicy).filter(
+                            CustomerPolicy.nowcerts_policy_id == nc_pol_id
+                        ).first()
+                        if existing_pol:
+                            for k, v in norm_pol.items():
+                                if v is not None:
+                                    setattr(existing_pol, k, v)
+                            existing_pol.last_synced_at = datetime.utcnow()
+                            policies_updated += 1
+                        else:
+                            policy = CustomerPolicy(**norm_pol, last_synced_at=datetime.utcnow())
+                            db.add(policy)
+                            policies_imported += 1
+
+                    # Commit in batches
+                    if (policies_imported + policies_updated) % 200 == 0:
+                        db.commit()
+                except Exception as e:
+                    errors.append(f"Policy: {str(e)[:80]}")
+
+            db.commit()
+        except Exception as e:
+            errors.append(f"Policy sync: {str(e)[:100]}")
+
+    except Exception as e:
+        logger.error("Bulk sync error: %s", e)
+        errors.append(str(e))
+
+    logger.info("Sync complete: %d customers imported, %d updated, %d policies imported, %d policies updated",
+                imported, updated, policies_imported, policies_updated)
+
+    return {
+        "imported": imported,
+        "updated": updated,
+        "policies_imported": policies_imported,
+        "policies_updated": policies_updated,
+        "total_fetched": len(all_insureds) if 'all_insureds' in dir() else 0,
+        "errors": errors[:20],
+    }
+
+
+
+@router.post("/quick-email")
+def send_quick_email(
+    to_email: str = Form(...),
+    to_name: str = Form(""),
+    cc_emails: str = Form(""),  # comma-separated additional emails
+    subject: str = Form(...),
+    body: str = Form(...),
+    send_as: str = Form("service"),  # "personal" or "service"
+    customer_id: Optional[int] = Form(None),  # for NowCerts note
+    attachments: list[UploadFile] = File(default=[]),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a quick freeform email to a customer via Mailgun with optional attachments."""
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+
+    if not to_email or not subject or not body:
+        raise HTTPException(status_code=400, detail="Email, subject, and body are required")
+
+    # Build recipient list
+    all_to = [f"{to_name} <{to_email}>" if to_name else to_email]
+    cc_list = [e.strip() for e in cc_emails.split(",") if e.strip()] if cc_emails else []
+
+    # Determine sender identity
+    if send_as == "personal" and current_user.email:
+        from_email = current_user.email
+        reply_to = current_user.email
+    else:
+        from_email = "service@betterchoiceins.com"
+        reply_to = "service@betterchoiceins.com"
+
+    from_str = f"{current_user.full_name} <{from_email}>"
+
+    # Build branded HTML using shared template
+    from app.api.email_inbox import _build_branded_email
+    html_body = body.replace('\n', '<br>')
+    html = _build_branded_email(html_body, current_user.full_name, from_email)
+
+    try:
+        # Build multipart form data for Mailgun
+        data = {
+            "from": from_str,
+            "to": all_to,
+            "subject": subject,
+            "html": html,
+            "h:Reply-To": reply_to,
+        }
+        if cc_list:
+            data["cc"] = cc_list
+
+        files = []
+        att_names = []
+        logger.info(f"📎 Quick email: {len(attachments)} attachments received")
+        for att in attachments:
+            content = att.file.read()
+            logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
+            files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
+            att_names.append(att.filename)
+
+        resp = http_requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data=data,
+            files=files if files else None,
+        )
+        resp.raise_for_status()
+        att_count = len(files)
+        all_recipients = [to_email] + cc_list
+        logger.info(f"Quick email sent to {', '.join(all_recipients)} by {current_user.username} as {from_email}: {subject} ({att_count} attachments)")
+
+        # Push note to NowCerts for this customer
+        _log_email_to_nowcerts(
+            db=db,
+            customer_id=customer_id,
+            customer_email=to_email,
+            customer_name=to_name,
+            direction="outbound",
+            subject=subject,
+            body_summary=body[:500],
+            sender=current_user.full_name,
+            cc_list=cc_list,
+            att_names=att_names,
+        )
+
+        return {"status": "sent", "to": to_email, "cc": cc_list, "subject": subject, "attachments": att_count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Quick email failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")
+
 
 @router.get("/{customer_id}")
 def get_customer(
@@ -1011,193 +1292,6 @@ def sync_customer(
         logger.error("Sync failed for customer %s: %s", customer_id, e)
         raise HTTPException(status_code=502, detail=f"NowCerts sync failed: {str(e)}")
 
-
-# ── Import from NowCerts (save live result to local cache) ─────────
-
-@router.post("/import-from-nowcerts")
-def import_from_nowcerts(
-    nowcerts_insured_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Import a specific NowCerts insured into the local database."""
-    client = get_nowcerts_client()
-    if not client.is_configured:
-        raise HTTPException(status_code=400, detail="NowCerts not configured")
-
-    # Check if already imported
-    existing = db.query(Customer).filter(
-        Customer.nowcerts_insured_id == nowcerts_insured_id
-    ).first()
-    if existing:
-        return {"customer": _customer_to_dict(existing), "already_existed": True}
-
-    try:
-        raw = client.get_insured(nowcerts_insured_id)
-        if not raw:
-            raise HTTPException(status_code=404, detail="Insured not found in NowCerts")
-
-        normalized = normalize_insured(raw)
-        customer = Customer(**normalized, last_synced_at=datetime.utcnow())
-        db.add(customer)
-        db.commit()
-        db.refresh(customer)
-
-        # Import policies too
-        raw_policies = client.get_insured_policies(nowcerts_insured_id)
-        for raw_pol in raw_policies:
-            norm = normalize_policy(raw_pol, customer.id)
-            policy = CustomerPolicy(**norm, last_synced_at=datetime.utcnow())
-            db.add(policy)
-        db.commit()
-
-        return {"customer": _customer_to_dict(customer), "already_existed": False}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Import failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"NowCerts import failed: {str(e)}")
-
-
-# ── Bulk sync ──────────────────────────────────────────────────────
-
-@router.post("/sync-all")
-def sync_all_customers(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Pull all insureds + policies from NowCerts and upsert into local cache. Admin only."""
-    if current_user.role.lower() not in ("admin",):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    client = get_nowcerts_client()
-    if not client.is_configured:
-        raise HTTPException(status_code=400, detail="NowCerts not configured")
-
-    imported = 0
-    updated = 0
-    policies_imported = 0
-    policies_updated = 0
-    errors = []
-
-    try:
-        # Step 1: Sync all insureds via OData pagination (handles 3000+)
-        logger.info("Starting full NowCerts sync...")
-        all_insureds = client.get_all_insureds_paginated(page_size=200)
-        logger.info("Fetched %d insureds from NowCerts", len(all_insureds))
-
-        for raw in all_insureds:
-            try:
-                normalized = normalize_insured(raw)
-                nc_id = normalized.get("nowcerts_insured_id")
-                if not nc_id:
-                    continue
-
-                existing = db.query(Customer).filter(
-                    Customer.nowcerts_insured_id == nc_id
-                ).first()
-
-                if existing:
-                    for k, v in normalized.items():
-                        if v is not None:
-                            setattr(existing, k, v)
-                    existing.last_synced_at = datetime.utcnow()
-                    updated += 1
-                else:
-                    customer = Customer(**normalized, last_synced_at=datetime.utcnow())
-                    db.add(customer)
-                    imported += 1
-
-                # Commit in batches of 200
-                if (imported + updated) % 200 == 0:
-                    db.commit()
-            except Exception as e:
-                errors.append(f"Insured: {str(e)[:80]}")
-
-        db.commit()
-        logger.info("Insureds synced: %d imported, %d updated", imported, updated)
-
-        # Step 2: Sync policies via OData PolicyDetailList (paginated)
-        try:
-            all_policies = client.get_all_policies_paginated(page_size=200)
-            logger.info("Fetched %d policies from NowCerts PolicyDetailList", len(all_policies))
-
-            for raw_pol in all_policies:
-                try:
-                    iid = raw_pol.get("insuredDatabaseId", "")
-                    if not iid:
-                        continue
-
-                    customer = db.query(Customer).filter(
-                        Customer.nowcerts_insured_id == iid
-                    ).first()
-                    if not customer:
-                        # Create minimal customer from policy's embedded insured data
-                        cust_data = {
-                            "nowcerts_insured_id": iid,
-                            "first_name": raw_pol.get("insuredFirstName", ""),
-                            "last_name": raw_pol.get("insuredLastName", ""),
-                            "full_name": raw_pol.get("insuredCommercialName") or f"{raw_pol.get('insuredFirstName', '')} {raw_pol.get('insuredLastName', '')}".strip() or "Unknown",
-                            "email": raw_pol.get("insuredEmail", ""),
-                            "phone": raw_pol.get("insuredPhoneNumber", ""),
-                            "mobile_phone": raw_pol.get("insuredCellPhone", ""),
-                            "address": raw_pol.get("insuredAddressLine1", ""),
-                            "city": raw_pol.get("insuredCity", ""),
-                            "state": raw_pol.get("insuredState", ""),
-                            "zip_code": raw_pol.get("insuredZipCode", ""),
-                            "last_synced_at": datetime.utcnow(),
-                        }
-                        customer = Customer(**cust_data)
-                        db.add(customer)
-                        db.flush()
-                        imported += 1
-
-                    norm_pol = client._normalize_odata_policy(raw_pol, customer.id)
-                    nc_pol_id = norm_pol.get("nowcerts_policy_id")
-                    if nc_pol_id:
-                        existing_pol = db.query(CustomerPolicy).filter(
-                            CustomerPolicy.nowcerts_policy_id == nc_pol_id
-                        ).first()
-                        if existing_pol:
-                            for k, v in norm_pol.items():
-                                if v is not None:
-                                    setattr(existing_pol, k, v)
-                            existing_pol.last_synced_at = datetime.utcnow()
-                            policies_updated += 1
-                        else:
-                            policy = CustomerPolicy(**norm_pol, last_synced_at=datetime.utcnow())
-                            db.add(policy)
-                            policies_imported += 1
-
-                    # Commit in batches
-                    if (policies_imported + policies_updated) % 200 == 0:
-                        db.commit()
-                except Exception as e:
-                    errors.append(f"Policy: {str(e)[:80]}")
-
-            db.commit()
-        except Exception as e:
-            errors.append(f"Policy sync: {str(e)[:100]}")
-
-    except Exception as e:
-        logger.error("Bulk sync error: %s", e)
-        errors.append(str(e))
-
-    logger.info("Sync complete: %d customers imported, %d updated, %d policies imported, %d policies updated",
-                imported, updated, policies_imported, policies_updated)
-
-    return {
-        "imported": imported,
-        "updated": updated,
-        "policies_imported": policies_imported,
-        "policies_updated": policies_updated,
-        "total_fetched": len(all_insureds) if 'all_insureds' in dir() else 0,
-        "errors": errors[:20],
-    }
-
-
-def sync_all_customers_internal(db: Session) -> dict:
     """Internal version of sync_all_customers for background scheduler. No auth required."""
     from app.services.nowcerts import get_nowcerts_client, normalize_insured
 
@@ -1346,100 +1440,6 @@ def _policy_to_dict(p: CustomerPolicy) -> dict:
 # ── Quick Email from Customer Card ─────────────────────────────────
 import requests as http_requests
 from app.core.config import settings
-
-
-@router.post("/quick-email")
-def send_quick_email(
-    to_email: str = Form(...),
-    to_name: str = Form(""),
-    cc_emails: str = Form(""),  # comma-separated additional emails
-    subject: str = Form(...),
-    body: str = Form(...),
-    send_as: str = Form("service"),  # "personal" or "service"
-    customer_id: Optional[int] = Form(None),  # for NowCerts note
-    attachments: list[UploadFile] = File(default=[]),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Send a quick freeform email to a customer via Mailgun with optional attachments."""
-    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
-        raise HTTPException(status_code=500, detail="Mailgun not configured")
-
-    if not to_email or not subject or not body:
-        raise HTTPException(status_code=400, detail="Email, subject, and body are required")
-
-    # Build recipient list
-    all_to = [f"{to_name} <{to_email}>" if to_name else to_email]
-    cc_list = [e.strip() for e in cc_emails.split(",") if e.strip()] if cc_emails else []
-
-    # Determine sender identity
-    if send_as == "personal" and current_user.email:
-        from_email = current_user.email
-        reply_to = current_user.email
-    else:
-        from_email = "service@betterchoiceins.com"
-        reply_to = "service@betterchoiceins.com"
-
-    from_str = f"{current_user.full_name} <{from_email}>"
-
-    # Build branded HTML using shared template
-    from app.api.email_inbox import _build_branded_email
-    html_body = body.replace('\n', '<br>')
-    html = _build_branded_email(html_body, current_user.full_name, from_email)
-
-    try:
-        # Build multipart form data for Mailgun
-        data = {
-            "from": from_str,
-            "to": all_to,
-            "subject": subject,
-            "html": html,
-            "h:Reply-To": reply_to,
-        }
-        if cc_list:
-            data["cc"] = cc_list
-
-        files = []
-        att_names = []
-        logger.info(f"📎 Quick email: {len(attachments)} attachments received")
-        for att in attachments:
-            content = att.file.read()
-            logger.info(f"📎 File: {att.filename} ({len(content)} bytes, {att.content_type})")
-            files.append(("attachment", (att.filename, content, att.content_type or "application/octet-stream")))
-            att_names.append(att.filename)
-
-        resp = http_requests.post(
-            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
-            auth=("api", settings.MAILGUN_API_KEY),
-            data=data,
-            files=files if files else None,
-        )
-        resp.raise_for_status()
-        att_count = len(files)
-        all_recipients = [to_email] + cc_list
-        logger.info(f"Quick email sent to {', '.join(all_recipients)} by {current_user.username} as {from_email}: {subject} ({att_count} attachments)")
-
-        # Push note to NowCerts for this customer
-        _log_email_to_nowcerts(
-            db=db,
-            customer_id=customer_id,
-            customer_email=to_email,
-            customer_name=to_name,
-            direction="outbound",
-            subject=subject,
-            body_summary=body[:500],
-            sender=current_user.full_name,
-            cc_list=cc_list,
-            att_names=att_names,
-        )
-
-        return {"status": "sent", "to": to_email, "cc": cc_list, "subject": subject, "attachments": att_count}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Quick email failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")
-
 
 def _log_email_to_nowcerts(
     db: Session,

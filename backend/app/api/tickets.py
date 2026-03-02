@@ -119,6 +119,23 @@ def list_tickets(
 
 # ── Get Ticket Detail ────────────────────────────────────────────────────────
 
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+@router.get("/stats/summary")
+def ticket_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Quick stats for ticket badge counts."""
+    open_count = db.query(Ticket).filter(Ticket.status == "open").count()
+    in_progress = db.query(Ticket).filter(Ticket.status == "in_progress").count()
+    total = db.query(Ticket).count()
+    return {"open": open_count, "in_progress": in_progress, "total": total}
+
+
+# ── Helper ───────────────────────────────────────────────────────────────────
+
 @router.get("/{ticket_id}")
 def get_ticket(
     ticket_id: int,
@@ -190,23 +207,6 @@ async def update_ticket(
     db.refresh(ticket)
 
     return _ticket_to_dict(ticket, include_screenshot=False)
-
-
-# ── Stats ────────────────────────────────────────────────────────────────────
-
-@router.get("/stats/summary")
-def ticket_stats(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Quick stats for ticket badge counts."""
-    open_count = db.query(Ticket).filter(Ticket.status == "open").count()
-    in_progress = db.query(Ticket).filter(Ticket.status == "in_progress").count()
-    total = db.query(Ticket).count()
-    return {"open": open_count, "in_progress": in_progress, "total": total}
-
-
-# ── Helper ───────────────────────────────────────────────────────────────────
 
 def _ticket_to_dict(t: Ticket, include_screenshot: bool = False) -> dict:
     d = {
