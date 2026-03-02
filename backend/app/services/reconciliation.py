@@ -227,38 +227,43 @@ class ReconciliationService:
                 matched += 1
                 continue
 
-            # Try exact match on policy number
-            sale = self.db.query(Sale).filter(
-                Sale.policy_number == line.policy_number
-            ).first()
-
-            if sale:
-                line.is_matched = True
-                line.matched_sale_id = sale.id
-                line.match_confidence = "exact"
-                line.matched_at = datetime.utcnow()
-
-                # Assign agent from the sale
-                line.assigned_agent_id = sale.producer_id
-                matched += 1
-                newly_matched += 1
-            else:
-                # Try fuzzy: strip leading zeros, try partial
-                cleaned = line.policy_number.lstrip("0")
+            try:
+                # Try exact match on policy number
                 sale = self.db.query(Sale).filter(
-                    Sale.policy_number.contains(cleaned)
-                ).first() if len(cleaned) >= 5 else None
+                    Sale.policy_number == line.policy_number
+                ).first()
 
                 if sale:
                     line.is_matched = True
                     line.matched_sale_id = sale.id
-                    line.match_confidence = "fuzzy"
+                    line.match_confidence = "exact"
                     line.matched_at = datetime.utcnow()
+
+                    # Assign agent from the sale
                     line.assigned_agent_id = sale.producer_id
                     matched += 1
                     newly_matched += 1
                 else:
-                    unmatched += 1
+                    # Try fuzzy: strip leading zeros, try partial
+                    cleaned = line.policy_number.lstrip("0")
+                    sale = self.db.query(Sale).filter(
+                        Sale.policy_number.contains(cleaned)
+                    ).first() if len(cleaned) >= 5 else None
+
+                    if sale:
+                        line.is_matched = True
+                        line.matched_sale_id = sale.id
+                        line.match_confidence = "fuzzy"
+                        line.matched_at = datetime.utcnow()
+                        line.assigned_agent_id = sale.producer_id
+                        matched += 1
+                        newly_matched += 1
+                    else:
+                        unmatched += 1
+            except Exception as e:
+                logger.warning(f"Error matching line {line.id} ({line.policy_number}): {e}")
+                self.db.rollback()
+                unmatched += 1
 
         imp.matched_rows = matched
         imp.unmatched_rows = unmatched
