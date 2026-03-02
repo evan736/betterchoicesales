@@ -666,8 +666,8 @@ export default function CampaignsPage() {
                                     } catch { alert('No email preview available'); }
                                   }}
                                   title="View sent email"
-                                  className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400/50 hover:text-cyan-300 transition">
-                                  <Eye size={14} />
+                                  className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 transition">
+                                  <Mail size={14} />
                                 </button>
                               )}
                             {!lead.is_current_customer && !lead.opted_out && (

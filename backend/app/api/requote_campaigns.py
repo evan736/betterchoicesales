@@ -193,6 +193,13 @@ def run_migration(engine):
             if "touch3_days_before" not in campaign_cols:
                 conn.execute(text("ALTER TABLE requote_campaigns ADD COLUMN touch3_days_before INTEGER DEFAULT 15"))
                 conn.commit()
+            # Email preview columns
+            for col in ["last_email_subject", "last_email_html", "last_email_touch"]:
+                if col not in existing_cols:
+                    col_type = "TEXT" if col == "last_email_html" else "VARCHAR" if col == "last_email_subject" else "INTEGER"
+                    conn.execute(text(f"ALTER TABLE requote_leads ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Added column requote_leads.{col}")
     except Exception as e:
         logger.warning(f"Column migration note: {e}")
 
