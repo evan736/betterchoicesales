@@ -976,19 +976,24 @@ const MonthlyPayView: React.FC<{ data: any }> = ({ data }) => {
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Lines</th>
                       <th className="text-right py-1 px-2 font-semibold text-slate-600">Premium</th>
                       <th className="text-right py-1 px-2 font-semibold text-red-600">Chargebacks</th>
+                      <th className="text-right py-1 px-2 font-semibold text-slate-600">Net Premium</th>
                       <th className="text-right py-1 pl-2 font-semibold text-green-700">Agent Pay</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {agent.carrier_breakdown.map((cb: any) => (
+                    {agent.carrier_breakdown.map((cb: any) => {
+                      const netPremium = (cb.premium || 0) + (cb.chargebacks || 0);
+                      return (
                       <tr key={cb.carrier} className="border-b border-slate-50">
                         <td className="py-1 pr-2 capitalize">{cb.carrier.replace('_', ' ')}</td>
                         <td className="py-1 px-2 text-right">{cb.line_count}</td>
                         <td className="py-1 px-2 text-right">${fmt(cb.premium)}</td>
                         <td className="py-1 px-2 text-right text-red-600">{cb.chargebacks && cb.chargebacks < 0 ? `-$${fmt(Math.abs(cb.chargebacks))}` : '—'}</td>
-                        <td className="py-1 pl-2 text-right font-semibold text-green-700">${fmt(cb.agent_commission)}</td>
+                        <td className={`py-1 px-2 text-right font-medium ${netPremium < 0 ? 'text-red-600' : ''}`}>${fmt(netPremium)}</td>
+                        <td className={`py-1 pl-2 text-right font-semibold ${cb.agent_commission < 0 ? 'text-red-600' : 'text-green-700'}`}>${fmt(cb.agent_commission)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

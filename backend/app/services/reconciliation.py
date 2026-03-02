@@ -609,10 +609,11 @@ class ReconciliationService:
                 carrier_breakdown[carrier_name]["carrier_commission"] += carrier_comm
                 carrier_breakdown[carrier_name]["agent_commission"] += agent_comm
                 if agent_comm < 0:
-                    carrier_breakdown[carrier_name]["chargebacks"] += premium
-                    carrier_breakdown[carrier_name]["premium"] += premium
+                    # Chargebacks: track the negative premium separately
+                    carrier_breakdown[carrier_name]["chargebacks"] += premium  # premium is negative here
                     carrier_breakdown[carrier_name]["line_count"] += 1
                 elif agent_comm > 0:
+                    # Positive commissionable lines only in "premium"
                     carrier_breakdown[carrier_name]["premium"] += premium
                     carrier_breakdown[carrier_name]["line_count"] += 1
 
