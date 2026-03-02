@@ -871,10 +871,25 @@ def parse_universal(file_bytes: bytes, filename: str) -> List[Dict]:
 
             # Commission column is the earned commission for this period
             commission = _clean_currency(row.get("Commission"))
-            # Written = full written premium
-            premium = _clean_currency(row.get("Written"))
+            # Written = full policy written premium (always positive, even on chargebacks)
+            written_premium = _clean_currency(row.get("Written"))
             # Rate is already decimal (0.15)
             rate = _clean_rate(row.get("Rate"))
+
+            # Universal's "Written" column is the total policy premium, NOT the transacted
+            # amount. For chargebacks/returns, Written is still positive but Commission is
+            # negative. We need premium to reflect the actual transaction direction.
+            # Derive actual transacted premium from commission / rate when signs disagree.
+            if rate and rate > 0 and commission != Decimal("0"):
+                derived_premium = (commission / rate).quantize(Decimal("0.01"))
+                # If Written is positive but Commission is negative, it's a chargeback
+                # Use the derived premium so agent pay calc handles it correctly
+                if (written_premium > 0 and commission < 0) or (written_premium <= 0 and commission > 0):
+                    premium = derived_premium
+                else:
+                    premium = written_premium
+            else:
+                premium = written_premium
 
             # Expiration date to infer effective date (annual policies)
             exp_date = _parse_date(row.get("ExpirationDate"))
