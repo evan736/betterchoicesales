@@ -216,6 +216,7 @@ def init_database():
                 EXCEPTION WHEN others THEN NULL;
                 END $$;
             """))
+            conn.commit()
             conn.execute(text("""
                 DO $$
                 BEGIN
