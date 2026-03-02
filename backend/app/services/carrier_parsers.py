@@ -111,6 +111,18 @@ def _parse_term(val) -> Optional[int]:
         return None
 
 
+def _is_renewal_term(val) -> Optional[bool]:
+    """Check if term code indicates renewal. N12=New, R12/R6=Renewal."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    s = str(val).strip().upper()
+    if s.startswith("R"):
+        return True
+    if s.startswith("N"):
+        return False
+    return None
+
+
 def _map_transaction_type(raw: str) -> TransactionType:
     """Map carrier-specific transaction type to our enum."""
     if not raw:
@@ -462,6 +474,7 @@ def parse_safeco(file_bytes: bytes, filename: str) -> List[Dict]:
                 "line_of_business": str(row.get(col_map.get("lob", "Line of Business"), "") or "").strip(),
                 "state": str(row.get(col_map.get("state", "State"), "") or "").strip()[:2],
                 "term_months": _parse_term(row.get(col_map.get("term", "Term"))),
+                "is_renewal_term": _is_renewal_term(row.get(col_map.get("term", "Term"))),
                 "raw_data": str(row.to_dict()),
             })
 

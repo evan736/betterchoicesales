@@ -111,6 +111,7 @@ class StatementLine(Base):
     line_of_business = Column(String, nullable=True)
     state = Column(String(2), nullable=True)
     term_months = Column(Integer, nullable=True)  # 6 or 12
+    is_renewal_term = Column(Boolean, nullable=True)  # True if carrier marks as renewal (R6, R12)
 
     # Matching
     is_matched = Column(Boolean, default=False)

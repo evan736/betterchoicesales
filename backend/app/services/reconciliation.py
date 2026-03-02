@@ -39,8 +39,12 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
     - other: Always excluded (servicing/installment billing, not commissionable)
     - new_business, endorsement, cancellation, adjustment, reinstatement: Paid if within first term
 
+    Carrier term codes:
+    - is_renewal_term=True (e.g. Safeco R6/R12): Always excluded — carrier explicitly marks as renewal
+    - is_renewal_term=False (e.g. Safeco N12): New business, check term window
+
     Args:
-        line: StatementLine with effective_date, term_months
+        line: StatementLine with effective_date, term_months, is_renewal_term
         matched_sale: Sale object (may be None)
         statement_period: "YYYY-MM" period string
 
@@ -51,6 +55,10 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
 
     # Renewals and servicing/"other" lines are never commissionable
     if tx_type in ("renewal", "other"):
+        return False
+
+    # If carrier explicitly marks this as a renewal term (e.g. Safeco R6/R12), exclude it
+    if getattr(line, 'is_renewal_term', None) is True:
         return False
 
     # 1. Determine the ORIGINAL effective date (when the policy was first sold)
@@ -161,6 +169,7 @@ class ReconciliationService:
                     line_of_business=rec.get("line_of_business"),
                     state=rec.get("state"),
                     term_months=rec.get("term_months"),
+                    is_renewal_term=rec.get("is_renewal_term"),
                     raw_data=rec.get("raw_data"),
                 )
                 self.db.add(line)
@@ -784,6 +793,8 @@ class ReconciliationService:
                     "premium": float(premium),
                     "agent_commission": float(agent_comm),
                     "is_chargeback": agent_comm < 0,
+                    "is_renewal_term": getattr(line, 'is_renewal_term', None),
+                    "term_months": getattr(line, 'term_months', None),
                     "effective_date": str(line.effective_date)[:10] if line.effective_date else None,
                 })
 

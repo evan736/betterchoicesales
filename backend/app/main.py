@@ -131,6 +131,9 @@ def init_database():
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='term_months') THEN
                         ALTER TABLE statement_lines ADD COLUMN term_months INTEGER;
                     END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='is_renewal_term') THEN
+                        ALTER TABLE statement_lines ADD COLUMN is_renewal_term BOOLEAN;
+                    END IF;
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='statement_lines' AND column_name='match_confidence') THEN
                         ALTER TABLE statement_lines ADD COLUMN match_confidence VARCHAR;
                     END IF;
