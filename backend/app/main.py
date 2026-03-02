@@ -1018,6 +1018,176 @@ async def lifespan(app: FastAPI):
     cancel_poll_thread.start()
     logger.info("NowCerts pending cancellation poller scheduler started (every 4 hours)")
 
+    # ── Auto-send campaign emails (every 5 minutes) ──
+    def _run_campaign_sender():
+        """Automatically send due campaign emails in batches for all active campaigns."""
+        import time
+        time.sleep(90)  # Wait 90s for app to fully start
+        while True:
+            try:
+                from app.core.database import SessionLocal
+                from app.api.requote_campaigns import RequoteCampaign, RequoteLead, _requote_email_html, _send_campaign_email, GlobalOptOut
+                from sqlalchemy import and_, or_
+                from datetime import datetime
+
+                db = SessionLocal()
+                try:
+                    now = datetime.utcnow()
+                    active_campaigns = db.query(RequoteCampaign).filter(
+                        RequoteCampaign.status == "active"
+                    ).all()
+
+                    if not active_campaigns:
+                        db.close()
+                        time.sleep(300)
+                        continue
+
+                    total_sent = 0
+                    total_errors = 0
+                    BATCH_PER_CAMPAIGN = 15  # Send up to 15 per campaign per cycle
+
+                    for campaign in active_campaigns:
+                        if total_sent >= 50:  # Global cap per cycle to stay within API limits
+                            break
+
+                        # Touch 1
+                        touch1_due = db.query(RequoteLead).filter(
+                            RequoteLead.campaign_id == campaign.id,
+                            RequoteLead.is_current_customer == False,
+                            RequoteLead.opted_out == False,
+                            RequoteLead.touch1_sent == False,
+                            RequoteLead.touch1_scheduled_date != None,
+                            RequoteLead.touch1_scheduled_date <= now,
+                            RequoteLead.email != None,
+                        ).limit(BATCH_PER_CAMPAIGN).all()
+
+                        for lead in touch1_due:
+                            if total_sent >= 50:
+                                break
+                            try:
+                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
+                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
+                                subject, html = _requote_email_html(
+                                    lead.first_name or "Valued Customer",
+                                    lead.policy_type, lead.carrier, x_date_str, 1, unsub_url,
+                                    retarget_round=retarget_round,
+                                    city=lead.city or "", state=lead.state or "",
+                                    premium=float(lead.premium) if lead.premium else None,
+                                    last_name=lead.last_name or "", email=lead.email or "",
+                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
+                                )
+                                if _send_campaign_email(lead.email, subject, html):
+                                    lead.touch1_sent = True
+                                    lead.touch1_sent_at = now
+                                    lead.status = "touch1_sent"
+                                    total_sent += 1
+                                else:
+                                    total_errors += 1
+                            except Exception as e:
+                                logger.error(f"Campaign sender touch1 error lead {lead.id}: {e}")
+                                total_errors += 1
+
+                        # Touch 2
+                        touch2_due = db.query(RequoteLead).filter(
+                            RequoteLead.campaign_id == campaign.id,
+                            RequoteLead.is_current_customer == False,
+                            RequoteLead.opted_out == False,
+                            RequoteLead.touch1_sent == True,
+                            RequoteLead.touch2_sent == False,
+                            RequoteLead.touch2_scheduled_date != None,
+                            RequoteLead.touch2_scheduled_date <= now,
+                            RequoteLead.email != None,
+                        ).limit(BATCH_PER_CAMPAIGN).all()
+
+                        for lead in touch2_due:
+                            if total_sent >= 50:
+                                break
+                            try:
+                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
+                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
+                                subject, html = _requote_email_html(
+                                    lead.first_name or "Valued Customer",
+                                    lead.policy_type, lead.carrier, x_date_str, 2, unsub_url,
+                                    retarget_round=retarget_round,
+                                    city=lead.city or "", state=lead.state or "",
+                                    premium=float(lead.premium) if lead.premium else None,
+                                    last_name=lead.last_name or "", email=lead.email or "",
+                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
+                                )
+                                if _send_campaign_email(lead.email, subject, html):
+                                    lead.touch2_sent = True
+                                    lead.touch2_sent_at = now
+                                    lead.status = "touch2_sent"
+                                    total_sent += 1
+                                else:
+                                    total_errors += 1
+                            except Exception as e:
+                                logger.error(f"Campaign sender touch2 error lead {lead.id}: {e}")
+                                total_errors += 1
+
+                        # Touch 3
+                        touch3_due = db.query(RequoteLead).filter(
+                            RequoteLead.campaign_id == campaign.id,
+                            RequoteLead.is_current_customer == False,
+                            RequoteLead.opted_out == False,
+                            RequoteLead.touch2_sent == True,
+                            RequoteLead.touch3_sent == False,
+                            RequoteLead.touch3_scheduled_date != None,
+                            RequoteLead.touch3_scheduled_date <= now,
+                            RequoteLead.email != None,
+                        ).limit(BATCH_PER_CAMPAIGN).all()
+
+                        for lead in touch3_due:
+                            if total_sent >= 50:
+                                break
+                            try:
+                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
+                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
+                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
+                                subject, html = _requote_email_html(
+                                    lead.first_name or "Valued Customer",
+                                    lead.policy_type, lead.carrier, x_date_str, 3, unsub_url,
+                                    retarget_round=retarget_round,
+                                    city=lead.city or "", state=lead.state or "",
+                                    premium=float(lead.premium) if lead.premium else None,
+                                    last_name=lead.last_name or "", email=lead.email or "",
+                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
+                                )
+                                if _send_campaign_email(lead.email, subject, html):
+                                    lead.touch3_sent = True
+                                    lead.touch3_sent_at = now
+                                    lead.status = "touch3_sent"
+                                    total_sent += 1
+                                else:
+                                    total_errors += 1
+                            except Exception as e:
+                                logger.error(f"Campaign sender touch3 error lead {lead.id}: {e}")
+                                total_errors += 1
+
+                        # Update campaign email count
+                        campaign.emails_sent = db.query(RequoteLead).filter(
+                            RequoteLead.campaign_id == campaign.id,
+                            or_(RequoteLead.touch1_sent == True, RequoteLead.touch2_sent == True, RequoteLead.touch3_sent == True),
+                        ).count()
+
+                    db.commit()
+                    if total_sent > 0:
+                        logger.info(f"Campaign auto-sender: sent {total_sent} emails, {total_errors} errors across {len(active_campaigns)} active campaigns")
+                except Exception as e:
+                    logger.error(f"Campaign sender error: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Campaign sender scheduler error: {e}")
+            time.sleep(300)  # Every 5 minutes
+
+    campaign_sender_thread = threading.Thread(target=_run_campaign_sender, daemon=True)
+    campaign_sender_thread.start()
+    logger.info("Campaign auto-sender started (every 5 min, 50 emails/cycle, 15/campaign)")
+
     yield
 
 

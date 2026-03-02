@@ -301,10 +301,12 @@ export default function CampaignsPage() {
                   className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-amber-300 text-xs font-semibold transition disabled:opacity-50">
                   <UserX size={14} /> {deduping ? 'Checking...' : 'Check NowCerts'}
                 </button>
-                <button onClick={handleSendDue} disabled={sending}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg text-emerald-300 text-xs font-semibold transition disabled:opacity-50">
-                  <Send size={14} /> {sending ? 'Sending...' : 'Send Due Emails'}
-                </button>
+                {selectedCampaign?.status === 'active' && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-xs font-semibold">
+                    <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+                    Auto-Sending
+                  </div>
+                )}
                 <button onClick={toggleCampaignStatus}
                   className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-slate-300 text-xs font-semibold transition">
                   {selectedCampaign?.status === 'active' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Resume</>}
