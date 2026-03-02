@@ -340,23 +340,30 @@ def _sanitize_draft(result: dict) -> dict:
     Post-processing safety check on AI-drafted emails.
     Replaces any phone number that isn't the agency number with the agency number.
     Removes producer/agent name references.
+    
+    IMPORTANT: Skips phone-like patterns that appear to be policy numbers
+    (e.g. NatGen format "(847) 908-5665 - 01" with space-dash-space suffix).
     """
     import re as _re
 
-    # Phone pattern: matches (xxx) xxx-xxxx, xxx-xxx-xxxx, xxx.xxx.xxxx, etc.
-    phone_pattern = _re.compile(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}')
+    # Match phone-like numbers, optionally followed by policy suffix " - 01"
+    # The suffix uses \s+-\s+ (spaces around dash) to distinguish from phone internal dashes
+    phone_pattern = _re.compile(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?:\s+- \d+)?')
 
     for field in ("body_html", "body_plain"):
         text = result.get(field, "")
         if not text:
             continue
 
-        # Find all phone numbers and replace non-agency ones
         def replace_phone(match):
-            digits = _re.sub(r'\D', '', match.group())
+            full_match = match.group()
+            # If it has a policy-style suffix like " - 01", it's a policy number
+            if _re.search(r'\s+- \d+$', full_match):
+                return full_match  # Leave policy numbers alone
+            digits = _re.sub(r'\D', '', full_match)
             if digits == AGENCY_PHONE_CLEAN or digits == "1" + AGENCY_PHONE_CLEAN:
-                return match.group()  # Keep agency number as-is
-            logger.warning(f"Sanitized non-agency phone from draft: {match.group()}")
+                return full_match  # Keep agency number as-is
+            logger.warning(f"Sanitized non-agency phone from draft: {full_match}")
             return AGENCY_PHONE_DISPLAY
 
         text = phone_pattern.sub(replace_phone, text)
