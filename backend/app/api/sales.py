@@ -11,8 +11,23 @@ from app.models.user import User
 from app.models.sale import Sale, SaleStatus
 from app.schemas.sale import SaleCreate, Sale as SaleSchema, SaleUpdate
 from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
+
+
+def _safe_str(val):
+    """Safely convert a value to a clean UTF-8 string."""
+    if val is None:
+        return None
+    try:
+        s = str(val)
+        s.encode('utf-8')  # Test it's valid UTF-8
+        return s
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return str(val).encode('utf-8', errors='replace').decode('utf-8')
 
 # Carrier name normalization — maps alternate names to canonical carrier names
 CARRIER_NORMALIZE = {
@@ -443,17 +458,53 @@ def list_sales(
     
     # Strip commission fields for non-admin/manager users
     is_privileged = current_user.role.lower() in ("admin", "manager")
-    if is_privileged:
-        return sales
     
-    # Serialize and remove commission data
     result = []
     for sale in sales:
-        sale_dict = SaleSchema.model_validate(sale).model_dump()
-        sale_dict.pop("commission_status", None)
-        sale_dict.pop("commission_paid_date", None)
-        sale_dict.pop("commission_paid_period", None)
-        result.append(sale_dict)
+        try:
+            if is_privileged:
+                sale_dict = SaleSchema.model_validate(sale).model_dump()
+            else:
+                sale_dict = SaleSchema.model_validate(sale).model_dump()
+                sale_dict.pop("commission_status", None)
+                sale_dict.pop("commission_paid_date", None)
+                sale_dict.pop("commission_paid_period", None)
+            result.append(sale_dict)
+        except Exception as e:
+            # Handle bad data (e.g. invalid UTF-8 from PDF extraction)
+            logger.warning(f"Error serializing sale {sale.id}: {e}")
+            try:
+                # Build a safe fallback dict with sanitized strings
+                safe_dict = {
+                    "id": sale.id,
+                    "policy_number": _safe_str(sale.policy_number),
+                    "client_name": _safe_str(sale.client_name),
+                    "client_email": _safe_str(sale.client_email),
+                    "client_phone": _safe_str(sale.client_phone),
+                    "policy_type": _safe_str(sale.policy_type),
+                    "carrier": _safe_str(sale.carrier),
+                    "state": _safe_str(sale.state),
+                    "written_premium": float(sale.written_premium or 0),
+                    "recognized_premium": float(sale.recognized_premium or 0) if sale.recognized_premium else None,
+                    "status": _safe_str(sale.status),
+                    "commission_status": _safe_str(sale.commission_status) if is_privileged else None,
+                    "producer_id": sale.producer_id,
+                    "item_count": sale.item_count or 1,
+                    "sale_date": sale.sale_date.isoformat() if sale.sale_date else None,
+                    "effective_date": sale.effective_date.isoformat() if sale.effective_date else None,
+                    "created_at": sale.created_at.isoformat() if sale.created_at else None,
+                    "updated_at": sale.updated_at.isoformat() if sale.updated_at else None,
+                    "welcome_email_sent": sale.welcome_email_sent,
+                    "notes": _safe_str(sale.notes),
+                    "lead_source": _safe_str(sale.lead_source),
+                    "signature_status": _safe_str(sale.signature_status),
+                    "line_items": [],
+                    "producer_name": None,
+                    "producer_code": None,
+                }
+                result.append(safe_dict)
+            except Exception as e2:
+                logger.error(f"Could not even build fallback for sale {sale.id}: {e2}")
     return result
 
 
