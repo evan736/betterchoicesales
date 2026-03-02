@@ -900,9 +900,10 @@ async def import_sales_csv(
         return re.sub(r'[- ]+(AUT|HOM|HOME|AUTO|RNT|RENT|01|02|03|04|05)$', '', pn.upper()).strip()
 
     # Get all sales just created (in this import batch) — those without line_items yet
+    import_cutoff = datetime.utcnow() - timedelta(minutes=5)
     recent_sales = db.query(Sale).filter(
-        Sale.sale_date >= sale_date if sale_date else Sale.id > 0
-    ).order_by(Sale.id.desc()).limit(created + skipped).all()
+        Sale.id > 0
+    ).order_by(Sale.id.desc()).limit(created + skipped + 10).all()
 
     # Group by (base_policy, client_name_upper, effective_date)
     from collections import defaultdict
