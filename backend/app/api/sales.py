@@ -966,6 +966,21 @@ def delete_sale(
             detail="Not authorized to delete this sale"
         )
     
+    # Clean up related records first to avoid FK violations
+    from sqlalchemy import text
+    try:
+        db.execute(text("DELETE FROM survey_responses WHERE sale_id = :sid"), {"sid": sale_id})
+        db.execute(text("DELETE FROM sale_line_items WHERE sale_id = :sid"), {"sid": sale_id})
+        db.execute(text("DELETE FROM life_cross_sells WHERE sale_id = :sid"), {"sid": sale_id})
+    except Exception:
+        pass  # Tables might not exist
+    
+    # Nullify statement line references
+    try:
+        db.execute(text("UPDATE statement_lines SET matched_sale_id = NULL WHERE matched_sale_id = :sid"), {"sid": sale_id})
+    except Exception:
+        pass
+    
     db.delete(sale)
     db.commit()
     
