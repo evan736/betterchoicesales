@@ -1394,7 +1394,7 @@ const AgentSheetModal: React.FC<{
                           ${fmt(item.agent_commission)}
                         </td>
                         <td className="py-1.5 px-2 text-red-600">
-                          {item.is_chargeback ? `CHARGEBACK (${item.term_months || '?'}mo term)` : ''}
+                          {item.is_chargeback ? `CHARGEBACK${item.term_months ? ` (${item.term_months}mo term)` : ''}` : ''}
                         </td>
                       </tr>
                     ))}
