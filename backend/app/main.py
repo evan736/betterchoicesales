@@ -794,6 +794,15 @@ async def lifespan(app: FastAPI):
     from app.migrations.smart_inbox_migration import migrate_smart_inbox
     migrate_smart_inbox()
 
+    # Requote campaign tables + column migrations
+    try:
+        from app.api.requote_campaigns import run_migration as run_requote_migration
+        from app.core.database import engine as _rq_engine
+        run_requote_migration(_rq_engine)
+        logger.info("Requote campaign tables migrated")
+    except Exception as e:
+        logger.warning(f"Requote migration: {e}")
+
     # Self-healing: create daily_checklist_items table
     try:
         from sqlalchemy import text as _ck_text
