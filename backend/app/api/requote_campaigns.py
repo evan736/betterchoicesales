@@ -1540,6 +1540,74 @@ def mark_requoted(
 
 # ── Campaign Actions ──────────────────────────────────────────────
 
+@router.post("/{campaign_id}/reschedule")
+def reschedule_campaign(
+    campaign_id: int,
+    touch1_days: int = Form(28, description="Send touch 1 this many days before x_date anniversary"),
+    touch2_days: int = Form(14, description="Send touch 2 this many days before x_date anniversary"),
+    touch3_days: int = Form(7, description="Send touch 3 this many days before x_date anniversary"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Recalculate all touch dates for a campaign based on new timing parameters."""
+    campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    campaign.touch1_days_before = touch1_days
+    campaign.touch2_days_before = touch2_days
+    campaign.touch3_days_before = touch3_days
+
+    now = datetime.utcnow()
+    leads = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.touch1_sent == False,  # Only reschedule unsent leads
+    ).all()
+
+    updated = 0
+    for lead in leads:
+        if not lead.x_date:
+            continue
+
+        # Recalculate annual anniversary
+        try:
+            annual_xdate = lead.x_date.replace(year=now.year)
+        except ValueError:
+            annual_xdate = lead.x_date.replace(year=now.year, day=28)
+        if annual_xdate < now:
+            try:
+                annual_xdate = lead.x_date.replace(year=now.year + 1)
+            except ValueError:
+                annual_xdate = lead.x_date.replace(year=now.year + 1, day=28)
+
+        lead.touch1_scheduled_date = annual_xdate - timedelta(days=touch1_days)
+        lead.touch2_scheduled_date = annual_xdate - timedelta(days=touch2_days)
+        lead.touch3_scheduled_date = annual_xdate - timedelta(days=touch3_days)
+        lead.status = "touch1_scheduled"
+        updated += 1
+
+    db.commit()
+
+    # Count how many are now due
+    due_now = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.touch1_sent == False,
+        RequoteLead.touch1_scheduled_date != None,
+        RequoteLead.touch1_scheduled_date <= now,
+        RequoteLead.is_current_customer == False,
+        RequoteLead.opted_out == False,
+    ).count()
+
+    return {
+        "updated": updated,
+        "due_now": due_now,
+        "touch1_days": touch1_days,
+        "touch2_days": touch2_days,
+        "touch3_days": touch3_days,
+        "message": f"Rescheduled {updated} leads. {due_now} are due to send now (x_date within {touch1_days} days).",
+    }
+
+
 @router.post("/{campaign_id}/activate")
 def activate_campaign(campaign_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Move a draft campaign to active status — emails will start sending."""
