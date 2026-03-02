@@ -1286,10 +1286,11 @@ def list_leads(
 @router.post("/{campaign_id}/send-due")
 async def send_due_emails(
     campaign_id: int,
+    batch_size: int = Query(20, ge=1, le=100, description="Max emails to send per call"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send all emails that are due today for a campaign."""
+    """Send emails that are due today for a campaign. Processes in batches to avoid timeout."""
     if current_user.role.lower() not in ("admin", "manager", "owner"):
         raise HTTPException(status_code=403, detail="Manager/admin only")
 
@@ -1310,7 +1311,7 @@ async def send_due_emails(
         RequoteLead.touch1_scheduled_date != None,
         RequoteLead.touch1_scheduled_date <= now,
         RequoteLead.email != None,
-    ).limit(100).all()
+    ).limit(batch_size).all()
 
     for lead in touch1_due:
         x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
@@ -1343,7 +1344,7 @@ async def send_due_emails(
         RequoteLead.touch2_scheduled_date != None,
         RequoteLead.touch2_scheduled_date <= now,
         RequoteLead.email != None,
-    ).limit(100).all()
+    ).limit(batch_size).all()
 
     for lead in touch2_due:
         x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
@@ -1376,7 +1377,7 @@ async def send_due_emails(
         RequoteLead.touch3_scheduled_date != None,
         RequoteLead.touch3_scheduled_date <= now,
         RequoteLead.email != None,
-    ).limit(100).all()
+    ).limit(batch_size).all()
 
     for lead in touch3_due:
         x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
@@ -1406,10 +1407,25 @@ async def send_due_emails(
     ).count()
     db.commit()
 
+    # Count remaining due emails
+    remaining = db.query(RequoteLead).filter(
+        RequoteLead.campaign_id == campaign_id,
+        RequoteLead.is_current_customer == False,
+        RequoteLead.opted_out == False,
+        RequoteLead.email != None,
+        or_(
+            and_(RequoteLead.touch1_sent == False, RequoteLead.touch1_scheduled_date != None, RequoteLead.touch1_scheduled_date <= now),
+            and_(RequoteLead.touch1_sent == True, RequoteLead.touch2_sent == False, RequoteLead.touch2_scheduled_date != None, RequoteLead.touch2_scheduled_date <= now),
+            and_(RequoteLead.touch2_sent == True, RequoteLead.touch3_sent == False, RequoteLead.touch3_scheduled_date != None, RequoteLead.touch3_scheduled_date <= now),
+        ),
+    ).count()
+
     return {
         "sent": sent_count,
         "errors": errors,
-        "message": f"Sent {sent_count} emails ({len(touch1_due)} touch 1, {len(touch2_due)} touch 2, {len(touch3_due)} touch 3). {f'{errors} failed.' if errors else ''}",
+        "remaining": remaining,
+        "batch_size": batch_size,
+        "message": f"Sent {sent_count} emails ({len(touch1_due)} touch 1, {len(touch2_due)} touch 2, {len(touch3_due)} touch 3). {f'{errors} failed.' if errors else ''}{f' {remaining} more due — click Send again.' if remaining > 0 else ' All caught up!'}",
     }
 
 

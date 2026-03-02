@@ -522,7 +522,13 @@ export default function CampaignsPage() {
             )}
             {sendResult && (
               <div className={`mb-4 p-3 rounded-lg text-sm ${sendResult.error ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'}`}>
-                {sendResult.error || sendResult.message}
+                <div>{sendResult.error || sendResult.message}</div>
+                {sendResult.remaining > 0 && !sendResult.error && (
+                  <button onClick={handleSendDue} disabled={sending}
+                    className="mt-2 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-200 text-xs font-semibold transition disabled:opacity-50">
+                    {sending ? 'Sending next batch...' : `Send Next Batch (${sendResult.remaining} remaining)`}
+                  </button>
+                )}
               </div>
             )}
 
