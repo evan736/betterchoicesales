@@ -37,7 +37,7 @@ Analyze this email and respond with a JSON object (no markdown, just raw JSON):
   "sensitivity": "<one of: routine, moderate, sensitive, critical>",
   "summary": "<one-line plain English summary of what this email is about>",
   "extracted": {{
-    "policy_number": "<policy number if found, null otherwise>",
+    "policy_number": "<policy number if found, null otherwise. IMPORTANT: Phone numbers like (847) 908-5665 or 847-908-5665 are NOT policy numbers. Policy numbers are alphanumeric identifiers like 2033920455, SP3-IL-123456, Z5437518, or 618382144-633-1. Never extract a phone number as a policy number.>",
     "insured_name": "<insured/customer name if found, null otherwise>",
     "carrier": "<insurance carrier name if found, null otherwise>",
     "due_date": "<any deadline or due date in YYYY-MM-DD format, null otherwise>",
@@ -318,6 +318,18 @@ async def classify_email(
             text = re.sub(r"\s*```$", "", text)
 
         result = json.loads(text)
+
+        # Post-classification: reject phone numbers extracted as policy numbers
+        extracted = result.get("extracted", {})
+        pn = extracted.get("policy_number")
+        if pn:
+            digits_only = re.sub(r"[^\d]", "", pn)
+            if len(digits_only) in (10, 11) and re.search(r"\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}", pn):
+                logger.warning(f"Rejected phone number as policy_number: {pn}")
+                extracted["policy_number"] = None
+                if not extracted.get("phone"):
+                    extracted["phone"] = pn
+
         logger.info(f"Email classified: category={result.get('category')}, sensitivity={result.get('sensitivity')}")
         return result
 
