@@ -703,11 +703,12 @@ async def import_sales_csv(
         """Strip suffix like -AUT, -01, -HOM from policy number."""
         return re.sub(r'[- ]+(AUT|HOM|HOME|AUTO|RNT|RENT|01|02|03|04|05)$', '', pn.upper()).strip()
 
-    # Get all sales just created (in this import batch) — those without line_items yet
-    import_cutoff = datetime.utcnow() - timedelta(minutes=5)
-    recent_sales = db.query(Sale).filter(
-        Sale.id > 0
-    ).order_by(Sale.id.desc()).limit(created + skipped + 10).all()
+    try:
+        # Get all sales just created (in this import batch) — those without line_items yet
+        import_cutoff = datetime.utcnow() - timedelta(minutes=5)
+        recent_sales = db.query(Sale).filter(
+            Sale.id > 0
+        ).order_by(Sale.id.desc()).limit(created + skipped + 10).all()
 
     # Group by (base_policy, client_name_upper, effective_date)
     from collections import defaultdict
@@ -762,6 +763,15 @@ async def import_sales_csv(
     if merged_count > 0:
         db.commit()
         logger.info(f"Merged {merged_count} duplicate policies into bundles")
+
+    except Exception as bundle_err:
+        logger.warning(f"Bundle detection failed (sales still imported): {bundle_err}")
+        merged_count = 0
+        try:
+            db.rollback()
+            db.commit()  # Re-commit the sales that were already added
+        except Exception:
+            pass
 
     # Invalidate cached dashboard data since sales changed
     try:
