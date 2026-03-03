@@ -710,59 +710,59 @@ async def import_sales_csv(
             Sale.id > 0
         ).order_by(Sale.id.desc()).limit(created + skipped + 10).all()
 
-    # Group by (base_policy, client_name_upper, effective_date)
-    from collections import defaultdict
-    groups = defaultdict(list)
-    for s in recent_sales:
-        base = _base_policy(s.policy_number or "")
-        client = (s.client_name or "").upper().strip()
-        eff = str(s.effective_date)[:10] if s.effective_date else ""
-        key = (base, client, eff)
-        groups[key].append(s)
+        # Group by (base_policy, client_name_upper, effective_date)
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for s in recent_sales:
+            base = _base_policy(s.policy_number or "")
+            client = (s.client_name or "").upper().strip()
+            eff = str(s.effective_date)[:10] if s.effective_date else ""
+            key = (base, client, eff)
+            groups[key].append(s)
 
-    merged_count = 0
-    for key, group_sales in groups.items():
-        if len(group_sales) < 2:
-            continue
+        merged_count = 0
+        for key, group_sales in groups.items():
+            if len(group_sales) < 2:
+                continue
 
-        # Sort by id to keep the first-created as the primary
-        group_sales.sort(key=lambda s: s.id)
-        primary = group_sales[0]
+            # Sort by id to keep the first-created as the primary
+            group_sales.sort(key=lambda s: s.id)
+            primary = group_sales[0]
 
-        # Create line items for each sale in the group
-        total_premium = 0
-        total_items = 0
-        types_found = []
-        for s in group_sales:
-            suffix = (s.policy_number or "").replace(_base_policy(s.policy_number or ""), "").strip(" -")
-            line = SaleLineItem(
-                sale_id=primary.id,
-                policy_type=s.policy_type or "other",
-                policy_suffix=suffix or None,
-                premium=float(s.written_premium or 0),
-                description=f"{(s.policy_type or 'other').replace('_', ' ').title()} — {s.policy_number}",
-            )
-            db.add(line)
-            total_premium += float(s.written_premium or 0)
-            total_items += (s.item_count or 1)
-            types_found.append(s.policy_type or "other")
+            # Create line items for each sale in the group
+            total_premium = 0
+            total_items = 0
+            types_found = []
+            for s in group_sales:
+                suffix = (s.policy_number or "").replace(_base_policy(s.policy_number or ""), "").strip(" -")
+                line = SaleLineItem(
+                    sale_id=primary.id,
+                    policy_type=s.policy_type or "other",
+                    policy_suffix=suffix or None,
+                    premium=float(s.written_premium or 0),
+                    description=f"{(s.policy_type or 'other').replace('_', ' ').title()} — {s.policy_number}",
+                )
+                db.add(line)
+                total_premium += float(s.written_premium or 0)
+                total_items += (s.item_count or 1)
+                types_found.append(s.policy_type or "other")
 
-        # Update primary sale
-        primary.policy_type = "bundled"
-        primary.written_premium = total_premium
-        primary.recognized_premium = total_premium
-        primary.item_count = total_items
-        # Use the base policy number (no suffix)
-        primary.policy_number = _base_policy(primary.policy_number)
+            # Update primary sale
+            primary.policy_type = "bundled"
+            primary.written_premium = total_premium
+            primary.recognized_premium = total_premium
+            primary.item_count = total_items
+            # Use the base policy number (no suffix)
+            primary.policy_number = _base_policy(primary.policy_number)
 
-        # Delete the secondary sales (not the primary)
-        for s in group_sales[1:]:
-            db.delete(s)
-            merged_count += 1
+            # Delete the secondary sales (not the primary)
+            for s in group_sales[1:]:
+                db.delete(s)
+                merged_count += 1
 
-    if merged_count > 0:
-        db.commit()
-        logger.info(f"Merged {merged_count} duplicate policies into bundles")
+        if merged_count > 0:
+            db.commit()
+            logger.info(f"Merged {merged_count} duplicate policies into bundles")
 
     except Exception as bundle_err:
         logger.warning(f"Bundle detection failed (sales still imported): {bundle_err}")
