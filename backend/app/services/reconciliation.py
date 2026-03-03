@@ -227,9 +227,9 @@ class ReconciliationService:
                 # Use a savepoint so a bad query doesn't nuke the whole session
                 savepoint = self.db.begin_nested()
 
-                # Try exact match on policy number
+                # Try exact match on policy number (case-insensitive)
                 sale = self.db.query(Sale).filter(
-                    Sale.policy_number == line.policy_number
+                    func.upper(Sale.policy_number) == line.policy_number.upper()
                 ).first()
 
                 if sale:
@@ -242,10 +242,10 @@ class ReconciliationService:
                     newly_matched += 1
                     savepoint.commit()
                 else:
-                    # Try fuzzy: strip leading zeros, try partial
+                    # Try fuzzy: strip leading zeros, try partial (case-insensitive)
                     cleaned = line.policy_number.lstrip("0")
                     sale = self.db.query(Sale).filter(
-                        Sale.policy_number.contains(cleaned)
+                        func.upper(Sale.policy_number).contains(cleaned.upper())
                     ).first() if len(cleaned) >= 5 else None
 
                     if sale:
