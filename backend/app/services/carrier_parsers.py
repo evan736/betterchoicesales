@@ -523,9 +523,13 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
             trans_code_raw = str(row.get("POL-EFF-DT", "") or "").strip()
             raw_type = _travelers_map_trans(trans_code_raw)
 
-            # Premium = PAYMENT column (or TRANSACTION for full premium)
-            premium = _clean_currency(row.get("PAYMENT"))
-            # Commission = PAID column
+            # Premium = PREMIUM FOR column (L) = full term premium
+            # Fall back to PAYMENT column (H) for installment-only rows
+            premium_for = _clean_currency(row.get("PREMIUM FOR"))
+            payment = _clean_currency(row.get("PAYMENT"))
+            premium = premium_for if premium_for is not None and premium_for != 0 else payment
+
+            # Commission = PAID column (I) = commission paid to agency
             commission = _clean_currency(row.get("PAID"))
 
             # Commission rate — stored as 1500 = 15.00%
