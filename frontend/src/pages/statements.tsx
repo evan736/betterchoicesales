@@ -1571,7 +1571,8 @@ const RevenueTracker: React.FC = () => {
                 <tr className="bg-slate-50 border-b border-slate-200 text-left">
                   <th className="px-3 py-2.5 font-semibold text-slate-600 sticky left-0 bg-slate-50 z-10 min-w-[120px]">Carrier</th>
                   {data.month_columns?.map((mc: string) => {
-                    const d = new Date(mc + '-01');
+                    const [yr, mo] = mc.split('-').map(Number);
+                    const d = new Date(yr, mo - 1, 1);
                     const isCurrentYear = mc.startsWith(String(new Date().getFullYear()));
                     return (
                       <th key={mc} className={`px-2 py-2.5 font-semibold text-right min-w-[75px] ${isCurrentYear ? 'text-slate-700' : 'text-slate-400'}`}>
@@ -1675,7 +1676,7 @@ const RevenueTracker: React.FC = () => {
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                Policy Detail — {drillData?.period ? new Date(drillData.period + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : drillMonth}
+                Policy Detail — {drillData?.period ? (() => { const [y,m] = drillData.period.split('-').map(Number); return new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })() : drillMonth}
               </h2>
               <p className="text-sm text-slate-500">
                 {drillData ? `${drillData.total_lines} lines · ${fmtFull(drillData.total_premium)} premium · ${fmtFull(drillData.total_commission)} commission · ${drillData.avg_rate}% avg rate` : ''}
