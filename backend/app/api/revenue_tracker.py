@@ -6,7 +6,7 @@ Projects revenue by looking at policies expiring in future months:
 Compares against actual renewal commission received from carrier statements.
 """
 import logging
-from datetime import date
+from datetime import date, datetime as dt_datetime
 from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -36,6 +36,17 @@ def _get_term_months(policy_type):
     return 12
 
 
+def _get_active_sales_with_dates(db):
+    """Get active sales filtering out corrupted date records."""
+    from sqlalchemy import text
+    return db.query(Sale).filter(
+        Sale.status == "active",
+        Sale.effective_date.isnot(None),
+        Sale.effective_date < dt_datetime(2100, 1, 1),
+    ).all()
+
+
+
 @router.get("/projections")
 def get_revenue_projections(
     db: Session = Depends(get_db),
@@ -45,10 +56,7 @@ def get_revenue_projections(
     today = date.today()
     current_month_start = date(today.year, today.month, 1)
 
-    sales = db.query(Sale).filter(
-        Sale.status == "active",
-        Sale.effective_date.isnot(None),
-    ).all()
+    sales = _get_active_sales_with_dates(db)
 
     months = []
     for i in range(months_ahead):
@@ -152,10 +160,7 @@ def get_month_policies(
     except ValueError:
         return {"error": "Invalid period format, use YYYY-MM"}
 
-    sales = db.query(Sale).filter(
-        Sale.status == "active",
-        Sale.effective_date.isnot(None),
-    ).all()
+    sales = _get_active_sales_with_dates(db)
 
     policies = []
     for sale in sales:
