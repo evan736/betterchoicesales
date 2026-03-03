@@ -113,7 +113,7 @@ def get_revenue_projections(
         actual = db.query(
             func.coalesce(func.sum(StatementLine.commission_amount), 0)
         ).join(StatementImport).filter(
-            StatementImport.period == period,
+            StatementImport.statement_period == period,
             StatementLine.transaction_type == "renewal",
         ).scalar()
 
