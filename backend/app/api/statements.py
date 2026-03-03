@@ -554,6 +554,114 @@ def revenue_tracker_month_detail(
         "policies": policies,
     }
 
+@router.get("/revenue-projections")
+def revenue_projections(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Renewal revenue projections for the next 6 months.
+
+    For each future month:
+    1. Find all active policies with expiration_date in that month
+    2. Assume all renew with a 10% rate increase
+    3. Multiply total projected renewal premium by 13% commission rate
+    4. Compare against actual renewal commission received (from statements)
+    """
+    from sqlalchemy import func, extract
+    from app.models.customer import CustomerPolicy
+    from app.models.statement import StatementLine, StatementImport
+    from datetime import datetime
+    from dateutil.relativedelta import relativedelta
+    from decimal import Decimal
+
+    now = datetime.now()
+    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    RATE_INCREASE = Decimal("0.10")   # 10% average rate increase
+    COMMISSION_RATE = Decimal("0.13")  # 13% agency commission
+
+    projections = []
+
+    for i in range(6):
+        target_month = current_month_start + relativedelta(months=i)
+        next_month = target_month + relativedelta(months=1)
+        period_str = target_month.strftime("%Y-%m")
+        month_label = target_month.strftime("%b %Y")
+
+        # 1. Get all active policies expiring in this month
+        expiring = db.query(
+            func.count(CustomerPolicy.id).label("policy_count"),
+            func.coalesce(func.sum(CustomerPolicy.premium), 0).label("total_premium"),
+        ).filter(
+            CustomerPolicy.status.in_(["Active", "active", "In Force", "in force"]),
+            CustomerPolicy.expiration_date >= target_month,
+            CustomerPolicy.expiration_date < next_month,
+            CustomerPolicy.premium > 0,
+        ).first()
+
+        policy_count = expiring.policy_count or 0
+        current_premium = Decimal(str(expiring.total_premium or 0))
+
+        # 2. Project renewal premium (current + 10% increase)
+        projected_renewal_premium = current_premium * (1 + RATE_INCREASE)
+
+        # 3. Projected commission at 13%
+        projected_commission = projected_renewal_premium * COMMISSION_RATE
+
+        # 4. Get actual renewal commission from statements for this period
+        actual_renewal_premium = Decimal("0")
+        actual_renewal_commission = Decimal("0")
+        try:
+            renewal_actuals = db.query(
+                func.coalesce(func.sum(StatementLine.premium_amount), 0),
+                func.coalesce(func.sum(StatementLine.commission_amount), 0),
+            ).join(
+                StatementImport, StatementLine.statement_import_id == StatementImport.id
+            ).filter(
+                StatementImport.statement_period == period_str,
+                StatementLine.transaction_type.in_(["renewal"]),
+            ).first()
+
+            if renewal_actuals:
+                actual_renewal_premium = Decimal(str(renewal_actuals[0] or 0))
+                actual_renewal_commission = Decimal(str(renewal_actuals[1] or 0))
+        except Exception:
+            pass
+
+        # 5. Variance
+        variance = actual_renewal_commission - projected_commission
+        variance_pct = float(
+            (variance / projected_commission * 100) if projected_commission > 0 else 0
+        )
+
+        projections.append({
+            "period": period_str,
+            "month_label": month_label,
+            "is_current_or_past": target_month <= current_month_start,
+            "expiring_policy_count": policy_count,
+            "current_premium": float(current_premium),
+            "rate_increase_pct": float(RATE_INCREASE * 100),
+            "projected_renewal_premium": float(projected_renewal_premium),
+            "commission_rate_pct": float(COMMISSION_RATE * 100),
+            "projected_commission": float(projected_commission),
+            "actual_renewal_premium": float(actual_renewal_premium),
+            "actual_renewal_commission": float(actual_renewal_commission),
+            "variance": float(variance),
+            "variance_pct": round(variance_pct, 1),
+        })
+
+    return {
+        "assumptions": {
+            "rate_increase_pct": 10.0,
+            "commission_rate_pct": 13.0,
+            "description": "Projected renewals assume all active policies expiring in each month renew with a 10% rate increase, at 13% agency commission.",
+        },
+        "projections": projections,
+    }
+
+
+
 @router.get("/{import_id}")
 def get_reconciliation(
     import_id: int,
@@ -701,110 +809,4 @@ def debug_agent_lines(
         "lines": sorted(results, key=lambda x: x["carrier"]),
     }
 
-
-@router.get("/revenue-projections")
-def revenue_projections(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Renewal revenue projections for the next 6 months.
-
-    For each future month:
-    1. Find all active policies with expiration_date in that month
-    2. Assume all renew with a 10% rate increase
-    3. Multiply total projected renewal premium by 13% commission rate
-    4. Compare against actual renewal commission received (from statements)
-    """
-    from sqlalchemy import func, extract
-    from app.models.customer import CustomerPolicy
-    from app.models.statement import StatementLine, StatementImport
-    from datetime import datetime
-    from dateutil.relativedelta import relativedelta
-    from decimal import Decimal
-
-    now = datetime.now()
-    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-    RATE_INCREASE = Decimal("0.10")   # 10% average rate increase
-    COMMISSION_RATE = Decimal("0.13")  # 13% agency commission
-
-    projections = []
-
-    for i in range(6):
-        target_month = current_month_start + relativedelta(months=i)
-        next_month = target_month + relativedelta(months=1)
-        period_str = target_month.strftime("%Y-%m")
-        month_label = target_month.strftime("%b %Y")
-
-        # 1. Get all active policies expiring in this month
-        expiring = db.query(
-            func.count(CustomerPolicy.id).label("policy_count"),
-            func.coalesce(func.sum(CustomerPolicy.premium), 0).label("total_premium"),
-        ).filter(
-            CustomerPolicy.status.in_(["Active", "active", "In Force", "in force"]),
-            CustomerPolicy.expiration_date >= target_month,
-            CustomerPolicy.expiration_date < next_month,
-            CustomerPolicy.premium > 0,
-        ).first()
-
-        policy_count = expiring.policy_count or 0
-        current_premium = Decimal(str(expiring.total_premium or 0))
-
-        # 2. Project renewal premium (current + 10% increase)
-        projected_renewal_premium = current_premium * (1 + RATE_INCREASE)
-
-        # 3. Projected commission at 13%
-        projected_commission = projected_renewal_premium * COMMISSION_RATE
-
-        # 4. Get actual renewal commission from statements for this period
-        actual_renewal_premium = Decimal("0")
-        actual_renewal_commission = Decimal("0")
-        try:
-            renewal_actuals = db.query(
-                func.coalesce(func.sum(StatementLine.premium_amount), 0),
-                func.coalesce(func.sum(StatementLine.commission_amount), 0),
-            ).join(
-                StatementImport, StatementLine.statement_import_id == StatementImport.id
-            ).filter(
-                StatementImport.statement_period == period_str,
-                StatementLine.transaction_type.in_(["renewal"]),
-            ).first()
-
-            if renewal_actuals:
-                actual_renewal_premium = Decimal(str(renewal_actuals[0] or 0))
-                actual_renewal_commission = Decimal(str(renewal_actuals[1] or 0))
-        except Exception:
-            pass
-
-        # 5. Variance
-        variance = actual_renewal_commission - projected_commission
-        variance_pct = float(
-            (variance / projected_commission * 100) if projected_commission > 0 else 0
-        )
-
-        projections.append({
-            "period": period_str,
-            "month_label": month_label,
-            "is_current_or_past": target_month <= current_month_start,
-            "expiring_policy_count": policy_count,
-            "current_premium": float(current_premium),
-            "rate_increase_pct": float(RATE_INCREASE * 100),
-            "projected_renewal_premium": float(projected_renewal_premium),
-            "commission_rate_pct": float(COMMISSION_RATE * 100),
-            "projected_commission": float(projected_commission),
-            "actual_renewal_premium": float(actual_renewal_premium),
-            "actual_renewal_commission": float(actual_renewal_commission),
-            "variance": float(variance),
-            "variance_pct": round(variance_pct, 1),
-        })
-
-    return {
-        "assumptions": {
-            "rate_increase_pct": 10.0,
-            "commission_rate_pct": 13.0,
-            "description": "Projected renewals assume all active policies expiring in each month renew with a 10% rate increase, at 13% agency commission.",
-        },
-        "projections": projections,
-    }
 
