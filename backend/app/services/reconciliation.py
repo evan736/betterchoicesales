@@ -29,38 +29,35 @@ logger = logging.getLogger(__name__)
 
 
 def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
-    """Check if a statement line transaction falls within the first policy term.
+    """Determine if a statement line should earn producer commission.
 
-    First term = original_sale_effective_date through original_sale_effective_date + term_months.
-    After the first term renews, the producer is NOT paid on that policy.
+    Priority 1 — Carrier term codes (Safeco N12/R12):
+      is_renewal_term=False (N12/N6): New business term → commissionable
+        ALL transactions: new biz, endorsements +/-, cancellations
+      is_renewal_term=True (R12/R6): Renewal term → NOT commissionable
+      is_renewal_term=None: Unknown → fall through to Priority 2
 
-    Transaction types:
-    - renewal: Always excluded (by definition past first term)
-    - other: Always excluded (servicing/installment billing, not commissionable)
-    - new_business, endorsement, cancellation, adjustment, reinstatement: Paid if within first term
-
-    Args:
-        line: StatementLine with effective_date, term_months
-        matched_sale: Sale object (may be None)
-        statement_period: "YYYY-MM" period string
-
-    Returns:
-        True if within first term (should be paid), False otherwise
+    Priority 2 — Transaction type + date logic (Grange, Travelers, etc.):
+      renewal/other → not commissionable
+      new_business/endorsement/cancellation → commissionable if within first term dates
+      No effective date available → not commissionable
     """
+    renewal_flag = getattr(line, 'is_renewal_term', None)
+
+    # Carrier explicitly marks the term type — use it directly, no date math needed
+    if renewal_flag is False:
+        return True   # New business term — all transactions commissionable
+    if renewal_flag is True:
+        return False  # Renewal term — not commissionable
+
+    # === Fallback for carriers without term codes ===
     tx_type = (line.transaction_type or "").lower()
 
-    # Renewals and servicing/"other" lines are never commissionable
     if tx_type in ("renewal", "other"):
         return False
 
-    # If carrier explicitly marks this as a renewal term (e.g. Safeco R6/R12), exclude it
-    if getattr(line, 'is_renewal_term', None) is True:
-        return False
-
-    # 1. Determine the ORIGINAL effective date (when the policy was first sold)
+    # Date-based first-term check
     eff_date = None
-
-    # Prefer the matched sale's effective date (this is the original sale date)
     if matched_sale and matched_sale.effective_date:
         eff_date = matched_sale.effective_date
         if hasattr(eff_date, 'date'):
@@ -71,37 +68,27 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
             eff_date = eff_date.date()
 
     if not eff_date:
-        # Can't determine term — don't pay
         return False
 
-    # 2. Determine term length in months
     term_months = getattr(line, 'term_months', None)
     if term_months and term_months > 12:
-        # Data quality: sometimes days are stored instead of months
         term_months = 6 if term_months <= 180 else 12
-
     if not term_months:
-        # Infer from policy type
         policy_type = ""
         if matched_sale and matched_sale.policy_type:
             policy_type = matched_sale.policy_type.lower()
         elif getattr(line, 'product_type', None):
             policy_type = line.product_type.lower()
-
         if "6m" in policy_type or "6 month" in policy_type or "(6m)" in policy_type:
             term_months = 6
         elif "auto" in policy_type and "12" not in policy_type:
-            term_months = 6  # Auto defaults to 6-month
+            term_months = 6
         else:
-            term_months = 12  # Home/dwelling/umbrella defaults to 12-month
+            term_months = 12
 
-    # 3. Calculate first term end date
     term_end = eff_date + relativedelta(months=term_months)
-
-    # 4. Check if statement period falls within first term
     stmt_year, stmt_month = map(int, statement_period.split("-"))
     stmt_date = date(stmt_year, stmt_month, 1)
-
     return stmt_date < term_end
 
 
