@@ -1428,6 +1428,7 @@ const RevenueTracker: React.FC = () => {
   const [drillLoading, setDrillLoading] = useState(false);
   const [drillSearch, setDrillSearch] = useState('');
   const [drillTypeFilter, setDrillTypeFilter] = useState('');
+  const [projections, setProjections] = useState<any>(null);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
@@ -1439,6 +1440,10 @@ const RevenueTracker: React.FC = () => {
       .then(setData)
       .catch(err => { console.error('Revenue tracker load error:', err); setData(null); })
       .finally(() => setLoading(false));
+    fetch(`${API}/api/reconciliation/revenue-projections`, { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(setProjections)
+      .catch(() => {});
   }, []);
 
   const openMonth = async (period: string) => {
@@ -1755,6 +1760,87 @@ const RevenueTracker: React.FC = () => {
           ) : (
             <div className="p-8 text-center text-slate-500">No data for this month</div>
           )}
+        </div>
+      )}
+
+      {/* Renewal Revenue Projections */}
+      {projections?.projections?.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h2 className="text-lg font-bold text-slate-900">Renewal Revenue Projections &mdash; Next 6 Months</h2>
+            <p className="text-sm text-slate-500">
+              Assumes {projections.assumptions.rate_increase_pct}% avg rate increase on expiring policies at {projections.assumptions.commission_rate_pct}% agency commission. Renewals only.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                  <th className="px-4 py-3 font-semibold text-slate-600">Month</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Expiring Policies</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Current Premium</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Projected Premium (+10%)</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Projected Commission</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Actual Renewal Comm.</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600 text-right">Variance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projections.projections.map((p: any) => {
+                  const hasActual = p.actual_renewal_commission !== 0;
+                  return (
+                    <tr key={p.period} className={`border-b border-slate-100 ${p.is_current_or_past ? '' : 'bg-blue-50/30'}`}>
+                      <td className="px-4 py-3 font-semibold text-slate-800">
+                        {p.month_label}
+                        {!p.is_current_or_past && <span className="ml-2 text-xs text-blue-500 font-normal">forecast</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">{p.expiring_policy_count.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right text-slate-600">{fmt(p.current_premium)}</td>
+                      <td className="px-4 py-3 text-right text-blue-600 font-semibold">{fmt(p.projected_renewal_premium)}</td>
+                      <td className="px-4 py-3 text-right text-blue-700 font-bold">{fmt(p.projected_commission)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-800">
+                        {hasActual ? fmt(p.actual_renewal_commission) : <span className="text-slate-300">pending</span>}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-semibold ${!hasActual ? 'text-slate-300' : p.variance >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {hasActual ? `${p.variance >= 0 ? '+' : ''}${fmt(p.variance)} (${p.variance_pct > 0 ? '+' : ''}${p.variance_pct}%)` : '\u2014'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-slate-50 border-t-2 border-slate-300 font-bold">
+                  <td className="px-4 py-3 text-slate-800">6-Month Total</td>
+                  <td className="px-4 py-3 text-right text-slate-700">
+                    {projections.projections.reduce((s: number, p: any) => s + p.expiring_policy_count, 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">
+                    {fmt(projections.projections.reduce((s: number, p: any) => s + p.current_premium, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-right text-blue-600">
+                    {fmt(projections.projections.reduce((s: number, p: any) => s + p.projected_renewal_premium, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-right text-blue-700">
+                    {fmt(projections.projections.reduce((s: number, p: any) => s + p.projected_commission, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-800">
+                    {(() => {
+                      const t = projections.projections.reduce((s: number, p: any) => s + p.actual_renewal_commission, 0);
+                      return t !== 0 ? fmt(t) : <span className="text-slate-300">pending</span>;
+                    })()}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {(() => {
+                      const totalProj = projections.projections.reduce((s: number, p: any) => s + p.projected_commission, 0);
+                      const totalActual = projections.projections.reduce((s: number, p: any) => s + p.actual_renewal_commission, 0);
+                      const v = totalActual - totalProj;
+                      return totalActual !== 0 ? (
+                        <span className={v >= 0 ? 'text-green-600' : 'text-red-500'}>{v >= 0 ? '+' : ''}{fmt(v)}</span>
+                      ) : <span className="text-slate-300">\u2014</span>;
+                    })()}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
