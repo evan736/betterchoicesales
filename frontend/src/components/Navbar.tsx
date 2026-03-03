@@ -243,6 +243,7 @@ const Navbar: React.FC = () => {
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
         { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
+        { href: '/revenue-tracker', label: 'Revenue Tracker', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
         { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
         { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: true },

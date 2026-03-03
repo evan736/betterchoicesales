@@ -1655,6 +1655,9 @@ except Exception as e:
 
 app.include_router(reshop_api.router)
 
+from app.api import revenue_tracker as revenue_tracker_api
+app.include_router(revenue_tracker_api.router)
+
 from app.api import lead_providers as lead_providers_api
 from app.api import daily_checklist as daily_checklist_api
 app.include_router(lead_providers_api.router)
