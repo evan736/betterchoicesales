@@ -224,6 +224,9 @@ class ReconciliationService:
                 continue
 
             try:
+                # Use a savepoint so a bad query doesn't nuke the whole session
+                savepoint = self.db.begin_nested()
+
                 # Try exact match on policy number
                 sale = self.db.query(Sale).filter(
                     Sale.policy_number == line.policy_number
@@ -234,11 +237,10 @@ class ReconciliationService:
                     line.matched_sale_id = sale.id
                     line.match_confidence = "exact"
                     line.matched_at = datetime.utcnow()
-
-                    # Assign agent from the sale
                     line.assigned_agent_id = sale.producer_id
                     matched += 1
                     newly_matched += 1
+                    savepoint.commit()
                 else:
                     # Try fuzzy: strip leading zeros, try partial
                     cleaned = line.policy_number.lstrip("0")
@@ -254,11 +256,12 @@ class ReconciliationService:
                         line.assigned_agent_id = sale.producer_id
                         matched += 1
                         newly_matched += 1
-                    else:
+                    savepoint.commit()
+                    if not sale:
                         unmatched += 1
             except Exception as e:
                 logger.warning(f"Error matching line {line.id} ({line.policy_number}): {e}")
-                self.db.rollback()
+                savepoint.rollback()
                 unmatched += 1
 
         imp.matched_rows = matched
