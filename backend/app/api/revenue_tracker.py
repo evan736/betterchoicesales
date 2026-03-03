@@ -42,7 +42,7 @@ def _get_active_sales_with_dates(db):
     return db.query(Sale).filter(
         Sale.status == "active",
         Sale.effective_date.isnot(None),
-        Sale.effective_date < dt_datetime(2100, 1, 1),
+        text("sales.effective_date < '2100-01-01'"),
     ).all()
 
 
