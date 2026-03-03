@@ -214,10 +214,18 @@ class ReconciliationService:
                 # Use a savepoint so a bad query doesn't nuke the whole session
                 savepoint = self.db.begin_nested()
 
-                # Try exact match on policy number (case-insensitive)
+                # Normalize policy number: strip spaces, dashes, tabs for comparison
+                # Handles: "616515706 203 1" vs "616515706-203-1" vs "6165157062031"
+                raw_pn = line.policy_number or ""
+                normalized = raw_pn.upper().replace("-", "").replace(" ", "").replace("\t", "")
+
+                # Try normalized match — strip same chars from Sale.policy_number
                 sale = self.db.query(Sale).filter(
-                    func.upper(Sale.policy_number) == line.policy_number.upper()
-                ).first()
+                    func.upper(
+                        func.replace(func.replace(func.replace(
+                            Sale.policy_number, "-", ""), " ", ""), "\t", "")
+                    ) == normalized
+                ).first() if normalized else None
 
                 if sale:
                     line.is_matched = True
@@ -229,10 +237,13 @@ class ReconciliationService:
                     newly_matched += 1
                     savepoint.commit()
                 else:
-                    # Try fuzzy: strip leading zeros, try partial (case-insensitive)
-                    cleaned = line.policy_number.lstrip("0")
+                    # Try fuzzy: use the core digits (strip leading zeros too)
+                    cleaned = normalized.lstrip("0")
                     sale = self.db.query(Sale).filter(
-                        func.upper(Sale.policy_number).contains(cleaned.upper())
+                        func.upper(
+                            func.replace(func.replace(func.replace(
+                                Sale.policy_number, "-", ""), " ", ""), "\t", "")
+                        ).contains(cleaned)
                     ).first() if len(cleaned) >= 5 else None
 
                     if sale:
