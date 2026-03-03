@@ -516,8 +516,9 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
             if not raw_policy or raw_policy == "nan":
                 continue
 
-            # Clean policy number — take first segment before spaces
-            policy_number = raw_policy.split()[0] if raw_policy else raw_policy
+            # Clean policy number — join space-separated segments with dashes
+            # Statement: "612812607 203  1" → "612812607-203-1" (matches sales format)
+            policy_number = "-".join(raw_policy.split()) if raw_policy else raw_policy
 
             # Parse transaction type from POL-EFF-DT column
             trans_code_raw = str(row.get("POL-EFF-DT", "") or "").strip()
