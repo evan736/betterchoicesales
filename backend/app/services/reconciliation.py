@@ -43,6 +43,10 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
     - is_renewal_term=True (e.g. Safeco R6/R12): Always excluded — carrier explicitly marks as renewal
     - is_renewal_term=False (e.g. Safeco N12): New business, check term window
 
+    When dates are unavailable to determine the term window, we DEFAULT TO PAYING
+    rather than withholding commission. Only withhold when we can positively confirm
+    the transaction is outside the first term.
+
     Args:
         line: StatementLine with effective_date, term_months, is_renewal_term
         matched_sale: Sale object (may be None)
@@ -75,8 +79,8 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
             eff_date = eff_date.date()
 
     if not eff_date:
-        # Can't determine term — don't pay
-        return False
+        # Can't determine term window — default to PAYING (benefit of the doubt)
+        return True
 
     # 2. Determine term length in months
     term_months = getattr(line, 'term_months', None)
