@@ -580,9 +580,11 @@ def _travelers_map_trans(code: str) -> str:
     """Map Travelers transaction codes to standard types.
     
     Format: MMDDYY-TYPE (e.g., '012426-CONT', '013026-NEW-BUS', '081225-CANC')
+    When POL-EFF-DT is empty, the line is typically an installment payment
+    or continuation — still commissionable.
     """
     if not code or code == "nan":
-        return "other"
+        return "NEW BUSINESS"  # Default to commissionable — don't exclude
     code_upper = code.upper()
     if "NEW-BUS" in code_upper or "NEW BUS" in code_upper:
         return "NEW BUSINESS"

@@ -308,7 +308,7 @@ class ReconciliationService:
             agent_lines.setdefault(line.assigned_agent_id, []).append(line)
 
         agent_summaries = []
-        used_period = prior_period  # track which period was used
+        used_period = current_period  # tier is based on current month premium
 
         for agent_id, agent_line_list in agent_lines.items():
             agent = self.db.query(User).filter(User.id == agent_id).first()
