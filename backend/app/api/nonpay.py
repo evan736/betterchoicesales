@@ -625,18 +625,90 @@ def _process_single_policy(
         result["error"] = "Policy not found in database"
         return result
 
-    # Get customer
-    customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
-    if not customer:
-        result["error"] = "Customer not found"
-        return result
+    # Get customer — prefer LIVE NowCerts lookup over stale local DB
+    customer = None
+    nowcerts_customer = None
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        nc = get_nowcerts_client()
+        nc_results = nc.search_by_policy_number(policy_number)
+        if nc_results:
+            nowcerts_customer = nc_results[0]
+            logger.info(f"NowCerts live lookup for {policy_number}: {nowcerts_customer.get('name', 'unknown')}")
+    except Exception as e:
+        logger.warning(f"NowCerts live lookup failed for {policy_number}, falling back to local DB: {e}")
 
-    result["matched"] = True
-    result["customer_name"] = customer.full_name
-    result["customer_email"] = customer.email
-    result["customer_id"] = customer.id
+    if nowcerts_customer:
+        # Use live NowCerts data — this is the source of truth
+        nc_name = nowcerts_customer.get("name") or nowcerts_customer.get("commercial_name") or ""
+        nc_email = nowcerts_customer.get("email") or ""
+        nc_address = nowcerts_customer.get("address") or ""
+        nc_city = nowcerts_customer.get("city") or ""
+        nc_state = nowcerts_customer.get("state") or ""
+        nc_zip = nowcerts_customer.get("zip") or nowcerts_customer.get("zip_code") or ""
 
-    if not customer.email:
+        # Also try to find/update the local customer record
+        customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+        if customer:
+            # Update local record with fresh NowCerts data
+            if nc_name:
+                parts = nc_name.strip().split()
+                if len(parts) >= 2:
+                    customer.first_name = parts[0]
+                    customer.last_name = " ".join(parts[1:])
+                elif len(parts) == 1:
+                    customer.last_name = parts[0]
+            if nc_email:
+                customer.email = nc_email
+            if nc_address:
+                customer.address = nc_address
+            if nc_city:
+                customer.city = nc_city
+            if nc_state:
+                customer.state = nc_state
+            if nc_zip:
+                customer.zip_code = nc_zip
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        result["matched"] = True
+        result["customer_name"] = nc_name or (customer.full_name if customer else insured_name)
+        result["customer_email"] = nc_email or (customer.email if customer else None)
+        result["customer_id"] = customer.id if customer else None
+        result["match_source"] = "nowcerts_live"
+
+        # If no local customer record, create a temporary object for downstream code
+        if not customer:
+            class _TempCustomer:
+                pass
+            customer = _TempCustomer()
+            customer.id = None
+            customer.full_name = nc_name or insured_name
+            customer.email = nc_email or None
+            customer.address = nc_address or None
+            customer.city = nc_city or None
+            customer.state = nc_state or None
+            customer.zip_code = nc_zip or None
+    else:
+        # Fallback to local DB customer record
+        customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+        if not customer:
+            result["error"] = "Customer not found"
+            return result
+
+        result["matched"] = True
+        result["customer_name"] = customer.full_name
+        result["customer_email"] = customer.email
+        result["customer_id"] = customer.id
+        result["match_source"] = "local_db"
+
+    # Use result dict for email/name (populated from either NowCerts or local DB)
+    cust_email = result.get("customer_email")
+    cust_name = result.get("customer_name", insured_name)
+
+    if not cust_email:
         # No email — try sending a physical letter via Thanks.io
         if customer.address and customer.city and customer.state and customer.zip_code:
             # Check 1x/week rate limit for letters (applies in both dry_run and live)
