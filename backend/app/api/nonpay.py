@@ -494,14 +494,30 @@ def _process_single_policy(
     ).first()
 
     if not policy:
+        # Try with spaces/dashes removed (NatGen: "2032293985 00" vs DB "203229398500")
+        compact = policy_number.replace(" ", "").replace("-", "").replace("	", "").strip()
+        if compact != policy_number:
+            policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number == compact
+            ).first()
+
+    if not policy:
         # Try partial match (some reports truncate policy numbers)
         policy = db.query(CustomerPolicy).filter(
             CustomerPolicy.policy_number.ilike(f"%{policy_number}%")
         ).first()
 
     if not policy:
+        # Try partial match with compact version
+        compact = policy_number.replace(" ", "").replace("-", "").replace("	", "").strip()
+        if compact != policy_number:
+            policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number.ilike(f"%{compact}%")
+            ).first()
+
+    if not policy:
         # Try base number (strip suffix like 618207668-653-1 → 618207668)
-        base_number = policy_number.split("-")[0].strip()
+        base_number = policy_number.split("-")[0].split()[0].strip()
         if base_number and base_number != policy_number:
             policy = db.query(CustomerPolicy).filter(
                 CustomerPolicy.policy_number.ilike(f"%{base_number}%")
@@ -509,8 +525,9 @@ def _process_single_policy(
 
     if not policy:
         # Try reverse: maybe DB has longer number that contains our extracted number
+        compact = policy_number.replace(" ", "").replace("-", "").replace("	", "")
         policy = db.query(CustomerPolicy).filter(
-            CustomerPolicy.policy_number.ilike(f"{policy_number.replace('-', '%')}%")
+            CustomerPolicy.policy_number.ilike(f"{compact}%")
         ).first()
 
     if not policy:
