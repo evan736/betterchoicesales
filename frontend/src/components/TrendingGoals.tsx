@@ -30,11 +30,12 @@ interface TrendingData {
 interface Props {
   compact?: boolean;
   period?: string;
+  scope?: string;
   showTrending?: boolean;
   showGoals?: boolean;
 }
 
-const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPeriod, showTrending = true, showGoals = true }) => {
+const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPeriod, scope, showTrending = true, showGoals = true }) => {
   const [data, setData] = useState<TrendingData | null>(null);
   const [targetDate, setTargetDate] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -47,6 +48,7 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
     try {
       const params: any = { period: effectivePeriod === 'all-time' ? 'annual' : effectivePeriod };
       if (customDate) params.target_date = customDate;
+      if (scope) params.scope = scope;
       const res = await analyticsAPI.trending(params);
       setData(res.data);
       if (!customDate) setTargetDate(res.data.target_date);
@@ -60,7 +62,7 @@ const TrendingGoals: React.FC<Props> = ({ compact = false, period: externalPerio
   useEffect(() => {
     setTargetDate('');
     loadData();
-  }, [effectivePeriod]);
+  }, [effectivePeriod, scope]);
 
   const handleDateChange = (newDate: string) => {
     setTargetDate(newDate);

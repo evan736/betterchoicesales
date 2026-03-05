@@ -197,8 +197,8 @@ export default function Analytics() {
 
         {/* Trending Data (left) + Goals & Milestones (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrendingGoals period={period} showGoals={false} />
-          <TrendingGoals period={period} showTrending={false} />
+          <TrendingGoals period={period} scope={scope} showGoals={false} />
+          <TrendingGoals period={period} scope={scope} showTrending={false} />
         </div>
 
         {/* Chart Section */}
