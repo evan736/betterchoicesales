@@ -43,6 +43,7 @@ def get_trending_projection(
     target_date: Optional[str] = Query(None, description="Target date YYYY-MM-DD, defaults to end of current month"),
     period: Optional[str] = Query(None, description="monthly, annual, last_year"),
     producer_id: Optional[int] = None,
+    scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -61,14 +62,13 @@ def get_trending_projection(
 
     # Build base user filter
     user_filters = []
-    if current_user.role.lower() in ("producer", "retention_specialist"):
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    # Default scope: agents see their own, admin/manager see all
+    effective_scope = scope if scope else ("agency" if is_privileged else "my")
+    if effective_scope == "my" or (not is_privileged and effective_scope != "agency"):
         user_filters.append(Sale.producer_id == current_user.id)
-        logger.info(f"Trending: filtering for user {current_user.id} ({current_user.full_name}), role={current_user.role}")
     elif producer_id:
         user_filters.append(Sale.producer_id == producer_id)
-        logger.info(f"Trending: filtering for explicit producer_id={producer_id}")
-    else:
-        logger.info(f"Trending: NO filter — user {current_user.id} ({current_user.full_name}), role={current_user.role}")
 
     # Handle last_year — purely historical, no projections
     if period == "last_year":
@@ -285,14 +285,16 @@ def get_sales_summary(
     year: Optional[int] = None,
     month: Optional[int] = None,
     producer_id: Optional[int] = None,
+    scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get high-level sales summary with optional filters."""
     query = db.query(Sale)
 
-    # Producers only see their own data
-    if current_user.role.lower() in ("producer", "retention_specialist"):
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    effective_scope = scope if scope else ("agency" if is_privileged else "my")
+    if effective_scope == "my" or (not is_privileged and effective_scope != "agency"):
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)
@@ -337,6 +339,7 @@ def get_sales_by_group(
     period: Optional[str] = Query(None, description="monthly, annual, all-time"),
     year: Optional[int] = None,
     month: Optional[int] = None,
+    scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -362,8 +365,10 @@ def get_sales_by_group(
         func.sum(Sale.item_count).label("total_items"),
     )
 
-    # Producers only see their own
-    if current_user.role.lower() in ("producer", "retention_specialist"):
+    # Scope-based filtering
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    effective_scope = scope if scope else ("agency" if is_privileged else "my")
+    if effective_scope == "my" or (not is_privileged and effective_scope != "agency"):
         query = query.filter(Sale.producer_id == current_user.id)
 
     # Time filters
@@ -425,6 +430,7 @@ def get_sales_table(
     carrier: Optional[str] = None,
     state: Optional[str] = None,
     producer_id: Optional[int] = None,
+    scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     sort_by: str = Query("sale_date", description="sale_date, written_premium, client_name, effective_date"),
     sort_order: str = Query("desc", description="asc or desc"),
     skip: int = 0,
@@ -435,8 +441,10 @@ def get_sales_table(
     """Get filterable, sortable sales table data."""
     query = db.query(Sale)
 
-    # Producers only see their own
-    if current_user.role.lower() in ("producer", "retention_specialist"):
+    # Scope-based filtering
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    effective_scope = scope if scope else ("agency" if is_privileged else "my")
+    if effective_scope == "my" or (not is_privileged and effective_scope != "agency"):
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)

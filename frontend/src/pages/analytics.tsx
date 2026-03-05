@@ -44,6 +44,10 @@ export default function Analytics() {
 
   const [trendingData, setTrendingData] = useState<any>(null);
 
+  // Scope toggle: "my" = own sales, "agency" = all agency sales
+  const isPrivileged = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'manager';
+  const [scope, setScope] = useState<'my' | 'agency'>(isPrivileged ? 'agency' : 'my');
+
   // Table filters
   const [tableFilters, setTableFilters] = useState<any>({});
   const [sortBy, setSortBy] = useState('sale_date');
@@ -74,7 +78,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (user) loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder]);
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope]);
 
   const loadFilterOptions = async () => {
     try {
@@ -94,17 +98,18 @@ export default function Analytics() {
       }
       const apiPeriod = period === 'last_year' ? 'annual' : periodParam;
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
-        analyticsAPI.summary({ period: apiPeriod, ...extraParams }),
-        analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, ...extraParams }),
+        analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams }),
+        analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, scope, ...extraParams }),
         analyticsAPI.salesTable({
           period: apiPeriod,
           sort_by: sortBy,
           sort_order: sortOrder,
+          scope,
           ...extraParams,
           ...tableFilters,
           limit: 50,
         }),
-        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period) }),
+        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope }),
       ]);
       setSummary(summaryRes.data);
       setChartData(groupRes.data.results || []);
@@ -127,9 +132,33 @@ export default function Analytics() {
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">Sales Analytics</h1>
-            <p className="text-slate-600">Agency performance, filtered by any dimension</p>
+            <p className="text-slate-600">{scope === 'my' ? 'Your personal sales performance' : 'Agency-wide performance'}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            {/* Scope toggle */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setScope('my')}
+                className={`px-4 py-2 text-sm font-semibold transition-all ${
+                  scope === 'my'
+                    ? 'bg-brand-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                My Sales
+              </button>
+              <button
+                onClick={() => setScope('agency')}
+                className={`px-4 py-2 text-sm font-semibold transition-all ${
+                  scope === 'agency'
+                    ? 'bg-brand-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Agency
+              </button>
+            </div>
+            <div className="w-px h-8 bg-slate-200" />
             {PERIOD_OPTIONS.map((p) => (
               <button
                 key={p.value}
