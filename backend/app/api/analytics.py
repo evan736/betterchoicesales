@@ -1,5 +1,6 @@
 """Analytics API — filterable, groupable sales data for dashboards and reports."""
 from typing import Optional, List
+import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, extract
@@ -8,6 +9,8 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.sale import Sale
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -60,8 +63,12 @@ def get_trending_projection(
     user_filters = []
     if current_user.role.lower() in ("producer", "retention_specialist"):
         user_filters.append(Sale.producer_id == current_user.id)
+        logger.info(f"Trending: filtering for user {current_user.id} ({current_user.full_name}), role={current_user.role}")
     elif producer_id:
         user_filters.append(Sale.producer_id == producer_id)
+        logger.info(f"Trending: filtering for explicit producer_id={producer_id}")
+    else:
+        logger.info(f"Trending: NO filter — user {current_user.id} ({current_user.full_name}), role={current_user.role}")
 
     # Handle last_year — purely historical, no projections
     if period == "last_year":
