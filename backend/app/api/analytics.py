@@ -48,7 +48,7 @@ def get_trending_projection(
     Supports monthly (current month), annual (this year), and last_year views.
     """
     from app.core.cache import get as cache_get, set as cache_set
-    cache_key = f"trending:{period}:{producer_id}:{target_date}"
+    cache_key = f"trending:{period}:{producer_id}:{target_date}:{current_user.id}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
