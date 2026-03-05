@@ -431,11 +431,15 @@ def list_sales(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List sales - all users see all sales. Commission data hidden for non-admin/manager."""
+    """List sales - agents/producers see only their own. Admin/manager see all."""
     query = db.query(Sale)
     
-    # Optional producer filter (for admin/manager filtering UI)
-    if producer_id:
+    # Role-based filtering: producers only see their own sales
+    is_privileged = current_user.role.lower() in ("admin", "manager")
+    if not is_privileged:
+        query = query.filter(Sale.producer_id == current_user.id)
+    elif producer_id:
+        # Optional producer filter (for admin/manager filtering UI)
         query = query.filter(Sale.producer_id == producer_id)
     
     if date_from:
@@ -456,9 +460,7 @@ def list_sales(
     
     sales = query.order_by(Sale.sale_date.desc()).offset(skip).limit(limit).all()
     
-    # Strip commission fields for non-admin/manager users
-    is_privileged = current_user.role.lower() in ("admin", "manager")
-    
+    # Commission fields already controlled by is_privileged set above
     result = []
     for sale in sales:
         try:
