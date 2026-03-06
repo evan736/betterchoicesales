@@ -56,6 +56,31 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
     if tx_type in ("renewal", "other"):
         return False
 
+    # Check if there's a "renewal" transaction for this same policy on this
+    # same statement. If so, the carrier considers this a renewal term —
+    # endorsements and cancellations on a renewed policy are NOT first-term chargebacks.
+    if hasattr(line, 'statement_import_id') and line.statement_import_id:
+        from app.models.statement import StatementLine as SL
+        from sqlalchemy.orm import Session as _Session
+        from sqlalchemy import inspect
+        session = _Session.object_session(line) if hasattr(line, '__class__') else None
+        if session is None:
+            try:
+                session = inspect(line).session
+            except Exception:
+                session = None
+        if session:
+            pn_norm = (line.policy_number or "").replace(" ", "").replace("-", "").upper()
+            sibling_renewal = session.query(SL).filter(
+                SL.statement_import_id == line.statement_import_id,
+                SL.transaction_type.in_(["renewal"]),
+                SL.id != line.id,
+            ).all()
+            for sib in sibling_renewal:
+                sib_pn = (sib.policy_number or "").replace(" ", "").replace("-", "").upper()
+                if sib_pn == pn_norm:
+                    return False  # Same policy has a renewal line → this is renewal-term
+
     # Date-based first-term check
     eff_date = None
     if matched_sale and matched_sale.effective_date:
