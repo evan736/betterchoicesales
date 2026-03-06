@@ -431,11 +431,16 @@ def list_sales(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List sales - agents/producers see only their own. Admin/manager see all."""
+    """List sales - agents/producers see only their own. Admin/manager/Andrey see all."""
     query = db.query(Sale)
     
     # Role-based filtering: producers only see their own sales
-    is_privileged = current_user.role.lower() in ("admin", "manager")
+    # Andrey Dayson (retention_specialist) has full visibility like admin
+    FULL_ACCESS_USERNAMES = {"andrey.dayson"}
+    is_privileged = (
+        current_user.role.lower() in ("admin", "manager")
+        or (current_user.username or "").lower() in FULL_ACCESS_USERNAMES
+    )
     if not is_privileged:
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
