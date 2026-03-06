@@ -831,6 +831,14 @@ async def lifespan(app: FastAPI):
     from app.migrations.smart_inbox_migration import migrate_smart_inbox
     migrate_smart_inbox()
 
+    # Retention tracking tables
+    try:
+        from app.migrations.retention_migration import run_retention_migration
+        run_retention_migration()
+        logger.info("Retention tables migrated")
+    except Exception as e:
+        logger.warning(f"Retention migration: {e}")
+
     # Requote campaign tables + column migrations
     try:
         from app.api.requote_campaigns import run_migration as run_requote_migration

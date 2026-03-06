@@ -692,6 +692,14 @@ def run_matching(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    # Trigger retention analysis in background after matching
+    try:
+        from app.services.retention import run_retention_analysis
+        retention_result = run_retention_analysis(db)
+        logger.info(f"Retention analysis after match: {retention_result.get('stats', {})}")
+    except Exception as e:
+        logger.warning(f"Retention analysis failed (non-blocking): {e}")
+
     return result
 
 
