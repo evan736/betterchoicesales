@@ -22,6 +22,8 @@ const GROUP_OPTIONS = [
 ];
 
 const PERIOD_OPTIONS = [
+  { value: 'today', label: 'Today' },
+  { value: 'this_week', label: 'This Week' },
   { value: 'monthly', label: 'This Month' },
   { value: 'last_month', label: 'Last Month' },
   { value: 'annual', label: 'This Year' },
@@ -34,7 +36,7 @@ export default function Analytics() {
   const router = useRouter();
 
   const [period, setPeriod] = useState('monthly');
-  const [groupBy, setGroupBy] = useState('lead_source');
+  const [groupBy, setGroupBy] = useState('producer');
   const [summary, setSummary] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
   const [salesData, setSalesData] = useState<any[]>([]);
@@ -90,13 +92,22 @@ export default function Analytics() {
   const loadData = async () => {
     setLoadingData(true);
     try {
-      const periodParam = period === 'all-time' ? undefined : period;
       const now = new Date();
       const extraParams: any = {};
-      if (period === 'last_year') {
+      let apiPeriod: string | undefined;
+
+      if (period === 'today') {
+        apiPeriod = 'today';
+      } else if (period === 'this_week') {
+        apiPeriod = 'this_week';
+      } else if (period === 'last_year') {
         extraParams.year = now.getFullYear() - 1;
+        apiPeriod = 'annual';
+      } else if (period === 'all-time') {
+        apiPeriod = undefined;
+      } else {
+        apiPeriod = period;
       }
-      const apiPeriod = period === 'last_year' ? 'annual' : periodParam;
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
         analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams }),
         analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, scope, ...extraParams }),

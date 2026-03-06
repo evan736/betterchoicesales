@@ -115,7 +115,15 @@ def get_trending_projection(
         }
 
     # Determine period start and premium window
-    if period == "annual":
+    if period == "today":
+        period_start = today
+        default_target = today
+    elif period == "this_week":
+        # Monday of current week
+        period_start = today - timedelta(days=today.weekday())
+        # Friday of current week
+        default_target = period_start + timedelta(days=4)
+    elif period == "annual":
         period_start = date(today.year, 1, 1)
         default_target = date(today.year, 12, 31)
     elif period == "last_month":
@@ -148,7 +156,17 @@ def get_trending_projection(
         *user_filters,
     )
 
-    if period == "last_month":
+    if period == "today":
+        period_query = period_query.filter(
+            func.date(Sale.sale_date) == today,
+        )
+    elif period == "this_week":
+        week_start = today - timedelta(days=today.weekday())
+        period_query = period_query.filter(
+            func.date(Sale.sale_date) >= week_start,
+            func.date(Sale.sale_date) <= today,
+        )
+    elif period == "last_month":
         lm_year = today.year if today.month > 1 else today.year - 1
         lm_month = today.month - 1 if today.month > 1 else 12
         period_query = period_query.filter(
@@ -231,7 +249,11 @@ def get_trending_projection(
 
     goals = []
 
-    if next_tier:
+    # For agency scope: $250K goal only, no tier goals
+    # For individual (my) scope: tier goal + $100K goal
+    is_agency_scope = (effective_scope == "agency")
+
+    if not is_agency_scope and next_tier:
         next_min = float(next_tier.min_written_premium)
         remaining_to_tier = max(0, next_min - current_month_premium)
         daily_needed = remaining_to_tier / month_biz_remaining if month_biz_remaining > 0 else 0
@@ -245,16 +267,22 @@ def get_trending_projection(
             "progress": min(100, (current_month_premium / next_min * 100)) if next_min > 0 else 100,
         })
 
-    goal_100k = 100000
-    remaining_100k = max(0, goal_100k - current_month_premium)
-    daily_needed_100k = remaining_100k / month_biz_remaining if month_biz_remaining > 0 else 0
+    if is_agency_scope:
+        goal_amount = 250000
+        goal_label = "$250K Goal"
+    else:
+        goal_amount = 100000
+        goal_label = "$100K Goal"
+
+    remaining_goal = max(0, goal_amount - current_month_premium)
+    daily_needed_goal = remaining_goal / month_biz_remaining if month_biz_remaining > 0 else 0
     goals.append({
-        "label": "$100K Goal",
-        "target": goal_100k,
-        "remaining": remaining_100k,
-        "daily_needed": daily_needed_100k,
-        "on_pace": month_projected >= goal_100k,
-        "progress": min(100, (current_month_premium / goal_100k * 100)),
+        "label": goal_label,
+        "target": goal_amount,
+        "remaining": remaining_goal,
+        "daily_needed": daily_needed_goal,
+        "on_pace": month_projected >= goal_amount,
+        "progress": min(100, (current_month_premium / goal_amount * 100)),
     })
 
     _trending_result = {
@@ -301,7 +329,13 @@ def get_sales_summary(
 
     # Time filters
     now = datetime.utcnow()
-    if period == "last_month":
+    today_date = now.date()
+    if period == "today":
+        query = query.filter(func.date(Sale.sale_date) == today_date)
+    elif period == "this_week":
+        week_start = today_date - timedelta(days=today_date.weekday())
+        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+    elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
@@ -373,7 +407,13 @@ def get_sales_by_group(
 
     # Time filters
     now = datetime.utcnow()
-    if period == "last_month":
+    today_date = now.date()
+    if period == "today":
+        query = query.filter(func.date(Sale.sale_date) == today_date)
+    elif period == "this_week":
+        week_start = today_date - timedelta(days=today_date.weekday())
+        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+    elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
@@ -451,7 +491,13 @@ def get_sales_table(
 
     # Time filters
     now = datetime.utcnow()
-    if period == "last_month":
+    today_date = now.date()
+    if period == "today":
+        query = query.filter(func.date(Sale.sale_date) == today_date)
+    elif period == "this_week":
+        week_start = today_date - timedelta(days=today_date.weekday())
+        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+    elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
