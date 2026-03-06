@@ -205,9 +205,8 @@ def run_retention_analysis(db: Session) -> dict:
                 if existing.original_premium and existing.renewal_premium:
                     existing.premium_change = existing.renewal_premium - existing.original_premium
                     if existing.original_premium > 0:
-                        existing.premium_change_pct = (
-                            existing.premium_change / existing.original_premium * 100
-                        )
+                        pct = existing.premium_change / existing.original_premium * 100
+                        existing.premium_change_pct = min(max(pct, Decimal("-999")), Decimal("999"))
             stats["renewed"] += 1
 
         elif expected_renewal and latest_period and expected_renewal > latest_period:

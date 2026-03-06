@@ -35,7 +35,7 @@ def run_retention_migration():
                     renewal_period VARCHAR,
                     renewal_premium NUMERIC(10,2),
                     premium_change NUMERIC(10,2),
-                    premium_change_pct NUMERIC(5,2),
+                    premium_change_pct NUMERIC(8,2),
                     last_analyzed_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ
@@ -64,13 +64,30 @@ def run_retention_migration():
                     original_total_premium NUMERIC(12,2),
                     renewed_total_premium NUMERIC(12,2),
                     lost_premium NUMERIC(12,2),
-                    avg_premium_change_pct NUMERIC(5,2),
+                    avg_premium_change_pct NUMERIC(8,2),
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ
                 )
             """))
             conn.execute(text("CREATE INDEX idx_retention_summary_period ON retention_summaries(period)"))
             logger.info("Created retention_summaries table")
+
+        # Fix precision if table already exists with wrong precision
+        try:
+            conn.execute(text(
+                "ALTER TABLE retention_records ALTER COLUMN premium_change_pct TYPE NUMERIC(8,2)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE retention_summaries ALTER COLUMN true_retention_rate TYPE NUMERIC(8,2)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE retention_summaries ALTER COLUMN policy_retention_rate TYPE NUMERIC(8,2)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE retention_summaries ALTER COLUMN avg_premium_change_pct TYPE NUMERIC(8,2)"
+            ))
+        except Exception:
+            pass
 
         conn.commit()
         logger.info("Retention migration complete")

@@ -51,7 +51,7 @@ class RetentionRecord(Base):
     renewal_period = Column(String, nullable=True)  # Actual period it renewed
     renewal_premium = Column(Numeric(10, 2), nullable=True)
     premium_change = Column(Numeric(10, 2), nullable=True)  # renewal - original
-    premium_change_pct = Column(Numeric(5, 2), nullable=True)
+    premium_change_pct = Column(Numeric(8, 2), nullable=True)
 
     # Metadata
     last_analyzed_at = Column(DateTime(timezone=True), nullable=True)
@@ -82,7 +82,7 @@ class RetentionSummary(Base):
     original_total_premium = Column(Numeric(12, 2), nullable=True)
     renewed_total_premium = Column(Numeric(12, 2), nullable=True)
     lost_premium = Column(Numeric(12, 2), nullable=True)
-    avg_premium_change_pct = Column(Numeric(5, 2), nullable=True)
+    avg_premium_change_pct = Column(Numeric(8, 2), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
