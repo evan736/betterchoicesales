@@ -9,11 +9,25 @@ logger = logging.getLogger(__name__)
 def run_retention_migration():
     """Create retention tables if they don't exist."""
     with engine.connect() as conn:
-        # Check if tables exist
+        # Check if tables exist and have correct schema
         result = conn.execute(text(
             "SELECT tablename FROM pg_tables WHERE tablename IN ('retention_records', 'retention_summaries')"
         ))
         existing = {row[0] for row in result}
+        
+        # Check if schema needs fixing (NUMERIC(5,2) -> NUMERIC(8,2))
+        if "retention_records" in existing:
+            col_check = conn.execute(text(
+                "SELECT numeric_precision FROM information_schema.columns "
+                "WHERE table_name='retention_records' AND column_name='premium_change_pct'"
+            ))
+            row = col_check.fetchone()
+            if row and row[0] == 5:
+                # Old schema — drop and recreate
+                conn.execute(text("DROP TABLE IF EXISTS retention_records CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS retention_summaries CASCADE"))
+                conn.commit()
+                existing = set()
 
         if "retention_records" not in existing:
             conn.execute(text("""
@@ -59,8 +73,8 @@ def run_retention_migration():
                     policies_rewritten INTEGER DEFAULT 0,
                     policies_lost INTEGER DEFAULT 0,
                     policies_pending INTEGER DEFAULT 0,
-                    true_retention_rate NUMERIC(5,2),
-                    policy_retention_rate NUMERIC(5,2),
+                    true_retention_rate NUMERIC(8,2),
+                    policy_retention_rate NUMERIC(8,2),
                     original_total_premium NUMERIC(12,2),
                     renewed_total_premium NUMERIC(12,2),
                     lost_premium NUMERIC(12,2),

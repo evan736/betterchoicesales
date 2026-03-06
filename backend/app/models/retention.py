@@ -75,8 +75,8 @@ class RetentionSummary(Base):
     policies_pending = Column(Integer, default=0)
 
     # Rates
-    true_retention_rate = Column(Numeric(5, 2), nullable=True)  # (renewed + carrier_move + rewritten) / total
-    policy_retention_rate = Column(Numeric(5, 2), nullable=True)  # renewed / total (strict)
+    true_retention_rate = Column(Numeric(8, 2), nullable=True)  # (renewed + carrier_move + rewritten) / total
+    policy_retention_rate = Column(Numeric(8, 2), nullable=True)  # renewed / total (strict)
     
     # Premium
     original_total_premium = Column(Numeric(12, 2), nullable=True)
