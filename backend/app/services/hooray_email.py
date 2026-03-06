@@ -20,7 +20,7 @@ BCI_CYAN = "#2cb5e8"
 
 
 def _get_daily_stats(db: Session) -> dict:
-    """Get today's running sales count and total premium."""
+    """Get today's running sales count, total premium, and per-producer breakdown."""
     today = date.today()
     results = (
         db.query(
@@ -30,9 +30,43 @@ def _get_daily_stats(db: Session) -> dict:
         .filter(func.date(Sale.sale_date) == today)
         .first()
     )
+
+    # Per-producer breakdown
+    producer_rows = (
+        db.query(
+            Sale.producer_id,
+            func.count(Sale.id).label("count"),
+            func.coalesce(func.sum(Sale.written_premium), 0).label("premium"),
+        )
+        .filter(func.date(Sale.sale_date) == today)
+        .group_by(Sale.producer_id)
+        .all()
+    )
+
+    # Resolve producer names
+    producer_ids = [r.producer_id for r in producer_rows]
+    producers = {u.id: u for u in db.query(User).filter(User.id.in_(producer_ids)).all()} if producer_ids else {}
+
+    producer_stats = []
+    for r in producer_rows:
+        p = producers.get(r.producer_id)
+        name = p.full_name if p else f"Producer {r.producer_id}"
+        # Use first name only for compact display
+        first_name = name.split()[0] if name else "Unknown"
+        producer_stats.append({
+            "name": first_name,
+            "full_name": name,
+            "count": r.count,
+            "premium": float(r.premium),
+        })
+
+    # Sort by premium descending
+    producer_stats.sort(key=lambda x: x["premium"], reverse=True)
+
     return {
         "count": results.count if results else 0,
         "premium": float(results.premium) if results else 0.0,
+        "producers": producer_stats,
     }
 
 
@@ -74,6 +108,8 @@ def build_hooray_email_html(
     producer_name: str,
     daily_count: int,
     daily_premium: float,
+    lead_source: str = "",
+    producer_daily_stats: list = None,
 ) -> tuple[str, str]:
     """Build the Hooray email subject + HTML body."""
 
@@ -81,6 +117,9 @@ def build_hooray_email_html(
     daily_premium_str = _format_premium(daily_premium)
     policy_display = _policy_type_display(policy_type)
     today_str = date.today().strftime("%B %d, %Y")
+
+    # Format lead source for display
+    lead_display = (lead_source or "").replace("_", " ").title() if lead_source else ""
 
     subject = f"🎉 New Sale! {client_name} — {carrier or 'New Policy'} {premium_str}"
 
@@ -120,6 +159,10 @@ def build_hooray_email_html(
                 <td style="padding:12px 0; color:#64748b; border-bottom:1px solid #f1f5f9;">Coverage</td>
                 <td style="padding:12px 0; font-weight:600; border-bottom:1px solid #f1f5f9;">{policy_display}</td>
             </tr>
+            {"" if not lead_display else f"""<tr>
+                <td style="padding:12px 0; color:#64748b; border-bottom:1px solid #f1f5f9;">Lead Source</td>
+                <td style="padding:12px 0; font-weight:600; border-bottom:1px solid #f1f5f9;">{lead_display}</td>
+            </tr>"""}
             <tr>
                 <td style="padding:12px 0; color:#64748b;">Sold By</td>
                 <td style="padding:12px 0; font-weight:700; color:{BCI_NAVY};">{producer_name}</td>
@@ -142,6 +185,22 @@ def build_hooray_email_html(
                 </td>
             </tr>
         </table>
+        {"" if not producer_daily_stats or len(producer_daily_stats) < 1 else f"""
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid #334155;">
+            <table style="width:100%; font-size:13px;" cellpadding="0" cellspacing="0">
+                <tr style="color:#64748b;">
+                    <td style="padding:4px 8px; font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:0.5px;">Producer</td>
+                    <td style="padding:4px 8px; text-align:center; font-weight:600; text-transform:uppercase; font-size:11px;">Sales</td>
+                    <td style="padding:4px 8px; text-align:right; font-weight:600; text-transform:uppercase; font-size:11px;">Premium</td>
+                </tr>
+                {''.join(f"""<tr>
+                    <td style="padding:6px 8px; color:#e2e8f0; font-weight:600;">{p['name']}</td>
+                    <td style="padding:6px 8px; color:{BCI_CYAN}; text-align:center; font-weight:700;">{p['count']}</td>
+                    <td style="padding:6px 8px; color:#34d399; text-align:right; font-weight:700;">${'{0:,.0f}'.format(p['premium'])}</td>
+                </tr>""" for p in producer_daily_stats)}
+            </table>
+        </div>
+        """}
     </div>
 
     <!-- Footer -->
@@ -188,6 +247,8 @@ def send_hooray_email(
         producer_name=producer_name,
         daily_count=daily["count"],
         daily_premium=daily["premium"],
+        lead_source=sale.lead_source or "",
+        producer_daily_stats=daily.get("producers", []),
     )
 
     mail_data = {
