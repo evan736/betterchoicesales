@@ -183,9 +183,9 @@ class ReconciliationService:
                 self.db.add(line)
 
                 if rec.get("premium_amount"):
-                    total_premium += rec["premium_amount"]
+                    total_premium += Decimal(str(rec["premium_amount"]))
                 if rec.get("commission_amount"):
-                    total_commission += rec["commission_amount"]
+                    total_commission += Decimal(str(rec["commission_amount"]))
 
             imp.total_premium = total_premium
             imp.total_commission = total_commission
