@@ -1254,6 +1254,20 @@ def detect_carrier(file_bytes: bytes, filename: str) -> Optional[str]:
         if "policynumber" in cols_lower or ("insuredname" in cols_lower and "transactiontype" in cols_lower):
             return "universal"
         
+        # Openly: XLSX with "PolicyNum", "BaseCommission", "InsuredFirstName" or sheet "Transaction Detail"
+        if "policynum" in cols_lower or ("basecommission" in cols_lower and "insuredfirstname" in cols_lower):
+            return "openly"
+        if filename.lower().endswith(('.xlsx', '.xls')):
+            try:
+                xls_openly = pd.ExcelFile(io.BytesIO(file_bytes))
+                if any("transaction detail" in s.lower() for s in xls_openly.sheet_names):
+                    df_detail = pd.read_excel(io.BytesIO(file_bytes), sheet_name=[s for s in xls_openly.sheet_names if "transaction detail" in s.lower()][0], nrows=2)
+                    detail_cols = {str(c).strip().lower() for c in df_detail.columns}
+                    if "policynum" in detail_cols or "basecommission" in detail_cols:
+                        return "openly"
+            except Exception:
+                pass
+        
         # Geico: XLSX with "Commission Statement GEICO" on Sheet1
         if filename.lower().endswith(('.xlsx', '.xls')):
             try:
@@ -1288,6 +1302,199 @@ def detect_carrier(file_bytes: bytes, filename: str) -> Optional[str]:
 
 # ── Dispatcher ───────────────────────────────────────────────────────
 
+
+def parse_openly(file_bytes: bytes, filename: str) -> List[Dict]:
+    """Parse Openly commission statement.
+    
+    Openly provides XLSX with multiple sheets:
+    - 'Transaction Detail' has the line-level data
+    - Columns: PolicyNum, TransactionType, WrittenPremium, BaseCommission,
+      BaseCommissionRate, InsuredFirstName, InsuredLastName, AgentFirstName,
+      AgentLastName, PolicyType, PolicyState, TransactionEffectiveDate,
+      contracteffectivedate, contractexpirationdate, TermID
+    
+    TransactionType values: 'RWL Renewals', 'XLC Cancelations', 'NEW New Business', 'END Endorsements'
+    """
+    import openpyxl
+    import io
+    
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    
+    # Find the Transaction Detail sheet
+    detail_sheet = None
+    for name in wb.sheetnames:
+        if "transaction" in name.lower() and "detail" in name.lower():
+            detail_sheet = wb[name]
+            break
+    
+    if not detail_sheet:
+        # Try first sheet that isn't summary/adjustments
+        for name in wb.sheetnames:
+            if "summary" not in name.lower() and "adjustment" not in name.lower():
+                detail_sheet = wb[name]
+                break
+    
+    if not detail_sheet:
+        detail_sheet = wb.active
+    
+    rows = list(detail_sheet.iter_rows(values_only=True))
+    if not rows:
+        return []
+    
+    # Build header index
+    headers = [str(h).strip() if h else "" for h in rows[0]]
+    hmap = {h.lower(): i for i, h in enumerate(headers)}
+    
+    def _col(name):
+        return hmap.get(name.lower())
+    
+    results = []
+    for row in rows[1:]:
+        cells = list(row)
+        if not cells or len(cells) < 5:
+            continue
+        
+        # Policy number
+        pn_col = _col("policynum") or _col("policy_num") or _col("policynumber")
+        policy_number = str(cells[pn_col]).strip() if pn_col is not None and cells[pn_col] else ""
+        if not policy_number or policy_number.lower() == "none":
+            continue
+        
+        # Insured name
+        first_col = _col("insuredfirstname")
+        last_col = _col("insuredlastname")
+        first_name = str(cells[first_col]).strip() if first_col is not None and cells[first_col] else ""
+        last_name = str(cells[last_col]).strip() if last_col is not None and cells[last_col] else ""
+        insured_name = f"{first_name} {last_name}".strip()
+        
+        # Producer name
+        agent_first_col = _col("agentfirstname")
+        agent_last_col = _col("agentlastname")
+        agent_first = str(cells[agent_first_col]).strip() if agent_first_col is not None and cells[agent_first_col] else ""
+        agent_last = str(cells[agent_last_col]).strip() if agent_last_col is not None and cells[agent_last_col] else ""
+        producer_name = f"{agent_first} {agent_last}".strip()
+        
+        # Transaction type
+        tx_col = _col("transactiontype")
+        tx_raw = str(cells[tx_col]).strip() if tx_col is not None and cells[tx_col] else ""
+        tx_lower = tx_raw.lower()
+        
+        if "rwl" in tx_lower or "renewal" in tx_lower:
+            tx_type = "renewal"
+        elif "xlc" in tx_lower or "cancel" in tx_lower:
+            tx_type = "cancellation"
+        elif "end" in tx_lower or "endorse" in tx_lower:
+            tx_type = "endorsement"
+        elif "reinstate" in tx_lower:
+            tx_type = "reinstatement"
+        elif "new" in tx_lower or "reissue" in tx_lower:
+            tx_type = "new_business"
+        else:
+            tx_type = "other"
+        
+        # Premium — use WrittenPremium
+        prem_col = _col("writtenpremium") or _col("written_premium") or _col("annualpremium")
+        premium = 0.0
+        if prem_col is not None and cells[prem_col] is not None:
+            try:
+                premium = float(cells[prem_col])
+            except (ValueError, TypeError):
+                pass
+        
+        # Commission
+        comm_col = _col("basecommission") or _col("base_commission")
+        commission = 0.0
+        if comm_col is not None and cells[comm_col] is not None:
+            try:
+                commission = float(cells[comm_col])
+            except (ValueError, TypeError):
+                pass
+        
+        # Also add NB value commission + incentive if present
+        for extra_col_name in ["nbvaluecommission", "incentivecommission"]:
+            ec = _col(extra_col_name)
+            if ec is not None and cells[ec] is not None:
+                try:
+                    commission += float(cells[ec])
+                except (ValueError, TypeError):
+                    pass
+        
+        # Commission rate
+        rate_col = _col("basecommissionrate") or _col("base_commission_rate")
+        comm_rate = None
+        if rate_col is not None and cells[rate_col] is not None:
+            try:
+                comm_rate = float(cells[rate_col])
+            except (ValueError, TypeError):
+                pass
+        
+        # Effective date
+        eff_col = _col("transactioneffectivedate") or _col("transaction_effective_date")
+        eff_date = None
+        if eff_col is not None and cells[eff_col]:
+            eff_date = _parse_date(cells[eff_col])
+        
+        # Contract dates for term detection
+        contract_eff_col = _col("contracteffectivedate")
+        contract_exp_col = _col("contractexpirationdate")
+        contract_eff = _parse_date(cells[contract_eff_col]) if contract_eff_col is not None and cells[contract_eff_col] else None
+        contract_exp = _parse_date(cells[contract_exp_col]) if contract_exp_col is not None and cells[contract_exp_col] else None
+        
+        # Term detection from TermID or contract dates
+        term_col = _col("termid")
+        term_months = 12
+        if term_col is not None and cells[term_col]:
+            try:
+                term_val = int(cells[term_col])
+                if term_val >= 1:
+                    # TermID 1 = first term, 2+ = renewal terms
+                    pass  # We'll use is_renewal_term instead
+            except (ValueError, TypeError):
+                pass
+        
+        # Determine if renewal term from TermID
+        is_renewal_term = None
+        if term_col is not None and cells[term_col]:
+            try:
+                term_id = int(cells[term_col])
+                is_renewal_term = term_id > 1  # TermID 1 = new, 2+ = renewal
+            except (ValueError, TypeError):
+                pass
+        
+        # Calculate term_months from contract dates
+        if contract_eff and contract_exp:
+            months_diff = (contract_exp.year - contract_eff.year) * 12 + (contract_exp.month - contract_eff.month)
+            if months_diff in (6, 12):
+                term_months = months_diff
+        
+        # State
+        state_col = _col("policystate") or _col("state")
+        state = str(cells[state_col]).strip() if state_col is not None and cells[state_col] else None
+        
+        # Product type
+        ptype_col = _col("policytype") or _col("policy_type")
+        product_type = str(cells[ptype_col]).strip() if ptype_col is not None and cells[ptype_col] else None
+        
+        results.append({
+            "policy_number": policy_number,
+            "insured_name": insured_name,
+            "transaction_type": tx_type,
+            "transaction_type_raw": tx_raw,
+            "premium_amount": premium,
+            "commission_amount": commission,
+            "commission_rate": comm_rate,
+            "effective_date": eff_date,
+            "producer_name": producer_name,
+            "state": state,
+            "product_type": product_type,
+            "term_months": term_months,
+            "is_renewal_term": is_renewal_term,
+        })
+    
+    logger.info(f"Openly parser: extracted {len(results)} lines from {filename}")
+    return results
+
+
 CARRIER_PARSERS = {
     "national_general": parse_national_general,
     "progressive": parse_progressive,
@@ -1298,6 +1505,7 @@ CARRIER_PARSERS = {
     "first_connect": parse_first_connect,
     "universal": parse_universal,
     "nbs": parse_nbs,
+    "openly": parse_openly,
 }
 
 

@@ -74,6 +74,7 @@ const CARRIERS = [
   { value: 'first_connect', label: 'First Connect' },
   { value: 'universal', label: 'Universal' },
   { value: 'nbs', label: 'NBS / Bridge Specialty' },
+  { value: 'openly', label: 'Openly' },
   { value: 'hartford', label: 'Hartford' },
   { value: 'other', label: 'Other' },
 ];
