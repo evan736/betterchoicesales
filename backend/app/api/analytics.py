@@ -314,6 +314,10 @@ def get_sales_summary(
     month: Optional[int] = None,
     producer_id: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
+    lead_source: Optional[str] = None,
+    policy_type: Optional[str] = None,
+    carrier: Optional[str] = None,
+    state: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -326,6 +330,16 @@ def get_sales_summary(
         query = query.filter(Sale.producer_id == current_user.id)
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)
+
+    # Field filters
+    if lead_source:
+        query = query.filter(Sale.lead_source == lead_source)
+    if policy_type:
+        query = query.filter(Sale.policy_type == policy_type)
+    if carrier:
+        query = query.filter(Sale.carrier == carrier)
+    if state:
+        query = query.filter(Sale.state == state)
 
     # Time filters
     now = datetime.utcnow()
@@ -374,6 +388,11 @@ def get_sales_by_group(
     year: Optional[int] = None,
     month: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
+    lead_source: Optional[str] = None,
+    policy_type: Optional[str] = None,
+    carrier: Optional[str] = None,
+    state: Optional[str] = None,
+    producer_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -404,6 +423,18 @@ def get_sales_by_group(
     effective_scope = scope if scope else ("agency" if is_privileged else "my")
     if effective_scope == "my" or (not is_privileged and effective_scope != "agency"):
         query = query.filter(Sale.producer_id == current_user.id)
+    elif producer_id:
+        query = query.filter(Sale.producer_id == producer_id)
+
+    # Field filters
+    if lead_source:
+        query = query.filter(Sale.lead_source == lead_source)
+    if policy_type:
+        query = query.filter(Sale.policy_type == policy_type)
+    if carrier:
+        query = query.filter(Sale.carrier == carrier)
+    if state:
+        query = query.filter(Sale.state == state)
 
     # Time filters
     now = datetime.utcnow()

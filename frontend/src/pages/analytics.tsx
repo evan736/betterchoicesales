@@ -108,17 +108,19 @@ export default function Analytics() {
       } else {
         apiPeriod = period;
       }
+      // Pass filters to ALL endpoints so summary cards, chart, and table all reflect the same filters
+      const activeFilters = { ...tableFilters };
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
-        analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams }),
-        analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, scope, ...extraParams }),
+        analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams, ...activeFilters }),
+        analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, scope, ...extraParams, ...activeFilters }),
         analyticsAPI.salesTable({
           period: apiPeriod,
           sort_by: sortBy,
           sort_order: sortOrder,
           scope,
           ...extraParams,
-          ...tableFilters,
-          limit: 50,
+          ...activeFilters,
+          limit: 200,
         }),
         analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope }),
       ]);
@@ -206,6 +208,62 @@ export default function Analytics() {
           <SummaryCard icon={<Users />} label="Policies / Items" value={`${summary?.total_policies || 0} / ${summary?.total_items || 0}`} color="text-purple-600" bg="bg-purple-100" />
         </div>
 
+        {/* Global Filters — affect summary, chart, and table */}
+        {filterOptions && (
+          <div className="card mb-8">
+            <div className="flex flex-col md:flex-row md:items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-500 uppercase tracking-wide">
+                <Filter size={16} />
+                <span>Filter</span>
+              </div>
+              <FilterSelect
+                label="Lead Source"
+                value={tableFilters.lead_source || ''}
+                onChange={(v) => setTableFilters({ ...tableFilters, lead_source: v || undefined })}
+                options={filterOptions.lead_sources.map((s: string) => ({ value: s, label: s.replace(/_/g, ' ') }))}
+              />
+              {filterOptions.producers.length > 0 && (
+                <FilterSelect
+                  label="Producer"
+                  value={tableFilters.producer_id || ''}
+                  onChange={(v) => setTableFilters({ ...tableFilters, producer_id: v ? parseInt(v) : undefined })}
+                  options={filterOptions.producers.map((p: any) => ({ value: String(p.id), label: p.name }))}
+                />
+              )}
+              <FilterSelect
+                label="Policy Type"
+                value={tableFilters.policy_type || ''}
+                onChange={(v) => setTableFilters({ ...tableFilters, policy_type: v || undefined })}
+                options={filterOptions.policy_types.map((s: string) => ({ value: s, label: s.replace(/_/g, ' ') }))}
+              />
+              {filterOptions.carriers.length > 0 && (
+                <FilterSelect
+                  label="Carrier"
+                  value={tableFilters.carrier || ''}
+                  onChange={(v) => setTableFilters({ ...tableFilters, carrier: v || undefined })}
+                  options={filterOptions.carriers.map((s: string) => ({ value: s, label: s }))}
+                />
+              )}
+              {filterOptions.states.length > 0 && (
+                <FilterSelect
+                  label="State"
+                  value={tableFilters.state || ''}
+                  onChange={(v) => setTableFilters({ ...tableFilters, state: v || undefined })}
+                  options={filterOptions.states.map((s: string) => ({ value: s, label: s }))}
+                />
+              )}
+              {Object.values(tableFilters).some(Boolean) && (
+                <button
+                  onClick={() => setTableFilters({})}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-all"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Trending Data (left) + Goals & Milestones (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <TrendingGoals period={period} scope={scope} showGoals={false} />
@@ -271,49 +329,6 @@ export default function Analytics() {
             <h2 className="font-display text-2xl font-bold text-slate-900">
               Sales ({salesTotal})
             </h2>
-            {/* Inline filters */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {filterOptions && (
-                <>
-                  <FilterSelect
-                    label="Source"
-                    value={tableFilters.lead_source || ''}
-                    onChange={(v) => setTableFilters({ ...tableFilters, lead_source: v || undefined })}
-                    options={filterOptions.lead_sources.map((s: string) => ({ value: s, label: s.replace(/_/g, ' ') }))}
-                  />
-                  <FilterSelect
-                    label="Type"
-                    value={tableFilters.policy_type || ''}
-                    onChange={(v) => setTableFilters({ ...tableFilters, policy_type: v || undefined })}
-                    options={filterOptions.policy_types.map((s: string) => ({ value: s, label: s.replace(/_/g, ' ') }))}
-                  />
-                  {filterOptions.carriers.length > 0 && (
-                    <FilterSelect
-                      label="Carrier"
-                      value={tableFilters.carrier || ''}
-                      onChange={(v) => setTableFilters({ ...tableFilters, carrier: v || undefined })}
-                      options={filterOptions.carriers.map((s: string) => ({ value: s, label: s }))}
-                    />
-                  )}
-                  {filterOptions.states.length > 0 && (
-                    <FilterSelect
-                      label="State"
-                      value={tableFilters.state || ''}
-                      onChange={(v) => setTableFilters({ ...tableFilters, state: v || undefined })}
-                      options={filterOptions.states.map((s: string) => ({ value: s, label: s }))}
-                    />
-                  )}
-                  {filterOptions.producers.length > 0 && (
-                    <FilterSelect
-                      label="Producer"
-                      value={tableFilters.producer_id || ''}
-                      onChange={(v) => setTableFilters({ ...tableFilters, producer_id: v ? parseInt(v) : undefined })}
-                      options={filterOptions.producers.map((p: any) => ({ value: String(p.id), label: p.name }))}
-                    />
-                  )}
-                </>
-              )}
-            </div>
           </div>
 
           <div className="overflow-x-auto">
