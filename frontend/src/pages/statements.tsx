@@ -79,6 +79,42 @@ const CARRIERS = [
   { value: 'other', label: 'Other' },
 ];
 
+
+const CARRIER_LOGO_MAP: Record<string, string> = {
+  national_general: '/carrier-logos/national_general.png',
+  progressive: '/carrier-logos/progressive.png',
+  safeco: '/carrier-logos/safeco.png',
+  grange: '/carrier-logos/grange.png',
+  travelers: '/carrier-logos/travelers.png',
+  geico: '/carrier-logos/geico.png',
+  openly: '/carrier-logos/openly.png',
+  universal: '/carrier-logos/universal_property.png',
+  universal_property: '/carrier-logos/universal_property.png',
+  integrity: '/carrier-logos/integrity.png',
+  steadily: '/carrier-logos/steadily.png',
+  branch: '/carrier-logos/branch.png',
+  hippo: '/carrier-logos/hippo.png',
+  bristol_west: '/carrier-logos/bristol_west.png',
+  clearcover: '/carrier-logos/clearcover.png',
+  covertree: '/carrier-logos/covertree.png',
+  gainsco: '/carrier-logos/gainsco.png',
+  next: '/carrier-logos/next.png',
+  american_modern: '/carrier-logos/american_modern.png',
+  nbs: '/carrier-logos/national_general.png',
+  first_connect: '/carrier-logos/national_general.png',
+};
+
+const CarrierName: React.FC<{carrier: string}> = ({carrier}) => {
+  const logo = CARRIER_LOGO_MAP[carrier.toLowerCase()];
+  const name = carrier.replace(/_/g, ' ').replace(/\b\w/g, (ch: string) => ch.toUpperCase());
+  return (
+    <span className="flex items-center gap-2">
+      {logo && <img src={logo} alt="" className="w-5 h-5 object-contain rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+      <span>{name}</span>
+    </span>
+  );
+};
+
 // ── Main Page ───────────────────────────────────────────────────────
 
 export default function Statements() {
@@ -1588,7 +1624,7 @@ const RevenueTracker: React.FC = () => {
               <tbody>
                 {data.carrier_monthly.map((c: any) => (
                   <tr key={c.carrier} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-3 py-2 font-semibold text-slate-800 capitalize sticky left-0 bg-white z-10">{c.carrier.replace(/_/g, ' ')}</td>
+                    <td className="px-3 py-2 font-semibold text-slate-800 sticky left-0 bg-white z-10"><CarrierName carrier={c.carrier} /></td>
                     {data.month_columns?.map((mc: string) => {
                       const val = c.months?.[mc] || 0;
                       return (
@@ -1655,7 +1691,7 @@ const RevenueTracker: React.FC = () => {
               <tbody>
                 {data.carriers?.map((c: any) => (
                   <tr key={c.carrier} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-3 font-semibold text-slate-800 capitalize">{c.carrier.replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800"><CarrierName carrier={c.carrier} /></td>
                     <td className="px-4 py-3 text-right">{fmt(c.total_premium)}</td>
                     <td className="px-4 py-3 text-right text-green-600">{fmt(c.new_commission)}</td>
                     <td className="px-4 py-3 text-right text-blue-600">{fmt(c.renewal_commission)}</td>
