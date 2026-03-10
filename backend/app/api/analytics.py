@@ -604,3 +604,30 @@ def get_filter_options(
             "commercial", "other"
         ],
     }
+
+
+@router.post("/daily-recap")
+def trigger_daily_recap(
+    target_date: Optional[str] = Query(None, description="Date to recap, YYYY-MM-DD, defaults to today"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually trigger the daily sales recap email."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    from app.services.daily_recap_email import send_daily_recap
+    from datetime import date as date_type
+
+    if target_date:
+        try:
+            d = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+    else:
+        d = date_type.today()
+
+    result = send_daily_recap(db, d)
+    return result

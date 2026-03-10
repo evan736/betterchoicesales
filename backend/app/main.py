@@ -1107,6 +1107,42 @@ async def lifespan(app: FastAPI):
     snapshot_thread.start()
     logger.info("Daily agency snapshot scheduler started")
 
+    # Daily Sales Recap Email — 8 PM CST (2 AM UTC next day, or 1 AM UTC during CDT)
+    def _run_daily_recap():
+        """Send daily sales recap email at 8 PM Central Time."""
+        import time
+        from datetime import datetime, timedelta
+        import pytz
+
+        time.sleep(120)  # Wait 2 min for app to start
+        central = pytz.timezone("America/Chicago")
+        last_sent_date = None
+
+        while True:
+            try:
+                now_ct = datetime.now(central)
+                today_ct = now_ct.date()
+
+                # Send at 8 PM CT if not already sent today
+                if now_ct.hour >= 20 and last_sent_date != today_ct:
+                    logger.info("🕗 Sending daily sales recap email...")
+                    from app.services.daily_recap_email import send_daily_recap
+                    from app.core.database import SessionLocal
+                    rdb = SessionLocal()
+                    try:
+                        result = send_daily_recap(rdb, today_ct)
+                        logger.info(f"Daily recap result: {result}")
+                        last_sent_date = today_ct
+                    finally:
+                        rdb.close()
+            except Exception as e:
+                logger.error(f"Daily recap scheduler error: {e}")
+            time.sleep(600)  # Check every 10 minutes
+
+    recap_thread = threading.Thread(target=_run_daily_recap, daemon=True)
+    recap_thread.start()
+    logger.info("Daily sales recap scheduler started (8 PM CT)")
+
     # Start NowCerts Pending Cancellation Poller (every 4 hours)
     def _run_pending_cancel_poll():
         """Poll NowCerts for pending cancellations and trigger non-pay emails."""
