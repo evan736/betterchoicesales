@@ -71,9 +71,14 @@ def _get_daily_stats(db: Session) -> dict:
 
 
 def _get_all_producer_emails(db: Session) -> list[str]:
-    """Get email addresses for all active users (producers, admins, managers)."""
-    users = db.query(User.email).filter(User.is_active == True).all()
-    return [u.email for u in users if u.email]
+    """Get email addresses for all active staff (excludes system accounts)."""
+    EXCLUDED_USERNAMES = {"beacon.ai", "admin"}
+    users = db.query(User).filter(User.is_active == True).all()
+    return [
+        u.email for u in users
+        if u.email and "@" in u.email
+        and (u.username or "").lower() not in EXCLUDED_USERNAMES
+    ]
 
 
 def _format_premium(amount) -> str:

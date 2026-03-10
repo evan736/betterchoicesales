@@ -237,13 +237,18 @@ def build_daily_recap_html(data: dict) -> tuple[str, str]:
 
 
 def _get_all_employee_emails(db: Session) -> list[str]:
-    """Get emails for all active employees."""
-    users = db.query(User.email).filter(
+    """Get emails for all active employees (excludes system accounts)."""
+    EXCLUDED_USERNAMES = {"beacon.ai", "admin"}
+    users = db.query(User).filter(
         User.is_active == True,
         User.email.isnot(None),
         User.email != "",
     ).all()
-    return [u.email for u in users if u.email and "@" in u.email]
+    return [
+        u.email for u in users
+        if u.email and "@" in u.email
+        and (u.username or "").lower() not in EXCLUDED_USERNAMES
+    ]
 
 
 def send_daily_recap(db: Session, target_date: date = None) -> dict:
