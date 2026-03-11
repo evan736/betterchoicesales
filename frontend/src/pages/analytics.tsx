@@ -257,10 +257,46 @@ export default function Analytics() {
                   onClick={() => setTableFilters({})}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-all"
                 >
-                  Clear Filters
+                  Clear All
                 </button>
               )}
             </div>
+            {/* Active filter badges */}
+            {Object.values(tableFilters).some(Boolean) && (
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <span className="text-xs text-slate-400 uppercase font-semibold">Active:</span>
+                {tableFilters.lead_source && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-brand-100 text-brand-700 text-sm font-semibold">
+                    Source: {tableFilters.lead_source.replace(/_/g, ' ')}
+                    <button onClick={() => setTableFilters({ ...tableFilters, lead_source: undefined })} className="ml-1 text-brand-400 hover:text-brand-700">&times;</button>
+                  </span>
+                )}
+                {tableFilters.producer_id && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-sm font-semibold">
+                    Producer: {filterOptions?.producers?.find((p: any) => String(p.id) === String(tableFilters.producer_id))?.name || tableFilters.producer_id}
+                    <button onClick={() => setTableFilters({ ...tableFilters, producer_id: undefined })} className="ml-1 text-purple-400 hover:text-purple-700">&times;</button>
+                  </span>
+                )}
+                {tableFilters.policy_type && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-100 text-green-700 text-sm font-semibold">
+                    Type: {tableFilters.policy_type.replace(/_/g, ' ')}
+                    <button onClick={() => setTableFilters({ ...tableFilters, policy_type: undefined })} className="ml-1 text-green-400 hover:text-green-700">&times;</button>
+                  </span>
+                )}
+                {tableFilters.carrier && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-semibold">
+                    Carrier: {tableFilters.carrier}
+                    <button onClick={() => setTableFilters({ ...tableFilters, carrier: undefined })} className="ml-1 text-blue-400 hover:text-blue-700">&times;</button>
+                  </span>
+                )}
+                {tableFilters.state && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
+                    State: {tableFilters.state}
+                    <button onClick={() => setTableFilters({ ...tableFilters, state: undefined })} className="ml-1 text-amber-400 hover:text-amber-700">&times;</button>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -313,7 +349,25 @@ export default function Analytics() {
                   formatter={(value: any) => [formatCurrency(value), 'Premium']}
                   contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
                 />
-                <Bar dataKey="total_premium" radius={[6, 6, 0, 0]}>
+                <Bar dataKey="total_premium" radius={[6, 6, 0, 0]} cursor="pointer"
+                  onClick={(data: any) => {
+                    if (!data || !data.group) return;
+                    const val = data.group;
+                    if (groupBy === 'carrier') {
+                      setTableFilters({ ...tableFilters, carrier: val });
+                    } else if (groupBy === 'lead_source') {
+                      const raw = val.toLowerCase().replace(/ /g, '_');
+                      setTableFilters({ ...tableFilters, lead_source: raw });
+                    } else if (groupBy === 'policy_type') {
+                      const raw = val.toLowerCase().replace(/ /g, '_');
+                      setTableFilters({ ...tableFilters, policy_type: raw });
+                    } else if (groupBy === 'state') {
+                      setTableFilters({ ...tableFilters, state: val });
+                    } else if (groupBy === 'producer' && data.producer_id) {
+                      setTableFilters({ ...tableFilters, producer_id: data.producer_id });
+                    }
+                  }}
+                >
                   {chartData.map((_, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
