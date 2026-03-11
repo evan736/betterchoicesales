@@ -642,21 +642,30 @@ def _process_single_policy(
         result["error"] = "Policy not found in database"
         return result
 
-    # Get customer — prefer LIVE NowCerts lookup over stale local DB
+    # Get customer — try local DB first (fast), then NowCerts live if needed
     customer = None
     nowcerts_customer = None
-    try:
-        from app.services.nowcerts import get_nowcerts_client
-        nc = get_nowcerts_client()
-        nc_results = nc.search_by_policy_number(policy_number)
-        if nc_results:
-            nowcerts_customer = nc_results[0]
-            logger.info(f"NowCerts live lookup for {policy_number}: {nowcerts_customer.get('name', 'unknown')}")
-    except Exception as e:
-        logger.warning(f"NowCerts live lookup failed for {policy_number}, falling back to local DB: {e}")
 
-    if nowcerts_customer:
-        # Use live NowCerts data — this is the source of truth
+    # First try local DB (fast path)
+    policy_found = policy  # already found above
+    if policy_found:
+        customer = db.query(Customer).filter(Customer.id == policy_found.customer_id).first()
+
+    # Only do NowCerts live lookup if local DB didn't find the customer
+    # or if we want to verify/update the name (skip for speed during bulk uploads)
+    if not customer:
+        try:
+            from app.services.nowcerts import get_nowcerts_client
+            nc = get_nowcerts_client()
+            nc_results = nc.search_by_policy_number(policy_number)
+            if nc_results:
+                nowcerts_customer = nc_results[0]
+                logger.info(f"NowCerts live lookup for {policy_number}: {nowcerts_customer.get('name', 'unknown')}")
+        except Exception as e:
+            logger.warning(f"NowCerts live lookup failed for {policy_number}, falling back to local DB: {e}")
+
+    if nowcerts_customer and not customer:
+        # NowCerts found a customer that local DB didn't have
         nc_name = nowcerts_customer.get("name") or nowcerts_customer.get("commercial_name") or ""
         nc_email = nowcerts_customer.get("email") or ""
         nc_address = nowcerts_customer.get("address") or ""
@@ -664,62 +673,32 @@ def _process_single_policy(
         nc_state = nowcerts_customer.get("state") or ""
         nc_zip = nowcerts_customer.get("zip") or nowcerts_customer.get("zip_code") or ""
 
-        # Also try to find/update the local customer record
-        customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
-        if customer:
-            # Update local record with fresh NowCerts data
-            if nc_name:
-                parts = nc_name.strip().split()
-                if len(parts) >= 2:
-                    customer.first_name = parts[0]
-                    customer.last_name = " ".join(parts[1:])
-                elif len(parts) == 1:
-                    customer.last_name = parts[0]
-            if nc_email:
-                customer.email = nc_email
-            if nc_address:
-                customer.address = nc_address
-            if nc_city:
-                customer.city = nc_city
-            if nc_state:
-                customer.state = nc_state
-            if nc_zip:
-                customer.zip_code = nc_zip
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
+        class _TempCustomer:
+            pass
+        customer = _TempCustomer()
+        customer.id = None
+        customer.full_name = nc_name or insured_name
+        customer.email = nc_email or None
+        customer.address = nc_address or None
+        customer.city = nc_city or None
+        customer.state = nc_state or None
+        customer.zip_code = nc_zip or None
 
         result["matched"] = True
-        result["customer_name"] = nc_name or (customer.full_name if customer else insured_name)
-        result["customer_email"] = nc_email or (customer.email if customer else None)
-        result["customer_id"] = customer.id if customer else None
+        result["customer_name"] = nc_name or insured_name
+        result["customer_email"] = nc_email or None
+        result["customer_id"] = None
         result["match_source"] = "nowcerts_live"
-
-        # If no local customer record, create a temporary object for downstream code
-        if not customer:
-            class _TempCustomer:
-                pass
-            customer = _TempCustomer()
-            customer.id = None
-            customer.full_name = nc_name or insured_name
-            customer.email = nc_email or None
-            customer.address = nc_address or None
-            customer.city = nc_city or None
-            customer.state = nc_state or None
-            customer.zip_code = nc_zip or None
-    else:
-        # Fallback to local DB customer record
-        customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
-        if not customer:
-            result["error"] = "Customer not found"
-            return result
-
+    elif customer:
+        # Local DB found the customer (fast path — most common)
         result["matched"] = True
         result["customer_name"] = customer.full_name
         result["customer_email"] = customer.email
         result["customer_id"] = customer.id
         result["match_source"] = "local_db"
+    else:
+        result["error"] = "Customer not found"
+        return result
 
     # Use result dict for email/name (populated from either NowCerts or local DB)
     cust_email = result.get("customer_email")
