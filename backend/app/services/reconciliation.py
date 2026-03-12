@@ -230,8 +230,13 @@ class ReconciliationService:
         newly_matched = 0
 
         for line in lines:
-            # Skip already matched lines
+            # For already-matched lines, refresh the assigned agent from the sale
+            # (in case the sale was reassigned to a different producer)
             if line.is_matched and line.matched_sale_id:
+                sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+                if sale and line.assigned_agent_id != sale.producer_id:
+                    logger.info(f"Refreshing agent for line {line.id}: {line.assigned_agent_id} -> {sale.producer_id}")
+                    line.assigned_agent_id = sale.producer_id
                 matched += 1
                 continue
 
