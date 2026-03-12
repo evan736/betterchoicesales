@@ -344,6 +344,15 @@ CARRIER_ALIASES = {
     "encompass_insurance_company": "national_general",
     "integrity_insurance": "integrity",
     "branch_insurance": "branch",
+    "travco": "travelers",
+    "travco_insurance": "travelers",
+    "travco_insurance_company": "travelers",
+    "travelers_personal": "travelers",
+    "travelers_personal_insurance": "travelers",
+    "travelers_personal_insurance_company": "travelers",
+    "travelers_home_and_marine": "travelers",
+    "travelers_home_and_marine_insurance": "travelers",
+    "the_travelers": "travelers",
 }
 
 
