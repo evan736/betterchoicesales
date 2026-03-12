@@ -398,8 +398,16 @@ export default function Dashboard() {
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-400 font-medium">
-                  {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => router.push('/customers?tab=nonpay')}
+                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 transition-all"
+                  >
+                    Upload & Send
+                  </button>
+                  <div className="text-[11px] text-slate-400 font-medium">
+                    {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </div>
                 </div>
               </div>
               <div className="space-y-1.5">

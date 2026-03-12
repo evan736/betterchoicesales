@@ -440,6 +440,13 @@ async def upload_nonpay_file(
         notice.status = "dry_run" if dry_run else "completed"
         db.commit()
 
+        # Auto-mark the daily checklist item for this carrier when sent (not dry_run)
+        if not dry_run:
+            try:
+                _auto_check_nonpay_carrier(db, policies, file.filename if file else "")
+            except Exception as e:
+                logger.warning(f"Failed to auto-check carrier on daily checklist: {e}")
+
         return {
             "notice_id": notice.id,
             "filename": file.filename,
@@ -464,6 +471,70 @@ async def upload_nonpay_file(
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}\n{tb[-500:]}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
+
+
+
+def _auto_check_nonpay_carrier(db: Session, policies: list, filename: str):
+    """Auto-mark the daily checklist when a non-pay list is uploaded and sent."""
+    from datetime import date as date_type
+
+    # Map carrier names to checklist keys
+    CARRIER_TO_KEY = {
+        "national_general": "nonpay_natgen",
+        "national general": "nonpay_natgen",
+        "natgen": "nonpay_natgen",
+        "progressive": "nonpay_progressive",
+        "safeco": "nonpay_safeco",
+        "travelers": "nonpay_travelers",
+        "grange": "nonpay_grange",
+        "geico": "nonpay_geico",
+        "steadily": "nonpay_steadily",
+    }
+
+    # Detect carrier from policies or filename
+    carrier_key = None
+    fn_lower = (filename or "").lower()
+
+    # Try filename first
+    for pattern, key in CARRIER_TO_KEY.items():
+        if pattern.replace("_", " ") in fn_lower or pattern.replace(" ", "_") in fn_lower or pattern in fn_lower:
+            carrier_key = key
+            break
+
+    # Try from extracted carrier in policies
+    if not carrier_key and policies:
+        for pol in policies:
+            c = (pol.get("carrier") or "").lower()
+            if c in CARRIER_TO_KEY:
+                carrier_key = CARRIER_TO_KEY[c]
+                break
+
+    if not carrier_key:
+        logger.info(f"Could not determine carrier for auto-checklist from filename: {filename}")
+        return
+
+    # Mark the checklist item as completed
+    from sqlalchemy import text
+    today = date_type.today()
+    existing = db.execute(
+        text("SELECT id, completed FROM daily_checklist_items WHERE check_date = :d AND item_key = :k"),
+        {"d": today, "k": carrier_key}
+    ).fetchone()
+
+    if existing and not existing[1]:
+        db.execute(
+            text("UPDATE daily_checklist_items SET completed = true, completed_at = NOW(), completed_by = 'auto' WHERE id = :id"),
+            {"id": existing[0]}
+        )
+        db.commit()
+        logger.info(f"Auto-checked daily checklist: {carrier_key}")
+    elif not existing:
+        db.execute(
+            text("INSERT INTO daily_checklist_items (check_date, item_key, completed, completed_at, completed_by) VALUES (:d, :k, true, NOW(), 'auto')"),
+            {"d": today, "k": carrier_key}
+        )
+        db.commit()
+        logger.info(f"Auto-checked daily checklist (new): {carrier_key}")
 
 def _process_single_policy(
     db: Session,
