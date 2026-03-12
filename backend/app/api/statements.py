@@ -554,6 +554,48 @@ def revenue_tracker_month_detail(
         "policies": policies,
     }
 
+
+
+@router.post("/lines/{line_id}/move")
+def move_line_to_import(
+    line_id: int,
+    target_import_id: int = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Move a statement line from one import to another (admin only).
+    
+    Used when a commission line appeared on the wrong month's statement
+    and needs to be moved to the correct period.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    from app.models.statement import StatementLine, StatementImport
+
+    line = db.query(StatementLine).filter(StatementLine.id == line_id).first()
+    if not line:
+        raise HTTPException(status_code=404, detail="Statement line not found")
+
+    target_import = db.query(StatementImport).filter(StatementImport.id == target_import_id).first()
+    if not target_import:
+        raise HTTPException(status_code=404, detail="Target import not found")
+
+    old_import_id = line.statement_import_id
+    line.statement_import_id = target_import_id
+    db.commit()
+
+    logger.info(f"Moved line {line_id} ({line.policy_number} / {line.insured_name}) from import {old_import_id} to {target_import_id} by {current_user.full_name}")
+
+    return {
+        "line_id": line_id,
+        "policy_number": line.policy_number,
+        "insured_name": line.insured_name,
+        "old_import_id": old_import_id,
+        "new_import_id": target_import_id,
+        "new_period": target_import.statement_period,
+    }
+
 @router.get("/revenue-projections")
 def revenue_projections(
     current_user: User = Depends(get_current_user),
