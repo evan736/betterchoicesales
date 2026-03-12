@@ -75,6 +75,7 @@ const CARRIERS = [
   { value: 'universal', label: 'Universal' },
   { value: 'nbs', label: 'NBS / Bridge Specialty' },
   { value: 'openly', label: 'Openly' },
+  { value: 'clearcover', label: 'Clearcover' },
   { value: 'hartford', label: 'Hartford' },
   { value: 'other', label: 'Other' },
 ];

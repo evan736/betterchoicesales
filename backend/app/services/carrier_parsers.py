@@ -1254,6 +1254,10 @@ def detect_carrier(file_bytes: bytes, filename: str) -> Optional[str]:
         if "policynumber" in cols_lower or ("insuredname" in cols_lower and "transactiontype" in cols_lower):
             return "universal"
         
+        # Clearcover: CSV with "CLEARCOVER_ID", "COMMISSION_PAYABLE_ON_WP_CHANGE"
+        if "clearcover_id" in cols_lower or "commission_payable_on_wp_change" in cols_lower:
+            return "clearcover"
+        
         # Openly: XLSX with "PolicyNum", "BaseCommission", "InsuredFirstName" or sheet "Transaction Detail"
         if "policynum" in cols_lower or ("basecommission" in cols_lower and "insuredfirstname" in cols_lower):
             return "openly"
@@ -1495,6 +1499,131 @@ def parse_openly(file_bytes: bytes, filename: str) -> List[Dict]:
     return results
 
 
+def parse_clearcover(file_bytes: bytes, filename: str) -> List[Dict]:
+    """Parse Clearcover commission statement (CSV).
+    
+    Key columns:
+    - POLICY_NUMBER, FIRST_NAME, LAST_NAME
+    - TRANSACTION_TYPE: Renewal, Endorsement, New Business, Cancellation
+    - WRITTEN_PREMIUM (full term), WRITTEN_PREMIUM_CHANGE (delta for this transaction)
+    - COMMISSION_PERCENTAGE, COMMISSION_PAYABLE_ON_WP_CHANGE
+    - TERM_NUMBER: 1 = first term, 2+ = renewal
+    - POLICY_TERM_EFFECTIVE_DATE, POLICY_TERM_EXPIRATION_DATE
+    - STATE_ABBREVIATION, LINE_OF_BUSINESS, PORTAL_EMAIL (agent email)
+    """
+    import io as _io
+    import csv as _csv
+    
+    text = file_bytes.decode("utf-8", errors="ignore")
+    reader = _csv.DictReader(_io.StringIO(text))
+    
+    results = []
+    for row in reader:
+        policy_number = (row.get("POLICY_NUMBER") or "").strip()
+        if not policy_number:
+            continue
+        
+        first_name = (row.get("FIRST_NAME") or "").strip()
+        last_name = (row.get("LAST_NAME") or "").strip()
+        insured_name = f"{first_name} {last_name}".strip()
+        
+        # Transaction type
+        tx_raw = (row.get("TRANSACTION_TYPE") or "").strip()
+        tx_lower = tx_raw.lower()
+        if "renewal" in tx_lower:
+            tx_type = "renewal"
+        elif "cancel" in tx_lower:
+            tx_type = "cancellation"
+        elif "endorse" in tx_lower:
+            tx_type = "endorsement"
+        elif "new" in tx_lower:
+            tx_type = "new_business"
+        else:
+            tx_type = "other"
+        
+        # Premium — use WRITTEN_PREMIUM_CHANGE for the transaction amount
+        premium = 0.0
+        try:
+            premium = float(row.get("WRITTEN_PREMIUM_CHANGE") or row.get("WRITTEN_PREMIUM") or 0)
+        except (ValueError, TypeError):
+            pass
+        
+        # Commission
+        commission = 0.0
+        try:
+            commission = float(row.get("COMMISSION_PAYABLE_ON_WP_CHANGE") or 0)
+            # Add NBO if present
+            nbo = float(row.get("NBO_PAYABLE_ON_WP_CHANGE") or 0)
+            commission += nbo
+        except (ValueError, TypeError):
+            pass
+        
+        # Commission rate
+        comm_rate = None
+        try:
+            comm_rate = float(row.get("COMMISSION_PERCENTAGE") or 0)
+        except (ValueError, TypeError):
+            pass
+        
+        # Term detection
+        term_number = None
+        try:
+            term_number = int(row.get("TERM_NUMBER") or 0)
+        except (ValueError, TypeError):
+            pass
+        is_renewal_term = term_number > 1 if term_number else None
+        
+        # Dates
+        eff_date = _parse_date(row.get("POLICY_TERM_EFFECTIVE_DATE"))
+        
+        # Term months from term dates
+        term_months = 6  # Clearcover is typically 6-month auto
+        exp_date = _parse_date(row.get("POLICY_TERM_EXPIRATION_DATE"))
+        if eff_date and exp_date:
+            months_diff = (exp_date.year - eff_date.year) * 12 + (exp_date.month - eff_date.month)
+            if months_diff in (6, 12):
+                term_months = months_diff
+        
+        # Producer — use PORTAL_EMAIL to identify agent
+        portal_email = (row.get("PORTAL_EMAIL") or "").strip().lower()
+        producer_name = ""
+        if "salma" in portal_email:
+            producer_name = "Salma Marquez"
+        elif "giulian" in portal_email:
+            producer_name = "Giulian Baez"
+        elif "joseph" in portal_email:
+            producer_name = "Joseph Rivera"
+        elif "michelle" in portal_email:
+            producer_name = "Michelle Robles"
+        elif "evan" in portal_email:
+            producer_name = "Evan Larson"
+        elif "andrey" in portal_email:
+            producer_name = "Andrey Dayson"
+        
+        state = (row.get("STATE_ABBREVIATION") or "").strip()
+        lob = (row.get("LINE_OF_BUSINESS") or "").strip()
+        product_type = "Auto" if "auto" in lob.lower() else lob.replace("_", " ").title()
+        
+        results.append({
+            "policy_number": policy_number,
+            "insured_name": insured_name,
+            "transaction_type": tx_type,
+            "transaction_type_raw": tx_raw,
+            "premium_amount": premium,
+            "commission_amount": commission,
+            "commission_rate": comm_rate,
+            "effective_date": eff_date,
+            "producer_name": producer_name,
+            "state": state,
+            "product_type": product_type,
+            "term_months": term_months,
+            "is_renewal_term": is_renewal_term,
+        })
+    
+    logger.info(f"Clearcover parser: extracted {len(results)} lines from {filename}")
+    return results
+
+
 CARRIER_PARSERS = {
     "national_general": parse_national_general,
     "progressive": parse_progressive,
@@ -1506,6 +1635,7 @@ CARRIER_PARSERS = {
     "universal": parse_universal,
     "nbs": parse_nbs,
     "openly": parse_openly,
+    "clearcover": parse_clearcover,
 }
 
 

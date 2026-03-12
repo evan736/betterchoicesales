@@ -37,7 +37,7 @@ async def upload_statement(
     valid_carriers = [
         "national_general", "progressive", "grange",
         "safeco", "travelers", "geico", "first_connect",
-        "universal", "nbs", "openly", "hartford", "other",
+        "universal", "nbs", "openly", "clearcover", "hartford", "other",
     ]
     if carrier not in valid_carriers:
         raise HTTPException(
