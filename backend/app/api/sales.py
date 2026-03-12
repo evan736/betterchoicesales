@@ -963,8 +963,18 @@ def update_sale(
             detail="Not authorized to update this sale"
         )
     
+    # Only admin/manager can change producer_id (reassign sales)
+    update_data = sale_update.model_dump(exclude_unset=True)
+    if "producer_id" in update_data and update_data["producer_id"] is not None:
+        if current_user.role.lower() not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin/manager can reassign sales to another producer"
+            )
+        logger.info(f"Sale {sale_id} reassigned from producer {sale.producer_id} to {update_data['producer_id']} by {current_user.full_name}")
+
     # Update fields
-    for field, value in sale_update.model_dump(exclude_unset=True).items():
+    for field, value in update_data.items():
         setattr(sale, field, value)
     
     db.commit()

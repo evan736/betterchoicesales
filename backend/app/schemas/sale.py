@@ -45,6 +45,10 @@ class SaleUpdate(BaseModel):
     client_phone: Optional[str] = None
     notes: Optional[str] = None
     signature_status: Optional[str] = None
+    producer_id: Optional[int] = None
+    lead_source: Optional[str] = None
+    client_name: Optional[str] = None
+    policy_number: Optional[str] = None
 
 
 class SaleInDB(SaleBase):

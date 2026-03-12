@@ -145,6 +145,7 @@ export default function Sales() {
   const totalPremium = sales.reduce((sum, s) => sum + parseFloat(s.written_premium || 0), 0);
   const totalSales = sales.length;
   const isPrivileged = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'manager';
+  const [employees, setEmployees] = useState<any[]>([]);
 
   const [importResult, setImportResult] = useState<any>(null);
   const [importing, setImporting] = useState(false);
@@ -366,7 +367,7 @@ export default function Sales() {
         ) : (
           <div className="grid grid-cols-1 gap-4">
             {sales.map((sale) => (
-              <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} isPrivileged={isPrivileged} />
+              <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} isPrivileged={isPrivileged} employees={employees} />
             ))}
           </div>
         )}
@@ -384,7 +385,7 @@ export default function Sales() {
 }
 
 /* ========== SALE LIST ITEM ========== */
-const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: boolean }> = ({ sale, onUpdate, isPrivileged = false }) => {
+const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: boolean; employees?: any[] }> = ({ sale, onUpdate, isPrivileged = false, employees = [] }) => {
   const [deleting, setDeleting] = useState(false);
   const [sendingSig, setSendingSig] = useState(false);
   const [sigStatus, setSigStatus] = useState(sale.signature_status || 'not_sent');
@@ -713,6 +714,42 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
                 <span>{sendingWelcome ? 'Sending...' : welcomeSent ? '✓ Welcome Sent' : '📧 Send Welcome Email'}</span>
               </button>
             </div>
+          )}
+          {/* Reassign Producer (admin only) */}
+          {isPrivileged && employees.length > 0 && (
+            <select
+              value={sale.producer_id || ''}
+              onChange={async (e) => {
+                const newProducerId = parseInt(e.target.value);
+                if (!newProducerId || newProducerId === sale.producer_id) return;
+                const producerName = employees.find((em: any) => em.id === newProducerId)?.full_name || 'Unknown';
+                if (!confirm(`Reassign this sale to ${producerName}?`)) {
+                  e.target.value = String(sale.producer_id);
+                  return;
+                }
+                try {
+                  const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`${API}/api/sales/${sale.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ producer_id: newProducerId }),
+                  });
+                  if (res.ok) {
+                    onUpdate();
+                  } else {
+                    const err = await res.json();
+                    alert(err.detail || 'Failed to reassign');
+                  }
+                } catch (err) { alert('Failed to reassign'); }
+              }}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white text-slate-700 focus:border-brand-400"
+              title="Reassign to another producer"
+            >
+              {employees.filter((em: any) => !['beacon.ai', 'admin'].includes(em.username?.toLowerCase())).map((em: any) => (
+                <option key={em.id} value={em.id}>{em.full_name}</option>
+              ))}
+            </select>
           )}
           {/* Delete */}
           <button
