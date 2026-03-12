@@ -478,40 +478,70 @@ def _auto_check_nonpay_carrier(db: Session, policies: list, filename: str):
     """Auto-mark the daily checklist when a non-pay list is uploaded and sent."""
     from datetime import date as date_type
 
-    # Map carrier names to checklist keys
+    # Map carrier names/keys to checklist keys
     CARRIER_TO_KEY = {
         "national_general": "nonpay_natgen",
         "national general": "nonpay_natgen",
+        "national general insurance": "nonpay_natgen",
         "natgen": "nonpay_natgen",
         "progressive": "nonpay_progressive",
+        "progressive insurance": "nonpay_progressive",
+        "progressive northern": "nonpay_progressive",
         "safeco": "nonpay_safeco",
+        "safeco insurance": "nonpay_safeco",
         "travelers": "nonpay_travelers",
+        "travelers personal": "nonpay_travelers",
+        "grange": "nonpay_grange",
+        "grange insurance": "nonpay_grange",
+        "geico": "nonpay_geico",
+        "steadily": "nonpay_steadily",
+        "openly": "nonpay_openly",
+    }
+
+    # Also detect from filename patterns
+    FILENAME_PATTERNS = {
+        "natgen": "nonpay_natgen", "national_general": "nonpay_natgen", "national general": "nonpay_natgen",
+        "pending_cancellation": "nonpay_natgen", "pending cancellation": "nonpay_natgen",
+        "progressive": "nonpay_progressive",
+        "safeco": "nonpay_safeco",
+        "trv": "nonpay_travelers", "travelers": "nonpay_travelers",
         "grange": "nonpay_grange",
         "geico": "nonpay_geico",
         "steadily": "nonpay_steadily",
     }
 
-    # Detect carrier from policies or filename
     carrier_key = None
     fn_lower = (filename or "").lower()
 
-    # Try filename first
-    for pattern, key in CARRIER_TO_KEY.items():
-        if pattern.replace("_", " ") in fn_lower or pattern.replace(" ", "_") in fn_lower or pattern in fn_lower:
-            carrier_key = key
-            break
-
-    # Try from extracted carrier in policies
-    if not carrier_key and policies:
+    # Try from extracted carrier in policies FIRST (most reliable)
+    if policies:
         for pol in policies:
-            c = (pol.get("carrier") or "").lower()
-            if c in CARRIER_TO_KEY:
-                carrier_key = CARRIER_TO_KEY[c]
+            c = (pol.get("carrier") or "").lower().strip()
+            if c:
+                # Try exact match
+                if c in CARRIER_TO_KEY:
+                    carrier_key = CARRIER_TO_KEY[c]
+                    break
+                # Try partial match
+                for pattern, key in CARRIER_TO_KEY.items():
+                    if pattern in c or c in pattern:
+                        carrier_key = key
+                        break
+                if carrier_key:
+                    break
+
+    # Fallback to filename
+    if not carrier_key:
+        for pattern, key in FILENAME_PATTERNS.items():
+            if pattern in fn_lower:
+                carrier_key = key
                 break
 
     if not carrier_key:
-        logger.info(f"Could not determine carrier for auto-checklist from filename: {filename}")
+        logger.info(f"Could not determine carrier for auto-checklist. filename={filename}, sample_carrier={policies[0].get('carrier') if policies else 'none'}")
         return
+
+    logger.info(f"Auto-check: detected carrier_key={carrier_key} from filename={filename}")
 
     # Mark the checklist item as completed
     from sqlalchemy import text
@@ -523,18 +553,20 @@ def _auto_check_nonpay_carrier(db: Session, policies: list, filename: str):
 
     if existing and not existing[1]:
         db.execute(
-            text("UPDATE daily_checklist_items SET completed = true, completed_at = NOW(), completed_by = 'auto' WHERE id = :id"),
-            {"id": existing[0]}
+            text("UPDATE daily_checklist_items SET completed = true, completed_at = NOW(), completed_by = :u WHERE id = :id"),
+            {"id": existing[0], "u": "auto"}
         )
         db.commit()
         logger.info(f"Auto-checked daily checklist: {carrier_key}")
     elif not existing:
         db.execute(
-            text("INSERT INTO daily_checklist_items (check_date, item_key, completed, completed_at, completed_by) VALUES (:d, :k, true, NOW(), 'auto')"),
-            {"d": today, "k": carrier_key}
+            text("INSERT INTO daily_checklist_items (check_date, item_key, completed, completed_at, completed_by) VALUES (:d, :k, true, NOW(), :u)"),
+            {"d": today, "k": carrier_key, "u": "auto"}
         )
         db.commit()
         logger.info(f"Auto-checked daily checklist (new): {carrier_key}")
+    else:
+        logger.info(f"Checklist item {carrier_key} already checked for today")
 
 def _process_single_policy(
     db: Session,
