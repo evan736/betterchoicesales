@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Limit concurrent background email processing to prevent OOM crashes
 import asyncio
-_PROCESSING_SEMAPHORE = asyncio.Semaphore(2)  # Max 2 concurrent email processing tasks
+_PROCESSING_SEMAPHORE = asyncio.Semaphore(1)  # Max 1 concurrent — prevent OOM on 2GB RAM
 router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
 
 MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")

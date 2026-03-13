@@ -966,6 +966,7 @@ async def lifespan(app: FastAPI):
     # Start background follow-up checker (runs every 6 hours)
     import asyncio
     import threading
+import gc
 
     def _run_followups():
         """Run follow-up checks periodically."""
@@ -1027,6 +1028,8 @@ async def lifespan(app: FastAPI):
                         logger.error(f"Reshop scan error: {e}")
                     finally:
                         db2.close()
+                    # Free memory after heavy sync
+                    gc.collect()
             except Exception as e:
                 logger.error(f"NowCerts sync scheduler error: {e}")
             time.sleep(3600)  # Check every hour
