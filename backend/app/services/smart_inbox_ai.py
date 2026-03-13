@@ -288,7 +288,7 @@ async def classify_email(
     content.append({"type": "text", "text": prompt})
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={

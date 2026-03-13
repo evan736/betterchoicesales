@@ -40,6 +40,10 @@ from app.services.smart_inbox_batch import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Limit concurrent background email processing to prevent OOM crashes
+import asyncio
+_PROCESSING_SEMAPHORE = asyncio.Semaphore(2)  # Max 2 concurrent email processing tasks
 router = APIRouter(prefix="/api/smart-inbox", tags=["smart-inbox"])
 
 MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")
@@ -353,8 +357,14 @@ def _check_nonpay_throttle(
 async def process_inbound_email(email_id: int, db_url: str):
     """
     Full async pipeline: classify → match customer → log note → draft response → send/queue.
-    Runs as a background task.
+    Runs as a background task with concurrency limit to prevent OOM.
     """
+    async with _PROCESSING_SEMAPHORE:
+        await _process_inbound_email_inner(email_id, db_url)
+
+
+async def _process_inbound_email_inner(email_id: int, db_url: str):
+    """Inner processing function — called under semaphore."""
     from app.core.database import SessionLocal
     db = SessionLocal()
 
@@ -586,6 +596,7 @@ async def process_inbound_email(email_id: int, db_url: str):
             pass
     finally:
         db.close()
+        import gc; gc.collect()
 
 
 # ── Inbound Webhook ──────────────────────────────────────────────────────────
