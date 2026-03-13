@@ -966,7 +966,7 @@ async def lifespan(app: FastAPI):
     # Start background follow-up checker (runs every 6 hours)
     import asyncio
     import threading
-import gc
+    import gc
 
     def _run_followups():
         """Run follow-up checks periodically."""
