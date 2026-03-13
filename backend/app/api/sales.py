@@ -134,25 +134,37 @@ def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
         logger.info("Mailgun not configured — skipping hooray email")
         return
 
+    # Capture sale data NOW while the session is still active
+    # (background thread can't access detached SQLAlchemy objects)
+    sale_data = {
+        "id": sale.id,
+        "client_name": sale.client_name or "New Customer",
+        "carrier": sale.carrier or "",
+        "policy_type": sale.policy_type or "other",
+        "written_premium": float(sale.written_premium or 0),
+        "lead_source": sale.lead_source or "",
+    }
+    producer_name = producer.full_name if producer else "Team Member"
+
     def _send():
         try:
-            from app.services.hooray_email import send_hooray_email
+            from app.services.hooray_email import send_hooray_email_from_data
             from app.core.database import SessionLocal
             new_db = SessionLocal()
             try:
-                result = send_hooray_email(
-                    sale=sale,
-                    producer_name=producer.full_name if producer else "Team Member",
+                result = send_hooray_email_from_data(
+                    sale_data=sale_data,
+                    producer_name=producer_name,
                     db=new_db,
                 )
                 if result.get("success"):
-                    logger.info(f"Hooray email sent for sale {sale.id} to {result.get('recipients', 0)} recipients")
+                    logger.info(f"Hooray email sent for sale {sale_data['id']} to {result.get('recipients', 0)} recipients")
                 else:
-                    logger.warning(f"Hooray email failed for sale {sale.id}: {result}")
+                    logger.warning(f"Hooray email failed for sale {sale_data['id']}: {result}")
             finally:
                 new_db.close()
         except Exception as e:
-            logger.error(f"Hooray email error for sale {sale.id}: {e}")
+            logger.error(f"Hooray email error for sale {sale_data['id']}: {e}")
 
     # Fire and forget in background thread
     threading.Thread(target=_send, daemon=True).start()

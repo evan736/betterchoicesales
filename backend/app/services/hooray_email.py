@@ -286,3 +286,68 @@ def send_hooray_email(
     except Exception as e:
         logger.error("Failed to send hooray email: %s", e)
         return {"success": False, "error": str(e)}
+
+
+def send_hooray_email_from_data(
+    sale_data: dict,
+    producer_name: str,
+    db: Session,
+):
+    """Send the Hooray notification email using pre-extracted sale data.
+    
+    This avoids SQLAlchemy DetachedInstanceError when called from a background thread.
+    sale_data should contain: id, client_name, carrier, policy_type, written_premium, lead_source
+    """
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        logger.warning("Mailgun not configured — skipping hooray email")
+        return {"success": False, "error": "Mailgun not configured"}
+
+    daily = _get_daily_stats(db)
+
+    recipient_emails = _get_all_producer_emails(db)
+    if not recipient_emails:
+        logger.warning("No active producer emails found — skipping hooray email")
+        return {"success": False, "error": "No recipients"}
+
+    subject, html_body = build_hooray_email_html(
+        client_name=sale_data.get("client_name", "New Customer"),
+        carrier=sale_data.get("carrier", ""),
+        policy_type=sale_data.get("policy_type", "other"),
+        premium=sale_data.get("written_premium", 0),
+        producer_name=producer_name,
+        daily_count=daily["count"],
+        daily_premium=daily["premium"],
+        lead_source=sale_data.get("lead_source", ""),
+        producer_daily_stats=daily.get("producers", []),
+    )
+
+    mail_data = {
+        "from": f"{AGENCY_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+        "to": recipient_emails,
+        "subject": subject,
+        "html": html_body,
+    }
+
+    try:
+        resp = requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data=mail_data,
+            timeout=30,
+        )
+
+        if resp.status_code == 200:
+            msg_id = resp.json().get("id", "")
+            logger.info(
+                "Hooray email sent to %d recipients for sale %s — msg_id: %s",
+                len(recipient_emails),
+                sale_data.get("id"),
+                msg_id,
+            )
+            return {"success": True, "message_id": msg_id, "recipients": len(recipient_emails)}
+        else:
+            logger.error("Mailgun error %s: %s", resp.status_code, resp.text)
+            return {"success": False, "error": f"Mailgun returned {resp.status_code}"}
+    except Exception as e:
+        logger.error("Failed to send hooray email: %s", e)
+        return {"success": False, "error": str(e)}
