@@ -558,6 +558,7 @@ def send_quote_email(
         "subject": subject,
         "html": html,
         "h:Reply-To": reply_to,
+        "bcc": [os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com")],
     }
 
     files = []
