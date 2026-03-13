@@ -491,12 +491,16 @@ def parse_safeco(file_bytes: bytes, filename: str) -> List[Dict]:
 def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
     """Parse Travelers PI Commission Statement XLSX.
 
-    Travelers has a messy format:
-    - Row 0 is a sub-header row (column names repeat)
-    - POL-EFF-DT contains transaction codes like '012426-CONT', '013026-NEW-BUS', '081225-CANC'
-    - COMM rate stored as 1500 meaning 15.00%
-    - Policy numbers have spaces: '615263935 633  1'
-    - PAYMENT = premium received, PAID = commission paid
+    Key insight: Column M (POL-EFF-DT / TRANS-CODE) determines row type:
+    - Blank/empty = Payment Only (installment, NO commission)
+    - Ends with NEW-BUS = New Business
+    - Ends with CONT = Renewal
+    - Ends with CHANGE = Mid-Term Endorsement
+    - Ends with CANC = Cancellation
+    - Contains UNHON-CHECK = Chargeback (dishonored check)
+    - Contains WAIVED-PREM = Waived Premium
+
+    ~116 of ~173 rows are Payment Only — these must NOT generate commission.
     """
     records = []
     try:
@@ -507,28 +511,57 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
         if len(df) > 0 and str(df.iloc[0].get("STATEMENT", "")).strip() == "DATE":
             df = df.iloc[1:]
 
+        payment_only_count = 0
+
         for _, row in df.iterrows():
             insured = str(row.get("NAME OF INSURED", "") or "").strip()
             if not insured or insured == "nan" or insured == "":
-                continue
+                continue  # Skip blank/summary rows
 
             raw_policy = str(row.get("POLICY NUMBER", "") or "").strip()
             if not raw_policy or raw_policy == "nan":
                 continue
 
             # Clean policy number — join space-separated segments with dashes
-            # Statement: "612812607 203  1" → "612812607-203-1" (matches sales format)
             policy_number = "-".join(raw_policy.split()) if raw_policy else raw_policy
 
-            # Parse transaction type from POL-EFF-DT column
+            # ── KEY: Check column M (POL-EFF-DT / trans code) to classify row ──
             trans_code_raw = str(row.get("POL-EFF-DT", "") or "").strip()
+            is_payment_only = (not trans_code_raw or trans_code_raw == "nan" or trans_code_raw == "")
+
+            if is_payment_only:
+                # Payment Only — installment collection, NOT commissionable
+                # Still record for tracking but with $0 commission
+                payment_only_count += 1
+                payment = _clean_currency(row.get("PAYMENT"))
+                stmt_date = _parse_date(row.get("STATEMENT"))
+                sub_agent = str(row.get("SUB", "") or "").strip()
+
+                records.append({
+                    "policy_number": policy_number,
+                    "insured_name": insured,
+                    "transaction_type": "other",
+                    "transaction_type_raw": "Payment Only",
+                    "transaction_date": stmt_date,
+                    "effective_date": stmt_date,
+                    "premium_amount": payment or 0,
+                    "commission_rate": None,
+                    "commission_amount": 0,  # Payment only — NO commission
+                    "producer_name": sub_agent if sub_agent and sub_agent != "nan" else None,
+                    "product_type": None,
+                    "line_of_business": None,
+                    "state": None,
+                    "term_months": 12,
+                    "raw_data": str(row.to_dict()),
+                })
+                continue
+
+            # Commission-bearing row — classify by trans code
             raw_type = _travelers_map_trans(trans_code_raw)
 
             # Premium = PREMIUM FOR column (L) = full term premium
-            # Fall back to PAYMENT column (H) for installment-only rows
             premium_for = _clean_currency(row.get("PREMIUM FOR"))
-            payment = _clean_currency(row.get("PAYMENT"))
-            premium = premium_for if premium_for is not None and premium_for != 0 else payment
+            premium = premium_for if premium_for is not None else 0
 
             # Commission = PAID column (I) = commission paid to agency
             commission = _clean_currency(row.get("PAID"))
@@ -569,7 +602,7 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
                 "product_type": None,
                 "line_of_business": None,
                 "state": None,
-                "term_months": 12,  # Travelers is typically 12mo
+                "term_months": 12,
                 "raw_data": str(row.to_dict()),
             })
 
@@ -577,7 +610,8 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
         logger.error(f"Error parsing Travelers: {e}", exc_info=True)
         raise
 
-    logger.info(f"Travelers: parsed {len(records)} records")
+    commission_rows = len(records) - payment_only_count
+    logger.info(f"Travelers: parsed {len(records)} total rows ({commission_rows} commission-bearing, {payment_only_count} payment-only)")
     return records
 
 
@@ -585,11 +619,10 @@ def _travelers_map_trans(code: str) -> str:
     """Map Travelers transaction codes to standard types.
     
     Format: MMDDYY-TYPE (e.g., '012426-CONT', '013026-NEW-BUS', '081225-CANC')
-    When POL-EFF-DT is empty, the line is typically an installment payment
-    or continuation — still commissionable.
+    NOTE: Blank/empty codes are now handled BEFORE this function is called.
     """
     if not code or code == "nan":
-        return "NEW BUSINESS"  # Default to commissionable — don't exclude
+        return "OTHER"  # Should not reach here — payment-only rows handled upstream
     code_upper = code.upper()
     if "NEW-BUS" in code_upper or "NEW BUS" in code_upper:
         return "NEW BUSINESS"
