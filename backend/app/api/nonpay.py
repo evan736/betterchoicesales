@@ -194,11 +194,11 @@ async def upload_nonpay_b64(
                     has_any_carrier = True
                     break
 
-        # Apply user-selected carrier override if still no carrier detected
-        if not has_any_carrier and carrier_override:
+        # Apply user-selected carrier override — ALWAYS overrides AI extraction
+        # User explicitly chose this carrier, so trust their selection
+        if carrier_override:
             for p in policies:
-                if not p.get("carrier"):
-                    p["carrier"] = carrier_override
+                p["carrier"] = carrier_override
 
         # Detect carrier from policy number patterns
         # NatGen: 10+ digit numbers, often with " 00" suffix (e.g. "2027431477 00")
