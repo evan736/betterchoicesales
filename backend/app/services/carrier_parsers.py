@@ -924,23 +924,26 @@ def parse_universal(file_bytes: bytes, filename: str) -> List[Dict]:
 
             # Commission column is the earned commission for this period
             commission = _clean_currency(row.get("Commission"))
-            # Written = full policy written premium (always positive, even on chargebacks)
+            # Written = full policy written premium (NOT commissionable)
             written_premium = _clean_currency(row.get("Written"))
+            # Commissionable = the premium that commission is calculated on
+            # In the CSV export this is "Textbox4" (between Cash and Rate)
+            commissionable = _clean_currency(row.get("Textbox4"))
+            # Cash = cash received this period
+            cash = _clean_currency(row.get("Cash"))
             # Rate is already decimal (0.15)
             rate = _clean_rate(row.get("Rate"))
 
-            # Universal's "Written" column is the total policy premium, NOT the transacted
-            # amount. For chargebacks/returns, Written is still positive but Commission is
-            # negative. We need premium to reflect the actual transaction direction.
-            # Derive actual transacted premium from commission / rate when signs disagree.
-            if rate and rate > 0 and commission != Decimal("0"):
-                derived_premium = (commission / rate).quantize(Decimal("0.01"))
-                # If Written is positive but Commission is negative, it's a chargeback
-                # Use the derived premium so agent pay calc handles it correctly
-                if (written_premium > 0 and commission < 0) or (written_premium <= 0 and commission > 0):
-                    premium = derived_premium
-                else:
-                    premium = written_premium
+            # Use Commissionable premium as the primary premium amount
+            # This is what the carrier actually calculates commission on
+            # Fall back to deriving from commission/rate, then to Cash, then Written
+            if commissionable and commissionable != Decimal("0"):
+                premium = commissionable
+            elif rate and rate > 0 and commission and commission != Decimal("0"):
+                # Derive commissionable from commission / rate
+                premium = (commission / rate).quantize(Decimal("0.01"))
+            elif cash and cash != Decimal("0"):
+                premium = cash
             else:
                 premium = written_premium
 
