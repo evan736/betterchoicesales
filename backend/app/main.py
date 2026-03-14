@@ -1335,6 +1335,76 @@ async def lifespan(app: FastAPI):
     campaign_sender_thread.start()
     logger.info("Campaign auto-sender started (every 5 min, 50 emails/cycle, 15/campaign)")
 
+    # ── Life Cross-Sell Campaign Auto-Sender ──────────────────────────
+    def _run_life_campaign_sender():
+        import time
+        time.sleep(180)
+        while True:
+            try:
+                from datetime import datetime, timedelta
+                now = datetime.utcnow()
+                if now.hour == 16:  # 10 AM CT
+                    logger.info("Running life cross-sell campaign auto-sender...")
+                    from app.core.database import SessionLocal
+                    from app.models.life_campaign import LifeCrossSellContact
+                    from app.services.life_crosssell_campaign import (
+                        TOUCH_BUILDERS, TOUCH_DELAYS, RECURRING_INTERVAL_DAYS,
+                        build_touch_seasonal, build_touch_milestone, build_touch_value,
+                        send_life_crosssell_email,
+                    )
+                    db = SessionLocal()
+                    try:
+                        pending = db.query(LifeCrossSellContact).filter(
+                            LifeCrossSellContact.status == "active",
+                            LifeCrossSellContact.next_touch_date <= now,
+                        ).all()
+                        sent = 0
+                        for contact in pending:
+                            try:
+                                tn = contact.touch_number + 1
+                                fn = (contact.customer_name or "").split()[0] if contact.customer_name else "there"
+                                pt = contact.source_policy_type or ""
+                                if tn <= 4:
+                                    builder = TOUCH_BUILDERS.get(tn)
+                                    if not builder:
+                                        continue
+                                    if tn == 2:
+                                        subj, html = builder(fn, "", 0, contact.id, pt)
+                                    else:
+                                        subj, html = builder(fn, "", contact.id, pt)
+                                else:
+                                    cycle = (tn - 5) % 3
+                                    if cycle == 0:
+                                        subj, html = build_touch_seasonal(fn, "", contact.id, pt)
+                                    elif cycle == 1:
+                                        mo = max(1, int((now - contact.created_at).days / 30)) if contact.created_at else 6
+                                        subj, html = build_touch_milestone(fn, contact.id, pt, mo)
+                                    else:
+                                        subj, html = build_touch_value(fn, contact.id, pt, (tn - 5) // 3)
+                                result = send_life_crosssell_email(contact.customer_email, subj, html)
+                                if result.get("success"):
+                                    if tn <= 4:
+                                        setattr(contact, f"touch{tn}_sent_at", now)
+                                    contact.touch_number = tn
+                                    contact.next_touch_date = now + timedelta(days=TOUCH_DELAYS.get(tn + 1, RECURRING_INTERVAL_DAYS))
+                                    sent += 1
+                            except Exception as e:
+                                logger.error(f"Life send error {contact.customer_email}: {e}")
+                        db.commit()
+                        if sent:
+                            logger.info(f"Life campaign: sent {sent}/{len(pending)} emails")
+                    finally:
+                        db.close()
+                        gc.collect()
+            except Exception as e:
+                logger.error(f"Life campaign sender error: {e}")
+            time.sleep(3600)
+
+    life_thread = threading.Thread(target=_run_life_campaign_sender, daemon=True)
+    life_thread.start()
+    logger.info("Life cross-sell campaign auto-sender started (daily 10 AM CT)")
+
+
     yield
 
 
@@ -1683,6 +1753,7 @@ try:
 except Exception as e:
     logger.warning(f"Life campaign table check: {e}")
 from app.api.life_campaign import router as life_campaign_router
+
 app.include_router(life_campaign_router)
 
 from app.api import tasks as tasks_api

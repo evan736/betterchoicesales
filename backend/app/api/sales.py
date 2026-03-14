@@ -124,6 +124,57 @@ def _trigger_welcome_email(sale: Sale, producer: User, db: Session):
     threading.Thread(target=_send, daemon=True).start()
 
 
+
+
+def _auto_enroll_life_campaign(sale: Sale, producer: User, db: Session):
+    """Auto-enroll new customer into life insurance cross-sell campaign."""
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        if not sale.client_email:
+            return
+        
+        from app.models.life_campaign import LifeCrossSellContact
+        from datetime import datetime, timedelta
+        
+        # Check if already enrolled
+        existing = db.query(LifeCrossSellContact).filter(
+            LifeCrossSellContact.customer_email == sale.client_email,
+            LifeCrossSellContact.status.in_(["queued", "active"]),
+        ).first()
+        if existing:
+            return
+        
+        # Also check opted out
+        opted_out = db.query(LifeCrossSellContact).filter(
+            LifeCrossSellContact.customer_email == sale.client_email,
+            LifeCrossSellContact.status == "opted_out",
+        ).first()
+        if opted_out:
+            return
+        
+        contact = LifeCrossSellContact(
+            customer_id=sale.id,  # Use sale ID as reference
+            customer_name=sale.client_name,
+            customer_email=sale.client_email,
+            agent_name=producer.full_name if producer else None,
+            agent_email=producer.email if producer else None,
+            touch_number=0,
+            next_touch_date=datetime.utcnow() + timedelta(days=3),
+            status="active",
+            source_sale_id=sale.id,
+            source_policy_type=sale.policy_type or "",
+        )
+        db.add(contact)
+        db.commit()
+        logger.info(f"Auto-enrolled {sale.client_name} ({sale.client_email}) in life cross-sell campaign")
+    except Exception as e:
+        logger.warning(f"Life campaign auto-enroll failed for {sale.client_name}: {e}")
+        try:
+            db.rollback()
+        except:
+            pass
+
 def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
     """Send Hooray notification to all producers in background after sale creation."""
     import threading
@@ -241,6 +292,7 @@ def create_from_pdf(
 
     # Send Hooray notification to all producers
     _trigger_hooray_email(sale, current_user, db)
+    _auto_enroll_life_campaign(sale, current_user, db)
 
     # Check for household grouping — same client name, same month
     sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month

@@ -200,6 +200,111 @@ def enroll_bulk(
     return {"enrolled": enrolled, "total_eligible": len(eligible)}
 
 
+
+@router.post("/enroll-staggered")
+def enroll_staggered(
+    batch_size: int = Body(10, description="How many customers to enroll per day"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stagger-enroll existing customers over time.
+    
+    Instead of blasting everyone at once, spreads enrollment across days.
+    Batch_size customers start per day. Prioritizes:
+    1. Homeowners first (higher value for life cross-sell)
+    2. Then bundled customers (home + auto)
+    3. Then auto-only customers
+    4. Newest customers first within each group
+    
+    Each batch starts Touch 1 on a different day so emails don't all go out at once.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    # Get already enrolled customer IDs
+    already = set(
+        cid for (cid,) in db.query(LifeCrossSellContact.customer_id).filter(
+            LifeCrossSellContact.status.in_(["queued", "active", "completed", "opted_out"])
+        ).all()
+    )
+
+    # Find eligible customers with active policies and email
+    from sqlalchemy import case, literal_column
+    
+    eligible = db.query(Customer).join(
+        CustomerPolicy, Customer.id == CustomerPolicy.customer_id
+    ).filter(
+        Customer.email.isnot(None),
+        Customer.email != "",
+        ~Customer.id.in_(already) if already else True,
+    ).distinct().all()
+
+    # Categorize by policy type for prioritization
+    priority_buckets = {"homeowner": [], "bundled": [], "auto_only": [], "other": []}
+    
+    for customer in eligible:
+        policies = db.query(CustomerPolicy).filter(
+            CustomerPolicy.customer_id == customer.id
+        ).all()
+        
+        policy_types = " ".join([p.policy_type or "" for p in policies]).lower()
+        has_home = any(x in policy_types for x in ["home", "property", "condo", "dwelling"])
+        has_auto = any(x in policy_types for x in ["auto", "car", "vehicle"])
+        
+        if has_home and has_auto:
+            priority_buckets["bundled"].append((customer, policy_types))
+        elif has_home:
+            priority_buckets["homeowner"].append((customer, policy_types))
+        elif has_auto:
+            priority_buckets["auto_only"].append((customer, policy_types))
+        else:
+            priority_buckets["other"].append((customer, policy_types))
+
+    # Build the ordered enrollment list
+    ordered = (
+        priority_buckets["homeowner"] +
+        priority_buckets["bundled"] +
+        priority_buckets["auto_only"] +
+        priority_buckets["other"]
+    )
+
+    # Stagger: each batch of batch_size customers gets a different start date
+    enrolled = 0
+    now = datetime.utcnow()
+    
+    for i, (customer, policy_types) in enumerate(ordered):
+        days_offset = (i // batch_size)  # Batch 0 starts day 3, batch 1 starts day 4, etc.
+        start_date = now + timedelta(days=TOUCH_DELAYS[1] + days_offset)
+        
+        contact = LifeCrossSellContact(
+            customer_id=customer.id,
+            customer_name=customer.full_name,
+            customer_email=customer.email,
+            agent_name=customer.agent_name,
+            touch_number=0,
+            next_touch_date=start_date,
+            status="active",
+            source_policy_type=policy_types[:200] if policy_types else None,
+        )
+        db.add(contact)
+        enrolled += 1
+
+    db.commit()
+
+    total_days = (len(ordered) // batch_size) + 1
+    return {
+        "enrolled": enrolled,
+        "batch_size": batch_size,
+        "total_days_to_complete": total_days,
+        "breakdown": {
+            "homeowners": len(priority_buckets["homeowner"]),
+            "bundled": len(priority_buckets["bundled"]),
+            "auto_only": len(priority_buckets["auto_only"]),
+            "other": len(priority_buckets["other"]),
+        },
+        "schedule": f"Enrolling ~{batch_size} customers/day over {total_days} days. Homeowners first, then bundled, then auto-only.",
+    }
+
 @router.post("/send-pending")
 def send_pending_touches(
     current_user: User = Depends(get_current_user),
