@@ -222,22 +222,23 @@ def enroll_staggered(
         raise HTTPException(status_code=403, detail="Admin/Manager access required")
 
     # Get already enrolled customer IDs
-    already = set(
+    already_ids = [
         cid for (cid,) in db.query(LifeCrossSellContact.customer_id).filter(
             LifeCrossSellContact.status.in_(["queued", "active", "completed", "opted_out"])
         ).all()
-    )
+    ]
 
     # Find eligible customers with active policies and email
-    from sqlalchemy import case, literal_column
-    
-    eligible = db.query(Customer).join(
+    query = db.query(Customer).join(
         CustomerPolicy, Customer.id == CustomerPolicy.customer_id
     ).filter(
         Customer.email.isnot(None),
         Customer.email != "",
-        ~Customer.id.in_(already) if already else True,
-    ).distinct().all()
+    )
+    if already_ids:
+        query = query.filter(~Customer.id.in_(already_ids))
+    
+    eligible = query.distinct().all()
 
     # Categorize by policy type for prioritization
     priority_buckets = {"homeowner": [], "bundled": [], "auto_only": [], "other": []}
