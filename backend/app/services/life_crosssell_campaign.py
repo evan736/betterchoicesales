@@ -423,17 +423,9 @@ def build_touch_seasonal(first_name: str, season: str = "", customer_id: int = 0
 
 
 def build_touch_milestone(first_name: str, customer_id: int = 0, policy_types: str = "", months_as_customer: int = 6) -> tuple[str, str]:
-    """Customer anniversary / milestone touch."""
+    """Periodic coverage review touch — positioned as a helpful check-in."""
     
-    if months_as_customer >= 12:
-        years = months_as_customer // 12
-        milestone = f"{years} year{'s' if years > 1 else ''}"
-        line = f"You\'ve been a valued Better Choice Insurance customer for {milestone} now"
-    else:
-        milestone = f"{months_as_customer} months"
-        line = f"It\'s been {milestone} since you joined the Better Choice Insurance family"
-
-    subject = f"Happy {milestone}, {first_name}! 🎉"
+    subject = f"{first_name}, a quick coverage review from your insurance team"
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -441,36 +433,40 @@ def build_touch_milestone(first_name: str, customer_id: int = 0, policy_types: s
     {_email_header()}
     <div style="background:white; padding:32px 28px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
 
-        <div style="text-align:center; margin-bottom:24px;">
-            <span style="font-size:48px;">🎉</span>
-            <h1 style="margin:8px 0 0; color:{BCI_NAVY}; font-size:22px; font-weight:800;">
-                Happy Anniversary, {first_name}!
-            </h1>
-        </div>
-
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            {line}, and we truly appreciate your trust in us.
+            Hi {first_name},
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            As part of our commitment to keeping your family fully protected, we wanted to
-            remind you about one area many families overlook: <strong>life insurance</strong>.
+            We periodically check in with our customers to make sure there are no gaps
+            in their coverage. A lot can change — new home, growing family, higher income —
+            and your protection should keep up.
         </p>
 
-        <div style="background:linear-gradient(135deg, {BCI_NAVY}, #1e293b); border-radius:12px; padding:24px; margin:24px 0; text-align:center;">
-            <p style="margin:0 0 8px; color:{BCI_CYAN}; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:1.5px;">
-                Exclusive for our customers
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            One area we consistently see gaps: <strong>life insurance</strong>. It's the one policy
+            that protects everything else — your mortgage, your family's income, your kids' future.
+        </p>
+
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:24px; margin:24px 0;">
+            <p style="margin:0 0 12px; color:{BCI_NAVY}; font-size:15px; font-weight:700;">
+                Quick Coverage Checklist:
             </p>
-            <p style="margin:0; color:white; font-size:16px; line-height:1.5;">
-                Get a personalized life insurance quote in under 60 seconds.<br>
-                <strong>No medical exam. Coverage up to $2M.</strong>
-            </p>
+            <table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">
+                <tr><td style="padding:6px 0;">✅ Home insurance</td><td style="text-align:right; color:#16a34a; font-weight:600;">Covered</td></tr>
+                <tr><td style="padding:6px 0;">✅ Auto insurance</td><td style="text-align:right; color:#16a34a; font-weight:600;">Covered</td></tr>
+                <tr><td style="padding:6px 0; border-top:1px dashed #e2e8f0;">❓ Life insurance</td><td style="text-align:right; color:#dc2626; font-weight:600;">Not on file</td></tr>
+            </table>
         </div>
 
-        {_ethos_button("Get My Anniversary Quote →", customer_id)}
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            If you already have life insurance — great, no action needed. If not, it takes
+            about <strong>60 seconds</strong> to see what you'd qualify for:
+        </p>
+
+        {_ethos_button("Check My Rate →", customer_id)}
 
         <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
-            Thank you for being part of the Better Choice family.<br>
             — The Better Choice Insurance Team
         </p>
 
