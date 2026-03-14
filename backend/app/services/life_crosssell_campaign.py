@@ -52,8 +52,7 @@ def _email_header() -> str:
 
 
 def _email_footer(contact_id: int = 0) -> str:
-    unsub_url = f"{APP_URL}/api/life-campaign/unsubscribe/{contact_id}" if contact_id else ""
-    unsub_html = f'<a href="{unsub_url}" style="color:#94a3b8; text-decoration:underline;">Unsubscribe from life insurance emails</a>' if unsub_url else ""
+    unsub_url = f"{APP_URL}/api/life-campaign/unsubscribe/{contact_id}"
     return f"""
     <div style="background:#f8fafc; padding:24px; text-align:center; border-radius:0 0 16px 16px; border-top:1px solid #e2e8f0;">
         <p style="margin:0 0 8px; color:#64748b; font-size:12px;">
@@ -63,7 +62,7 @@ def _email_footer(contact_id: int = 0) -> str:
             {AGENCY_PHONE} · {AGENCY_EMAIL}
         </p>
         <p style="margin:0; font-size:11px;">
-            {unsub_html}
+            <a href="{unsub_url}" style="color:#94a3b8; text-decoration:underline;">Unsubscribe from life insurance emails</a>
         </p>
     </div>"""
 
