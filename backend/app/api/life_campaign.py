@@ -352,6 +352,58 @@ def unsubscribe_from_campaign(
 </div></body></html>""")
 
 
+
+@router.post("/test-send-all")
+def test_send_all_touches(
+    to_email: str = Body(...),
+    customer_name: str = Body("Sarah Johnson"),
+    policy_types: str = Body("home"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send all campaign touches (1-10) as test emails."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    from app.services.life_crosssell_campaign import (
+        build_touch1, build_touch2, build_touch3, build_touch4,
+        build_touch_seasonal, build_touch_milestone, build_touch_value,
+        send_life_crosssell_email, RECURRING_INTERVAL_DAYS,
+    )
+
+    first_name = customer_name.split()[0] if customer_name else "there"
+    results = []
+
+    touches = [
+        (1, 3, build_touch1(first_name, "", 42, policy_types)),
+        (2, 10, build_touch2(first_name, "", 0, 42, policy_types)),
+        (3, 21, build_touch3(first_name, "", 42, policy_types)),
+        (4, 45, build_touch4(first_name, "", 42, policy_types)),
+        (5, 105, build_touch_seasonal(first_name, "", 42, policy_types)),
+        (6, 165, build_touch_milestone(first_name, 42, policy_types, 6)),
+        (7, 225, build_touch_value(first_name, 42, policy_types, 0)),
+        (8, 285, build_touch_seasonal(first_name, "", 42, policy_types)),
+        (9, 345, build_touch_milestone(first_name, 42, policy_types, 12)),
+        (10, 405, build_touch_value(first_name, 42, policy_types, 1)),
+    ]
+
+    for touch_num, day, (subject, html) in touches:
+        month = round(day / 30, 1)
+        result = send_life_crosssell_email(
+            to_email=to_email,
+            subject=f"[Touch {touch_num} - Day {day}] {subject}",
+            html=html,
+        )
+        results.append({
+            "touch": touch_num,
+            "day": day,
+            "month": month,
+            "subject": subject,
+            "success": result.get("success", False),
+        })
+
+    return {"sent": sum(1 for r in results if r["success"]), "total": len(results), "results": results}
+
 @router.post("/test-send/{touch_number}")
 def test_send_touch(
     touch_number: int,
