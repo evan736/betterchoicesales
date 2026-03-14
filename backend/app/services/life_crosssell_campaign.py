@@ -52,14 +52,11 @@ def _email_header() -> str:
 
 
 def _email_footer(contact_id: int = 0) -> str:
-    unsub_url = f"{APP_URL}/api/life-campaign/unsubscribe/{contact_id}"
+    unsub_url = f"https://better-choice-api.onrender.com/api/life-campaign/unsubscribe/{contact_id}"
     return f"""
     <div style="background:#f8fafc; padding:24px; text-align:center; border-radius:0 0 16px 16px; border-top:1px solid #e2e8f0;">
-        <p style="margin:0 0 8px; color:#64748b; font-size:12px;">
-            {AGENCY_NAME} · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175
-        </p>
-        <p style="margin:0 0 8px; color:#94a3b8; font-size:11px;">
-            {AGENCY_PHONE} · {AGENCY_EMAIL}
+        <p style="margin:0 0 8px; color:#94a3b8; font-size:12px;">
+            {AGENCY_NAME} · {AGENCY_PHONE}
         </p>
         <p style="margin:0; font-size:11px;">
             <a href="{unsub_url}" style="color:#94a3b8; text-decoration:underline;">Unsubscribe from life insurance emails</a>
