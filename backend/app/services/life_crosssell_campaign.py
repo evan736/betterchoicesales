@@ -377,8 +377,9 @@ def send_life_crosssell_email(
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return {"success": False, "error": "Mailgun not configured"}
 
-    from_addr = f"{AGENCY_NAME} <{os.environ.get('AGENCY_FROM_EMAIL', 'service@betterchoiceins.com')}>"
-    reply_to = agent_email or AGENCY_EMAIL
+    life_from = os.environ.get("LIFE_CAMPAIGN_FROM_EMAIL", "lifeins@betterchoiceins.com")
+    from_addr = f"{AGENCY_NAME} <{life_from}>"
+    reply_to = life_from
 
     data = {
         "from": from_addr,
