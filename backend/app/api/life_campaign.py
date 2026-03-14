@@ -329,6 +329,37 @@ def unsubscribe_from_campaign(
     </div>
 </div></body></html>""")
 
+
+@router.post("/test-send/{touch_number}")
+def test_send_touch(
+    touch_number: int,
+    to_email: str = Body(...),
+    customer_name: str = Body("Test Customer"),
+    policy_types: str = Body("home auto"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a test touch email to a specific address (admin only)."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    builder = TOUCH_BUILDERS.get(touch_number)
+    if not builder:
+        raise HTTPException(status_code=400, detail="Invalid touch number (1-4)")
+
+    first_name = customer_name.split()[0] if customer_name else "there"
+    if touch_number == 2:
+        subject, html = builder(first_name, "", 0, 0, policy_types)
+    else:
+        subject, html = builder(first_name, "", 0, policy_types)
+
+    result = send_life_crosssell_email(
+        to_email=to_email,
+        subject=f"[TEST] {subject}",
+        html=html,
+    )
+    return {"touch": touch_number, "to": to_email, "subject": subject, **result}
+
 @router.post("/preview/{touch_number}")
 def preview_touch(
     touch_number: int,
