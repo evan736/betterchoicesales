@@ -228,17 +228,22 @@ def enroll_staggered(
         ).all()
     ]
 
-    # Find eligible customers with active policies and email
-    query = db.query(Customer).join(
-        CustomerPolicy, Customer.id == CustomerPolicy.customer_id
-    ).filter(
+    # Find eligible customers: have email + have at least one policy
+    # Use a subquery to avoid DISTINCT on JSON columns
+    from sqlalchemy import distinct as sa_distinct
+    customer_ids_with_policies = [
+        cid for (cid,) in db.query(sa_distinct(CustomerPolicy.customer_id)).all()
+    ]
+    
+    query = db.query(Customer).filter(
         Customer.email.isnot(None),
         Customer.email != "",
+        Customer.id.in_(customer_ids_with_policies),
     )
     if already_ids:
         query = query.filter(~Customer.id.in_(already_ids))
     
-    eligible = query.distinct().all()
+    eligible = query.all()
 
     # Categorize by policy type for prioritization
     priority_buckets = {"homeowner": [], "bundled": [], "auto_only": [], "other": []}
