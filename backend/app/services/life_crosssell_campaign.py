@@ -51,15 +51,19 @@ def _email_header() -> str:
     </div>"""
 
 
-def _email_footer(unsubscribe_url: str = "") -> str:
-    unsub = f'<a href="{unsubscribe_url}" style="color:#94a3b8; text-decoration:underline;">Unsubscribe</a> · ' if unsubscribe_url else ""
+def _email_footer(contact_id: int = 0) -> str:
+    unsub_url = f"{APP_URL}/api/life-campaign/unsubscribe/{contact_id}" if contact_id else ""
+    unsub_html = f'<a href="{unsub_url}" style="color:#94a3b8; text-decoration:underline;">Unsubscribe from life insurance emails</a>' if unsub_url else ""
     return f"""
     <div style="background:#f8fafc; padding:24px; text-align:center; border-radius:0 0 16px 16px; border-top:1px solid #e2e8f0;">
         <p style="margin:0 0 8px; color:#64748b; font-size:12px;">
-            {unsub}{AGENCY_NAME} · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175
+            {AGENCY_NAME} · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175
         </p>
-        <p style="margin:0; color:#94a3b8; font-size:11px;">
+        <p style="margin:0 0 8px; color:#94a3b8; font-size:11px;">
             {AGENCY_PHONE} · {AGENCY_EMAIL}
+        </p>
+        <p style="margin:0; font-size:11px;">
+            {unsub_html}
         </p>
     </div>"""
 
@@ -158,7 +162,7 @@ def build_touch1(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
     </div>
-    {_email_footer()}
+    {_email_footer(customer_id)}
 </div></body></html>"""
     return subject, html
 
@@ -223,7 +227,7 @@ def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_
         </p>
 
     </div>
-    {_email_footer()}
+    {_email_footer(customer_id)}
 </div></body></html>"""
     return subject, html
 
@@ -289,7 +293,7 @@ def build_touch3(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
     </div>
-    {_email_footer()}
+    {_email_footer(customer_id)}
 </div></body></html>"""
     return subject, html
 
@@ -342,7 +346,7 @@ def build_touch4(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
     </div>
-    {_email_footer()}
+    {_email_footer(customer_id)}
 </div></body></html>"""
     return subject, html
 

@@ -288,6 +288,47 @@ def opt_out(
     return {"opted_out": True}
 
 
+
+@router.get("/unsubscribe/{contact_id}")
+def unsubscribe_from_campaign(
+    contact_id: int,
+    db: Session = Depends(get_db),
+):
+    """Public unsubscribe endpoint — no auth required (CAN-SPAM compliance).
+    
+    Customer clicks unsubscribe link in email → immediately opted out.
+    Returns a simple HTML confirmation page.
+    """
+    contact = db.query(LifeCrossSellContact).filter(LifeCrossSellContact.id == contact_id).first()
+    if contact and contact.status not in ("opted_out",):
+        contact.status = "opted_out"
+        contact.next_touch_date = None
+        db.commit()
+        logger.info(f"Life cross-sell: {contact.customer_email} unsubscribed (contact {contact_id})")
+
+    # Return a simple branded confirmation page
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unsubscribed</title></head>
+<body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:480px; margin:60px auto; text-align:center; padding:24px;">
+    <div style="background:white; border-radius:16px; padding:40px 32px; box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <div style="width:64px; height:64px; background:#f0fdf4; border-radius:50%; margin:0 auto 20px; display:flex; align-items:center; justify-content:center;">
+            <span style="font-size:28px;">✓</span>
+        </div>
+        <h1 style="margin:0 0 12px; color:#0f172a; font-size:22px; font-weight:700;">You've been unsubscribed</h1>
+        <p style="margin:0 0 24px; color:#64748b; font-size:15px; line-height:1.6;">
+            You won't receive any more life insurance emails from us.
+            Your existing property and auto coverage is not affected.
+        </p>
+        <p style="margin:0; color:#94a3b8; font-size:13px;">
+            Better Choice Insurance Group<br>
+            (847) 908-5665 · service@betterchoiceins.com
+        </p>
+    </div>
+</div></body></html>""")
+
 @router.post("/preview/{touch_number}")
 def preview_touch(
     touch_number: int,
