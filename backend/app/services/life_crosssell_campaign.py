@@ -347,6 +347,193 @@ def build_touch4(first_name: str, agent_name: str, customer_id: int = 0, policy_
     return subject, html
 
 
+
+
+# ── Recurring Nurture Touches (post Day 45, every 60 days) ───────────
+
+def build_touch_seasonal(first_name: str, season: str = "", customer_id: int = 0, policy_types: str = "") -> tuple[str, str]:
+    """Seasonal / life-event trigger — rotates based on time of year."""
+    
+    # Determine season-based messaging
+    from datetime import datetime
+    month = datetime.utcnow().month
+    
+    if month in (1, 2):  # New Year
+        hook = "New Year, New Protection"
+        intro = "A new year is the perfect time to review your family\'s financial safety net."
+        stat = "The #1 New Year\'s resolution financial advisors recommend? Getting life insurance."
+    elif month in (3, 4):  # Tax Season / Spring
+        hook = "Tax Season Reminder"
+        intro = "While you\'re thinking about finances this tax season, here\'s something worth 60 seconds of your time."
+        stat = "Life insurance premiums are NOT tax-deductible — but the death benefit your family receives is 100% tax-free."
+    elif month in (5, 6):  # Summer / Family
+        hook = "Protect Your Family This Summer"
+        intro = "Summer is family time. It\'s also a great time to make sure your family is protected no matter what."
+        stat = "The average cost of raising a child to 18 is over $310,000. Life insurance helps ensure those costs are covered."
+    elif month in (7, 8):  # Back to School
+        hook = "Back-to-School Coverage Check"
+        intro = "As the kids head back to school, it\'s a good time to make sure your family\'s future is secure."
+        stat = "The cost of a 4-year college degree now averages $146,000. Life insurance can help fund your children\'s education."
+    elif month in (9, 10):  # Fall / Open Enrollment
+        hook = "Open Enrollment Season"
+        intro = "You\'re probably reviewing your benefits right now. Don\'t forget the one benefit that protects everything else."
+        stat = "Employer life insurance typically only covers 1-2x your salary. Most families need 10x."
+    else:  # Nov, Dec — Holiday
+        hook = "The Gift of Peace of Mind"
+        intro = "The holidays are about being with the people you love. It\'s also a perfect time to make sure they\'re protected."
+        stat = "Life insurance rates increase every year you wait — and health changes can make it harder to qualify."
+
+    subject = f"{first_name}, {hook.lower()}"
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:560px; margin:0 auto; padding:24px 16px;">
+    {_email_header()}
+    <div style="background:white; padding:32px 28px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            Hi {first_name},
+        </p>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            {intro}
+        </p>
+
+        <div style="background:#f0f9ff; border-left:4px solid {BCI_CYAN}; padding:16px 20px; border-radius:0 8px 8px 0; margin:24px 0;">
+            <p style="margin:0; color:#0c4a6e; font-size:14px; line-height:1.6;">
+                <strong>Did you know?</strong> {stat}
+            </p>
+        </div>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            Getting a quote takes about <strong>60 seconds</strong> — no medical exam, no commitment,
+            and most people are approved instantly.
+        </p>
+
+        {_ethos_button("Check My Rate — Free & Easy →", customer_id)}
+
+        <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
+            — The Better Choice Insurance Team
+        </p>
+
+    </div>
+    {_email_footer(customer_id)}
+</div></body></html>"""
+    return subject, html
+
+
+def build_touch_milestone(first_name: str, customer_id: int = 0, policy_types: str = "", months_as_customer: int = 6) -> tuple[str, str]:
+    """Customer anniversary / milestone touch."""
+    
+    if months_as_customer >= 12:
+        years = months_as_customer // 12
+        milestone = f"{years} year{'s' if years > 1 else ''}"
+        line = f"You\'ve been a valued Better Choice Insurance customer for {milestone} now"
+    else:
+        milestone = f"{months_as_customer} months"
+        line = f"It\'s been {milestone} since you joined the Better Choice Insurance family"
+
+    subject = f"Happy {milestone}, {first_name}! 🎉"
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:560px; margin:0 auto; padding:24px 16px;">
+    {_email_header()}
+    <div style="background:white; padding:32px 28px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
+
+        <div style="text-align:center; margin-bottom:24px;">
+            <span style="font-size:48px;">🎉</span>
+            <h1 style="margin:8px 0 0; color:{BCI_NAVY}; font-size:22px; font-weight:800;">
+                Happy Anniversary, {first_name}!
+            </h1>
+        </div>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            {line}, and we truly appreciate your trust in us.
+        </p>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            As part of our commitment to keeping your family fully protected, we wanted to
+            remind you about one area many families overlook: <strong>life insurance</strong>.
+        </p>
+
+        <div style="background:linear-gradient(135deg, {BCI_NAVY}, #1e293b); border-radius:12px; padding:24px; margin:24px 0; text-align:center;">
+            <p style="margin:0 0 8px; color:{BCI_CYAN}; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:1.5px;">
+                Exclusive for our customers
+            </p>
+            <p style="margin:0; color:white; font-size:16px; line-height:1.5;">
+                Get a personalized life insurance quote in under 60 seconds.<br>
+                <strong>No medical exam. Coverage up to $2M.</strong>
+            </p>
+        </div>
+
+        {_ethos_button("Get My Anniversary Quote →", customer_id)}
+
+        <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
+            Thank you for being part of the Better Choice family.<br>
+            — The Better Choice Insurance Team
+        </p>
+
+    </div>
+    {_email_footer(customer_id)}
+</div></body></html>"""
+    return subject, html
+
+
+def build_touch_value(first_name: str, customer_id: int = 0, policy_types: str = "", variant: int = 0) -> tuple[str, str]:
+    """Rotating value-add touches with different angles."""
+    
+    variants = [
+        {
+            "subject": f"{first_name}, are your loved ones financially protected?",
+            "hook": "Here\'s a question worth thinking about",
+            "body": "If something unexpected happened to you tomorrow, could your family keep up with the mortgage, bills, and daily expenses? Most families can\'t — but life insurance changes that equation completely.",
+        },
+        {
+            "subject": f"Life insurance myth vs. reality",
+            "hook": "Let\'s bust the biggest myth about life insurance",
+            "body": "Most people think life insurance is expensive. The reality? A healthy adult can get $500,000 of coverage for about the cost of a streaming subscription. And with Ethos, there\'s no medical exam — just a quick online application.",
+        },
+        {
+            "subject": f"{first_name}, a 60-second financial checkup",
+            "hook": "Your quick financial protection checkup",
+            "body": "You\'ve got your home covered. Your vehicles are insured. But there\'s one piece of the puzzle that protects everything else — your income. Life insurance makes sure your family\'s lifestyle continues even if you can\'t provide for them.",
+        },
+    ]
+    
+    v = variants[variant % len(variants)]
+    
+    subject = v["subject"]
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:560px; margin:0 auto; padding:24px 16px;">
+    {_email_header()}
+    <div style="background:white; padding:32px 28px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            Hi {first_name},
+        </p>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            {v["body"]}
+        </p>
+
+        <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+            See what you\'d pay — it takes about <strong>60 seconds</strong> and there\'s zero obligation:
+        </p>
+
+        {_ethos_button("See My Rate →", customer_id)}
+
+        <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
+            — The Better Choice Insurance Team
+        </p>
+
+    </div>
+    {_email_footer(customer_id)}
+</div></body></html>"""
+    return subject, html
+
 # ── Touch builders map ───────────────────────────────────────────────
 TOUCH_BUILDERS = {
     1: build_touch1,
@@ -360,7 +547,11 @@ TOUCH_DELAYS = {
     2: 10,   # Day 10
     3: 21,   # Day 21
     4: 45,   # Day 45
+    # After Touch 4, recurring touches every 60 days
+    # Touch 5+ alternate between seasonal, milestone, and value touches
 }
+
+RECURRING_INTERVAL_DAYS = 60  # Days between recurring touches
 
 
 def send_life_crosssell_email(

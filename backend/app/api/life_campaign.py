@@ -219,15 +219,6 @@ def send_pending_touches(
     errors = 0
     for contact in pending:
         next_touch = contact.touch_number + 1
-        if next_touch > 4:
-            contact.status = "completed"
-            db.commit()
-            continue
-
-        builder = TOUCH_BUILDERS.get(next_touch)
-        if not builder:
-            continue
-
         first_name = (contact.customer_name or "").split()[0] if contact.customer_name else "there"
 
         # Get customer's policy types for dynamic email content
@@ -241,10 +232,37 @@ def send_pending_touches(
             if policies:
                 policy_types = " ".join([p.policy_type or "" for p in policies])
 
-        if next_touch == 2:
-            subject, html = builder(first_name, contact.agent_name or "", 0, contact.customer_id, policy_types)
+        # Build the email based on touch number
+        if next_touch <= 4:
+            # Initial drip sequence (Touches 1-4)
+            builder = TOUCH_BUILDERS.get(next_touch)
+            if not builder:
+                continue
+            if next_touch == 2:
+                subject, html = builder(first_name, contact.agent_name or "", 0, contact.customer_id, policy_types)
+            else:
+                subject, html = builder(first_name, contact.agent_name or "", contact.customer_id, policy_types)
         else:
-            subject, html = builder(first_name, contact.agent_name or "", contact.customer_id, policy_types)
+            # Recurring nurture (Touch 5+) — rotate between 3 template types
+            from app.services.life_crosssell_campaign import (
+                build_touch_seasonal, build_touch_milestone, build_touch_value,
+                RECURRING_INTERVAL_DAYS,
+            )
+            cycle_position = (next_touch - 5) % 3  # 0, 1, 2, 0, 1, 2...
+            
+            if cycle_position == 0:
+                # Seasonal touch
+                subject, html = build_touch_seasonal(first_name, "", contact.customer_id, policy_types)
+            elif cycle_position == 1:
+                # Milestone / anniversary touch
+                months = 0
+                if contact.created_at:
+                    months = max(1, int((now - contact.created_at).days / 30))
+                subject, html = build_touch_milestone(first_name, contact.customer_id, policy_types, months)
+            else:
+                # Value-add touch (rotates through 3 variants)
+                variant = (next_touch - 5) // 3
+                subject, html = build_touch_value(first_name, contact.customer_id, policy_types, variant)
 
         result = send_life_crosssell_email(
             to_email=contact.customer_email,
@@ -254,15 +272,19 @@ def send_pending_touches(
         )
 
         if result.get("success"):
-            setattr(contact, f"touch{next_touch}_sent_at", now)
+            if next_touch <= 4:
+                setattr(contact, f"touch{next_touch}_sent_at", now)
             contact.touch_number = next_touch
 
             if next_touch < 4:
+                # Schedule next intro touch
                 next_delay = TOUCH_DELAYS.get(next_touch + 1, 30)
                 contact.next_touch_date = now + timedelta(days=next_delay)
             else:
-                contact.status = "completed"
-                contact.next_touch_date = None
+                # Schedule next recurring touch (every 60 days, forever)
+                from app.services.life_crosssell_campaign import RECURRING_INTERVAL_DAYS
+                contact.next_touch_date = now + timedelta(days=RECURRING_INTERVAL_DAYS)
+                contact.status = "active"  # Keep active, never "completed"
 
             sent += 1
         else:
