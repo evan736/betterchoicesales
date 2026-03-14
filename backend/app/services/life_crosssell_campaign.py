@@ -75,10 +75,37 @@ def _ethos_button(text: str = "See My Rate →", customer_id: int = 0) -> str:
     </div>"""
 
 
-def build_touch1(first_name: str, agent_name: str, customer_id: int = 0) -> tuple[str, str]:
+def build_touch1(first_name: str, agent_name: str, customer_id: int = 0, policy_types: str = "") -> tuple[str, str]:
     """Touch 1 — 'Protect What Matters Most' (Day 3)
     Soft intro, emotional appeal, no hard sell."""
     agent_first = agent_name.split()[0] if agent_name else "Your Agent"
+    
+    # Build dynamic coverage description based on what customer has
+    pt = (policy_types or "").lower()
+    has_home = any(x in pt for x in ["home", "property", "condo", "renters", "dwelling"])
+    has_auto = any(x in pt for x in ["auto", "car", "vehicle"])
+    has_umbrella = "umbrella" in pt
+    if has_home and has_auto:
+        coverage_desc = "home and auto are"
+    elif has_home:
+        coverage_desc = "home is"
+    elif has_auto:
+        coverage_desc = "auto insurance is"
+    elif has_umbrella:
+        coverage_desc = "umbrella policy is"
+    else:
+        coverage_desc = "insurance is"
+    
+    # Property description for second paragraph
+    if has_home and has_auto:
+        property_desc = "home and vehicles are"
+    elif has_home:
+        property_desc = "home is"
+    elif has_auto:
+        property_desc = "vehicles are"
+    else:
+        property_desc = "assets are"
+    
     subject = f"{first_name}, there's one coverage gap we should talk about"
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -96,12 +123,12 @@ def build_touch1(first_name: str, agent_name: str, customer_id: int = 0) -> tupl
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            Now that your home and auto are covered, I wanted to bring up something most
+            Now that your {coverage_desc} covered, I wanted to bring up something most
             families overlook — <strong>life insurance</strong>.
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            Your property is protected if something goes wrong. But what about your family's
+            Your {property_desc} protected if something goes wrong. But what about your family's
             income, your mortgage, your kids' future? That's what life insurance is for — and
             it's probably <strong>a lot more affordable than you think</strong>.
         </p>
@@ -136,7 +163,7 @@ def build_touch1(first_name: str, agent_name: str, customer_id: int = 0) -> tupl
     return subject, html
 
 
-def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_id: int = 0) -> tuple[str, str]:
+def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_id: int = 0, policy_types: str = "") -> tuple[str, str]:
     """Touch 2 — 'The Coverage Gap' (Day 10)
     Educational, value-driven, builds urgency."""
     agent_first = agent_name.split()[0] if agent_name else "Your Agent"
@@ -154,7 +181,7 @@ def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            We worked together to protect your property — and I want to make sure
+            We worked together to protect what's important to you — and I want to make sure
             your family has the <strong>full picture</strong> when it comes to protection.
         </p>
 
@@ -201,7 +228,7 @@ def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_
     return subject, html
 
 
-def build_touch3(first_name: str, agent_name: str, customer_id: int = 0) -> tuple[str, str]:
+def build_touch3(first_name: str, agent_name: str, customer_id: int = 0, policy_types: str = "") -> tuple[str, str]:
     """Touch 3 — 'See Your Rate in 60 Seconds' (Day 21)
     Direct, benefit-focused, strong CTA."""
     agent_first = agent_name.split()[0] if agent_name else "Your Agent"
@@ -265,7 +292,7 @@ def build_touch3(first_name: str, agent_name: str, customer_id: int = 0) -> tupl
     return subject, html
 
 
-def build_touch4(first_name: str, agent_name: str, customer_id: int = 0) -> tuple[str, str]:
+def build_touch4(first_name: str, agent_name: str, customer_id: int = 0, policy_types: str = "") -> tuple[str, str]:
     """Touch 4 — 'A Quick Question' (Day 45)
     Personal, conversational, last touch."""
     agent_first = agent_name.split()[0] if agent_name else "Your Agent"

@@ -130,6 +130,10 @@ def enroll_customer(
     if existing:
         raise HTTPException(status_code=400, detail="Customer already enrolled in campaign")
 
+    # Capture customer's policy types for email personalization
+    policies = db.query(CustomerPolicy).filter(CustomerPolicy.customer_id == customer_id).all()
+    policy_types = " ".join([p.policy_type or "" for p in policies]) if policies else ""
+
     contact = LifeCrossSellContact(
         customer_id=customer_id,
         customer_name=customer.full_name,
@@ -139,6 +143,7 @@ def enroll_customer(
         touch_number=0,
         next_touch_date=datetime.utcnow() + timedelta(days=TOUCH_DELAYS[1]),
         status="active",
+        source_policy_type=policy_types[:200] if policy_types else None,
     )
     db.add(contact)
     db.commit()
@@ -174,6 +179,10 @@ def enroll_bulk(
 
     enrolled = 0
     for customer in eligible:
+        # Capture policy types
+        cust_policies = db.query(CustomerPolicy).filter(CustomerPolicy.customer_id == customer.id).all()
+        pt = " ".join([p.policy_type or "" for p in cust_policies]) if cust_policies else ""
+
         contact = LifeCrossSellContact(
             customer_id=customer.id,
             customer_name=customer.full_name,
@@ -182,6 +191,7 @@ def enroll_bulk(
             touch_number=0,
             next_touch_date=datetime.utcnow() + timedelta(days=TOUCH_DELAYS[1]),
             status="active",
+            source_policy_type=pt[:200] if pt else None,
         )
         db.add(contact)
         enrolled += 1
@@ -220,10 +230,21 @@ def send_pending_touches(
 
         first_name = (contact.customer_name or "").split()[0] if contact.customer_name else "there"
 
-        if next_touch == 2:
-            subject, html = builder(first_name, contact.agent_name or "", 0, contact.customer_id)
+        # Get customer's policy types for dynamic email content
+        policy_types = ""
+        if contact.source_policy_type:
+            policy_types = contact.source_policy_type
         else:
-            subject, html = builder(first_name, contact.agent_name or "", contact.customer_id)
+            policies = db.query(CustomerPolicy).filter(
+                CustomerPolicy.customer_id == contact.customer_id
+            ).all()
+            if policies:
+                policy_types = " ".join([p.policy_type or "" for p in policies])
+
+        if next_touch == 2:
+            subject, html = builder(first_name, contact.agent_name or "", 0, contact.customer_id, policy_types)
+        else:
+            subject, html = builder(first_name, contact.agent_name or "", contact.customer_id, policy_types)
 
         result = send_life_crosssell_email(
             to_email=contact.customer_email,
