@@ -123,7 +123,7 @@ def build_touch1(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            Now that your {coverage_desc} covered, I wanted to bring up something most
+            Now that your {coverage_desc} covered, we wanted to bring up something most
             families overlook — <strong>life insurance</strong>.
         </p>
 
@@ -153,8 +153,8 @@ def build_touch1(first_name: str, agent_name: str, customer_id: int = 0, policy_
 
         <p style="margin:16px 0 0; color:#334155; font-size:15px;">
             Best,<br>
-            <strong>{agent_first}</strong><br>
-            <span style="color:#64748b; font-size:13px;">{AGENCY_NAME}</span>
+            <strong>The Better Choice Insurance Team</strong><br>
+            <span style="color:#64748b; font-size:13px;">{AGENCY_PHONE} · {AGENCY_EMAIL}</span>
         </p>
 
     </div>
@@ -219,7 +219,7 @@ def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_
         {_ethos_button("See What I Qualify For →", customer_id)}
 
         <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
-            — {agent_first}, {AGENCY_NAME}
+            — The Better Choice Insurance Team
         </p>
 
     </div>
@@ -245,7 +245,7 @@ def build_touch3(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            I'll keep this one short.
+            We'll keep this one short.
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
@@ -282,8 +282,10 @@ def build_touch3(first_name: str, agent_name: str, customer_id: int = 0, policy_
         {_ethos_button("Get My Free Quote →", customer_id)}
 
         <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
-            Questions? Just hit reply. I'm here.<br>
-            — {agent_first}
+            Questions? Just hit reply — we're here to help.
+        </p>
+        <p style="margin:8px 0 0; color:#334155; font-size:15px;">
+            — <strong>The Better Choice Insurance Team</strong>
         </p>
 
     </div>
@@ -309,11 +311,11 @@ def build_touch4(first_name: str, agent_name: str, customer_id: int = 0, policy_
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            I wanted to circle back one more time about life insurance coverage.
+            We wanted to circle back one more time about life insurance coverage.
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            Is it something you've been thinking about? A lot of my clients tell me they
+            Is it something you've been thinking about? A lot of our clients tell us they
             <em>know</em> they need it but keep putting it off. The thing is — life insurance
             rates go up every year you wait, and health changes can make it harder to qualify.
         </p>
@@ -330,12 +332,12 @@ def build_touch4(first_name: str, agent_name: str, customer_id: int = 0, policy_
 
         <p style="margin:24px 0 0; color:#334155; font-size:15px; line-height:1.7;">
             And if life insurance isn't the right fit right now, that's completely okay.
-            Just reply and let me know — I won't bring it up again. 😊
+            Just reply and let me know — we won't bring it up again. 😊
         </p>
 
         <p style="margin:16px 0 0; color:#334155; font-size:15px;">
             Talk soon,<br>
-            <strong>{agent_first}</strong><br>
+            <strong>The Better Choice Insurance Team</strong><br>
             <span style="color:#64748b; font-size:13px;">{AGENCY_PHONE}</span>
         </p>
 
