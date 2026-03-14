@@ -318,6 +318,7 @@ def get_sales_summary(
     policy_type: Optional[str] = None,
     carrier: Optional[str] = None,
     state: Optional[str] = None,
+    exclude_rewrites: Optional[bool] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -340,6 +341,8 @@ def get_sales_summary(
         query = query.filter(Sale.carrier == carrier)
     if state:
         query = query.filter(Sale.state == state)
+    if exclude_rewrites:
+        query = query.filter(Sale.lead_source != "rewrite")
 
     # Time filters
     now = datetime.utcnow()
@@ -393,6 +396,7 @@ def get_sales_by_group(
     carrier: Optional[str] = None,
     state: Optional[str] = None,
     producer_id: Optional[int] = None,
+    exclude_rewrites: Optional[bool] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -435,6 +439,8 @@ def get_sales_by_group(
         query = query.filter(Sale.carrier == carrier)
     if state:
         query = query.filter(Sale.state == state)
+    if exclude_rewrites:
+        query = query.filter(Sale.lead_source != "rewrite")
 
     # Time filters
     now = datetime.utcnow()
@@ -502,6 +508,7 @@ def get_sales_table(
     state: Optional[str] = None,
     producer_id: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
+    exclude_rewrites: Optional[bool] = None,
     sort_by: str = Query("sale_date", description="sale_date, written_premium, client_name, effective_date"),
     sort_order: str = Query("desc", description="asc or desc"),
     skip: int = 0,
@@ -555,6 +562,8 @@ def get_sales_table(
         query = query.filter(Sale.carrier == carrier)
     if state:
         query = query.filter(Sale.state == state)
+    if exclude_rewrites:
+        query = query.filter(Sale.lead_source != "rewrite")
 
     # Sorting
     sort_col_map = {

@@ -49,6 +49,7 @@ export default function Analytics() {
   // Scope toggle: "my" = own sales, "agency" = all agency sales
   const isPrivileged = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'manager';
   const [scope, setScope] = useState<'my' | 'agency'>(isPrivileged ? 'agency' : 'my');
+  const [newBizOnly, setNewBizOnly] = useState(false);
 
   // Table filters
   const [tableFilters, setTableFilters] = useState<any>({});
@@ -80,7 +81,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (user) loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope]);
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly]);
 
   const loadFilterOptions = async () => {
     try {
@@ -110,6 +111,9 @@ export default function Analytics() {
       }
       // Pass filters to ALL endpoints so summary cards, chart, and table all reflect the same filters
       const activeFilters = { ...tableFilters };
+      if (newBizOnly) {
+        activeFilters.exclude_lead_source = 'rewrite';
+      }
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
         analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams, ...activeFilters }),
         analyticsAPI.byGroup({ group_by: groupBy, period: apiPeriod, scope, ...extraParams, ...activeFilters }),
@@ -171,6 +175,17 @@ export default function Analytics() {
                 Agency
               </button>
             </div>
+            {/* New Business Only toggle */}
+            <button
+              onClick={() => setNewBizOnly(!newBizOnly)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                newBizOnly
+                  ? 'bg-green-600 text-white shadow-md'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:border-green-300'
+              }`}
+            >
+              {newBizOnly ? '✓ New Biz Only' : 'New Biz Only'}
+            </button>
             <div className="w-px h-8 bg-slate-200" />
             {PERIOD_OPTIONS.map((p) => (
               <button
@@ -216,6 +231,24 @@ export default function Analytics() {
                 <Filter size={16} />
                 <span>Filter</span>
               </div>
+              <button
+                onClick={() => {
+                  if (tableFilters.exclude_rewrites) {
+                    const f = { ...tableFilters };
+                    delete f.exclude_rewrites;
+                    setTableFilters(f);
+                  } else {
+                    setTableFilters({ ...tableFilters, exclude_rewrites: true });
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                  tableFilters.exclude_rewrites
+                    ? 'bg-green-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                New Business Only
+              </button>
               <FilterSelect
                 label="Lead Source"
                 value={tableFilters.lead_source || ''}
@@ -293,6 +326,12 @@ export default function Analytics() {
                   <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
                     State: {tableFilters.state}
                     <button onClick={() => setTableFilters({ ...tableFilters, state: undefined })} className="ml-1 text-amber-400 hover:text-amber-700">&times;</button>
+                  </span>
+                )}
+                {tableFilters.exclude_rewrites && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-100 text-green-700 text-sm font-semibold">
+                    New Business Only
+                    <button onClick={() => { const f = { ...tableFilters }; delete f.exclude_rewrites; setTableFilters(f); }} className="ml-1 text-green-400 hover:text-green-700">&times;</button>
                   </span>
                 )}
               </div>
