@@ -593,6 +593,29 @@ def send_life_crosssell_email(
         "o:tracking-opens": "yes",
     }
 
+    # BCC Evan on the first 100 emails so he can monitor quality
+    bcc_email = os.environ.get("LIFE_CAMPAIGN_BCC", "evan@betterchoiceins.com")
+    bcc_limit = int(os.environ.get("LIFE_CAMPAIGN_BCC_LIMIT", "100"))
+    if bcc_email and bcc_limit > 0:
+        try:
+            # Check how many have been sent total
+            from app.core.database import SessionLocal
+            from app.models.life_campaign import LifeCrossSellContact
+            from sqlalchemy import func
+            _db = SessionLocal()
+            total_sent = sum([
+                _db.query(func.count(LifeCrossSellContact.id)).filter(getattr(LifeCrossSellContact, f"touch{i}_sent_at").isnot(None)).scalar() or 0
+                for i in range(1, 5)
+            ])
+            # Also count touches 5+ (touch_number > 4)
+            total_sent += _db.query(func.count(LifeCrossSellContact.id)).filter(LifeCrossSellContact.touch_number > 4).scalar() or 0
+            _db.close()
+            
+            if total_sent < bcc_limit:
+                data["bcc"] = [bcc_email]
+        except Exception as e:
+            logger.warning(f"BCC check failed: {e}")
+
     try:
         resp = requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
