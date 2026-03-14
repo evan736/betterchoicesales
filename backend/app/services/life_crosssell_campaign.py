@@ -423,9 +423,9 @@ def build_touch_seasonal(first_name: str, season: str = "", customer_id: int = 0
 
 
 def build_touch_milestone(first_name: str, customer_id: int = 0, policy_types: str = "", months_as_customer: int = 6) -> tuple[str, str]:
-    """Periodic coverage review touch — positioned as a helpful check-in."""
+    """Periodic check-in — standalone life insurance value touch."""
     
-    subject = f"{first_name}, a quick coverage review from your insurance team"
+    subject = f"{first_name}, have you locked in your life insurance rate yet?"
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -438,33 +438,52 @@ def build_touch_milestone(first_name: str, customer_id: int = 0, policy_types: s
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            We periodically check in with our customers to make sure there are no gaps
-            in their coverage. A lot can change — new home, growing family, higher income —
-            and your protection should keep up.
+            We wanted to check in on something important — life insurance rates go up
+            every single year, and health changes can make it even harder to qualify later.
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            One area we consistently see gaps: <strong>life insurance</strong>. It's the one policy
-            that protects everything else — your mortgage, your family's income, your kids' future.
+            That means <strong>right now is the cheapest and easiest it will ever be</strong>
+            for you to lock in a rate.
         </p>
 
-        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:24px; margin:24px 0;">
-            <p style="margin:0 0 12px; color:{BCI_NAVY}; font-size:15px; font-weight:700;">
-                Quick Coverage Checklist:
-            </p>
-            <table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">
-                <tr><td style="padding:6px 0;">✅ Home insurance</td><td style="text-align:right; color:#16a34a; font-weight:600;">Covered</td></tr>
-                <tr><td style="padding:6px 0;">✅ Auto insurance</td><td style="text-align:right; color:#16a34a; font-weight:600;">Covered</td></tr>
-                <tr><td style="padding:6px 0; border-top:1px dashed #e2e8f0;">❓ Life insurance</td><td style="text-align:right; color:#dc2626; font-weight:600;">Not on file</td></tr>
+        <div style="background:linear-gradient(135deg, {BCI_NAVY}, #1e293b); border-radius:12px; padding:24px; margin:24px 0;">
+            <table style="width:100%; color:white; font-size:14px;" cellpadding="0" cellspacing="0">
+                <tr>
+                    <td style="padding:12px 0; border-bottom:1px solid #334155;">
+                        <strong>Age 30</strong>
+                    </td>
+                    <td style="padding:12px 0; border-bottom:1px solid #334155; text-align:right; color:{BCI_CYAN}; font-weight:700;">
+                        ~$20/mo for $500K
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:12px 0; border-bottom:1px solid #334155;">
+                        <strong>Age 40</strong>
+                    </td>
+                    <td style="padding:12px 0; border-bottom:1px solid #334155; text-align:right; color:{BCI_CYAN}; font-weight:700;">
+                        ~$30/mo for $500K
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:12px 0;">
+                        <strong>Age 50</strong>
+                    </td>
+                    <td style="padding:12px 0; text-align:right; color:{BCI_CYAN}; font-weight:700;">
+                        ~$65/mo for $500K
+                    </td>
+                </tr>
             </table>
+            <p style="margin:12px 0 0; color:#94a3b8; font-size:11px; text-align:center;">
+                Sample rates for a healthy non-smoker. Your rate may vary.
+            </p>
         </div>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            If you already have life insurance — great, no action needed. If not, it takes
-            about <strong>60 seconds</strong> to see what you'd qualify for:
+            See your actual rate in about 60 seconds — no commitment, no medical exam:
         </p>
 
-        {_ethos_button("Check My Rate →", customer_id)}
+        {_ethos_button("Lock In My Rate →", customer_id)}
 
         <p style="margin:24px 0 0; color:#64748b; font-size:14px; line-height:1.6;">
             — The Better Choice Insurance Team
