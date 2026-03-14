@@ -154,36 +154,39 @@ def build_touch2(first_name: str, agent_name: str, premium: float = 0, customer_
         </p>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            You've done the smart thing by protecting your home and vehicles.
-            But here's something I see all the time that worries me:
+            We worked together to protect your property — and I want to make sure
+            your family has the <strong>full picture</strong> when it comes to protection.
         </p>
 
-        <div style="background:linear-gradient(135deg, #fef2f2, #fff1f2); border:1px solid #fecaca; border-radius:12px; padding:24px; margin:24px 0; text-align:center;">
-            <p style="margin:0 0 8px; color:#991b1b; font-size:28px; font-weight:800;">68%</p>
-            <p style="margin:0; color:#991b1b; font-size:14px; font-weight:600;">
-                of American families say they'd face financial hardship<br>within 6 months
-                if the primary breadwinner passed away
+        <div style="background:linear-gradient(135deg, {BCI_NAVY}, #1e293b); border-radius:12px; padding:28px; margin:24px 0;">
+            <p style="margin:0 0 4px; color:{BCI_CYAN}; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:2px;">
+                The 10X Rule of Thumb
+            </p>
+            <p style="margin:0 0 12px; color:white; font-size:17px; font-weight:600; line-height:1.5;">
+                Financial experts recommend life insurance coverage equal to
+                <strong style="color:{BCI_CYAN};">10 times your annual income</strong>.
+            </p>
+            <p style="margin:0; color:#94a3b8; font-size:13px; line-height:1.5;">
+                Why? Because 44% of American families would face financial hardship
+                within six months of losing the family breadwinner. Your mortgage alone
+                is often the largest monthly bill — and the hardest to cover alone.
             </p>
         </div>
 
         <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            Insurance protects your <em>things</em>. Life insurance protects your <em>people</em>.
+            The good news: through our partner <strong>Ethos</strong>, you can get coverage
+            up to <strong>$2 million</strong> with a simple online application. Here's what makes it different:
         </p>
 
-        <h3 style="margin:24px 0 12px; color:{BCI_NAVY}; font-size:16px;">
-            What life insurance actually covers:
-        </h3>
         <table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">
-            <tr><td style="padding:8px 0; border-bottom:1px solid #f1f5f9;">✅ Mortgage payments if you're not there</td></tr>
-            <tr><td style="padding:8px 0; border-bottom:1px solid #f1f5f9;">✅ Your children's education</td></tr>
-            <tr><td style="padding:8px 0; border-bottom:1px solid #f1f5f9;">✅ Spouse's living expenses</td></tr>
-            <tr><td style="padding:8px 0; border-bottom:1px solid #f1f5f9;">✅ Outstanding debts & final expenses</td></tr>
-            <tr><td style="padding:8px 0;">✅ Your family's standard of living</td></tr>
+            <tr><td style="padding:10px 0; border-bottom:1px solid #f1f5f9;">✅ <strong>100% online</strong> — no medical exams, blood draws, or home visits</td></tr>
+            <tr><td style="padding:10px 0; border-bottom:1px solid #f1f5f9;">✅ <strong>Instant approval</strong> — most people are approved immediately</td></tr>
+            <tr><td style="padding:10px 0; border-bottom:1px solid #f1f5f9;">✅ <strong>Activate immediately</strong> — coverage starts the moment you're approved</td></tr>
+            <tr><td style="padding:10px 0;">✅ <strong>Top-rated carriers</strong> — backed by trusted, A-rated insurance companies</td></tr>
         </table>
 
         <p style="margin:24px 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-            The best part? It takes about <strong>60 seconds</strong> to see what you'd qualify for.
-            No medical exam required for most applicants.
+            It takes just a few minutes. You could have your family fully protected before dinner tonight.
         </p>
 
         {_ethos_button("See What I Qualify For →", customer_id)}
