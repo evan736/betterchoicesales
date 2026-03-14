@@ -1672,6 +1672,19 @@ app.include_router(inspection_api.router)
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
 
+# Life cross-sell campaign table
+try:
+    from sqlalchemy import inspect as _life_inspect
+    _life_insp = _life_inspect(engine)
+    if "life_crosssell_contacts" not in _life_insp.get_table_names():
+        from app.models.life_campaign import LifeCrossSellContact
+        LifeCrossSellContact.__table__.create(engine)
+        logger.info("Created life_crosssell_contacts table")
+except Exception as e:
+    logger.warning(f"Life campaign table check: {e}")
+from app.api.life_campaign import router as life_campaign_router
+app.include_router(life_campaign_router)
+
 from app.api import tasks as tasks_api
 app.include_router(tasks_api.router)
 app.include_router(missive_api.router)
