@@ -724,7 +724,7 @@ def _run_proactive_scan(
     from sqlalchemy import and_ as sa_and
     from collections import defaultdict
 
-    # Get all policies with effective dates in the near future that could be renewals
+    # Get policies with effective dates in the near future (potential renewal terms)
     upcoming_active = (
         db.query(CustomerPolicy)
         .filter(
@@ -735,25 +735,31 @@ def _run_proactive_scan(
         .all()
     )
 
-    # Group by policy number — if same policy has 2+ entries, the future one is a renewal
-    policy_groups = defaultdict(list)
-    for p in upcoming_active:
-        if p.policy_number:
-            policy_groups[p.policy_number].append(p)
-
-    # For each group with 2+ entries, the one with the later effective date is the renewal
+    # For each upcoming policy, check if there's a PRIOR term with a different premium
     already_renewing_pnums = set(p.policy_number for p in renewing if p.policy_number)
-    for pnum, policies in policy_groups.items():
-        if len(policies) < 2 or pnum in already_renewing_pnums:
+    for upcoming in upcoming_active:
+        pnum = upcoming.policy_number
+        if not pnum or pnum in already_renewing_pnums:
             continue
-        # Sort by effective date
-        policies.sort(key=lambda p: p.effective_date or datetime.min)
-        # Last one is the upcoming renewal term
-        renewal_candidate = policies[-1]
-        # Make sure there's actually a prior term with a different premium
-        prior = policies[-2]
-        if (renewal_candidate.premium or 0) != (prior.premium or 0):
-            renewing.append(renewal_candidate)
+
+        # Find prior terms for this policy number (older effective date)
+        prior_terms = (
+            db.query(CustomerPolicy)
+            .filter(
+                CustomerPolicy.policy_number == pnum,
+                CustomerPolicy.id != upcoming.id,
+                CustomerPolicy.effective_date < upcoming.effective_date,
+            )
+            .order_by(CustomerPolicy.effective_date.desc())
+            .limit(1)
+            .all()
+        )
+
+        if prior_terms:
+            prior = prior_terms[0]
+            if (upcoming.premium or 0) != (prior.premium or 0) and (prior.premium or 0) > 0:
+                renewing.append(upcoming)
+                already_renewing_pnums.add(pnum)
 
     renewing_policy_nums = [p.policy_number for p in renewing if p.policy_number]
     # Build a set of renewing term IDs to exclude from active lookup
