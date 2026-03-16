@@ -140,26 +140,57 @@ def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -
     # Categorize what they have from BOTH sources
     lobs = set()
 
-    # From NowCerts policies
+    # From NowCerts policies — infer LOB from carrier name + policy number patterns
+    # since line_of_business is often empty from NowCerts
+    AUTO_CARRIERS = ["progressive", "geico", "bristol west", "gainsco", "clearcover"]
+    HOME_CARRIERS = ["openly", "universal property", "american modern", "covertree", "hippo", "branch", "steadily", "obsidian"]
+    BOTH_CARRIERS = ["safeco", "travelers", "grange", "national general", "natgen", "integon", "encompass", "first connect"]
+    
     for p in policies:
         lob = (p.line_of_business or "").lower()
-        ptype = (p.policy_type or "").lower()
         carrier = (p.carrier or "").lower()
-        combined = f"{lob} {ptype} {carrier}"
-        if any(x in combined for x in ["auto", "car", "vehicle", "personal auto"]):
+        pnum = (p.policy_number or "").upper()
+        ptype = (p.policy_type or "").lower()
+        status = (p.status or "").lower()
+        
+        # Skip non-active policies
+        if status not in ("active", "in force", "inforce", "renewing"):
+            continue
+        
+        # Direct LOB match if available
+        if any(x in lob for x in ["personal auto", "auto", "vehicle"]):
             lobs.add("auto")
-        if any(x in combined for x in ["home", "property", "dwelling", "ho3", "ho5", "homeowner"]):
+            continue
+        if any(x in lob for x in ["homeowner", "home", "property", "dwelling"]):
             lobs.add("home")
-        if "umbrella" in combined:
+            continue
+        if "umbrella" in lob:
             lobs.add("umbrella")
-        if any(x in combined for x in ["renter", "tenant"]):
+            continue
+        if any(x in lob for x in ["renter", "tenant"]):
             lobs.add("renters")
-        if any(x in combined for x in ["condo", "ho6"]):
-            lobs.add("condo")
-        if "flood" in combined:
-            lobs.add("flood")
-        if "life" in combined:
-            lobs.add("life")
+            continue
+        
+        # Infer from carrier name
+        if any(c in carrier for c in AUTO_CARRIERS):
+            lobs.add("auto")
+        elif any(c in carrier for c in HOME_CARRIERS):
+            lobs.add("home")
+        elif any(c in carrier for c in BOTH_CARRIERS):
+            # For carriers that do both, use policy number patterns
+            # Safeco: OZ/Y = home, Z = auto; Grange: HM = home, PA = auto
+            # Travelers: long numbers = auto; NatGen: varies
+            if pnum.startswith("HM") or pnum.startswith("OZ") or pnum.startswith("BQ"):
+                lobs.add("home")
+            elif pnum.startswith("PA") or pnum.startswith("Z"):
+                lobs.add("auto")
+            elif len(pnum.replace("-","")) >= 10 and pnum[0].isdigit():
+                # Long numeric = likely auto (Travelers, Progressive, Geico)
+                lobs.add("auto")
+            else:
+                # Can't determine — check premium range as hint
+                # Home policies tend to be $1000+ annually, auto can vary
+                pass
 
     # From Sales table (more reliable for policy_type)
     for sale in sales:
