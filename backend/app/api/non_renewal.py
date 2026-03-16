@@ -271,7 +271,7 @@ def send_nonrenewal_notification(
 
             # Auto-assign via round-robin if enabled, otherwise assign to current user
             from app.api.reshop import _get_next_round_robin_agent
-            auto_agent = _get_next_round_robin_agent(db)
+            auto_agent = _get_next_round_robin_agent(db, customer_id=customer.id if customer else None, customer_name=data.customer_name or "")
             
             reshop = Reshop(
                 customer_id=customer.id if customer else None,

@@ -49,12 +49,18 @@ RETENTION_NOTIFY_EMAILS = [
 # ── Round-Robin Auto-Assignment ──────────────────────────────────────
 # Disabled by default. Set RESHOP_AUTO_ASSIGN=true env var to enable.
 # Rotates reshop assignments between configured agents.
+# IMPORTANT: Assigns per-customer, not per-policy. If a customer already
+# has a reshop assigned to Salma, all future reshops for that customer
+# also go to Salma (no split accounts).
 
 RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles"]  # Usernames for rotation
 _reshop_round_robin_index = 0  # In-memory counter (resets on restart, which is fine)
 
-def _get_next_round_robin_agent(db: Session) -> Optional[int]:
+def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_name: str = "") -> Optional[int]:
     """Get the next agent ID in the round-robin rotation.
+    
+    Customer-aware: if this customer already has an active reshop assigned
+    to someone, return that same agent (don't split accounts).
     
     Returns None if auto-assign is disabled or no agents found.
     """
@@ -64,6 +70,29 @@ def _get_next_round_robin_agent(db: Session) -> Optional[int]:
     if not auto_assign:
         return None
 
+    # Check if this customer already has a reshop assigned to someone
+    if customer_id:
+        existing = db.query(Reshop).filter(
+            Reshop.customer_id == customer_id,
+            Reshop.assigned_to.isnot(None),
+            Reshop.stage.in_(ACTIVE_STAGES),
+        ).first()
+        if existing and existing.assigned_to:
+            logger.info(f"Round-robin: customer {customer_name or customer_id} already assigned to agent {existing.assigned_to} — keeping same agent")
+            return existing.assigned_to
+
+    # Also check by customer name (in case customer_id differs across policies)
+    if customer_name:
+        existing_by_name = db.query(Reshop).filter(
+            func.lower(Reshop.customer_name) == customer_name.lower(),
+            Reshop.assigned_to.isnot(None),
+            Reshop.stage.in_(ACTIVE_STAGES),
+        ).first()
+        if existing_by_name and existing_by_name.assigned_to:
+            logger.info(f"Round-robin: customer '{customer_name}' already assigned to agent {existing_by_name.assigned_to} by name — keeping same agent")
+            return existing_by_name.assigned_to
+
+    # New customer — round-robin
     agents = db.query(User).filter(
         User.username.in_(RESHOP_AUTO_ASSIGN_AGENTS),
         User.is_active == True,
@@ -80,7 +109,7 @@ def _get_next_round_robin_agent(db: Session) -> Optional[int]:
     agent = agents[_reshop_round_robin_index % len(agents)]
     _reshop_round_robin_index += 1
     
-    logger.info(f"Round-robin reshop assignment: {agent.full_name} (index {_reshop_round_robin_index - 1})")
+    logger.info(f"Round-robin reshop assignment: {agent.full_name} for customer '{customer_name}' (index {_reshop_round_robin_index - 1})")
     return agent.id
 
 def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
@@ -1086,7 +1115,7 @@ def _run_proactive_scan(
         )
 
         # Auto-assign via round-robin (if enabled)
-        auto_agent_id = _get_next_round_robin_agent(db)
+        auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
 
         reshop = Reshop(
             customer_id=customer.id,
