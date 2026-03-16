@@ -126,7 +126,7 @@ export default function Analytics() {
           ...activeFilters,
           limit: 200,
         }),
-        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope }),
+        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope, ...activeFilters }),
       ]);
       setSummary(summaryRes.data);
       setChartData(groupRes.data.results || []);
@@ -341,8 +341,8 @@ export default function Analytics() {
 
         {/* Trending Data (left) + Goals & Milestones (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrendingGoals period={period} scope={scope} showGoals={false} />
-          <TrendingGoals period={period} scope={scope} showTrending={false} />
+          <TrendingGoals period={period} scope={scope} showGoals={false} filters={{...tableFilters, ...(newBizOnly ? {exclude_rewrites: true} : {})}} />
+          <TrendingGoals period={period} scope={scope} showTrending={false} filters={{...tableFilters, ...(newBizOnly ? {exclude_rewrites: true} : {})}} />
         </div>
 
         {/* Chart Section */}

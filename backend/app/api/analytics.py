@@ -44,6 +44,11 @@ def get_trending_projection(
     period: Optional[str] = Query(None, description="monthly, annual, last_year"),
     producer_id: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
+    exclude_rewrites: Optional[bool] = None,
+    lead_source: Optional[str] = None,
+    policy_type: Optional[str] = None,
+    carrier: Optional[str] = None,
+    state: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -52,7 +57,7 @@ def get_trending_projection(
     Supports monthly (current month), annual (this year), and last_year views.
     """
     from app.core.cache import get as cache_get, set as cache_set
-    cache_key = f"trending:{period}:{producer_id}:{target_date}:{current_user.id}:{scope}"
+    cache_key = f"trending:{period}:{producer_id}:{target_date}:{current_user.id}:{scope}:{exclude_rewrites}:{lead_source}:{policy_type}:{carrier}:{state}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -69,6 +74,18 @@ def get_trending_projection(
         user_filters.append(Sale.producer_id == current_user.id)
     elif producer_id:
         user_filters.append(Sale.producer_id == producer_id)
+
+    # Field filters
+    if exclude_rewrites:
+        user_filters.append(Sale.lead_source != "rewrite")
+    if lead_source:
+        user_filters.append(Sale.lead_source == lead_source)
+    if policy_type:
+        user_filters.append(Sale.policy_type == policy_type)
+    if carrier:
+        user_filters.append(Sale.carrier == carrier)
+    if state:
+        user_filters.append(Sale.state == state)
 
     # Handle last_year — purely historical, no projections
     if period == "last_year":
