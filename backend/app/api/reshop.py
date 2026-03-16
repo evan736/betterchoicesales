@@ -44,8 +44,75 @@ RETENTION_NOTIFY_EMAILS = [
 
 
 
-def _notify_reshop_assignment(reshop, assignee, assigned_by):
-    """Send email notification when a reshop is assigned to someone."""
+
+def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
+    """Check if a customer is missing common lines of business — cross-sell opportunities."""
+    policies = db.query(CustomerPolicy).filter(
+        CustomerPolicy.customer_id == customer_id,
+        func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce", "renewing"]),
+    ).all()
+
+    if not policies:
+        return []
+
+    # Categorize what they have
+    lobs = set()
+    for p in policies:
+        lob = (p.line_of_business or p.policy_type or "").lower()
+        carrier = (p.carrier or "").lower()
+        if any(x in lob for x in ["auto", "car", "vehicle", "personal auto"]):
+            lobs.add("auto")
+        if any(x in lob for x in ["home", "property", "dwelling", "ho3", "ho5", "homeowner"]):
+            lobs.add("home")
+        if "umbrella" in lob:
+            lobs.add("umbrella")
+        if any(x in lob for x in ["renter", "tenant"]):
+            lobs.add("renters")
+        if any(x in lob for x in ["condo", "ho6"]):
+            lobs.add("condo")
+        if any(x in lob for x in ["flood"]):
+            lobs.add("flood")
+        if any(x in lob for x in ["life"]):
+            lobs.add("life")
+
+    opportunities = []
+
+    # Auto customer without home
+    if "auto" in lobs and "home" not in lobs and "renters" not in lobs and "condo" not in lobs:
+        opportunities.append({
+            "type": "home",
+            "label": "Home Insurance",
+            "reason": "Has auto but no home/renters policy on file",
+        })
+
+    # Home customer without auto
+    if ("home" in lobs or "condo" in lobs) and "auto" not in lobs:
+        opportunities.append({
+            "type": "auto",
+            "label": "Auto Insurance",
+            "reason": "Has home but no auto policy on file",
+        })
+
+    # No umbrella (if they have both home and auto, they should have umbrella)
+    if "auto" in lobs and ("home" in lobs or "condo" in lobs) and "umbrella" not in lobs:
+        opportunities.append({
+            "type": "umbrella",
+            "label": "Umbrella Policy",
+            "reason": "Has home + auto — perfect candidate for umbrella coverage",
+        })
+
+    # No life insurance (always a cross-sell if not on file)
+    if "life" not in lobs:
+        opportunities.append({
+            "type": "life",
+            "label": "Life Insurance",
+            "reason": "No life insurance on file",
+        })
+
+    return opportunities
+
+def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
+    """Send email notification when a reshop is assigned, with cross-sell opportunities."""
     import requests as _requests
     import logging
     _logger = logging.getLogger(__name__)
@@ -54,6 +121,10 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by):
         return
 
     try:
+        # Detect cross-sell opportunities
+        cross_sell = []
+        if db and reshop.customer_id:
+            cross_sell = _detect_cross_sell(db, reshop.customer_id, reshop.customer_name or "")
         customer = reshop.customer_name or "Unknown Customer"
         carrier = reshop.carrier or "Unknown Carrier"
         policy = reshop.policy_number or ""
@@ -105,6 +176,13 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by):
             </table>
             {f'<p style="margin:12px 0 0; color:#f59e0b; font-size:13px; font-weight:600;">{days.strip(" —")}</p>' if days else ""}
         </div>
+
+        {"".join(f"""
+        <div style="background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:16px; margin:16px 0;">
+            <p style="margin:0 0 8px; color:#92400e; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px;">💡 Cross-Sell Opportunity</p>
+            <p style="margin:0 0 4px; color:#78350f; font-size:15px; font-weight:600;">{opp['label']}</p>
+            <p style="margin:0; color:#92400e; font-size:13px;">{opp['reason']}</p>
+        </div>""" for opp in cross_sell) if cross_sell else ""}
 
         <div style="text-align:center; margin:24px 0;">
             <a href="https://better-choice-web.onrender.com/reshop" style="display:inline-block; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; padding:14px 36px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
@@ -307,6 +385,7 @@ def _reshop_to_dict(r: Reshop) -> dict:
         "referred_by": r.referred_by,
         "assigned_to": r.assigned_to,
         "assignee_name": r.assignee.full_name if r.assignee else None,
+        "cross_sell_opportunities": [],  # Populated on detail view
         "quoter": r.quoter,
         "presenter": r.presenter,
         "quoted_carrier": r.quoted_carrier,
@@ -634,8 +713,14 @@ def get_reshop(
         .all()
     )
 
+    result = _reshop_to_dict(reshop)
+    
+    # Detect cross-sell opportunities for this customer
+    if reshop.customer_id:
+        result["cross_sell_opportunities"] = _detect_cross_sell(db, reshop.customer_id, reshop.customer_name or "")
+
     return {
-        "reshop": _reshop_to_dict(reshop),
+        "reshop": result,
         "activities": [_activity_to_dict(a) for a in activities],
     }
 
@@ -684,7 +769,7 @@ def update_reshop(
 
         # Notify the assignee via email
         if assignee and assignee.email:
-            _notify_reshop_assignment(reshop, assignee, current_user)
+            _notify_reshop_assignment(reshop, assignee, current_user, db)
 
     if data.quoter is not None:
         reshop.quoter = data.quoter
