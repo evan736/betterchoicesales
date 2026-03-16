@@ -112,7 +112,7 @@ export default function Analytics() {
       // Pass filters to ALL endpoints so summary cards, chart, and table all reflect the same filters
       const activeFilters = { ...tableFilters };
       if (newBizOnly) {
-        activeFilters.exclude_lead_source = 'rewrite';
+        activeFilters.exclude_rewrites = true;
       }
       const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
         analyticsAPI.summary({ period: apiPeriod, scope, ...extraParams, ...activeFilters }),
