@@ -393,17 +393,17 @@ export default function Analytics() {
                     if (!data || !data.group) return;
                     const val = data.group;
                     if (groupBy === 'carrier') {
-                      setTableFilters({ ...tableFilters, carrier: val });
+                      setTableFilters({ ...tableFilters, carrier: tableFilters.carrier === val ? undefined : val });
                     } else if (groupBy === 'lead_source') {
                       const raw = val.toLowerCase().replace(/ /g, '_');
-                      setTableFilters({ ...tableFilters, lead_source: raw });
+                      setTableFilters({ ...tableFilters, lead_source: tableFilters.lead_source === raw ? undefined : raw });
                     } else if (groupBy === 'policy_type') {
                       const raw = val.toLowerCase().replace(/ /g, '_');
-                      setTableFilters({ ...tableFilters, policy_type: raw });
+                      setTableFilters({ ...tableFilters, policy_type: tableFilters.policy_type === raw ? undefined : raw });
                     } else if (groupBy === 'state') {
-                      setTableFilters({ ...tableFilters, state: val });
+                      setTableFilters({ ...tableFilters, state: tableFilters.state === val ? undefined : val });
                     } else if (groupBy === 'producer' && data.producer_id) {
-                      setTableFilters({ ...tableFilters, producer_id: data.producer_id });
+                      setTableFilters({ ...tableFilters, producer_id: String(tableFilters.producer_id) === String(data.producer_id) ? undefined : data.producer_id });
                     }
                   }}
                 >
