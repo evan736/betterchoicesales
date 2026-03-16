@@ -114,32 +114,70 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
 
 def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
     """Check if a customer is missing common lines of business — cross-sell opportunities."""
+    from app.models.sale import Sale
+
+    # Check NowCerts policies
     policies = db.query(CustomerPolicy).filter(
         CustomerPolicy.customer_id == customer_id,
         func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce", "renewing"]),
     ).all()
 
-    if not policies:
+    # Also check Sales table (has better policy_type data: home, auto, bundled)
+    sales = []
+    if customer_name:
+        sales = db.query(Sale).filter(
+            func.lower(Sale.client_name) == customer_name.strip().lower()
+        ).all()
+    if not sales and customer_id:
+        # Try matching by customer's policies → sales via policy number
+        policy_nums = [p.policy_number for p in policies if p.policy_number]
+        if policy_nums:
+            sales = db.query(Sale).filter(Sale.policy_number.in_(policy_nums)).all()
+
+    if not policies and not sales:
         return []
 
-    # Categorize what they have
+    # Categorize what they have from BOTH sources
     lobs = set()
+
+    # From NowCerts policies
     for p in policies:
-        lob = (p.line_of_business or p.policy_type or "").lower()
+        lob = (p.line_of_business or "").lower()
+        ptype = (p.policy_type or "").lower()
         carrier = (p.carrier or "").lower()
-        if any(x in lob for x in ["auto", "car", "vehicle", "personal auto"]):
+        combined = f"{lob} {ptype} {carrier}"
+        if any(x in combined for x in ["auto", "car", "vehicle", "personal auto"]):
             lobs.add("auto")
-        if any(x in lob for x in ["home", "property", "dwelling", "ho3", "ho5", "homeowner"]):
+        if any(x in combined for x in ["home", "property", "dwelling", "ho3", "ho5", "homeowner"]):
             lobs.add("home")
-        if "umbrella" in lob:
+        if "umbrella" in combined:
             lobs.add("umbrella")
-        if any(x in lob for x in ["renter", "tenant"]):
+        if any(x in combined for x in ["renter", "tenant"]):
             lobs.add("renters")
-        if any(x in lob for x in ["condo", "ho6"]):
+        if any(x in combined for x in ["condo", "ho6"]):
             lobs.add("condo")
-        if any(x in lob for x in ["flood"]):
+        if "flood" in combined:
             lobs.add("flood")
-        if any(x in lob for x in ["life"]):
+        if "life" in combined:
+            lobs.add("life")
+
+    # From Sales table (more reliable for policy_type)
+    for sale in sales:
+        stype = (sale.policy_type or "").lower()
+        if any(x in stype for x in ["auto", "car"]):
+            lobs.add("auto")
+        if any(x in stype for x in ["home", "dwelling"]):
+            lobs.add("home")
+        if "umbrella" in stype:
+            lobs.add("umbrella")
+        if any(x in stype for x in ["renter", "tenant"]):
+            lobs.add("renters")
+        if "condo" in stype:
+            lobs.add("condo")
+        if "bundled" in stype:
+            lobs.add("auto")
+            lobs.add("home")
+        if "life" in stype:
             lobs.add("life")
 
     opportunities = []
