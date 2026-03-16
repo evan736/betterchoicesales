@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -233,10 +234,72 @@ def send_nonrenewal_notification(
     except Exception as e:
         logger.debug(f"GHL webhook failed: {e}")
 
+    # Auto-create reshop entry — non-renewal = must reshop
+    reshop_created = False
+    try:
+        from app.models.reshop import Reshop
+        from app.models.customer import Customer, CustomerPolicy
+
+        carrier_name = (data.carrier or "").replace("_", " ").title()
+
+        # Find customer in local DB
+        customer = None
+        if data.policy_number:
+            policy = db.query(CustomerPolicy).filter(
+                CustomerPolicy.policy_number == data.policy_number
+            ).first()
+            if policy:
+                customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+
+        # Check if reshop already exists for this policy
+        existing = db.query(Reshop).filter(
+            Reshop.policy_number == data.policy_number,
+            Reshop.stage.in_(["proactive", "new_request", "quoting", "quote_ready", "presenting"]),
+        ).first()
+
+        if not existing:
+            # Parse premium from the policy if available
+            current_premium = None
+            if customer:
+                active_policy = db.query(CustomerPolicy).filter(
+                    CustomerPolicy.customer_id == customer.id,
+                    CustomerPolicy.policy_number == data.policy_number,
+                    func.lower(CustomerPolicy.status).in_(["active", "in force"]),
+                ).first()
+                if active_policy:
+                    current_premium = active_policy.premium
+
+            reshop = Reshop(
+                customer_id=customer.id if customer else None,
+                customer_name=data.customer_name,
+                customer_phone=data.customer_phone or (customer.phone if customer else None),
+                customer_email=data.customer_email or (customer.email if customer else None),
+                policy_number=data.policy_number,
+                carrier=carrier_name,
+                current_premium=current_premium,
+                renewal_date=None,  # Non-renewal = no renewal, need to find new carrier ASAP
+                priority="urgent",  # Non-renewals are always urgent
+                source="non_renewal",
+                source_detail=f"Non-renewal notice from {carrier_name}. Reason: {data.reason or 'Not specified'}. Expires: {data.expiration_date or 'TBD'}",
+                stage="new_request",  # Skip proactive, go straight to new_request
+                assigned_to=current_user.id,
+            )
+            db.add(reshop)
+            db.commit()
+            reshop_created = True
+            logger.info(f"Auto-created reshop from non-renewal: {data.customer_name} / {data.policy_number}")
+    except Exception as e:
+        logger.warning(f"Failed to create reshop from non-renewal: {e}")
+        try:
+            db.rollback()
+        except:
+            pass
+
     return {
         "email_sent": email_sent,
         "nowcerts_noted": nowcerts_noted,
         "ghl_webhook_sent": ghl_sent,
+        "reshop_created": reshop_created,
         "policy_number": data.policy_number,
         "customer_name": data.customer_name,
     }
