@@ -43,6 +43,96 @@ RETENTION_NOTIFY_EMAILS = [
 ]
 
 
+
+def _notify_reshop_assignment(reshop, assignee, assigned_by):
+    """Send email notification when a reshop is assigned to someone."""
+    import requests as _requests
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        return
+
+    try:
+        customer = reshop.customer_name or "Unknown Customer"
+        carrier = reshop.carrier or "Unknown Carrier"
+        policy = reshop.policy_number or ""
+        current = f"${float(reshop.current_premium or 0):,.0f}"
+        renewal = f"${float(reshop.renewal_premium or 0):,.0f}"
+        increase = ""
+        if reshop.current_premium and reshop.renewal_premium:
+            pct = ((float(reshop.renewal_premium) - float(reshop.current_premium)) / float(reshop.current_premium)) * 100
+            increase = f" (+{pct:.0f}%)"
+        days = ""
+        if reshop.renewal_date:
+            from datetime import datetime
+            d = (reshop.renewal_date - datetime.utcnow()).days
+            if d > 0:
+                days = f" — renews in {d} days"
+
+        priority_colors = {"urgent": "#dc2626", "high": "#f59e0b", "normal": "#3b82f6", "low": "#6b7280"}
+        p_color = priority_colors.get(reshop.priority or "normal", "#3b82f6")
+        p_label = (reshop.priority or "normal").upper()
+
+        assignee_first = assignee.full_name.split()[0] if assignee.full_name else "Team Member"
+        assigner_name = assigned_by.full_name if assigned_by else "Admin"
+
+        subject = f"Reshop Assigned: {customer} — {carrier} {current} → {renewal}{increase}"
+
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<div style="max-width:560px; margin:0 auto; padding:24px 16px;">
+    <div style="background:linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:24px; border-radius:12px 12px 0 0; text-align:center;">
+        <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance" style="height:40px;" />
+        <p style="margin:8px 0 0; color:#22d3ee; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:1.5px;">Reshop Assignment</p>
+    </div>
+    <div style="background:white; padding:28px; border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0;">
+        <p style="margin:0 0 16px; color:#334155; font-size:15px;">
+            Hi {assignee_first}, <strong>{assigner_name}</strong> has assigned you a reshop:
+        </p>
+
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:20px; margin:16px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0; color:#0f172a; font-size:17px;">{customer}</h3>
+                <span style="background:{p_color}; color:white; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">{p_label}</span>
+            </div>
+            <table style="width:100%; font-size:14px; color:#334155;" cellpadding="0" cellspacing="0">
+                <tr><td style="padding:5px 0; color:#64748b;">Carrier</td><td style="padding:5px 0; text-align:right; font-weight:600;">{carrier}</td></tr>
+                <tr><td style="padding:5px 0; color:#64748b;">Policy</td><td style="padding:5px 0; text-align:right; font-weight:600;">{policy}</td></tr>
+                <tr><td style="padding:5px 0; color:#64748b;">Current Premium</td><td style="padding:5px 0; text-align:right;">{current}</td></tr>
+                <tr><td style="padding:5px 0; color:#64748b;">Renewal Premium</td><td style="padding:5px 0; text-align:right; font-weight:700; color:#dc2626;">{renewal}{increase}</td></tr>
+            </table>
+            {f'<p style="margin:12px 0 0; color:#f59e0b; font-size:13px; font-weight:600;">{days.strip(" —")}</p>' if days else ""}
+        </div>
+
+        <div style="text-align:center; margin:24px 0;">
+            <a href="https://better-choice-web.onrender.com/reshop" style="display:inline-block; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; padding:14px 36px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
+                Open Reshop Pipeline →
+            </a>
+        </div>
+    </div>
+    <div style="background:#f8fafc; padding:16px; text-align:center; border-radius:0 0 12px 12px; border-top:1px solid #e2e8f0;">
+        <p style="margin:0; color:#94a3b8; font-size:11px;">Better Choice Insurance Group · (847) 908-5665</p>
+    </div>
+</div></body></html>"""
+
+        from_email = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+        _requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": f"Better Choice Insurance <{from_email}>",
+                "to": [assignee.email],
+                "subject": subject,
+                "html": html,
+            },
+            timeout=15,
+        )
+        _logger.info(f"Reshop assignment notification sent to {assignee.email} for {customer}")
+    except Exception as e:
+        _logger.warning(f"Reshop assignment notification failed: {e}")
+
 def _notify_retention_team(reshop: "Reshop", created_by: str):
     """Send email notification to retention team about a new reshop request."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
@@ -591,6 +681,10 @@ def update_reshop(
         _log_activity(db, reshop.id, current_user, "assigned",
                       f"Assigned to {assignee.full_name if assignee else 'unassigned'}")
         reshop.assigned_to = data.assigned_to
+
+        # Notify the assignee via email
+        if assignee and assignee.email:
+            _notify_reshop_assignment(reshop, assignee, current_user)
 
     if data.quoter is not None:
         reshop.quoter = data.quoter
