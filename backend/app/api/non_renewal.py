@@ -269,6 +269,10 @@ def send_nonrenewal_notification(
                 if active_policy:
                     current_premium = active_policy.premium
 
+            # Auto-assign via round-robin if enabled, otherwise assign to current user
+            from app.api.reshop import _get_next_round_robin_agent
+            auto_agent = _get_next_round_robin_agent(db)
+            
             reshop = Reshop(
                 customer_id=customer.id if customer else None,
                 customer_name=data.customer_name,
@@ -282,7 +286,7 @@ def send_nonrenewal_notification(
                 source="non_renewal",
                 source_detail=f"Non-renewal notice from {carrier_name}. Reason: {data.reason or 'Not specified'}. Expires: {data.expiration_date or 'TBD'}",
                 stage="new_request",  # Skip proactive, go straight to new_request
-                assigned_to=current_user.id,
+                assigned_to=auto_agent or current_user.id,
             )
             db.add(reshop)
             db.commit()

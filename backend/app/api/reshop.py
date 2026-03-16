@@ -45,6 +45,44 @@ RETENTION_NOTIFY_EMAILS = [
 
 
 
+
+# ── Round-Robin Auto-Assignment ──────────────────────────────────────
+# Disabled by default. Set RESHOP_AUTO_ASSIGN=true env var to enable.
+# Rotates reshop assignments between configured agents.
+
+RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles"]  # Usernames for rotation
+_reshop_round_robin_index = 0  # In-memory counter (resets on restart, which is fine)
+
+def _get_next_round_robin_agent(db: Session) -> Optional[int]:
+    """Get the next agent ID in the round-robin rotation.
+    
+    Returns None if auto-assign is disabled or no agents found.
+    """
+    global _reshop_round_robin_index
+    
+    auto_assign = os.environ.get("RESHOP_AUTO_ASSIGN", "false").lower() == "true"
+    if not auto_assign:
+        return None
+
+    agents = db.query(User).filter(
+        User.username.in_(RESHOP_AUTO_ASSIGN_AGENTS),
+        User.is_active == True,
+    ).all()
+
+    if not agents:
+        logger.warning("Round-robin: no active agents found for auto-assignment")
+        return None
+
+    # Sort by username to ensure consistent ordering
+    agents.sort(key=lambda u: u.username)
+
+    # Pick next agent
+    agent = agents[_reshop_round_robin_index % len(agents)]
+    _reshop_round_robin_index += 1
+    
+    logger.info(f"Round-robin reshop assignment: {agent.full_name} (index {_reshop_round_robin_index - 1})")
+    return agent.id
+
 def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
     """Check if a customer is missing common lines of business — cross-sell opportunities."""
     policies = db.query(CustomerPolicy).filter(
@@ -1047,6 +1085,9 @@ def _run_proactive_scan(
             f"renews in {days_to_renewal} days"
         )
 
+        # Auto-assign via round-robin (if enabled)
+        auto_agent_id = _get_next_round_robin_agent(db)
+
         reshop = Reshop(
             customer_id=customer.id,
             customer_name=customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip(),
@@ -1056,6 +1097,7 @@ def _run_proactive_scan(
             carrier=active_pol.carrier or renewal.carrier,
             line_of_business=active_pol.line_of_business or renewal.line_of_business,
             current_premium=active_pol.premium,
+            assigned_to=auto_agent_id,
             renewal_premium=renewal.premium,
             premium_change_pct=round(c["change_pct"], 1),
             expiration_date=active_pol.expiration_date,
