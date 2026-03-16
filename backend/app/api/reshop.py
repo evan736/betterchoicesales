@@ -707,6 +707,7 @@ def _run_proactive_scan(
     now = datetime.utcnow()
     cutoff = now + timedelta(days=days_out)
 
+    # Pass 1: Find policies with status "Renewing" (standard NowCerts sync)
     renewing = (
         db.query(CustomerPolicy)
         .filter(
@@ -717,19 +718,61 @@ def _run_proactive_scan(
         .all()
     )
 
+    # Pass 2: Find renewal terms stored as "Active" (NowCerts sometimes syncs
+    # renewing terms with Active status). Look for duplicate policy numbers
+    # where one effective date is in the future (upcoming term) and one is current.
+    from sqlalchemy import and_ as sa_and
+    from collections import defaultdict
+
+    # Get all policies with effective dates in the near future that could be renewals
+    upcoming_active = (
+        db.query(CustomerPolicy)
+        .filter(
+            func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+            CustomerPolicy.effective_date >= now - timedelta(days=7),
+            CustomerPolicy.effective_date <= cutoff,
+        )
+        .all()
+    )
+
+    # Group by policy number — if same policy has 2+ entries, the future one is a renewal
+    policy_groups = defaultdict(list)
+    for p in upcoming_active:
+        if p.policy_number:
+            policy_groups[p.policy_number].append(p)
+
+    # For each group with 2+ entries, the one with the later effective date is the renewal
+    already_renewing_pnums = set(p.policy_number for p in renewing if p.policy_number)
+    for pnum, policies in policy_groups.items():
+        if len(policies) < 2 or pnum in already_renewing_pnums:
+            continue
+        # Sort by effective date
+        policies.sort(key=lambda p: p.effective_date or datetime.min)
+        # Last one is the upcoming renewal term
+        renewal_candidate = policies[-1]
+        # Make sure there's actually a prior term with a different premium
+        prior = policies[-2]
+        if (renewal_candidate.premium or 0) != (prior.premium or 0):
+            renewing.append(renewal_candidate)
+
     renewing_policy_nums = [p.policy_number for p in renewing if p.policy_number]
+    # Build a set of renewing term IDs to exclude from active lookup
+    renewing_ids = set(p.id for p in renewing)
     active_terms = {}
     if renewing_policy_nums:
         active_results = (
             db.query(CustomerPolicy)
             .filter(
                 CustomerPolicy.policy_number.in_(renewing_policy_nums),
-                func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+                func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce", "renewing"]),
+                ~CustomerPolicy.id.in_(renewing_ids) if renewing_ids else True,
             )
+            .order_by(CustomerPolicy.effective_date.desc())
             .all()
         )
         for t in active_results:
-            if t.policy_number:
+            if t.policy_number and t.policy_number not in active_terms:
+                # Pick the most recent term that ISN'T the renewal
                 active_terms[t.policy_number] = t
 
     existing_policy_nums = set()
