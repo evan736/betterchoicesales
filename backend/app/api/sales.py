@@ -176,8 +176,7 @@ def _auto_enroll_life_campaign(sale: Sale, producer: User, db: Session):
             pass
 
 def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
-    """Send Hooray notification to all producers in background after sale creation."""
-    import threading
+    """Send Hooray notification to all producers after sale creation."""
     import logging
     logger = logging.getLogger(__name__)
 
@@ -185,8 +184,7 @@ def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
         logger.info("Mailgun not configured — skipping hooray email")
         return
 
-    # Capture sale data NOW while the session is still active
-    # (background thread can't access detached SQLAlchemy objects)
+    # Capture sale data while session is active
     sale_data = {
         "id": sale.id,
         "client_name": sale.client_name or "New Customer",
@@ -197,28 +195,21 @@ def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
     }
     producer_name = producer.full_name if producer else "Team Member"
 
-    def _send():
-        try:
-            from app.services.hooray_email import send_hooray_email_from_data
-            from app.core.database import SessionLocal
-            new_db = SessionLocal()
-            try:
-                result = send_hooray_email_from_data(
-                    sale_data=sale_data,
-                    producer_name=producer_name,
-                    db=new_db,
-                )
-                if result.get("success"):
-                    logger.info(f"Hooray email sent for sale {sale_data['id']} to {result.get('recipients', 0)} recipients")
-                else:
-                    logger.warning(f"Hooray email failed for sale {sale_data['id']}: {result}")
-            finally:
-                new_db.close()
-        except Exception as e:
-            logger.error(f"Hooray email error for sale {sale_data['id']}: {e}")
-
-    # Fire and forget in background thread
-    threading.Thread(target=_send, daemon=True).start()
+    # Send inline (not background thread) — Render can kill background threads
+    # before they complete if the response finishes first
+    try:
+        from app.services.hooray_email import send_hooray_email_from_data
+        result = send_hooray_email_from_data(
+            sale_data=sale_data,
+            producer_name=producer_name,
+            db=db,
+        )
+        if result.get("success"):
+            logger.info(f"Hooray email sent for sale {sale_data['id']} to {result.get('recipients', 0)} recipients")
+        else:
+            logger.warning(f"Hooray email failed for sale {sale_data['id']}: {result}")
+    except Exception as e:
+        logger.error(f"Hooray email error for sale {sale_data['id']}: {e}")
 
 
 @router.post("/extract-pdf")
