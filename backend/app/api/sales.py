@@ -126,6 +126,91 @@ def _trigger_welcome_email(sale: Sale, producer: User, db: Session):
 
 
 
+
+
+def _auto_close_reshop_on_rewrite(sale: Sale, db: Session):
+    """If a rewrite sale matches a customer in the reshop pipeline, auto-close the reshop as bound."""
+    import logging
+    _logger = logging.getLogger(__name__)
+    
+    if not sale.lead_source or sale.lead_source.lower() != "rewrite":
+        return
+    
+    try:
+        from app.models.reshop import Reshop
+        from sqlalchemy import func
+        
+        ACTIVE_STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting"]
+        client_name = (sale.client_name or "").strip()
+        policy_number = (sale.policy_number or "").strip()
+        
+        if not client_name and not policy_number:
+            return
+
+        # Try to match by policy number first (most precise)
+        matched_reshop = None
+        if policy_number:
+            matched_reshop = db.query(Reshop).filter(
+                Reshop.policy_number == policy_number,
+                Reshop.stage.in_(ACTIVE_STAGES),
+            ).first()
+        
+        # Then try by customer name
+        if not matched_reshop and client_name:
+            matched_reshop = db.query(Reshop).filter(
+                func.lower(Reshop.customer_name) == client_name.lower(),
+                Reshop.stage.in_(ACTIVE_STAGES),
+            ).first()
+
+        if matched_reshop:
+            old_stage = matched_reshop.stage
+            matched_reshop.stage = "bound"
+            matched_reshop.quoted_carrier = sale.carrier
+            matched_reshop.quoted_premium = float(sale.written_premium or 0)
+            if matched_reshop.current_premium:
+                matched_reshop.premium_savings = float(matched_reshop.current_premium) - float(sale.written_premium or 0)
+            
+            # Log activity
+            from app.models.reshop import ReshopActivity
+            activity = ReshopActivity(
+                reshop_id=matched_reshop.id,
+                action="stage_change",
+                details=f"Auto-closed: rewrite sale created (policy {policy_number}, {sale.carrier}). Moved from {old_stage} → bound.",
+                user_name="ORBIT Auto",
+            )
+            db.add(activity)
+            db.commit()
+            
+            _logger.info(f"Auto-closed reshop {matched_reshop.id} ({matched_reshop.customer_name}) as bound — rewrite sale {sale.id} ({sale.carrier})")
+            
+            # Also close any other active reshops for the same customer
+            other_reshops = db.query(Reshop).filter(
+                Reshop.customer_id == matched_reshop.customer_id,
+                Reshop.id != matched_reshop.id,
+                Reshop.stage.in_(ACTIVE_STAGES),
+            ).all()
+            for r in other_reshops:
+                r.stage = "bound"
+                r.quoted_carrier = sale.carrier
+                r.quoted_premium = float(sale.written_premium or 0)
+                act = ReshopActivity(
+                    reshop_id=r.id,
+                    action="stage_change",
+                    details=f"Auto-closed: same customer rewrite ({sale.carrier}). Linked to reshop #{matched_reshop.id}.",
+                    user_name="ORBIT Auto",
+                )
+                db.add(act)
+                _logger.info(f"Auto-closed related reshop {r.id} ({r.customer_name} / {r.policy_number})")
+            
+            if other_reshops:
+                db.commit()
+    except Exception as e:
+        _logger.warning(f"Auto-close reshop failed for sale {sale.id}: {e}")
+        try:
+            db.rollback()
+        except:
+            pass
+
 def _auto_enroll_life_campaign(sale: Sale, producer: User, db: Session):
     """Auto-enroll new customer into life insurance cross-sell campaign."""
     import logging
@@ -284,6 +369,7 @@ def create_from_pdf(
     # Send Hooray notification to all producers
     _trigger_hooray_email(sale, current_user, db)
     _auto_enroll_life_campaign(sale, current_user, db)
+    _auto_close_reshop_on_rewrite(sale, db)
 
     # Check for household grouping — same client name, same month
     sale_month = sale.sale_date.month if sale.sale_date else datetime.utcnow().month
@@ -405,6 +491,7 @@ def create_bundle(
     # Send Hooray notification
     _trigger_hooray_email(sale, current_user, db)
 
+    _auto_close_reshop_on_rewrite(sale, db)
     return {
         "sale": SaleSchema.model_validate(sale),
         "household": {
@@ -457,6 +544,7 @@ def create_sale(
     
     # Send Hooray notification to all producers
     _trigger_hooray_email(sale, current_user, db)
+    _auto_close_reshop_on_rewrite(sale, db)
 
     # Auto-convert matching quotes (same customer name)
     try:
