@@ -182,7 +182,7 @@ def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -
 
     opportunities = []
 
-    # Auto customer without home
+    # Auto customer without home — high-value cross-sell
     if "auto" in lobs and "home" not in lobs and "renters" not in lobs and "condo" not in lobs:
         opportunities.append({
             "type": "home",
@@ -190,28 +190,12 @@ def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -
             "reason": "Has auto but no home/renters policy on file",
         })
 
-    # Home customer without auto
+    # Home customer without auto — high-value cross-sell
     if ("home" in lobs or "condo" in lobs) and "auto" not in lobs:
         opportunities.append({
             "type": "auto",
             "label": "Auto Insurance",
             "reason": "Has home but no auto policy on file",
-        })
-
-    # No umbrella (if they have both home and auto, they should have umbrella)
-    if "auto" in lobs and ("home" in lobs or "condo" in lobs) and "umbrella" not in lobs:
-        opportunities.append({
-            "type": "umbrella",
-            "label": "Umbrella Policy",
-            "reason": "Has home + auto — perfect candidate for umbrella coverage",
-        })
-
-    # No life insurance (always a cross-sell if not on file)
-    if "life" not in lobs:
-        opportunities.append({
-            "type": "life",
-            "label": "Life Insurance",
-            "reason": "No life insurance on file",
         })
 
     return opportunities
