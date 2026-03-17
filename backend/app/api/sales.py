@@ -1343,3 +1343,4 @@ async def get_signature_status(
     except Exception as e:
         return {"status": sale.signature_status, "error": str(e)}
 
+# Deploy trigger Tue Mar 17 15:38:17 UTC 2026
