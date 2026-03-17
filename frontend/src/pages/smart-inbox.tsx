@@ -193,7 +193,7 @@ export default function SmartInboxPage() {
   const [fCat, setFCat] = useState(''); const [fSens, setFSens] = useState('');
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<number|null>(null);
-  const [editSubj, setEditSubj] = useState(''); const [editBody, setEditBody] = useState('');
+  const [editSubj, setEditSubj] = useState(''); const [editBody, setEditBody] = useState(''); const [editEmail, setEditEmail] = useState('');
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [compact, setCompact] = useState(false);
   const [vf, setVf] = useState<'all'|'unread'|'attention'|'archived'>('all');
@@ -300,7 +300,12 @@ export default function SmartInboxPage() {
     await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const editSend = async (id:number) => {
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    try {
+          // Update email if changed
+          if (editEmail && editEmail !== queue.find((q:any)=>q.id===id)?.to_email) {
+            await axios.post(`${API}/api/smart-inbox/queue/${id}/set-email`, { email: editEmail }, { headers:hdr });
+          }
+          await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
     setEditId(null); await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const reprocess = async (id:number) => { try { await axios.post(`${API}/api/smart-inbox/reprocess/${id}`, {}, { headers:hdr }); } catch{} fetchEmails(); };
@@ -531,12 +536,13 @@ export default function SmartInboxPage() {
                             {(msg.status==='pending_approval'||msg.status==='draft')&&editId!==msg.id && (
                               <div className="flex gap-2 mt-2">
                                 <button onClick={()=>approve(msg.id)} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-semibold"><Check size={12}/> Approve & Send</button>
-                                <button onClick={()=>{setEditId(msg.id);setEditSubj(msg.subject);setEditBody(msg.body_plain||'');}} className="px-3 py-1.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-600 text-xs"><Edit3 size={12}/></button>
+                                <button onClick={()=>{setEditId(msg.id);setEditSubj(msg.subject);setEditBody(msg.body_plain||'');setEditEmail(msg.to_email||'');}} className="px-3 py-1.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-600 text-xs"><Edit3 size={12}/></button>
                                 <button onClick={()=>reject(msg.id)} className="px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs"><X size={12}/></button>
                               </div>
                             )}
                             {editId===msg.id && (
                               <div className="mt-2 space-y-1.5">
+                                <div className="flex items-center gap-2 mb-1"><span className="text-[10px] text-slate-400 w-8">To:</span><input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="customer@email.com" className="flex-1 px-2.5 py-1.5 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-400"/></div>
                                 <input value={editSubj} onChange={e=>setEditSubj(e.target.value)} className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-400"/>
                                 <textarea value={editBody} onChange={e=>setEditBody(e.target.value)} rows={5} className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 resize-y focus:outline-none focus:ring-1 focus:ring-cyan-400"/>
                                 <div className="flex gap-2">
@@ -575,7 +581,8 @@ export default function SmartInboxPage() {
                   <div className="flex justify-between mb-1.5">
                     <div className="flex-1 min-w-0">
                       {isEditing ? (
-                        <input value={editSubj} onChange={e=>setEditSubj(e.target.value)}
+                        <div className="flex items-center gap-2 mb-1.5"><span className="text-[10px] text-slate-400 font-medium w-8">To:</span><input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="customer@email.com" className="flex-1 px-2.5 py-1.5 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-400"/></div>
+                      <input value={editSubj} onChange={e=>setEditSubj(e.target.value)}
                           className="w-full text-sm font-semibold text-slate-900 px-2 py-1 rounded border border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-400 bg-cyan-50" />
                       ) : (
                         <span className="text-sm font-semibold text-slate-900">{msg.subject}</span>
@@ -585,7 +592,7 @@ export default function SmartInboxPage() {
                     <div className="flex items-start gap-1.5 ml-2">
                       <button onClick={()=>{
                         if (isEditing) { setEditId(null); }
-                        else { setEditId(msg.id); setEditSubj(msg.subject||''); setEditBody(msg.body_plain || msg.body_html?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim() || ''); }
+                        else { setEditId(msg.id); setEditSubj(msg.subject||''); setEditBody(msg.body_plain || msg.body_html?.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim() || ''); setEditEmail(msg.to_email||''); }
                       }} className={`text-[10px] font-medium px-2 py-0.5 rounded border ${isEditing?'bg-slate-100 border-slate-300 text-slate-600':'bg-slate-50 border-slate-200 text-slate-400 hover:text-cyan-600 hover:border-cyan-300'}`}>
                         {isEditing ? '✕ Cancel' : '✎ Edit'}
                       </button>
