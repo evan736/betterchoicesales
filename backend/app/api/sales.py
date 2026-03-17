@@ -297,6 +297,50 @@ def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
         logger.error(f"Hooray email error for sale {sale_data['id']}: {e}")
 
 
+
+
+@router.post("/test-hooray/{sale_id}")
+def test_hooray_email(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Test the hooray email for a specific sale (admin only)."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    
+    producer = db.query(User).filter(User.id == sale.producer_id).first()
+    
+    # Call the hooray function directly and capture any errors
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        sale_data = {
+            "id": sale.id,
+            "client_name": sale.client_name or "New Customer",
+            "carrier": sale.carrier or "",
+            "policy_type": sale.policy_type or "other",
+            "written_premium": float(sale.written_premium or 0),
+            "lead_source": sale.lead_source or "",
+        }
+        producer_name = producer.full_name if producer else "Team Member"
+        
+        from app.services.hooray_email import send_hooray_email_from_data
+        result = send_hooray_email_from_data(
+            sale_data=sale_data,
+            producer_name=producer_name,
+            db=db,
+        )
+        return {"sale_id": sale_id, "result": result}
+    except Exception as e:
+        import traceback
+        return {"sale_id": sale_id, "error": str(e), "traceback": traceback.format_exc()}
+
 @router.post("/extract-pdf")
 async def extract_pdf(
     file: UploadFile = File(...),
