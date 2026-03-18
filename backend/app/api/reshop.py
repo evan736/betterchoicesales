@@ -270,6 +270,18 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
 
         subject = f"Reshop Assigned: {customer} — {carrier} {current} → {renewal}{increase}"
 
+        # Build cross-sell HTML outside the f-string (Python 3.11 can't nest f-strings)
+        cross_sell_html = ""
+        if cross_sell:
+            for opp in cross_sell:
+                cross_sell_html += (
+                    '<div style="background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:16px; margin:16px 0;">'
+                    '<p style="margin:0 0 8px; color:#92400e; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px;">&#128161; Cross-Sell Opportunity</p>'
+                    f'<p style="margin:0 0 4px; color:#78350f; font-size:15px; font-weight:600;">{opp["label"]}</p>'
+                    f'<p style="margin:0; color:#92400e; font-size:13px;">{opp["reason"]}</p>'
+                    '</div>'
+                )
+
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -297,12 +309,7 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
             {f'<p style="margin:12px 0 0; color:#f59e0b; font-size:13px; font-weight:600;">{days.strip(" —")}</p>' if days else ""}
         </div>
 
-        {"".join(f"""
-        <div style="background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:16px; margin:16px 0;">
-            <p style="margin:0 0 8px; color:#92400e; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px;">&#128161; Cross-Sell Opportunity</p>
-            <p style="margin:0 0 4px; color:#78350f; font-size:15px; font-weight:600;">{opp['label']}</p>
-            <p style="margin:0; color:#92400e; font-size:13px;">{opp['reason']}</p>
-        </div>""" for opp in cross_sell) if cross_sell else ""}
+        {cross_sell_html}
 
         <div style="text-align:center; margin:24px 0;">
             <a href="https://better-choice-web.onrender.com/reshop" style="display:inline-block; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; padding:14px 36px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
