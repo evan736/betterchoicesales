@@ -31,21 +31,131 @@ def _safe_str(val):
 
 # Carrier name normalization — maps alternate names to canonical carrier names
 CARRIER_NORMALIZE = {
-    "obsidian": "Steadily",
-    "obsedian": "Steadily",
-    "obsidian insurance": "Steadily",
-    "obsedian insurance": "Steadily",
-    "trustgard": "Grange",
-    "trust gard": "Grange",
-    "trustgard mutual": "Grange",
+    # Travelers
+    "travelers": "Travelers",
+    "travelers personal insurance company": "Travelers",
+    "travelers personal insurance": "Travelers",
+    "travelers personal insura": "Travelers",
+    "travelers home and marine insurance company": "Travelers",
+    "travelers home and marine insurance": "Travelers",
+    "travelers home and marine": "Travelers",
+    "travelers casualty insurance company of america": "Travelers",
+    "travelers indemnity company": "Travelers",
+    "the travelers": "Travelers",
+    "travco": "Travelers",
+    "travco insurance": "Travelers",
+    "travco insurance company": "Travelers",
+    # Progressive
+    "progressive": "Progressive",
+    "progressive insurance": "Progressive",
+    "progressive northern insurance co": "Progressive",
+    "progressive northern insurance company": "Progressive",
+    "progressive northern": "Progressive",
+    "progressive preferred insurance company": "Progressive",
+    "progressive preferred ins co": "Progressive",
+    "progressive preferred": "Progressive",
+    "progressive casualty insurance company": "Progressive",
+    "progressive casualty": "Progressive",
+    "progressive specialty insurance company": "Progressive",
+    # National General
+    "national general": "National General",
+    "national general insurance": "National General",
+    "national general, an allstate company": "National General",
+    "national general an allstate company": "National General",
     "integon": "National General",
     "integon national": "National General",
     "integon national insurance": "National General",
     "integon national insurance company": "National General",
     "integon natl": "National General",
     "integon natl ins": "National General",
+    "encompass": "National General",
+    "encompass insurance": "National General",
+    "encompass insurance company": "National General",
+    # Grange / Integrity
+    "grange": "Grange",
+    "grange insurance": "Grange",
+    "grange mutual casualty company": "Grange",
+    "grange indemnity insurance co": "Grange",
+    "grange indemnity": "Grange",
+    "integrity insurance": "Grange",
+    "integrity insurance company": "Grange",
+    "integrity": "Grange",
+    "trustgard": "Grange",
+    "trust gard": "Grange",
+    "trustgard mutual": "Grange",
+    "trustgard insurance": "Grange",
+    # Safeco
+    "safeco": "Safeco",
+    "safeco insurance": "Safeco",
+    "safeco insurance company of america": "Safeco",
+    "safeco insurance company of oregon": "Safeco",
+    "american states preferred insurance company": "Safeco",
+    "american states preferred ins co": "Safeco",
+    "american states preferred": "Safeco",
+    "general insurance company of america": "Safeco",
+    # GEICO
+    "geico": "GEICO",
+    "geico insurance": "GEICO",
+    "geico general insurance company": "GEICO",
+    "geico casualty company": "GEICO",
+    "geico indemnity company": "GEICO",
+    "geico marine insurance company": "GEICO",
+    "geico texas county mutual insurance company": "GEICO",
+    "geico county mutual insurance company": "GEICO",
+    "government employees insurance company": "GEICO",
+    # Steadily / Obsidian
+    "steadily": "Steadily",
+    "obsidian": "Steadily",
+    "obsedian": "Steadily",
+    "obsidian insurance": "Steadily",
+    "obsedian insurance": "Steadily",
+    "obsidian insurance company": "Steadily",
+    # Universal Property
+    "universal property": "Universal Property",
+    "universal property & casualty insurance company": "Universal Property",
+    "universal property and casualty insurance company": "Universal Property",
+    "universal property & casualty": "Universal Property",
     "upcic": "Universal Property",
+    "american platinum property and casualty insurance company": "Universal Property",
+    # Openly / Rock Ridge
+    "openly": "Openly",
+    "openly insurance": "Openly",
+    "rock ridge insurance company": "Openly",
+    "rock ridge": "Openly",
+    # First Connect
+    "first connect": "First Connect",
+    "first connect insurance": "First Connect",
+    # American Modern
+    "american modern": "American Modern",
+    "american modern insurance": "American Modern",
+    "american modern insurance company": "American Modern",
     "amig": "American Modern",
+    # Bristol West
+    "bristol west": "Bristol West",
+    "bristol west insurance": "Bristol West",
+    "bristol west insurance group": "Bristol West",
+    # Hippo
+    "hippo": "Hippo",
+    "hippo insurance": "Hippo",
+    # Branch
+    "branch": "Branch",
+    "branch insurance": "Branch",
+    # Clearcover
+    "clearcover": "Clearcover",
+    "clearcover insurance": "Clearcover",
+    "clearcover insurance company": "Clearcover",
+    # Chubb
+    "chubb": "Chubb",
+    # Gainsco
+    "gainsco": "Gainsco",
+    "gainsco auto": "Gainsco",
+    # Hartford
+    "hartford": "Hartford",
+    "the hartford": "Hartford",
+    # CoverTree
+    "covertree": "CoverTree",
+    "cover tree": "CoverTree",
+    "covertree insurance": "CoverTree",
 }
 
 
@@ -54,7 +164,15 @@ def _normalize_carrier(carrier: str) -> str:
     if not carrier:
         return carrier
     key = carrier.strip().lower()
-    return CARRIER_NORMALIZE.get(key, carrier.strip())
+    # Exact match
+    if key in CARRIER_NORMALIZE:
+        return CARRIER_NORMALIZE[key]
+    # Partial match — check if any known key is contained in the carrier name
+    for pattern, canonical in CARRIER_NORMALIZE.items():
+        if pattern in key or key in pattern:
+            return canonical
+    # Return cleaned original
+    return carrier.strip()
 
 
 def determine_status(effective_date) -> str:
@@ -298,6 +416,31 @@ def _trigger_hooray_email(sale: Sale, producer: User, db: Session):
 
 
 
+
+
+
+@router.post("/normalize-carriers")
+def normalize_all_carriers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """One-time cleanup: normalize all carrier names in existing sales."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    sales = db.query(Sale).filter(Sale.carrier.isnot(None)).all()
+    updated = 0
+    changes = []
+    for sale in sales:
+        original = sale.carrier
+        normalized = _normalize_carrier(original)
+        if normalized != original:
+            sale.carrier = normalized
+            updated += 1
+            changes.append({"id": sale.id, "old": original, "new": normalized})
+    
+    db.commit()
+    return {"total_sales": len(sales), "updated": updated, "sample_changes": changes[:20]}
 
 @router.post("/test-hooray/{sale_id}")
 def test_hooray_email(
