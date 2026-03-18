@@ -336,6 +336,8 @@ def get_sales_summary(
     carrier: Optional[str] = None,
     state: Optional[str] = None,
     exclude_rewrites: Optional[bool] = None,
+    start_date: Optional[str] = Query(None, description="Custom range start YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Custom range end YYYY-MM-DD"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -364,7 +366,12 @@ def get_sales_summary(
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
-    if period == "today":
+    if start_date and end_date:
+        from datetime import date as date_type
+        sd = date_type.fromisoformat(start_date)
+        ed = date_type.fromisoformat(end_date)
+        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+    elif period == "today":
         query = query.filter(func.date(Sale.sale_date) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())
@@ -414,6 +421,8 @@ def get_sales_by_group(
     state: Optional[str] = None,
     producer_id: Optional[int] = None,
     exclude_rewrites: Optional[bool] = None,
+    start_date: Optional[str] = Query(None, description="Custom range start YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Custom range end YYYY-MM-DD"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -462,7 +471,12 @@ def get_sales_by_group(
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
-    if period == "today":
+    if start_date and end_date:
+        from datetime import date as date_type
+        sd = date_type.fromisoformat(start_date)
+        ed = date_type.fromisoformat(end_date)
+        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+    elif period == "today":
         query = query.filter(func.date(Sale.sale_date) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())
@@ -526,6 +540,8 @@ def get_sales_table(
     producer_id: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     exclude_rewrites: Optional[bool] = None,
+    start_date: Optional[str] = Query(None, description="Custom range start YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Custom range end YYYY-MM-DD"),
     sort_by: str = Query("sale_date", description="sale_date, written_premium, client_name, effective_date"),
     sort_order: str = Query("desc", description="asc or desc"),
     skip: int = 0,
@@ -547,7 +563,12 @@ def get_sales_table(
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
-    if period == "today":
+    if start_date and end_date:
+        from datetime import date as date_type
+        sd = date_type.fromisoformat(start_date)
+        ed = date_type.fromisoformat(end_date)
+        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+    elif period == "today":
         query = query.filter(func.date(Sale.sale_date) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())

@@ -29,6 +29,7 @@ const PERIOD_OPTIONS = [
   { value: 'annual', label: 'This Year' },
   { value: 'last_year', label: 'Last Year' },
   { value: 'all-time', label: 'All Time' },
+  { value: 'custom', label: 'Custom Range' },
 ];
 
 export default function Analytics() {
@@ -36,6 +37,8 @@ export default function Analytics() {
   const router = useRouter();
 
   const [period, setPeriod] = useState('monthly');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [groupBy, setGroupBy] = useState('producer');
   const [summary, setSummary] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -81,7 +84,7 @@ export default function Analytics() {
 
   useEffect(() => {
     if (user) loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly]);
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, customStart, customEnd]);
 
   const loadFilterOptions = async () => {
     try {
@@ -106,6 +109,10 @@ export default function Analytics() {
         apiPeriod = 'annual';
       } else if (period === 'all-time') {
         apiPeriod = undefined;
+      } else if (period === 'custom') {
+        apiPeriod = undefined;
+        if (customStart) extraParams.start_date = customStart;
+        if (customEnd) extraParams.end_date = customEnd;
       } else {
         apiPeriod = period;
       }
@@ -201,6 +208,24 @@ export default function Analytics() {
               </button>
             ))}
           </div>
+          {period === 'custom' && (
+            <div className="flex items-center gap-3 mt-3 justify-center">
+              <label className="text-sm text-slate-500 font-medium">From:</label>
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              />
+              <label className="text-sm text-slate-500 font-medium">To:</label>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
+              />
+            </div>
+          )}
         </div>
 
         {/* Summary Cards — dynamic trending numbers */}
