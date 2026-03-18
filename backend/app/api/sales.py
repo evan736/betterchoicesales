@@ -428,19 +428,23 @@ def normalize_all_carriers(
     if current_user.role.lower() not in ("admin",):
         raise HTTPException(status_code=403, detail="Admin only")
     
-    sales = db.query(Sale).filter(Sale.carrier.isnot(None)).all()
+    # Use raw SQL to avoid loading problematic timestamp columns
+    from sqlalchemy import text
+    result = db.execute(text("SELECT id, carrier FROM sales WHERE carrier IS NOT NULL"))
+    rows = result.fetchall()
+    
     updated = 0
     changes = []
-    for sale in sales:
-        original = sale.carrier
+    for row in rows:
+        sale_id, original = row[0], row[1]
         normalized = _normalize_carrier(original)
         if normalized != original:
-            sale.carrier = normalized
+            db.execute(text("UPDATE sales SET carrier = :carrier WHERE id = :id"), {"carrier": normalized, "id": sale_id})
             updated += 1
-            changes.append({"id": sale.id, "old": original, "new": normalized})
+            changes.append({"id": sale_id, "old": original, "new": normalized})
     
     db.commit()
-    return {"total_sales": len(sales), "updated": updated, "sample_changes": changes[:20]}
+    return {"total_sales": len(rows), "updated": updated, "sample_changes": changes[:30]}
 
 @router.post("/test-hooray/{sale_id}")
 def test_hooray_email(
