@@ -581,9 +581,11 @@ export default function SmartInboxPage() {
                   <div className="flex justify-between mb-1.5">
                     <div className="flex-1 min-w-0">
                       {isEditing ? (
+                        <>
                         <div className="flex items-center gap-2 mb-1.5"><span className="text-[10px] text-slate-400 font-medium w-8">To:</span><input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="customer@email.com" className="flex-1 px-2.5 py-1.5 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-400"/></div>
                       <input value={editSubj} onChange={e=>setEditSubj(e.target.value)}
                           className="w-full text-sm font-semibold text-slate-900 px-2 py-1 rounded border border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-400 bg-cyan-50" />
+                        </>
                       ) : (
                         <span className="text-sm font-semibold text-slate-900">{msg.subject}</span>
                       )}
