@@ -126,6 +126,41 @@ def build_hooray_email_html(
     # Format lead source for display
     lead_display = (lead_source or "").replace("_", " ").title() if lead_source else ""
 
+    # Build lead source row outside f-string (Python 3.11 compat)
+    lead_source_row = ""
+    if lead_display:
+        lead_source_row = (
+            '<tr>'
+            '<td style="padding:12px 0; color:#64748b; border-bottom:1px solid #f1f5f9;">Lead Source</td>'
+            f'<td style="padding:12px 0; font-weight:600; border-bottom:1px solid #f1f5f9;">{lead_display}</td>'
+            '</tr>'
+        )
+
+    # Build producer scoreboard HTML outside f-string (Python 3.11 compat)
+    scoreboard_html = ""
+    if producer_daily_stats and len(producer_daily_stats) >= 1:
+        rows = ""
+        for p in producer_daily_stats:
+            prem_str = "${0:,.0f}".format(p["premium"])
+            rows += (
+                '<tr>'
+                f'<td style="padding:6px 8px; color:#e2e8f0; font-weight:600;">{p["name"]}</td>'
+                f'<td style="padding:6px 8px; color:{BCI_CYAN}; text-align:center; font-weight:700;">{p["count"]}</td>'
+                f'<td style="padding:6px 8px; color:#34d399; text-align:right; font-weight:700;">{prem_str}</td>'
+                '</tr>'
+            )
+        scoreboard_html = (
+            '<div style="margin-top:16px; padding-top:16px; border-top:1px solid #334155;">'
+            '<table style="width:100%; font-size:13px;" cellpadding="0" cellspacing="0">'
+            '<tr style="color:#64748b;">'
+            '<td style="padding:4px 8px; font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:0.5px;">Producer</td>'
+            '<td style="padding:4px 8px; text-align:center; font-weight:600; text-transform:uppercase; font-size:11px;">Sales</td>'
+            '<td style="padding:4px 8px; text-align:right; font-weight:600; text-transform:uppercase; font-size:11px;">Premium</td>'
+            '</tr>'
+            + rows +
+            '</table></div>'
+        )
+
     subject = f"🎉 New Sale! {client_name} — {carrier or 'New Policy'} {premium_str}"
 
     html = f"""<!DOCTYPE html>
@@ -164,10 +199,7 @@ def build_hooray_email_html(
                 <td style="padding:12px 0; color:#64748b; border-bottom:1px solid #f1f5f9;">Coverage</td>
                 <td style="padding:12px 0; font-weight:600; border-bottom:1px solid #f1f5f9;">{policy_display}</td>
             </tr>
-            {"" if not lead_display else f"""<tr>
-                <td style="padding:12px 0; color:#64748b; border-bottom:1px solid #f1f5f9;">Lead Source</td>
-                <td style="padding:12px 0; font-weight:600; border-bottom:1px solid #f1f5f9;">{lead_display}</td>
-            </tr>"""}
+            {"" if not lead_display else lead_source_row}
             <tr>
                 <td style="padding:12px 0; color:#64748b;">Sold By</td>
                 <td style="padding:12px 0; font-weight:700; color:{BCI_NAVY};">{producer_name}</td>
@@ -190,22 +222,7 @@ def build_hooray_email_html(
                 </td>
             </tr>
         </table>
-        {"" if not producer_daily_stats or len(producer_daily_stats) < 1 else f"""
-        <div style="margin-top:16px; padding-top:16px; border-top:1px solid #334155;">
-            <table style="width:100%; font-size:13px;" cellpadding="0" cellspacing="0">
-                <tr style="color:#64748b;">
-                    <td style="padding:4px 8px; font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:0.5px;">Producer</td>
-                    <td style="padding:4px 8px; text-align:center; font-weight:600; text-transform:uppercase; font-size:11px;">Sales</td>
-                    <td style="padding:4px 8px; text-align:right; font-weight:600; text-transform:uppercase; font-size:11px;">Premium</td>
-                </tr>
-                {''.join(f"""<tr>
-                    <td style="padding:6px 8px; color:#e2e8f0; font-weight:600;">{p['name']}</td>
-                    <td style="padding:6px 8px; color:{BCI_CYAN}; text-align:center; font-weight:700;">{p['count']}</td>
-                    <td style="padding:6px 8px; color:#34d399; text-align:right; font-weight:700;">${'{0:,.0f}'.format(p['premium'])}</td>
-                </tr>""" for p in producer_daily_stats)}
-            </table>
-        </div>
-        """}
+        {scoreboard_html}
     </div>
 
     <!-- Footer -->
