@@ -299,7 +299,7 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
 
         {"".join(f"""
         <div style="background:#fefce8; border:1px solid #fde68a; border-radius:8px; padding:16px; margin:16px 0;">
-            <p style="margin:0 0 8px; color:#92400e; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px;">💡 Cross-Sell Opportunity</p>
+            <p style="margin:0 0 8px; color:#92400e; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:1px;">&#128161; Cross-Sell Opportunity</p>
             <p style="margin:0 0 4px; color:#78350f; font-size:15px; font-weight:600;">{opp['label']}</p>
             <p style="margin:0; color:#92400e; font-size:13px;">{opp['reason']}</p>
         </div>""" for opp in cross_sell) if cross_sell else ""}
