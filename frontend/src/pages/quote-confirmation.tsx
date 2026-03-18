@@ -2,6 +2,7 @@ import React from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { CheckCircle, Phone, Clock, Shield, Users } from 'lucide-react';
+import GoogleAnalytics from '../components/GoogleAnalytics';
 
 export default function QuoteConfirmation() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export default function QuoteConfirmation() {
 
   return (
     <>
+      <GoogleAnalytics />
       <Head>
         <title>Quote Request Received | Better Choice Insurance</title>
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet" />

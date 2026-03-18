@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Phone } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import GoogleAnalytics from '../components/GoogleAnalytics';
 const QuoteIntakeForm = dynamic(() => import('../components/QuoteIntakeForm'), { ssr: false });
 
 export default function StartQuotePage() {
@@ -15,6 +16,7 @@ export default function StartQuotePage() {
 
   return (
     <>
+      <GoogleAnalytics />
       <Head>
         <title>Start Your Quote | Better Choice Insurance</title>
         <meta name="description" content="Get a personalized insurance quote. Compare rates from 15+ carriers in minutes." />

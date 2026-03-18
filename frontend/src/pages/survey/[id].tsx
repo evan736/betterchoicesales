@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import api from '../../lib/api';
+import GoogleAnalytics from '../../components/GoogleAnalytics';
 
 // Hard-code the Google Review URL here so the frontend can redirect
 // even if the backend env var is not set. Update this with your actual link.
@@ -281,6 +282,7 @@ const SurveyPage = () => {
   if (phase === 'thankyou') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center p-4">
+        <GoogleAnalytics />
         <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🙏</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You!</h1>

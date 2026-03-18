@@ -1,9 +1,11 @@
 import React from 'react';
 import Head from 'next/head';
+import GoogleAnalytics from '../components/GoogleAnalytics';
 
 export default function PrivacyPage() {
   return (
     <>
+      <GoogleAnalytics />
       <Head>
         <title>Privacy Policy | Better Choice Insurance Group</title>
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />

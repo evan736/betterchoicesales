@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Shield, Phone, Clock, DollarSign, Users, CheckCircle, Star, ArrowRight, Upload, FileText, Zap, Brain, AlertTriangle, TrendingDown } from 'lucide-react';
+import GoogleAnalytics from '../components/GoogleAnalytics';
 
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
@@ -150,6 +151,7 @@ export default function GetQuotePage() {
 
   return (
     <>
+      <GoogleAnalytics />
       <Head>
         <title>Start Your Quote | Better Choice Insurance — AI-Powered Coverage Review</title>
         <meta name="description" content="Compare rates from 15+ carriers. Upload dec pages for instant AI coverage analysis. Free, no-obligation." />

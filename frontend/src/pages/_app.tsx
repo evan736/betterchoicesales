@@ -1,6 +1,5 @@
 import type { AppProps } from 'next/app';
 import React from 'react';
-import Script from 'next/script';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
@@ -127,25 +126,10 @@ function InnerApp({ Component, pageProps }: { Component: any; pageProps: any }) 
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
-    <>
-      {/* Google Analytics */}
-      <Script
-        src="https://www.googletagmanager.com/gtag/js?id=G-L5NSC0W4E0"
-        strategy="afterInteractive"
-      />
-      <Script id="gtag-init" strategy="afterInteractive">
-        {`
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', 'G-L5NSC0W4E0');
-        `}
-      </Script>
-      <ErrorBoundary>
-        <AuthProvider>
-          <InnerApp Component={Component} pageProps={pageProps} />
-        </AuthProvider>
-      </ErrorBoundary>
-    </>
+    <ErrorBoundary>
+      <AuthProvider>
+        <InnerApp Component={Component} pageProps={pageProps} />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
