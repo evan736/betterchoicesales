@@ -153,9 +153,86 @@ export default function GetQuotePage() {
     <>
       <GoogleAnalytics />
       <Head>
-        <title>Start Your Quote | Better Choice Insurance — AI-Powered Coverage Review</title>
-        <meta name="description" content="Compare rates from 15+ carriers. Upload dec pages for instant AI coverage analysis. Free, no-obligation." />
+        <title>Insurance Quotes St. Charles IL | Compare Home & Auto Rates | Better Choice Insurance</title>
+        <meta name="description" content="Compare home and auto insurance rates from 15+ carriers in St. Charles, IL. Serving Kane County, DuPage County, and the Fox Valley. Free quotes in minutes — call (847) 908-5665." />
+        <meta name="keywords" content="insurance st charles il, home insurance st charles, auto insurance st charles, car insurance kane county, homeowners insurance geneva il, insurance agent elgin il, cheap auto insurance batavia, insurance quotes fox valley, independent insurance agency illinois" />
+        <meta property="og:title" content="Better Choice Insurance Group | St. Charles, IL" />
+        <meta property="og:description" content="Compare rates from Travelers, Progressive, Safeco, National General, and 12+ more carriers. Free quotes, no obligation." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://quote.betterchoiceins.com/get-quote" />
+        <meta name="geo.region" content="US-IL" />
+        <meta name="geo.placename" content="St. Charles, Illinois" />
+        <meta name="geo.position" content="41.9142;-88.3087" />
+        <link rel="canonical" href="https://quote.betterchoiceins.com/get-quote" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet" />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "InsuranceAgency",
+          "name": "Better Choice Insurance Group",
+          "image": "https://quote.betterchoiceins.com/carrier-logos/bci_logo_color.png",
+          "url": "https://quote.betterchoiceins.com",
+          "telephone": "+1-847-908-5665",
+          "email": "service@betterchoiceins.com",
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "300 Cardinal Dr Suite 220",
+            "addressLocality": "Saint Charles",
+            "addressRegion": "IL",
+            "postalCode": "60175",
+            "addressCountry": "US"
+          },
+          "geo": {
+            "@type": "GeoCoordinates",
+            "latitude": 41.9142,
+            "longitude": -88.3087
+          },
+          "areaServed": [
+            { "@type": "City", "name": "St. Charles, IL" },
+            { "@type": "City", "name": "Geneva, IL" },
+            { "@type": "City", "name": "Batavia, IL" },
+            { "@type": "City", "name": "Elgin, IL" },
+            { "@type": "City", "name": "South Elgin, IL" },
+            { "@type": "City", "name": "Wayne, IL" },
+            { "@type": "City", "name": "Campton Hills, IL" },
+            { "@type": "City", "name": "West Chicago, IL" },
+            { "@type": "City", "name": "Wheaton, IL" },
+            { "@type": "City", "name": "Naperville, IL" },
+            { "@type": "City", "name": "Aurora, IL" },
+            { "@type": "City", "name": "Carol Stream, IL" },
+            { "@type": "City", "name": "Streamwood, IL" },
+            { "@type": "City", "name": "Bartlett, IL" },
+            { "@type": "City", "name": "Carpentersville, IL" },
+            { "@type": "AdministrativeArea", "name": "Kane County, IL" },
+            { "@type": "AdministrativeArea", "name": "DuPage County, IL" },
+            { "@type": "State", "name": "Illinois" },
+            { "@type": "State", "name": "Minnesota" },
+            { "@type": "State", "name": "Texas" }
+          ],
+          "openingHoursSpecification": {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday"],
+            "opens": "09:00",
+            "closes": "17:00"
+          },
+          "priceRange": "Free quotes",
+          "sameAs": [],
+          "description": "Independent insurance agency comparing rates from 15+ carriers including Travelers, Progressive, Safeco, National General, Grange, GEICO, and more. Specializing in home, auto, and bundled insurance in the Fox Valley and greater Chicagoland area.",
+          "hasOfferCatalog": {
+            "@type": "OfferCatalog",
+            "name": "Insurance Products",
+            "itemListElement": [
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Home Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Auto Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Bundled Home & Auto"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Renters Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Condo Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Umbrella Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Life Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Landlord Insurance"}},
+              {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Commercial Insurance"}}
+            ]
+          }
+        })}} />
       </Head>
 
       <div className="get-quote-page" style={{ margin: 0, padding: 0, background: '#fafbfc', fontFamily: "'DM Sans', sans-serif", color: '#1a1a2e', minHeight: '100vh' }}>
@@ -553,11 +630,36 @@ export default function GetQuotePage() {
           </div>
         </section>
 
+        {/* ═══ SERVICE AREA ═══ */}
+        <section style={{ background: '#f1f5f9', padding: '64px 24px' }}>
+          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: '28px', fontWeight: 700, textAlign: 'center' as const, margin: '0 0 8px', color: '#0f172a' }}>
+              Insurance for the Fox Valley & Beyond
+            </h2>
+            <p style={{ textAlign: 'center' as const, color: '#64748b', fontSize: '16px', margin: '0 0 32px', lineHeight: 1.6 }}>
+              Based in St. Charles, IL, we proudly serve homeowners and drivers across Kane County, DuPage County, and beyond.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
+              {['St. Charles', 'Geneva', 'Batavia', 'Elgin', 'South Elgin', 'Wayne', 'Campton Hills', 'West Chicago', 'Wheaton', 'Naperville', 'Aurora', 'Carol Stream', 'Streamwood', 'Bartlett', 'Carpentersville', 'North Aurora', 'Sugar Grove', 'Lily Lake', 'Wasco', 'Sleepy Hollow'].map(city => (
+                <span key={city} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '6px 16px', fontSize: '13px', color: '#475569', fontWeight: 500 }}>
+                  {city}, IL
+                </span>
+              ))}
+            </div>
+            <p style={{ textAlign: 'center' as const, color: '#94a3b8', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>
+              We also write policies across <strong style={{ color: '#64748b' }}>Illinois, Minnesota, and Texas</strong>. Whether you&apos;re in the suburbs or across state lines, we&apos;ll find you the best rate from our network of 15+ carriers.
+            </p>
+          </div>
+        </section>
+
         {/* ═══ FOOTER ═══ */}
         <footer style={{ background: '#060d18', padding: '32px 24px', textAlign: 'center' as const }}>
-          <img src="/carrier-logos/bci_logo_v2.png" alt="Better Choice Insurance" style={{ height: '44px', marginBottom: '12px', opacity: 0.6 }} />
-          <p style={{ color: '#475569', fontSize: '13px', margin: '0 0 4px' }}>Better Choice Insurance Group | {PHONE} | {EMAIL}</p>
-          <p style={{ color: '#334155', fontSize: '11px', margin: 0 }}>© {new Date().getFullYear()} Better Choice Insurance Group. All rights reserved.</p>
+          <img src="/carrier-logos/bci_logo_v2.png" alt="Better Choice Insurance Group St. Charles IL" style={{ height: '44px', marginBottom: '12px', opacity: 0.6 }} />
+          <p style={{ color: '#475569', fontSize: '13px', margin: '0 0 4px' }}>Better Choice Insurance Group | 300 Cardinal Dr Suite 220, Saint Charles, IL 60175</p>
+          <p style={{ color: '#475569', fontSize: '13px', margin: '0 0 4px' }}>{PHONE} | {EMAIL}</p>
+          <p style={{ color: '#334155', fontSize: '11px', margin: '8px 0 0' }}>Independent insurance agency serving St. Charles, Geneva, Batavia, Elgin, Naperville, Aurora, and the greater Fox Valley area.</p>
+          <p style={{ color: '#334155', fontSize: '11px', margin: '4px 0 0' }}>Home Insurance · Auto Insurance · Bundled Coverage · Renters · Condo · Umbrella · Life Insurance</p>
+          <p style={{ color: '#334155', fontSize: '11px', margin: '8px 0 0' }}>© {new Date().getFullYear()} Better Choice Insurance Group. All rights reserved. | <a href="/privacy" style={{ color: '#475569', textDecoration: 'underline' }}>Privacy Policy</a></p>
         </footer>
       </div>
     </>
