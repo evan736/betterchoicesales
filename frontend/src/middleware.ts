@@ -24,7 +24,12 @@ export function middleware(request: NextRequest) {
   const hostname = request.headers.get('host') || '';
   const pathname = request.nextUrl.pathname;
 
-  // Only apply restrictions on the quote subdomain
+  // orbit.betterchoiceins.com → full ORBIT access (same as Render URL)
+  if (hostname.includes('orbit.betterchoiceins.com')) {
+    return NextResponse.next();
+  }
+
+  // quote.betterchoiceins.com → customer-facing landing pages only
   if (hostname.includes('quote.betterchoiceins.com')) {
     // Allow static assets and API calls
     if (PASSTHROUGH_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
