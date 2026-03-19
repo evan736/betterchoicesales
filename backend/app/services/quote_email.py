@@ -561,6 +561,13 @@ def send_quote_email(
         "o:tracking-opens": "yes",
         "h:Reply-To": reply_to,
         "bcc": [os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com")],
+        "v:email_type": "quote",
+        "v:customer_name": prospect_name or "",
+        "v:customer_email": to_email or "",
+        "v:carrier": carrier_name or "",
+        "v:agent_name": agent_name or "",
+        "v:agent_email": agent_email or "",
+        "v:quote_id": str(quote_id or ""),
     }
 
     files = []

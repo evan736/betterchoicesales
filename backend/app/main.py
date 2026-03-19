@@ -1764,6 +1764,9 @@ app.include_router(chat_api.router)
 from app.api import email_inbox as email_inbox_api
 app.include_router(email_inbox_api.router)
 
+from app.api.email_tracking import router as email_tracking_router
+app.include_router(email_tracking_router)
+
 from app.api import gmail_sync as gmail_sync_api
 app.include_router(gmail_sync_api.router)
 
