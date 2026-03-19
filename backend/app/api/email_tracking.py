@@ -174,10 +174,17 @@ async def mailgun_tracking_webhook(request: Request):
 
     # Handle OPEN events for quote emails
     if event_type == "opened" and email_type == "quote":
-        # Only notify once per quote (avoid spam on multiple opens)
-        cache_key = f"{quote_id or customer_email}:{carrier}"
+        # Only notify up to 1 time per day per customer+carrier
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        cache_key = f"{quote_id or customer_email}:{carrier}:{today_str}"
+        
         if cache_key not in _notified_cache:
             _notified_cache[cache_key] = datetime.utcnow()
+            
+            # Clean old cache entries (older than today)
+            stale = [k for k, v in _notified_cache.items() if (datetime.utcnow() - v).days > 1]
+            for k in stale:
+                del _notified_cache[k]
 
             # Determine who to notify
             notify_email = agent_email or os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com")
