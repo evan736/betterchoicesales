@@ -268,6 +268,9 @@ export default function GetQuotePage() {
                   <a href="/start-quote" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 20px rgba(37,99,235,0.4)' }}>
                     Start Your Quote <ArrowRight size={18} />
                   </a>
+                  <a href={`tel:${PHONE_DIGITS}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.1)', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.25)' }}>
+                    <Phone size={18} /> Call for Quote
+                  </a>
                   <a href="#ai-review" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(16,185,129,0.15)', color: '#34d399', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(16,185,129,0.3)' }}>
                     <Brain size={18} /> AI Coverage Review
                   </a>
