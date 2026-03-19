@@ -432,6 +432,8 @@ def reply_to_thread(
         "to": [f"{to_name} <{to_email}>" if to_name else to_email],
         "subject": f"Re: {thread.subject}" if not thread.subject.startswith("Re:") else thread.subject,
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": from_email,
     }
     if cc_list:
@@ -543,6 +545,8 @@ def compose_email(
         "to": [f"{to_name} <{to_email}>" if to_name else to_email],
         "subject": subject,
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": from_email,
     }
     if cc_list:

@@ -154,6 +154,8 @@ def _send_nonrenewal_email(data: NonRenewalCreate) -> bool:
                 "to": [data.customer_email],
                 "subject": subject,
                 "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
                 "h:Reply-To": "service@betterchoiceins.com",
             },
         )

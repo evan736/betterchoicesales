@@ -367,4 +367,6 @@ def preview_welcome_template(
         policy_type="auto",
     )
 
-    return {"subject": subject, "html": html, "carrier_key": carrier_key}
+    return {"subject": subject, "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes", "carrier_key": carrier_key}

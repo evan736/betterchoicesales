@@ -181,6 +181,8 @@ def send_nonpay_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }

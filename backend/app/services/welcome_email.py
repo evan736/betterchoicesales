@@ -717,6 +717,8 @@ def send_welcome_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": producer_email if producer_email else "service@betterchoiceins.com",
     }
 

@@ -246,6 +246,8 @@ def send_uw_requirement_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": bcc_list,
     }
@@ -469,6 +471,8 @@ def send_non_renewal_email(
         "to": [to_email],
         "subject": subject,
         "html": html_body,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": bcc_list,
     }

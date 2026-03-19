@@ -392,6 +392,8 @@ def _send_escalation_email(
                 "to": to_list,
                 "subject": subject,
                 "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
             },
             timeout=30,
         )

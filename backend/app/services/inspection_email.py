@@ -497,6 +497,8 @@ def send_inspection_customer_email(
         "to": [to_email],
         "subject": subject,
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }
@@ -1021,6 +1023,8 @@ def _send_evan_alert_no_match(sender: str, subject: str, details: dict, status_m
                 "to": ["evan@betterchoiceins.com"],
                 "subject": f"🔍 Inspection Alert: {policy} — {status_msg}",
                 "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
             },
         )
     except Exception as e:
@@ -1117,6 +1121,8 @@ def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, c
             "to": ["evan@betterchoiceins.com"],
             "subject": f"🔍 APPROVE? Inspection: {policy} — {carrier} ({customer_name})",
             "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         }
 
         # Attach PDFs so Evan can review what the customer will receive

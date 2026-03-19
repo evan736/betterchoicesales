@@ -727,6 +727,8 @@ def _send_campaign_email(to_email: str, subject: str, html: str,
                 "to": to_email,
                 "subject": subject,
                 "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
                 "h:Reply-To": reply_to or CAMPAIGN_REPLY_TO,
                 "o:tag": ["requote-campaign"],
             },
@@ -2219,6 +2221,8 @@ def get_lead_email_preview(
         "subject": getattr(lead, 'last_email_subject', None),
         "touch": getattr(lead, 'last_email_touch', None),
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "sent_at": (
             lead.touch3_sent_at or lead.touch2_sent_at or lead.touch1_sent_at
         ).isoformat() if (

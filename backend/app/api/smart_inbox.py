@@ -212,6 +212,8 @@ async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] 
         "to": to,
         "subject": subject,
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
     }
     if cc:
         data["cc"] = cc

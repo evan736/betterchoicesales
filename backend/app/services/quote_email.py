@@ -557,6 +557,8 @@ def send_quote_email(
         "to": [to_email],
         "subject": subject,
         "html": html,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": reply_to,
         "bcc": [os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com")],
     }

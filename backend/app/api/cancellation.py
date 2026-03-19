@@ -704,6 +704,8 @@ def _deliver_via_email(req: CancellationRequest, carrier_email: str) -> dict:
         "to": [carrier_email],
         "subject": subject,
         "html": html_body,
+        "o:tracking-clicks": "yes",
+        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
     }
 
