@@ -243,8 +243,11 @@ export default function GetQuotePage() {
           <div style={{ position: 'absolute', top: '-200px', right: '-100px', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)', borderRadius: '50%' }} />
 
           <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '48px 24px 56px', position: 'relative', zIndex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '48px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '48px' }}>
               <img src="/carrier-logos/bci_logo_v2.png" alt="Better Choice Insurance" style={{ height: '64px', display: 'block' }} />
+              <a href={`tel:${PHONE_DIGITS}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.1)', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '15px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(8px)' }}>
+                <Phone size={16} /> {PHONE}
+              </a>
             </div>
 
             <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexWrap: 'wrap' as const }}>
@@ -267,9 +270,6 @@ export default function GetQuotePage() {
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' as const }}>
                   <a href="/start-quote" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 20px rgba(37,99,235,0.4)' }}>
                     Start Your Quote <ArrowRight size={18} />
-                  </a>
-                  <a href={`tel:${PHONE_DIGITS}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.1)', color: '#fff', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.25)' }}>
-                    <Phone size={18} /> Call for Quote
                   </a>
                   <a href="#ai-review" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(16,185,129,0.15)', color: '#34d399', padding: '14px 28px', borderRadius: '8px', fontSize: '16px', fontWeight: 700, textDecoration: 'none', border: '1px solid rgba(16,185,129,0.3)' }}>
                     <Brain size={18} /> AI Coverage Review
