@@ -28,9 +28,9 @@ router = APIRouter(prefix="/api/reshops", tags=["reshops"])
 
 # ── Constants ─────────────────────────────────────────────────────
 
-STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting", "bound", "lost", "cancelled"]
+STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting", "bound", "renewed", "lost", "cancelled"]
 ACTIVE_STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting"]
-CLOSED_STAGES = ["bound", "lost", "cancelled"]
+CLOSED_STAGES = ["bound", "renewed", "lost", "cancelled"]
 SOURCES = ["inbound_call", "inbound_email", "producer_referral", "proactive_renewal", "walk_in", "nonpay_escalation", "other"]
 REASONS = ["price_increase", "service_issue", "coverage_change", "shopping", "nonpay", "renewal_increase", "other"]
 PRIORITIES = ["low", "normal", "high", "urgent"]

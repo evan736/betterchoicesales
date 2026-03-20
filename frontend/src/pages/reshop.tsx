@@ -19,6 +19,7 @@ const STAGES = [
 ];
 const CLOSED_STAGES = [
   { key: 'bound', label: 'Bound', color: 'green' },
+  { key: 'renewed', label: 'Renewed — Stayed', color: 'teal' },
   { key: 'lost', label: 'Lost', color: 'red' },
   { key: 'cancelled', label: 'Cancelled', color: 'slate' },
 ];
@@ -490,10 +491,10 @@ const ReshopCard: React.FC<{
             </button>
           )}
           <button
-            onClick={e => { e.stopPropagation(); onMove('cancelled'); }}
-            className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded py-1 transition-colors"
+            onClick={e => { e.stopPropagation(); onMove('renewed'); }}
+            className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-green-600 hover:bg-green-50 rounded py-1 transition-colors"
           >
-            <XCircle size={10} /> Skip — Stay
+            <CheckCircle2 size={10} /> Skip — Renewed
           </button>
         </div>
       )}
