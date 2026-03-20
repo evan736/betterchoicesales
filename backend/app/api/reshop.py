@@ -814,6 +814,32 @@ def purge_proactive_reshops(
 
 
 
+
+@router.post("/test-notification/{reshop_id}")
+def test_reshop_notification(
+    reshop_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Test reshop notification email (admin only). Returns error details if it fails."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
+    if not reshop:
+        raise HTTPException(status_code=404, detail="Reshop not found")
+    
+    assignee = db.query(User).filter(User.id == reshop.assigned_to).first() if reshop.assigned_to else None
+    if not assignee:
+        raise HTTPException(status_code=400, detail="Reshop not assigned to anyone")
+    
+    try:
+        _notify_reshop_assignment(reshop, assignee, current_user, db)
+        return {"status": "sent", "to": assignee.email, "customer": reshop.customer_name}
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
     days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
