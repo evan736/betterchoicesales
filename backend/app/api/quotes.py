@@ -852,9 +852,13 @@ def delete_quote(
     db.commit()
     return {"deleted": True, "id": quote_id}
 def _check_followups_logic(db: Session) -> dict:
-    """Core follow-up check logic — groups by prospect, respects opt-outs."""
+    """Core follow-up check logic — sends actual emails, skips if customer already bought."""
     now = datetime.utcnow()
-    results = {"day3": 0, "day7": 0, "day14": 0, "day90": 0, "skipped_grouped": 0, "skipped_disabled": 0}
+    results = {"day3": 0, "day7": 0, "day14": 0, "day90": 0, "skipped_grouped": 0, "skipped_disabled": 0, "skipped_already_sold": 0}
+
+    from app.services.quote_followup_email import (
+        build_followup_email, send_followup_email, _has_matching_sale,
+    )
 
     active_quotes = db.query(Quote).filter(
         Quote.status.in_(["sent", "following_up", "bind_requested"]),
@@ -883,6 +887,14 @@ def _check_followups_logic(db: Session) -> dict:
         if any(q.status == "bind_requested" for q in quotes):
             continue
 
+        # Skip if customer already has a sale in the system
+        if _has_matching_sale(db, latest.prospect_name or "", latest.prospect_email or "", latest.carrier or ""):
+            results["skipped_already_sold"] += 1
+            # Auto-disable follow-ups since they bought
+            for q in quotes:
+                q.followup_disabled = True
+            continue
+
         sent_at = latest.email_sent_at.replace(tzinfo=None) if latest.email_sent_at.tzinfo else latest.email_sent_at
         days_since = (now - sent_at).days
 
@@ -894,28 +906,58 @@ def _check_followups_logic(db: Session) -> dict:
                 old_q.followup_14day_sent = True
                 results["skipped_grouped"] += 1
 
-        # Process follow-ups on the latest quote only
+        # Process follow-ups on the latest quote only — send actual emails
+        followup_day = None
         if days_since >= 3 and not latest.followup_3day_sent:
+            followup_day = 3
             latest.followup_3day_sent = True
             latest.status = "following_up"
             results["day3"] += 1
-            _fire_followup_webhook(latest, 3)
 
         elif days_since >= 7 and not latest.followup_7day_sent:
+            followup_day = 7
             latest.followup_7day_sent = True
             results["day7"] += 1
-            _fire_followup_webhook(latest, 7)
 
         elif days_since >= 14 and not latest.followup_14day_sent:
+            followup_day = 14
             latest.followup_14day_sent = True
             results["day14"] += 1
-            _fire_followup_webhook(latest, 14)
 
         elif days_since >= 90 and not latest.entered_remarket:
             latest.entered_remarket = True
             latest.remarket_start_date = now
             latest.status = "remarket"
             results["day90"] += 1
+
+        # Send the follow-up email
+        if followup_day and latest.prospect_email:
+            try:
+                subject, html = build_followup_email(
+                    prospect_name=latest.prospect_name or "",
+                    carrier=latest.carrier or "",
+                    policy_type=latest.policy_type or "",
+                    premium=float(latest.quoted_premium or 0),
+                    premium_term=latest.premium_term or "6 months",
+                    agent_name=latest.producer_name or "",
+                    agent_email=latest.producer_email or "",
+                    quote_id=latest.id,
+                    day=followup_day,
+                )
+                if subject and html:
+                    send_followup_email(
+                        to_email=latest.prospect_email,
+                        subject=subject,
+                        html=html,
+                        agent_email=latest.producer_email or "",
+                        quote_id=latest.id,
+                    )
+            except Exception as e:
+                logger.error(f"Follow-up email error for {latest.prospect_name}: {e}")
+
+        # Also fire GHL webhook (keep existing behavior)
+        if followup_day:
+            _fire_followup_webhook(latest, followup_day)
 
     db.commit()
     return results
