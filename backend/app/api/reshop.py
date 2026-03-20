@@ -282,6 +282,12 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
                     '</div>'
                 )
 
+        # Build days HTML outside f-string (Python 3.11 compat)
+        days_html = ""
+        if days:
+            days_clean = days.strip(" —")
+            days_html = f'<p style="margin:12px 0 0; color:#f59e0b; font-size:13px; font-weight:600;">{days_clean}</p>'
+
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f0f4f8; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -306,7 +312,7 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
                 <tr><td style="padding:5px 0; color:#64748b;">Current Premium</td><td style="padding:5px 0; text-align:right;">{current}</td></tr>
                 <tr><td style="padding:5px 0; color:#64748b;">Renewal Premium</td><td style="padding:5px 0; text-align:right; font-weight:700; color:#dc2626;">{renewal}{increase}</td></tr>
             </table>
-            {f'<p style="margin:12px 0 0; color:#f59e0b; font-size:13px; font-weight:600;">{days.strip(" —")}</p>' if days else ""}
+            {days_html}
         </div>
 
         {cross_sell_html}
