@@ -1251,6 +1251,7 @@ def _run_proactive_scan(
     skipped_no_increase = 0
     skipped_no_active = 0
     skipped_commercial = 0
+    skipped_current_month = 0
     candidates = []
 
     for renewal in renewing:
@@ -1324,6 +1325,14 @@ def _run_proactive_scan(
         if not customer:
             continue
 
+        # Skip if expiration is in current month or past — only create reshops for future months
+        exp_date = active_pol.expiration_date
+        if exp_date:
+            first_of_next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
+            if exp_date < first_of_next_month:
+                skipped_current_month += 1
+                continue
+
         ann = c["ann_renewal"]
         if ann >= 10000:
             priority = "urgent"
@@ -1394,6 +1403,7 @@ def _run_proactive_scan(
         "skipped_existing_reshop": skipped_existing,
         "skipped_no_active_term": skipped_no_active,
         "skipped_commercial": skipped_commercial,
+        "skipped_current_month": skipped_current_month,
         "skipped_below_premium_threshold": skipped_below_threshold,
         "skipped_below_increase_threshold": skipped_no_increase,
         "criteria": {
