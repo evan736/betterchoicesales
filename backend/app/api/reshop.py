@@ -494,8 +494,10 @@ class ReshopNote(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _can_access(user: User) -> bool:
-    """Check if user can access the reshop pipeline."""
-    return user.role.lower() in ("admin", "retention_specialist", "manager", "producer")
+    """Check if user can access the reshop pipeline view."""
+    # Producers cannot see the pipeline — they submit reshop requests which
+    # go directly to retention specialists via round-robin
+    return user.role.lower() in ("admin", "retention_specialist", "manager")
 
 
 def _can_manage(user: User) -> bool:
@@ -597,15 +599,7 @@ def list_reshops(
     # Andrey has elevated visibility (can see all reshops)
     is_elevated = current_user.username == "andrey.dayson"
     
-    if current_user.role.lower() == "producer":
-        # Producers only see reshops they referred
-        query = query.filter(
-            or_(
-                Reshop.referred_by == current_user.full_name,
-                Reshop.referred_by == current_user.username,
-            )
-        )
-    elif not is_admin_or_manager and not is_elevated:
+    if not is_admin_or_manager and not is_elevated:
         # Retention specialists (Salma, Michelle) only see their assigned reshops
         query = query.filter(Reshop.assigned_to == current_user.id)
 
@@ -661,12 +655,7 @@ def reshop_stats(
     is_elevated = current_user.username == "andrey.dayson"
     
     base_query = db.query(Reshop)
-    if current_user.role.lower() == "producer":
-        base_query = base_query.filter(or_(
-            Reshop.referred_by == current_user.full_name,
-            Reshop.referred_by == current_user.username,
-        ))
-    elif not is_admin_or_manager and not is_elevated:
+    if not is_admin_or_manager and not is_elevated:
         base_query = base_query.filter(Reshop.assigned_to == current_user.id)
 
     active = base_query.filter(Reshop.stage.in_(ACTIVE_STAGES)).all()
@@ -725,9 +714,7 @@ def reshop_badge_count(
     is_elevated = current_user.username == "andrey.dayson"
     
     base = db.query(func.count(Reshop.id)).filter(Reshop.stage.in_(ACTIVE_STAGES))
-    if current_user.role.lower() == "producer":
-        base = base.filter(or_(Reshop.referred_by == current_user.full_name, Reshop.referred_by == current_user.username))
-    elif not is_admin_or_manager and not is_elevated:
+    if not is_admin_or_manager and not is_elevated:
         base = base.filter(Reshop.assigned_to == current_user.id)
     
     count = base.scalar() or 0
@@ -737,9 +724,7 @@ def reshop_badge_count(
         Reshop.stage.in_(ACTIVE_STAGES),
         Reshop.created_at >= datetime.utcnow() - timedelta(hours=24),
     )
-    if current_user.role.lower() == "producer":
-        new_base = new_base.filter(or_(Reshop.referred_by == current_user.full_name, Reshop.referred_by == current_user.username))
-    elif not is_admin_or_manager and not is_elevated:
+    if not is_admin_or_manager and not is_elevated:
         new_base = new_base.filter(Reshop.assigned_to == current_user.id)
     
     new_count = new_base.scalar() or 0
@@ -776,8 +761,10 @@ def create_reshop(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a new reshop request. Producers can create (as referrals)."""
-    if not _can_access(current_user):
+    """Create a new reshop request. Producers can submit — goes URGENT to retention team via round-robin."""
+    # Producers can CREATE reshops (submit referrals) but not view the pipeline
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Parse expiration date
@@ -791,6 +778,18 @@ def create_reshop(
             except Exception:
                 pass
 
+    # If submitted by a producer, override to URGENT + new_request
+    if is_producer:
+        priority = "urgent"
+        stage = "new_request"
+        source = data.source or "producer_referral"
+        source_detail = f"Referred by {current_user.full_name or current_user.username}. {data.source_detail or data.reason or ''}"
+    else:
+        priority = data.priority or "normal"
+        stage = data.stage or "new_request"
+        source = data.source
+        source_detail = data.source_detail
+
     reshop = Reshop(
         customer_id=data.customer_id,
         customer_name=data.customer_name,
@@ -801,30 +800,45 @@ def create_reshop(
         line_of_business=data.line_of_business,
         current_premium=data.current_premium,
         expiration_date=exp_date,
-        stage=data.stage or "new_request",
-        priority=data.priority or "normal",
-        source=data.source,
-        source_detail=data.source_detail,
+        stage=stage,
+        priority=priority,
+        source=source,
+        source_detail=source_detail,
         reason=data.reason,
         reason_detail=data.reason_detail,
         notes=data.notes,
-        is_proactive=(data.stage == "proactive"),
-        referred_by=current_user.full_name or current_user.username if current_user.role.lower() == "producer" else None,
+        is_proactive=False,
+        referred_by=current_user.full_name or current_user.username if is_producer else None,
     )
+
+    # Auto-assign via round-robin (customer-aware)
+    auto_agent_id = _get_next_round_robin_agent(db, customer_id=data.customer_id, customer_name=data.customer_name or "")
+    if auto_agent_id:
+        reshop.assigned_to = auto_agent_id
+
     db.add(reshop)
     db.flush()
 
     _log_activity(db, reshop.id, current_user, "created",
-                  f"Reshop created via {data.source or 'manual entry'}")
+                  f"Reshop created via {source or 'manual entry'}" + (f" — referred by {current_user.full_name}" if is_producer else ""))
 
     db.commit()
     db.refresh(reshop)
 
-    # Notify retention team
-    try:
-        _notify_retention_team(reshop, current_user.full_name or current_user.username)
-    except Exception as e:
-        logger.error("Reshop notification error: %s", e)
+    # Notify assigned agent (with CC to Andrey)
+    if reshop.assigned_to:
+        assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
+        if assignee and assignee.email:
+            try:
+                _notify_reshop_assignment(reshop, assignee, current_user, db)
+            except Exception as e:
+                logger.error("Reshop notification error: %s", e)
+    else:
+        # Fallback: notify retention team
+        try:
+            _notify_retention_team(reshop, current_user.full_name or current_user.username)
+        except Exception as e:
+            logger.error("Reshop notification error: %s", e)
 
     return _reshop_to_dict(reshop)
 
