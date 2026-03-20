@@ -18,10 +18,9 @@ const STAGES = [
   { key: 'presenting', label: 'Presenting', color: 'emerald', icon: <Send size={14} /> },
 ];
 const CLOSED_STAGES = [
-  { key: 'bound', label: 'Bound', color: 'green' },
+  { key: 'bound', label: 'Rewrote', color: 'green' },
   { key: 'renewed', label: 'Renewed — Stayed', color: 'teal' },
   { key: 'lost', label: 'Lost', color: 'red' },
-  { key: 'cancelled', label: 'Cancelled', color: 'slate' },
 ];
 
 const SOURCES = [
@@ -229,7 +228,7 @@ export default function ReshopPage() {
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
             <StatPill label="Active" value={stats.total_active} icon={<Target size={14} />} color="blue" />
-            <StatPill label="Bound This Month" value={stats.bound_this_month} icon={<CheckCircle2 size={14} />} color="emerald" />
+            <StatPill label="Rewrote This Month" value={stats.bound_this_month} icon={<CheckCircle2 size={14} />} color="emerald" />
             <StatPill label="Lost This Month" value={stats.lost_this_month} icon={<XCircle size={14} />} color="red" />
             <StatPill label="Win Rate" value={`${stats.win_rate}%`} icon={<TrendingUp size={14} />} color="green" />
             <StatPill label="Savings" value={`$${(stats.savings_this_month || 0).toLocaleString()}`} icon={<DollarSign size={14} />} color="emerald" />
