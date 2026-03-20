@@ -1192,6 +1192,7 @@ def _run_proactive_scan(
     skipped_below_threshold = 0
     skipped_no_increase = 0
     skipped_no_active = 0
+    skipped_commercial = 0
     candidates = []
 
     for renewal in renewing:
@@ -1203,6 +1204,21 @@ def _run_proactive_scan(
         active = active_terms.get(renewal.policy_number)
         if not active:
             skipped_no_active += 1
+            continue
+
+        # Skip commercial accounts — personal lines only
+        COMMERCIAL_KEYWORDS = [
+            "commercial", "business", "general liability", "bop",
+            "workers comp", "professional liability", "e&o", "d&o",
+            "commercial auto", "commercial property", "commercial package",
+            "gl ", "wc ", "inland marine", "artisan", "contractor",
+        ]
+        lob_check = (active.line_of_business or "").lower()
+        carrier_check = (active.carrier or "").lower()
+        ptype_check = (active.policy_type or "").lower()
+        combined_check = lob_check + " " + ptype_check
+        if any(kw in combined_check for kw in COMMERCIAL_KEYWORDS):
+            skipped_commercial += 1
             continue
 
         current_prem = float(active.premium or 0)
@@ -1319,6 +1335,7 @@ def _run_proactive_scan(
         "renewing_terms_found": len(renewing),
         "skipped_existing_reshop": skipped_existing,
         "skipped_no_active_term": skipped_no_active,
+        "skipped_commercial": skipped_commercial,
         "skipped_below_premium_threshold": skipped_below_threshold,
         "skipped_below_increase_threshold": skipped_no_increase,
         "criteria": {

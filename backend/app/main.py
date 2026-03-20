@@ -1162,8 +1162,8 @@ async def lifespan(app: FastAPI):
                 now_ct = datetime.now(central)
                 today_ct = now_ct.date()
 
-                # Send at 8:30 AM CT, Monday-Friday only
-                if (now_ct.hour == 8 and now_ct.minute >= 30 and
+                # Send at 8:20 AM CT, Monday-Friday only
+                if (now_ct.hour == 8 and now_ct.minute >= 20 and
                         now_ct.weekday() < 5 and last_sent_date != today_ct):
                     logger.info("📋 Sending daily reshop digest emails...")
                     from app.services.reshop_digest import send_reshop_digests
@@ -1181,7 +1181,7 @@ async def lifespan(app: FastAPI):
 
     reshop_digest_thread = threading.Thread(target=_run_reshop_digest, daemon=True)
     reshop_digest_thread.start()
-    logger.info("Daily reshop digest scheduler started (8:30 AM CT, Mon-Fri)")
+    logger.info("Daily reshop digest scheduler started (8:20 AM CT, Mon-Fri)")
 
     # Daily Proactive Reshop Scan — 7 AM CT Monday-Friday (before digest at 8:30)
     def _run_reshop_scan():

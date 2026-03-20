@@ -174,10 +174,65 @@ def run_escalation_check(db: Session) -> dict:
         Task.due_date.isnot(None),
     ).all()
 
-    results = {"checked": len(open_tasks), "escalated": 0, "skipped": 0, "details": []}
+    results = {"checked": len(open_tasks), "escalated": 0, "skipped": 0, "reshops_created": 0, "details": []}
 
     for task in open_tasks:
         days = (task.due_date.replace(tzinfo=None) - datetime.utcnow()).days
+
+        # Auto-create reshop if one doesn't exist for this policy
+        try:
+            from app.models.reshop import Reshop
+            from app.models.customer import Customer, CustomerPolicy
+            from app.api.reshop import _get_next_round_robin_agent, ACTIVE_STAGES
+
+            existing_reshop = db.query(Reshop).filter(
+                Reshop.policy_number == task.policy_number,
+                Reshop.stage.in_(ACTIVE_STAGES),
+            ).first()
+
+            if not existing_reshop and task.policy_number:
+                # Skip commercial
+                lob = (task.line_of_business or "").lower()
+                COMMERCIAL_KW = ["commercial", "business", "general liability", "bop", "workers comp"]
+                if not any(kw in lob for kw in COMMERCIAL_KW):
+                    # Find customer
+                    customer = None
+                    current_premium = None
+                    policy = db.query(CustomerPolicy).filter(
+                        CustomerPolicy.policy_number == task.policy_number
+                    ).first()
+                    if policy:
+                        customer = db.query(Customer).filter(Customer.id == policy.customer_id).first()
+                        current_premium = policy.premium
+
+                    carrier_name = (task.carrier or "").replace("_", " ").title()
+                    cust_name = task.customer_name or (customer.full_name if customer else "Unknown")
+                    auto_agent = _get_next_round_robin_agent(
+                        db, customer_id=customer.id if customer else None,
+                        customer_name=cust_name
+                    )
+
+                    reshop = Reshop(
+                        customer_id=customer.id if customer else None,
+                        customer_name=cust_name,
+                        customer_phone=customer.phone if customer else None,
+                        customer_email=customer.email if customer else None,
+                        policy_number=task.policy_number,
+                        carrier=carrier_name,
+                        current_premium=current_premium,
+                        expiration_date=task.due_date,
+                        priority="urgent",
+                        source="non_renewal",
+                        source_detail="Non-renewal escalation: " + carrier_name + " — " + str(days) + " days remaining",
+                        stage="new_request",
+                        assigned_to=auto_agent,
+                    )
+                    db.add(reshop)
+                    db.flush()
+                    results["reshops_created"] += 1
+                    logger.info("Auto-created reshop from non-renewal escalation: %s / %s", cust_name, task.policy_number)
+        except Exception as e:
+            logger.warning("Failed to create reshop from escalation: %s", e)
 
         tier = should_escalate(task, days)
         if not tier:

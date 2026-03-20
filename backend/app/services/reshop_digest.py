@@ -66,6 +66,9 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
         first_name = agent.full_name.split()[0] if agent.full_name else "Team"
 
         # Build reshop data with calculated fields
+        # Detect cross-sell opportunities
+        from app.api.reshop import _detect_cross_sell
+
         reshop_data = []
         for r in reshops:
             days_left = None
@@ -81,6 +84,14 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
 
             renewal_prem = float(r.renewal_premium or 0)
 
+            # Check for cross-sell (missing home or auto)
+            cross_sell = []
+            if r.customer_id:
+                try:
+                    cross_sell = _detect_cross_sell(db, r.customer_id, r.customer_name or "")
+                except Exception:
+                    pass
+
             reshop_data.append({
                 "id": r.id,
                 "customer_name": r.customer_name or "Unknown",
@@ -94,6 +105,7 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
                 "priority": r.priority or "normal",
                 "expiration_date": r.expiration_date,
                 "is_high_value": renewal_prem >= HIGH_VALUE_THRESHOLD,
+                "cross_sell": cross_sell,
             })
 
         # Sort: urgency tier first, then premium DESC within same tier
@@ -117,6 +129,7 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
         urgent = sum(1 for r in reshop_data if r["days_left"] is not None and 7 < r["days_left"] <= 14)
         upcoming = sum(1 for r in reshop_data if r["days_left"] is not None and r["days_left"] > 14)
         high_value_count = sum(1 for r in reshop_data if r["is_high_value"])
+        cross_sell_count = sum(1 for r in reshop_data if r["cross_sell"])
 
         total_premium = sum(r["renewal_premium"] for r in reshop_data)
         high_value_premium = sum(r["renewal_premium"] for r in reshop_data if r["is_high_value"])
@@ -162,6 +175,16 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
                 premium_style = "font-weight:700; color:#0f172a; font-size:13px;"
                 value_badge = ""
 
+            # Cross-sell badge
+            cross_sell_badge = ""
+            if r["cross_sell"]:
+                labels = [opp.get("label", "") for opp in r["cross_sell"]]
+                for label in labels:
+                    if "home" in label.lower():
+                        cross_sell_badge += ' <span style="background:#059669; color:white; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700; vertical-align:middle;">NEEDS HOME</span>'
+                    elif "auto" in label.lower():
+                        cross_sell_badge += ' <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700; vertical-align:middle;">NEEDS AUTO</span>'
+
             increase_html = ""
             if r["increase_pct"] is not None and r["increase_pct"] > 0:
                 inc_str = "+{:.0f}%".format(r["increase_pct"])
@@ -185,7 +208,7 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
 
             rows_html += (
                 '<tr style="background:' + days_bg + '; ' + row_border + '">'
-                '<td style="padding:12px 10px; ' + name_style + '">' + r["customer_name"] + value_badge + '</td>'
+                '<td style="padding:12px 10px; ' + name_style + '">' + r["customer_name"] + value_badge + cross_sell_badge + '</td>'
                 '<td style="padding:12px 8px; color:#475569; font-size:13px;">' + r["carrier"] + '</td>'
                 '<td style="padding:12px 8px; color:#475569; font-size:13px; text-align:right;">' + cur_str + '</td>'
                 '<td style="padding:12px 8px; ' + premium_style + ' text-align:right;">' + ren_str + increase_html + '</td>'
@@ -216,6 +239,17 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
                 '<p style="margin:0 0 4px; color:#e9d5ff; font-size:11px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600;">High-Value Accounts</p>'
                 '<p style="margin:0; color:#fff; font-size:22px; font-weight:800;">' + str(high_value_count) + ' accounts &middot; ' + hv_prem_str + ' premium</p>'
                 '<p style="margin:6px 0 0; color:#c4b5fd; font-size:12px;">Accounts over ' + thresh_str + ' are marked <span style="background:#7c3aed; color:white; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700;">HIGH VALUE</span> — prioritize these!</p>'
+                '</div>'
+            )
+
+        # Cross-sell callout
+        cross_sell_html_section = ""
+        if cross_sell_count > 0:
+            cross_sell_html_section = (
+                '<div style="background:linear-gradient(135deg, #065f46, #059669); border-radius:10px; padding:16px; margin:0 0 16px; text-align:center;">'
+                '<p style="margin:0 0 4px; color:#a7f3d0; font-size:11px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600;">Cross-Sell Opportunities</p>'
+                '<p style="margin:0; color:#fff; font-size:22px; font-weight:800;">' + str(cross_sell_count) + ' customers missing Home or Auto</p>'
+                '<p style="margin:6px 0 0; color:#6ee7b7; font-size:12px;">Look for <span style="background:#059669; color:white; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700;">NEEDS HOME</span> and <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:4px; font-size:9px; font-weight:700;">NEEDS AUTO</span> badges — bundle opportunities!</p>'
                 '</div>'
             )
 
@@ -259,6 +293,7 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
             '</div>'
 
             + high_value_html +
+            cross_sell_html_section +
 
             '<div style="margin:0 0 16px; text-align:center;">' + badge_html + '</div>'
 

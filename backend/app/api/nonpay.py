@@ -1815,10 +1815,75 @@ async def inbound_email_webhook(request: Request, db: Session = Depends(get_db))
             "non payment", "non-payment", "nonpayment", "non pay", "non-pay",
             "nsf", "insufficient fund", "past due", "past-due",
         ])
+        is_nonrenewal = any(kw in reason_lower for kw in [
+            "non-renewal", "nonrenewal",
+        ])
         is_skip = any(kw in reason_lower for kw in [
             "underwriting", "policyholder request", "insured request",
-            "company cancel", "non-renewal", "nonrenewal",
+            "company cancel",
         ])
+
+        # Non-renewals → create reshop instead of skipping
+        if is_nonrenewal:
+            try:
+                from app.models.reshop import Reshop
+                from app.api.reshop import _get_next_round_robin_agent, ACTIVE_STAGES
+                from app.models.customer import Customer
+
+                existing_reshop = db.query(Reshop).filter(
+                    Reshop.policy_number == pnum,
+                    Reshop.stage.in_(ACTIVE_STAGES),
+                ).first()
+
+                if not existing_reshop:
+                    # Skip commercial
+                    lob = (pol.get("line_of_business") or "").lower()
+                    COMMERCIAL_KW = ["commercial", "business", "general liability", "bop", "workers comp"]
+                    if not any(kw in lob for kw in COMMERCIAL_KW):
+                        customer = None
+                        current_premium = None
+                        cp = db.query(CustomerPolicy).filter(
+                            CustomerPolicy.policy_number == pnum
+                        ).first()
+                        if cp:
+                            customer = db.query(Customer).filter(Customer.id == cp.customer_id).first()
+                            current_premium = cp.premium
+
+                        insured = pol.get("insured_name") or (customer.full_name if customer else "Unknown")
+                        auto_agent = _get_next_round_robin_agent(
+                            db, customer_id=customer.id if customer else None,
+                            customer_name=insured
+                        )
+
+                        reshop = Reshop(
+                            customer_id=customer.id if customer else None,
+                            customer_name=insured,
+                            customer_phone=customer.phone if customer else None,
+                            customer_email=customer.email if customer else None,
+                            policy_number=pnum,
+                            carrier=carrier.replace("_", " ").title(),
+                            current_premium=current_premium,
+                            expiration_date=cp.expiration_date if cp else None,
+                            priority="urgent",
+                            source="non_renewal",
+                            source_detail="Non-renewal notice from " + carrier.replace("_", " ").title() + ": " + cancel_reason,
+                            stage="new_request",
+                            assigned_to=auto_agent,
+                        )
+                        db.add(reshop)
+                        db.flush()
+                        logger.info("Auto-created reshop from inbound non-renewal: %s / %s", insured, pnum)
+            except Exception as e:
+                logger.warning("Failed to create reshop from inbound non-renewal: %s", e)
+
+            results.append({
+                "policy_number": pnum,
+                "insured_name": pol.get("insured_name", ""),
+                "cancel_reason": cancel_reason,
+                "notice_type": "non-renewal → reshop",
+                "skipped_reason": False,
+            })
+            continue
 
         if is_skip or (notice_type not in ("non-pay", "past-due") and not is_nonpay):
             results.append({
