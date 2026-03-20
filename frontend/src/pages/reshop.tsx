@@ -67,6 +67,7 @@ export default function ReshopPage() {
   const [saving, setSaving] = useState(false);
   const [filterAssigned, setFilterAssigned] = useState<string>('all');
   const [detectingProactive, setDetectingProactive] = useState(false);
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
   const isManager = user?.role === 'admin' || user?.role === 'retention_specialist' || user?.role === 'manager';
   const isProducer = user?.role === 'producer';
@@ -288,8 +289,24 @@ export default function ReshopPage() {
           <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
             {STAGES.map(stage => {
               const items = filteredByStage(stage.key);
+              const isDragOver = dragOverStage === stage.key;
               return (
-                <div key={stage.key} className="flex-shrink-0 w-[260px]">
+                <div
+                  key={stage.key}
+                  className={`flex-shrink-0 w-[260px] transition-all ${isDragOver ? 'scale-[1.02]' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDragOverStage(stage.key);
+                  }}
+                  onDragLeave={() => setDragOverStage(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverStage(null);
+                    const reshopId = parseInt(e.dataTransfer.getData('reshopId'));
+                    if (reshopId) handleStageMove(reshopId, stage.key);
+                  }}
+                >
                   <div className={`flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-${stage.color}-50 border border-${stage.color}-200`}>
                     <span className={`text-${stage.color}-600`}>{stage.icon}</span>
                     <span className="text-sm font-semibold text-slate-700">{stage.label}</span>
@@ -297,7 +314,7 @@ export default function ReshopPage() {
                       {items.length}
                     </span>
                   </div>
-                  <div className="space-y-2">
+                  <div className={`space-y-2 min-h-[60px] rounded-lg transition-all ${isDragOver ? 'bg-blue-50 border-2 border-dashed border-blue-300 p-2' : ''}`}>
                     {items.map(r => (
                       <ReshopCard
                         key={r.id}
@@ -399,7 +416,19 @@ const ReshopCard: React.FC<{
   return (
     <div
       onClick={onOpen}
+      draggable={canManage}
+      onDragStart={(e) => {
+        if (!canManage) return;
+        e.dataTransfer.setData('reshopId', String(r.id));
+        e.dataTransfer.effectAllowed = 'move';
+        (e.currentTarget as HTMLElement).style.opacity = '0.5';
+      }}
+      onDragEnd={(e) => {
+        (e.currentTarget as HTMLElement).style.opacity = '1';
+      }}
       className={`bg-white border rounded-lg px-3 py-2.5 cursor-pointer hover:shadow-md transition-all group ${
+        canManage ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${
         isUrgent ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-slate-200' : 'border-slate-200'
       }`}
     >
