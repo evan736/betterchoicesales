@@ -55,7 +55,6 @@ RETENTION_NOTIFY_EMAILS = [
 # also go to Salma (no split accounts).
 
 RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles"]  # Usernames for rotation
-_reshop_round_robin_index = 0  # In-memory counter (resets on restart, which is fine)
 
 def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_name: str = "") -> Optional[int]:
     """Get the next agent ID in the round-robin rotation.
@@ -63,9 +62,9 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
     Customer-aware: if this customer already has an active reshop assigned
     to someone, return that same agent (don't split accounts).
     
-    Always enabled — assigns between Salma and Michelle.
+    Uses DB-based counting instead of in-memory counter so it survives restarts.
+    Assigns to whichever agent currently has fewer active reshops (by customer count).
     """
-    global _reshop_round_robin_index
 
     # Check if this customer already has a reshop assigned to someone
     if customer_id:
@@ -89,7 +88,7 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
             logger.info(f"Round-robin: customer '{customer_name}' already assigned to agent {existing_by_name.assigned_to} by name — keeping same agent")
             return existing_by_name.assigned_to
 
-    # New customer — round-robin
+    # New customer — assign to agent with fewer active reshops (load-balanced)
     agents = db.query(User).filter(
         User.username.in_(RESHOP_AUTO_ASSIGN_AGENTS),
         User.is_active == True,
@@ -99,15 +98,21 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
         logger.warning("Round-robin: no active agents found for auto-assignment")
         return None
 
-    # Sort by username to ensure consistent ordering
-    agents.sort(key=lambda u: u.username)
+    # Count active reshops per agent
+    agent_loads = []
+    for agent in agents:
+        count = db.query(Reshop).filter(
+            Reshop.assigned_to == agent.id,
+            Reshop.stage.in_(ACTIVE_STAGES),
+        ).count()
+        agent_loads.append((agent, count))
 
-    # Pick next agent
-    agent = agents[_reshop_round_robin_index % len(agents)]
-    _reshop_round_robin_index += 1
-    
-    logger.info(f"Round-robin reshop assignment: {agent.full_name} for customer '{customer_name}' (index {_reshop_round_robin_index - 1})")
-    return agent.id
+    # Sort by count ascending (fewest reshops first)
+    agent_loads.sort(key=lambda x: x[1])
+    chosen = agent_loads[0][0]
+
+    logger.info("Round-robin reshop assignment: %s (%d active) for customer '%s'", chosen.full_name, agent_loads[0][1], customer_name)
+    return chosen.id
 
 def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
     """Check if a customer is missing common lines of business — cross-sell opportunities."""
