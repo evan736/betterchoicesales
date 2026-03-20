@@ -92,6 +92,21 @@ def build_followup_email(
         intro = f"I noticed you expressed interest in moving forward with your {carrier_display} quote, but we haven't been able to finalize everything yet. I want to make sure nothing fell through the cracks on our end."
         cta_text = "Let's Finish This Up"
         closing = "Sometimes all it takes is a quick 5-minute call to get everything wrapped up. Reply to this email, give me a call, or click the button above and I'll take care of the rest. I don't want you to go without coverage!"
+    elif day == 30:
+        subject = f"{first_name}, are you still looking for insurance?"
+        intro = f"It's been about a month since I sent over your {carrier_display} quote. I know finding the right insurance can take time, and I wanted to check in to see if your situation has changed or if I can help in any way."
+        cta_text = "Get a Fresh Quote"
+        closing = f"Rates change frequently, so if you'd like me to re-run your numbers with the latest pricing, I'm happy to do that — no obligation. Just reply to this email or give me a call at {PHONE}."
+    elif day == 60:
+        subject = f"Still shopping for insurance, {first_name}? Let me help"
+        intro = f"I hope you're doing well! I wanted to reach out one more time in case you're still looking for coverage. As an independent agency, we work with 15+ carriers, so even if {carrier_display} wasn't the right fit, I may be able to find something better."
+        cta_text = "Shop My Rates Again"
+        closing = "If you've already found coverage elsewhere, congratulations — and no need to reply. But if you're still shopping or your situation has changed, I'd love to help. We often find savings people didn't expect."
+    elif day == 90:
+        subject = f"{first_name} — one last check-in from Better Choice Insurance"
+        intro = f"This is my final follow-up. It's been about 3 months since your original quote, and I wanted to make one last offer to help before I close out your file."
+        cta_text = "Yes, I Still Need Coverage"
+        closing = f"If you ever need insurance down the road — whether it's home, auto, or anything else — my door is always open. You can reach me anytime at {PHONE} or just reply to this email. Wishing you all the best!"
     else:
         return None, None
 

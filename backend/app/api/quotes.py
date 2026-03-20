@@ -957,11 +957,21 @@ def _check_followups_logic(db: Session) -> dict:
             latest.followup_14day_sent = True
             results["day14"] += 1
 
-        elif days_since >= 90 and not latest.entered_remarket:
+        elif days_since >= 30 and not getattr(latest, 'retarget_30_sent', False):
+            followup_day = 30
+            latest.status = "remarket"
+            results["retarget"] = results.get("retarget", 0) + 1
+            # Use entered_remarket as the 30-day marker
             latest.entered_remarket = True
             latest.remarket_start_date = now
-            latest.status = "remarket"
-            results["day90"] += 1
+
+        elif days_since >= 60 and latest.entered_remarket and not getattr(latest, 'retarget_60_sent', False):
+            followup_day = 60
+            results["retarget"] = results.get("retarget", 0) + 1
+
+        elif days_since >= 90 and latest.entered_remarket and not getattr(latest, 'retarget_90_sent', False):
+            followup_day = 90
+            results["retarget"] = results.get("retarget", 0) + 1
 
         # Send the follow-up email
         if followup_day and latest.prospect_email:
