@@ -586,20 +586,28 @@ def list_reshops(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List reshops with filters. Producers see only their referrals."""
+    """List reshops with filters. Agents see only their assigned reshops. Admin/Manager/Andrey see all."""
     if not _can_access(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     query = db.query(Reshop)
 
-    # Producers only see reshops they referred
+    # Determine visibility scope
+    is_admin_or_manager = current_user.role.lower() in ("admin", "manager")
+    # Andrey has elevated visibility (can see all reshops)
+    is_elevated = current_user.username == "andrey.dayson"
+    
     if current_user.role.lower() == "producer":
+        # Producers only see reshops they referred
         query = query.filter(
             or_(
                 Reshop.referred_by == current_user.full_name,
                 Reshop.referred_by == current_user.username,
             )
         )
+    elif not is_admin_or_manager and not is_elevated:
+        # Retention specialists (Salma, Michelle) only see their assigned reshops
+        query = query.filter(Reshop.assigned_to == current_user.id)
 
     if stage:
         query = query.filter(Reshop.stage == stage)
@@ -648,7 +656,20 @@ def reshop_stats(
     if not _can_access(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    active = db.query(Reshop).filter(Reshop.stage.in_(ACTIVE_STAGES)).all()
+    # Scope query same as list endpoint
+    is_admin_or_manager = current_user.role.lower() in ("admin", "manager")
+    is_elevated = current_user.username == "andrey.dayson"
+    
+    base_query = db.query(Reshop)
+    if current_user.role.lower() == "producer":
+        base_query = base_query.filter(or_(
+            Reshop.referred_by == current_user.full_name,
+            Reshop.referred_by == current_user.username,
+        ))
+    elif not is_admin_or_manager and not is_elevated:
+        base_query = base_query.filter(Reshop.assigned_to == current_user.id)
+
+    active = base_query.filter(Reshop.stage.in_(ACTIVE_STAGES)).all()
 
     stage_counts = {}
     for s in STAGES:
@@ -699,15 +720,29 @@ def reshop_badge_count(
     if not _can_access(current_user):
         return {"count": 0}
     
-    count = db.query(func.count(Reshop.id)).filter(
-        Reshop.stage.in_(ACTIVE_STAGES)
-    ).scalar() or 0
+    # Scope same as list endpoint
+    is_admin_or_manager = current_user.role.lower() in ("admin", "manager")
+    is_elevated = current_user.username == "andrey.dayson"
     
-    # New = created in last 24h
-    new_count = db.query(func.count(Reshop.id)).filter(
+    base = db.query(func.count(Reshop.id)).filter(Reshop.stage.in_(ACTIVE_STAGES))
+    if current_user.role.lower() == "producer":
+        base = base.filter(or_(Reshop.referred_by == current_user.full_name, Reshop.referred_by == current_user.username))
+    elif not is_admin_or_manager and not is_elevated:
+        base = base.filter(Reshop.assigned_to == current_user.id)
+    
+    count = base.scalar() or 0
+    
+    # New = created in last 24h (same scope)
+    new_base = db.query(func.count(Reshop.id)).filter(
         Reshop.stage.in_(ACTIVE_STAGES),
         Reshop.created_at >= datetime.utcnow() - timedelta(hours=24),
-    ).scalar() or 0
+    )
+    if current_user.role.lower() == "producer":
+        new_base = new_base.filter(or_(Reshop.referred_by == current_user.full_name, Reshop.referred_by == current_user.username))
+    elif not is_admin_or_manager and not is_elevated:
+        new_base = new_base.filter(Reshop.assigned_to == current_user.id)
+    
+    new_count = new_base.scalar() or 0
     
     return {"count": count, "new": new_count}
 
