@@ -825,14 +825,11 @@ def create_reshop(
     db.commit()
     db.refresh(reshop)
 
-    # Notify assigned agent (with CC to Andrey)
+    # Notify assigned agent — DISABLED: replaced by daily digest email at 8:30 AM CT
+    # Individual assignment emails no longer sent; agents get a full pipeline summary instead
     if reshop.assigned_to:
         assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
-        if assignee and assignee.email:
-            try:
-                _notify_reshop_assignment(reshop, assignee, current_user, db)
-            except Exception as e:
-                logger.error("Reshop notification error: %s", e)
+        # Notification moved to daily digest (reshop_digest.py)
     else:
         # Fallback: notify retention team
         try:
@@ -889,6 +886,22 @@ def test_reshop_notification(
     except Exception as e:
         import traceback
         return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
+
+@router.post("/send-digest")
+def send_reshop_digest_now(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually trigger the daily reshop digest email (admin only)."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.reshop_digest import send_reshop_digests
+    from datetime import date
+    result = send_reshop_digests(db, date.today())
+    return result
+
 
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
@@ -979,9 +992,8 @@ def update_reshop(
                       f"Assigned to {assignee.full_name if assignee else 'unassigned'}")
         reshop.assigned_to = data.assigned_to
 
-        # Notify the assignee via email
-        if assignee and assignee.email:
-            _notify_reshop_assignment(reshop, assignee, current_user, db)
+        # Notification moved to daily digest (reshop_digest.py)
+        # _notify_reshop_assignment(reshop, assignee, current_user, db)
 
     if data.quoter is not None:
         reshop.quoter = data.quoter

@@ -1146,6 +1146,43 @@ async def lifespan(app: FastAPI):
     recap_thread.start()
     logger.info("Daily sales recap scheduler started (8 PM CT)")
 
+    # Daily Reshop Digest — 8:30 AM CT Monday-Friday
+    def _run_reshop_digest():
+        """Send daily reshop pipeline digest to retention agents."""
+        import time
+        from datetime import datetime
+        import pytz
+
+        time.sleep(180)  # Wait 3 min for app to start
+        central = pytz.timezone("America/Chicago")
+        last_sent_date = None
+
+        while True:
+            try:
+                now_ct = datetime.now(central)
+                today_ct = now_ct.date()
+
+                # Send at 8:30 AM CT, Monday-Friday only
+                if (now_ct.hour == 8 and now_ct.minute >= 30 and
+                        now_ct.weekday() < 5 and last_sent_date != today_ct):
+                    logger.info("📋 Sending daily reshop digest emails...")
+                    from app.services.reshop_digest import send_reshop_digests
+                    from app.core.database import SessionLocal
+                    rdb = SessionLocal()
+                    try:
+                        result = send_reshop_digests(rdb, today_ct)
+                        logger.info(f"Reshop digest result: {result}")
+                        last_sent_date = today_ct
+                    finally:
+                        rdb.close()
+            except Exception as e:
+                logger.error(f"Reshop digest scheduler error: {e}")
+            time.sleep(300)  # Check every 5 minutes
+
+    reshop_digest_thread = threading.Thread(target=_run_reshop_digest, daemon=True)
+    reshop_digest_thread.start()
+    logger.info("Daily reshop digest scheduler started (8:30 AM CT, Mon-Fri)")
+
     # Start NowCerts Pending Cancellation Poller (every 4 hours)
     def _run_pending_cancel_poll():
         """Poll NowCerts for pending cancellations and trigger non-pay emails."""
