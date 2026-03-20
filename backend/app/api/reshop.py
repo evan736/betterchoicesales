@@ -926,18 +926,17 @@ def list_commercial_accounts(
     )
 
     COMMERCIAL_KEYWORDS = [
-        "commercial", "business", "general liability", "bop",
+        "commercial", "general liability", "business owner",
         "workers comp", "professional liability", "e&o", "d&o",
         "commercial auto", "commercial property", "commercial package",
-        "gl ", "wc ", "inland marine", "artisan", "contractor",
+        "inland marine", "artisan", "contractor",
+        "business auto", "business property", "business liability",
     ]
 
     commercial = []
     for p in all_upcoming:
         lob = (p.line_of_business or "").lower()
-        ptype = (p.policy_type or "").lower()
-        combined = lob + " " + ptype
-        if any(kw in combined for kw in COMMERCIAL_KEYWORDS):
+        if any(kw in lob for kw in COMMERCIAL_KEYWORDS):
             customer = db.query(Customer).filter(Customer.id == p.customer_id).first()
             commercial.append({
                 "customer_name": customer.full_name if customer else "Unknown",
@@ -1262,16 +1261,16 @@ def _run_proactive_scan(
 
         # Skip commercial accounts — personal lines only
         COMMERCIAL_KEYWORDS = [
-            "commercial", "business", "general liability", "bop",
+            "commercial", "general liability", "business owner",
             "workers comp", "professional liability", "e&o", "d&o",
             "commercial auto", "commercial property", "commercial package",
-            "gl ", "wc ", "inland marine", "artisan", "contractor",
+            "inland marine", "artisan", "contractor",
+            "business auto", "business property", "business liability",
         ]
         lob_check = (active.line_of_business or "").lower()
-        carrier_check = (active.carrier or "").lower()
         ptype_check = (active.policy_type or "").lower()
-        combined_check = lob_check + " " + ptype_check
-        if any(kw in combined_check for kw in COMMERCIAL_KEYWORDS):
+        # Only check LOB — policy_type has "New Business" which is a transaction type, not commercial
+        if any(kw in lob_check for kw in COMMERCIAL_KEYWORDS):
             skipped_commercial += 1
             continue
 
