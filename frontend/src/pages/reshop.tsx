@@ -478,14 +478,24 @@ const ReshopCard: React.FC<{
         </div>
       )}
 
-      {/* Quick advance button */}
-      {canManage && nextStage && (
-        <button
-          onClick={e => { e.stopPropagation(); onMove(nextStage.key); }}
-          className="mt-2 w-full flex items-center justify-center gap-1 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded py-1 transition-colors opacity-0 group-hover:opacity-100"
-        >
-          Move to {nextStage.label} <ArrowRight size={10} />
-        </button>
+      {/* Quick action buttons */}
+      {canManage && (
+        <div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {nextStage && (
+            <button
+              onClick={e => { e.stopPropagation(); onMove(nextStage.key); }}
+              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded py-1 transition-colors"
+            >
+              <ArrowRight size={10} /> {nextStage.label}
+            </button>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); onMove('cancelled'); }}
+            className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded py-1 transition-colors"
+          >
+            <XCircle size={10} /> Skip — Stay
+          </button>
+        </div>
       )}
     </div>
   );
