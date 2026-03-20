@@ -323,18 +323,21 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
 </div></body></html>"""
 
         from_email = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+        # CC Andrey on all reshop assignment notifications
+        cc_email = os.environ.get("RESHOP_CC_EMAIL", "andrey@betterchoiceins.com")
         _requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
                 "from": f"Better Choice Insurance <{from_email}>",
                 "to": [assignee.email],
+                "cc": [cc_email],
                 "subject": subject,
                 "html": html,
             },
             timeout=15,
         )
-        _logger.info(f"Reshop assignment notification sent to {assignee.email} for {customer}")
+        _logger.info(f"Reshop assignment notification sent to {assignee.email} (cc: {cc_email}) for {customer}")
     except Exception as e:
         _logger.warning(f"Reshop assignment notification failed: {e}")
 
