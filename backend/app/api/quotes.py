@@ -883,16 +883,49 @@ def _check_followups_logic(db: Session) -> dict:
             results["skipped_disabled"] += 1
             continue
 
-        # Skip if prospect already confirmed bind
-        if any(q.status == "bind_requested" for q in quotes):
-            continue
-
         # Skip if customer already has a sale in the system
         if _has_matching_sale(db, latest.prospect_name or "", latest.prospect_email or "", latest.carrier or ""):
             results["skipped_already_sold"] += 1
             # Auto-disable follow-ups since they bought
             for q in quotes:
                 q.followup_disabled = True
+            continue
+
+        # Handle "I'm Ready to Bind" but no sale ever uploaded — retarget
+        bind_requested_quotes = [q for q in quotes if q.status == "bind_requested"]
+        if bind_requested_quotes:
+            br = bind_requested_quotes[0]
+            br_at = br.stage_updated_at or br.email_sent_at or br.created_at
+            if br_at:
+                br_at = br_at.replace(tzinfo=None) if br_at.tzinfo else br_at
+                days_since_bind = (now - br_at).days
+                # If 3+ days since bind request and no sale — send retarget email
+                if days_since_bind >= 3 and not getattr(br, 'retarget_sent', False):
+                    try:
+                        subject, html = build_followup_email(
+                            prospect_name=br.prospect_name or "",
+                            carrier=br.carrier or "",
+                            policy_type=br.policy_type or "",
+                            premium=float(br.quoted_premium or 0),
+                            premium_term=br.premium_term or "6 months",
+                            agent_name=br.producer_name or "",
+                            agent_email=br.producer_email or "",
+                            quote_id=br.id,
+                            day="bind_retarget",
+                        )
+                        if subject and html and br.prospect_email:
+                            send_followup_email(
+                                to_email=br.prospect_email,
+                                subject=subject,
+                                html=html,
+                                agent_email=br.producer_email or "",
+                                quote_id=br.id,
+                            )
+                            results["bind_retarget"] = results.get("bind_retarget", 0) + 1
+                    except Exception as e:
+                        logger.error(f"Bind retarget email error for {br.prospect_name}: {e}")
+                    # Mark as retargeted to avoid repeat sends
+                    br.followup_14day_sent = True  # Reuse this flag as retarget marker
             continue
 
         sent_at = latest.email_sent_at.replace(tzinfo=None) if latest.email_sent_at.tzinfo else latest.email_sent_at

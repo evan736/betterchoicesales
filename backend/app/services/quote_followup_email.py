@@ -87,6 +87,11 @@ def build_followup_email(
         intro = f"This is my final check-in on your {carrier_display} quote. Rates are only guaranteed for a limited time, and I want to make sure you don't lose this pricing."
         cta_text = "I'm Ready — Let's Do This"
         closing = "After this, I won't send any more follow-ups — but my door is always open. You can reach me anytime at the number below. I'd love to help you get covered."
+    elif day == "bind_retarget":
+        subject = f"{first_name} — we still need a few things to finalize your {carrier_display} policy"
+        intro = f"I noticed you expressed interest in moving forward with your {carrier_display} quote, but we haven't been able to finalize everything yet. I want to make sure nothing fell through the cracks on our end."
+        cta_text = "Let's Finish This Up"
+        closing = "Sometimes all it takes is a quick 5-minute call to get everything wrapped up. Reply to this email, give me a call, or click the button above and I'll take care of the rest. I don't want you to go without coverage!"
     else:
         return None, None
 
