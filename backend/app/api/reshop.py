@@ -7,6 +7,7 @@ Role-based access:
 - Producer (Joseph, Giulian): can create/refer reshops, view own referrals
 """
 import logging
+import os
 import requests as http_requests
 from datetime import datetime, timedelta
 from typing import Optional
@@ -62,13 +63,9 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
     Customer-aware: if this customer already has an active reshop assigned
     to someone, return that same agent (don't split accounts).
     
-    Returns None if auto-assign is disabled or no agents found.
+    Always enabled — assigns between Salma and Michelle.
     """
     global _reshop_round_robin_index
-    
-    auto_assign = os.environ.get("RESHOP_AUTO_ASSIGN", "false").lower() == "true"
-    if not auto_assign:
-        return None
 
     # Check if this customer already has a reshop assigned to someone
     if customer_id:
@@ -1355,6 +1352,10 @@ def create_reshop_from_customer(
     if policy_id:
         policy = db.query(CustomerPolicy).filter(CustomerPolicy.id == policy_id).first()
 
+    # Manual reshop from customer center = URGENT, 24h deadline
+    deadline = datetime.utcnow() + timedelta(hours=24)
+    auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
+
     reshop = Reshop(
         customer_id=customer.id,
         customer_name=customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip(),
@@ -1364,12 +1365,13 @@ def create_reshop_from_customer(
         carrier=policy.carrier if policy else None,
         line_of_business=policy.line_of_business if policy else None,
         current_premium=policy.premium if policy else None,
-        expiration_date=policy.expiration_date if policy else None,
+        expiration_date=policy.expiration_date if policy and policy.expiration_date else deadline,
         stage="new_request",
-        priority="normal",
+        priority="urgent",
         source=source,
         reason=reason,
         notes=notes,
+        assigned_to=auto_agent_id,
         referred_by=current_user.full_name if current_user.role.lower() == "producer" else None,
     )
     db.add(reshop)

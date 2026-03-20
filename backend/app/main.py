@@ -1183,6 +1183,49 @@ async def lifespan(app: FastAPI):
     reshop_digest_thread.start()
     logger.info("Daily reshop digest scheduler started (8:30 AM CT, Mon-Fri)")
 
+    # Daily Proactive Reshop Scan — 7 AM CT Monday-Friday (before digest at 8:30)
+    def _run_reshop_scan():
+        """Automatically scan for upcoming renewals and auto-assign agents."""
+        import time
+        from datetime import datetime
+        import pytz
+
+        time.sleep(240)  # Wait 4 min for app to start
+        central = pytz.timezone("America/Chicago")
+        last_scan_date = None
+
+        while True:
+            try:
+                now_ct = datetime.now(central)
+                today_ct = now_ct.date()
+
+                # Run at 7 AM CT, Monday-Friday only
+                if (now_ct.hour == 7 and now_ct.minute >= 0 and
+                        now_ct.weekday() < 5 and last_scan_date != today_ct):
+                    logger.info("🔍 Running daily proactive reshop scan...")
+                    from app.api.reshop import _run_proactive_scan
+                    from app.core.database import SessionLocal
+                    rdb = SessionLocal()
+                    try:
+                        result = _run_proactive_scan(
+                            rdb,
+                            days_out=60,
+                            increase_threshold=10.0,
+                            min_annual_premium=2000.0,
+                            actor_name="ORBIT Auto-Scan",
+                        )
+                        logger.info("Reshop scan result: %s", result)
+                        last_scan_date = today_ct
+                    finally:
+                        rdb.close()
+            except Exception as e:
+                logger.error("Reshop scan scheduler error: %s", e)
+            time.sleep(300)  # Check every 5 minutes
+
+    reshop_scan_thread = threading.Thread(target=_run_reshop_scan, daemon=True)
+    reshop_scan_thread.start()
+    logger.info("Daily reshop scan scheduler started (7 AM CT, Mon-Fri)")
+
     # Start NowCerts Pending Cancellation Poller (every 4 hours)
     def _run_pending_cancel_poll():
         """Poll NowCerts for pending cancellations and trigger non-pay emails."""
