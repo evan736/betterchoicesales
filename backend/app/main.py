@@ -1494,7 +1494,7 @@ def health_check():
         sse_loaded = True
     except Exception:
         pass
-    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.1", "build": "2026-03-18T15:00:00Z", "sse": sse_loaded}
+    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.2", "build": "2026-03-19T03:00:00Z", "sse": sse_loaded}
 
 
 @app.post("/admin/force-migrate")
