@@ -328,10 +328,11 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
     </div>
 </div></body></html>"""
 
-        from_email = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+        # Use the same from address as hooray emails (those work)
+        from_email = settings.MAILGUN_FROM_EMAIL or os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
         # CC Andrey on all reshop assignment notifications
         cc_email = os.environ.get("RESHOP_CC_EMAIL", "andrey@betterchoiceins.com")
-        _requests.post(
+        resp = _requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
@@ -343,7 +344,7 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
             },
             timeout=15,
         )
-        _logger.info(f"Reshop assignment notification sent to {assignee.email} (cc: {cc_email}) for {customer}")
+        _logger.info(f"Reshop notification: {resp.status_code} {resp.text[:200]} → {assignee.email} (cc: {cc_email})")
     except Exception as e:
         _logger.warning(f"Reshop assignment notification failed: {e}")
 
@@ -835,7 +836,7 @@ def test_reshop_notification(
     
     try:
         _notify_reshop_assignment(reshop, assignee, current_user, db)
-        return {"status": "sent", "to": assignee.email, "customer": reshop.customer_name}
+        return {"status": "sent", "to": assignee.email, "customer": reshop.customer_name, "from_email": settings.MAILGUN_FROM_EMAIL, "domain": settings.MAILGUN_DOMAIN}
     except Exception as e:
         import traceback
         return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
