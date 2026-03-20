@@ -435,7 +435,11 @@ const ReshopCard: React.FC<{
             </span>
           )}
           {r.assignee_name && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 truncate max-w-[80px]">
+            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+              r.assignee_name.includes('Salma') ? 'bg-purple-100 text-purple-700 border border-purple-300' :
+              r.assignee_name.includes('Michelle') ? 'bg-cyan-100 text-cyan-700 border border-cyan-300' :
+              'bg-amber-100 text-amber-700 border border-amber-300'
+            }`}>
               {r.assignee_name.split(' ')[0]}
             </span>
           )}
