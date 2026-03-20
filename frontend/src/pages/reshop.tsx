@@ -422,8 +422,8 @@ const ReshopCard: React.FC<{
         {r.policy_number && <span className="truncate max-w-[80px]">#{r.policy_number}</span>}
       </div>
 
-      {(isExpiringSoon || r.quoted_premium || r.assignee_name) && (
-        <div className="flex items-center gap-2 flex-wrap">
+      {(isExpiringSoon || r.quoted_premium) && (
+        <div className="flex items-center gap-2 flex-wrap mb-1">
           {isExpiringSoon && (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
               {daysUntilExp}d left
@@ -434,15 +434,18 @@ const ReshopCard: React.FC<{
               Quote: ${Number(r.quoted_premium).toLocaleString()}
             </span>
           )}
-          {r.assignee_name && (
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-              r.assignee_name.includes('Salma') ? 'bg-purple-100 text-purple-700 border border-purple-300' :
-              r.assignee_name.includes('Michelle') ? 'bg-cyan-100 text-cyan-700 border border-cyan-300' :
-              'bg-amber-100 text-amber-700 border border-amber-300'
-            }`}>
-              {r.assignee_name.split(' ')[0]}
-            </span>
-          )}
+        </div>
+      )}
+
+      {r.assignee_name && (
+        <div className={`-mx-3 -mb-2.5 px-3 py-1.5 rounded-b-lg mt-1.5 ${
+          r.assignee_name.includes('Salma') ? 'bg-purple-500' :
+          r.assignee_name.includes('Michelle') ? 'bg-cyan-500' :
+          'bg-amber-500'
+        }`}>
+          <span className="text-[11px] font-bold text-white tracking-wide">
+            {r.assignee_name.split(' ')[0].toUpperCase()}
+          </span>
         </div>
       )}
 
