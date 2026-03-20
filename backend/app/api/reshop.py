@@ -900,6 +900,60 @@ def send_reshop_digest_now(
     return result
 
 
+
+@router.get("/commercial-accounts")
+def list_commercial_accounts(
+    days_out: int = Query(60),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List commercial accounts that would be skipped by the proactive scan."""
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    now = datetime.utcnow()
+    cutoff = now + timedelta(days=days_out)
+
+    # Get all upcoming policies
+    all_upcoming = (
+        db.query(CustomerPolicy)
+        .filter(
+            func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce", "renewing"]),
+            CustomerPolicy.effective_date >= now - timedelta(days=7),
+            CustomerPolicy.effective_date <= cutoff,
+        )
+        .all()
+    )
+
+    COMMERCIAL_KEYWORDS = [
+        "commercial", "business", "general liability", "bop",
+        "workers comp", "professional liability", "e&o", "d&o",
+        "commercial auto", "commercial property", "commercial package",
+        "gl ", "wc ", "inland marine", "artisan", "contractor",
+    ]
+
+    commercial = []
+    for p in all_upcoming:
+        lob = (p.line_of_business or "").lower()
+        ptype = (p.policy_type or "").lower()
+        combined = lob + " " + ptype
+        if any(kw in combined for kw in COMMERCIAL_KEYWORDS):
+            customer = db.query(Customer).filter(Customer.id == p.customer_id).first()
+            commercial.append({
+                "customer_name": customer.full_name if customer else "Unknown",
+                "customer_id": p.customer_id,
+                "policy_number": p.policy_number,
+                "carrier": p.carrier,
+                "line_of_business": p.line_of_business,
+                "policy_type": p.policy_type,
+                "premium": float(p.premium or 0),
+                "effective_date": str(p.effective_date)[:10] if p.effective_date else None,
+                "expiration_date": str(p.expiration_date)[:10] if p.expiration_date else None,
+            })
+
+    commercial.sort(key=lambda x: x["premium"], reverse=True)
+    return {"count": len(commercial), "accounts": commercial}
+
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
     days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
