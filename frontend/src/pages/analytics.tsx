@@ -144,7 +144,19 @@ export default function Analytics() {
     finally { setLoadingData(false); }
   };
 
-  if (loading || !user) return null;
+  if (loading || !user) return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="h-10 w-48 rounded-lg bg-slate-200 animate-pulse mb-6" />
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+          {[1,2,3,4,5].map(i => <div key={i} className="h-24 rounded-xl bg-slate-200 animate-pulse" />)}
+        </div>
+        <div className="h-80 rounded-xl bg-slate-200 animate-pulse mb-6" />
+        <div className="h-64 rounded-xl bg-slate-200 animate-pulse" />
+      </main>
+    </div>
+  );
 
   const formatCurrency = (val: number) => `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 

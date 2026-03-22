@@ -53,7 +53,19 @@ export default function Commissions() {
     }
   };
 
-  if (loading || !user) return null;
+  if (loading || !user) return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="h-10 w-64 rounded-lg bg-slate-200 animate-pulse mb-2" />
+        <div className="h-4 w-48 rounded bg-slate-200 animate-pulse mb-8" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {[1,2,3].map(i => <div key={i} className="h-28 rounded-xl bg-slate-200 animate-pulse" />)}
+        </div>
+        <div className="h-64 rounded-xl bg-slate-200 animate-pulse" />
+      </main>
+    </div>
+  );
 
   const totalCommission = commissions.reduce(
     (sum, c) => sum + parseFloat(c.commission_amount),

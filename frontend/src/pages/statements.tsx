@@ -259,7 +259,18 @@ export default function Statements() {
     }
   };
 
-  if (loading || !user || user.role?.toLowerCase() !== 'admin') return null;
+  if (loading || !user || user.role?.toLowerCase() !== 'admin') return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="h-8 w-56 rounded-lg bg-slate-200 animate-pulse mb-6" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-slate-200 animate-pulse" />)}
+        </div>
+        <div className="h-96 rounded-xl bg-slate-200 animate-pulse" />
+      </main>
+    </div>
+  );
 
   // ── Top-level view toggle ──
   const [mainView, setMainView] = useState<'reconciliation' | 'revenue'>('reconciliation');

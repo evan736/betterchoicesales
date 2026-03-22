@@ -190,7 +190,18 @@ export default function ReshopPage() {
     return items;
   };
 
-  if (!user) return null;
+  if (!user) return (
+    <div className="min-h-screen">
+      <div className="glass sticky top-0 z-50 border-b border-white/20 h-14" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="h-8 w-56 rounded-lg bg-slate-200 animate-pulse mb-6" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-slate-200 animate-pulse" />)}
+        </div>
+        <div className="h-96 rounded-xl bg-slate-200 animate-pulse" />
+      </main>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -283,8 +294,15 @@ export default function ReshopPage() {
 
         {/* Kanban Board */}
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-slate-400">
-            <Loader2 size={24} className="animate-spin mr-2" />Loading pipeline...
+          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+            {STAGES.map(s => (
+              <div key={s.key} className="flex-shrink-0" style={{ width: 260 }}>
+                <div className="rounded-lg p-2 mb-2 h-8 bg-slate-200 animate-pulse" />
+                {[1,2,3].map(i => (
+                  <div key={i} className="rounded-xl mb-2 p-4 bg-slate-200 animate-pulse" style={{ height: 110 }} />
+                ))}
+              </div>
+            ))}
           </div>
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
