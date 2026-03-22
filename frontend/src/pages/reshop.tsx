@@ -467,23 +467,39 @@ const ReshopCard: React.FC<{
             <DollarSign size={10} />{Number(r.current_premium).toLocaleString()}
           </span>
         )}
-        {r.policy_number && <span className="truncate max-w-[80px]">#{r.policy_number}</span>}
+        {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
+          <span className="flex items-center gap-0.5 font-bold text-red-600">
+            → ${Number(r.renewal_premium).toLocaleString()}
+            <span className="text-[10px]">
+              (+{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%)
+            </span>
+          </span>
+        )}
+        {!r.renewal_premium && r.policy_number && <span className="truncate max-w-[80px]">#{r.policy_number}</span>}
       </div>
 
-      {(isExpiringSoon || r.quoted_premium) && (
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          {isExpiringSoon && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
-              {daysUntilExp}d left
-            </span>
-          )}
-          {r.quoted_premium && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
-              Quote: ${Number(r.quoted_premium).toLocaleString()}
-            </span>
-          )}
-        </div>
-      )}
+      {/* Renewal date + urgency badges */}
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        {r.expiration_date && (
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+            daysUntilExp !== null && daysUntilExp <= 7 ? 'bg-red-100 text-red-700' :
+            daysUntilExp !== null && daysUntilExp <= 14 ? 'bg-amber-100 text-amber-700' :
+            'bg-slate-100 text-slate-600'
+          }`}>
+            📅 {new Date(r.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+        {isExpiringSoon && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+            {daysUntilExp}d left
+          </span>
+        )}
+        {r.quoted_premium && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+            Quote: ${Number(r.quoted_premium).toLocaleString()}
+          </span>
+        )}
+      </div>
 
       {r.assignee_name && (
         <div className={`-mx-3 -mb-2.5 px-3 py-1.5 rounded-b-lg mt-1.5 ${
