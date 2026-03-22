@@ -34,6 +34,7 @@ import {
   Inbox,
 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from '../components/ui/Toast';
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
@@ -191,7 +192,7 @@ export default function Dashboard() {
     } catch (err: any) {
       console.error('Clock in error:', err);
       const msg = err.response?.data?.detail || err.response?.statusText || err.message || 'Unknown error';
-      alert(`Clock in failed: ${msg}`);
+      toast.error(`Clock in failed: ${msg}`);
     }
     finally { setClockLoading(false); }
   };
@@ -204,7 +205,7 @@ export default function Dashboard() {
     } catch (err: any) {
       console.error('Clock out error:', err);
       const msg = err.response?.data?.detail || err.response?.statusText || err.message || 'Unknown error';
-      alert(`Clock out failed: ${msg}`);
+      toast.error(`Clock out failed: ${msg}`);
     }
     finally { setClockLoading(false); }
   };
@@ -813,13 +814,13 @@ const ComplianceCenter: React.FC = () => {
       const res = await tasksAPI.send(id);
       const d = res.data;
       if (d.success) {
-        alert(`✅ ${d.method === 'letter' ? 'Letter sent via Thanks.io' : 'Email sent'} successfully!`);
+        toast.success(`✅ ${d.method === 'letter' ? 'Letter sent via Thanks.io' : 'Email sent'} successfully!`);
         loadTasks(); // Refresh to show updated last_sent_at
       } else {
-        alert(`❌ Send failed: ${d.error || 'Unknown error'}`);
+        toast.error(`❌ Send failed: ${d.error || 'Unknown error'}`);
       }
     } catch (e: any) {
-      alert(`❌ Send failed: ${e?.response?.data?.detail || e.message}`);
+      toast.error(`❌ Send failed: ${e?.response?.data?.detail || e.message}`);
     }
     setSendingTaskId(null);
   };
@@ -840,7 +841,7 @@ const ComplianceCenter: React.FC = () => {
       loadInspectionDrafts();
       loadTasks();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Approve failed — check customer email');
+      toast.error(e.response?.data?.detail || 'Approve failed — check customer email');
     }
     setActionLoading(null);
   };
@@ -853,7 +854,7 @@ const ComplianceCenter: React.FC = () => {
       loadInspectionDrafts();
       loadTasks();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Reject failed');
+      toast.error(e.response?.data?.detail || 'Reject failed');
     }
     setActionLoading(null);
   };
@@ -876,7 +877,7 @@ const ComplianceCenter: React.FC = () => {
       setEditingDraftId(null);
       loadInspectionDrafts();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Save failed');
+      toast.error(e.response?.data?.detail || 'Save failed');
     }
     setActionLoading(null);
   };
@@ -1108,7 +1109,7 @@ const ComplianceCenter: React.FC = () => {
                                         window.open(url, '_blank');
                                       } catch (err) {
                                         console.error('PDF download error:', err);
-                                        alert('Failed to download PDF');
+                                        toast.error('Failed to download PDF');
                                       }
                                     }}
                                   >

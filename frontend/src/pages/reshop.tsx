@@ -9,6 +9,7 @@ import {
   ArrowRight, Shield, Target, TrendingUp, TrendingDown, Zap, MessageSquare,
   Send, Eye, Filter, BarChart2, Users,
 } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 const STAGES = [
   { key: 'proactive', label: 'Proactive', color: 'purple', icon: <Eye size={14} /> },
@@ -135,7 +136,7 @@ export default function ReshopPage() {
       loadData();
       if (selectedReshop?.id === reshopId) openDetail({ id: reshopId });
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Failed to move');
+      toast.error(e.response?.data?.detail || 'Failed to move');
     }
   };
 
@@ -146,7 +147,7 @@ export default function ReshopPage() {
       loadData();
       if (selectedReshop?.id === reshopId) openDetail({ id: reshopId });
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Failed to update');
+      toast.error(e.response?.data?.detail || 'Failed to update');
     }
     setSaving(false);
   };
@@ -164,10 +165,10 @@ export default function ReshopPage() {
     setDetectingProactive(true);
     try {
       const r = await reshopAPI.detectProactive(60, 10);
-      alert(`Scan complete: ${r.data.created} new proactive reshops created, ${r.data.skipped} already tracked, ${r.data.policies_checked} policies checked.`);
+      toast.success(`Scan complete: ${r.data.created} new proactive reshops created, ${r.data.skipped} already tracked, ${r.data.policies_checked} policies checked.`);
       loadData();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Detection failed');
+      toast.error(e.response?.data?.detail || 'Detection failed');
     }
     setDetectingProactive(false);
   };
@@ -791,7 +792,7 @@ const CreateModal: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.customer_name.trim()) return alert('Customer name is required');
+    if (!form.customer_name.trim()) return toast.info('Customer name is required');
     setCreating(true);
     try {
       await reshopAPI.create({
@@ -800,7 +801,7 @@ const CreateModal: React.FC<{
       });
       onCreated();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Failed to create');
+      toast.error(e.response?.data?.detail || 'Failed to create');
     }
     setCreating(false);
   };

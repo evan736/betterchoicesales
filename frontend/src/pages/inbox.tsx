@@ -8,6 +8,7 @@ import {
   Archive, RefreshCw, ArrowLeft, MailOpen, Star, Users, Filter,
   Zap, ListChecks, AlertTriangle, ArrowRight, MailPlus,
 } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 const TAGS = ['billing', 'claims', 'new-business', 'endorsement', 'renewal', 'general', 'urgent'];
 
@@ -127,7 +128,7 @@ export default function InboxPage() {
       if (closeAfterReply) { setActiveThread(null); loadThreads(); }
       else { openThread(activeThread); }
       loadStats(); loadMailboxes();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Failed to send'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed to send'); }
     finally { setReplySending(false); }
   };
 
@@ -142,7 +143,7 @@ export default function InboxPage() {
       setAiSummary(res.data.summary || '');
       setReplyBody(res.data.draft);
       setReplyOpen(true);
-    } catch (e: any) { alert(e.response?.data?.detail || 'AI draft failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'AI draft failed'); }
     finally { setAiLoading(false); }
   };
 

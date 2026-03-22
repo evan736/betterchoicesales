@@ -8,6 +8,7 @@ import {
   Target, Send, UserX, UserCheck, Filter, RefreshCw, Eye, MailOpen,
 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from '../components/ui/Toast';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 function headers() { return { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }; }
@@ -122,9 +123,9 @@ export default function CampaignsPage() {
     setRecheckingNowCerts(true);
     try {
       const res = await axios.post(`${API}/api/campaigns/recheck-nowcerts`, {}, { headers: headers() });
-      alert(`${res.data.message}`);
+      toast.info(`${res.data.message}`);
       loadCampaigns();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Recheck failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Recheck failed'); }
     finally { setRecheckingNowCerts(false); }
   };
 
@@ -133,12 +134,12 @@ export default function CampaignsPage() {
     try {
       const res = await axios.post(`${API}/api/campaigns/auto-retarget`, {}, { headers: headers() });
       if (res.data.retarget_campaigns_created > 0) {
-        alert(`Created ${res.data.retarget_campaigns_created} retarget campaign(s) in draft mode:\n\n${res.data.campaigns?.map((c: any) => `• ${c.campaign_name} — ${c.leads} leads (Round ${c.retarget_round})`).join('\n')}\n\nReview and activate when ready.`);
+        toast.success(`Created ${res.data.retarget_campaigns_created} retarget campaign(s) in draft mode:\n\n${res.data.campaigns?.map((c: any) => `• ${c.campaign_name} — ${c.leads} leads (Round ${c.retarget_round})`).join('\n')}\n\nReview and activate when ready.`);
       } else {
-        alert('No campaigns eligible for retargeting yet. Campaigns must be 180+ days old with unconverted leads.');
+        toast.info('No campaigns eligible for retargeting yet. Campaigns must be 180+ days old with unconverted leads.');
       }
       loadCampaigns();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Retarget failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Retarget failed'); }
     finally { setRetargeting(false); }
   };
 
@@ -265,7 +266,7 @@ export default function CampaignsPage() {
       setSelectedCampaign(null);
       loadCampaigns();
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Delete failed');
+      toast.error(e.response?.data?.detail || 'Delete failed');
     }
   };
 
@@ -663,7 +664,7 @@ export default function CampaignsPage() {
                                     try {
                                       const res = await axios.get(`${API}/api/campaigns/${selectedCampaign.id}/leads/${lead.id}/email-preview`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
                                       setLeadEmailPreview(res.data);
-                                    } catch { alert('No email preview available'); }
+                                    } catch { toast.error('No email preview available'); }
                                   }}
                                   title="View sent email"
                                   className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 transition">
@@ -906,7 +907,7 @@ export default function CampaignsPage() {
                         await axios.post(`${API}/api/campaigns/${uploadResult.campaign_id}/activate`, {}, { headers: headers() });
                         setShowUpload(false); loadCampaigns();
                         if (uploadResult.campaign_id) loadCampaignDetail(uploadResult.campaign_id);
-                      } catch (e: any) { alert(e.response?.data?.detail || 'Activation failed'); }
+                      } catch (e: any) { toast.error(e.response?.data?.detail || 'Activation failed'); }
                     }}
                       className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/25 rounded-lg text-emerald-300 text-sm font-semibold transition">
                       ✓ Activate Campaign ({uploadResult.would_receive_email} emails)

@@ -19,6 +19,7 @@ import {
   Users,
   MapPin,
 } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 // ── Main Page ───────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ export default function TimeClock() {
         setSelectedEmployee(res.data);
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to excuse');
+      toast.error(err.response?.data?.detail || 'Failed to excuse');
     }
   };
 
@@ -89,7 +90,7 @@ export default function TimeClock() {
         setSelectedEmployee(res.data);
       }
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed');
+      toast.error(err.response?.data?.detail || 'Failed');
     }
   };
 
@@ -98,7 +99,7 @@ export default function TimeClock() {
       const res = await timeclockAPI.adminEmployeeDetail(userId, month);
       setSelectedEmployee(res.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to load');
+      toast.error(err.response?.data?.detail || 'Failed to load');
     }
   };
 

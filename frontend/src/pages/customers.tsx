@@ -11,6 +11,7 @@ import {
   Shield, ShieldCheck, ShieldOff, Zap, Paperclip, Copy, ChevronRight, Eye, EyeOff, Target,
   Pencil, Save
 } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 const CARRIER_DISPLAY: Record<string, string> = {
   'integon natl': 'National General', 'integon natl ins': 'National General',
@@ -203,7 +204,7 @@ export default function CustomersPage() {
 
   const handleSync = async (id: number) => {
     setDetailLoading(true);
-    try { const r = await customersAPI.sync(id); setDetail(r.data); } catch (e: any) { alert(e.response?.data?.detail || 'Sync failed'); }
+    try { const r = await customersAPI.sync(id); setDetail(r.data); } catch (e: any) { toast.error(e.response?.data?.detail || 'Sync failed'); }
     setDetailLoading(false);
   };
 
@@ -259,9 +260,9 @@ export default function CustomersPage() {
     setSyncing(true);
     try {
       const r = await customersAPI.syncAll();
-      alert(`Sync complete!\n${r.data.imported} imported, ${r.data.updated} updated\n${r.data.policies_imported} policies imported, ${r.data.policies_updated} policies updated`);
+      toast.success(`Sync complete!\n${r.data.imported} imported, ${r.data.updated} updated\n${r.data.policies_imported} policies imported, ${r.data.policies_updated} policies updated`);
       loadStats();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Sync failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Sync failed'); }
     setSyncing(false);
   };
 
@@ -276,9 +277,9 @@ export default function CustomersPage() {
     setMerging(true);
     try {
       const r = await customersAPI.merge(keepId, mergeIds);
-      alert(`Merged! ${r.data.policies_moved} policies moved, ${r.data.customers_deleted} duplicates removed.`);
+      toast.success(`Merged! ${r.data.policies_moved} policies moved, ${r.data.customers_deleted} duplicates removed.`);
       loadDuplicates(); loadStats();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Merge failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Merge failed'); }
     setMerging(false);
   };
 
@@ -300,7 +301,7 @@ export default function CustomersPage() {
   const handleNonpayUpload = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!['pdf', 'csv', 'tsv', 'txt', 'xlsx', 'xls'].includes(ext || '')) {
-      alert('Please upload a PDF, CSV, or Excel file.'); return;
+      toast.info('Please upload a PDF, CSV, or Excel file.'); return;
     }
     setNonpayUploading(true); setNonpayResult(null); setShowCarrierPrompt(false);
     try {
@@ -321,7 +322,7 @@ export default function CustomersPage() {
       const msg = e.response?.data?.detail
         || e.response?.data?.message
         || (e.response ? `HTTP ${e.response.status}: ${JSON.stringify(e.response.data).slice(0,200)}` : `${e.message} — Open browser console (F12) for details`);
-      alert(msg);
+      toast.info(msg);
     }
     setNonpayUploading(false);
   };
@@ -336,7 +337,7 @@ export default function CustomersPage() {
       loadNonpayHistory();
     } catch (e: any) {
       const msg = e.response?.data?.detail || e.response?.data?.message || 'Send failed';
-      alert(msg);
+      toast.error(msg);
     }
     setNonpayUploading(false);
   };
@@ -765,7 +766,7 @@ export default function CustomersPage() {
                                           await customersAPI.addNote(detail.customer.id, noteSubject, noteBody);
                                           setNoteSubject(''); setNoteBody(''); setAddingNote(false);
                                           loadNotes(detail.customer.id);
-                                        } catch { alert('Failed to save note'); }
+                                        } catch { toast.error('Failed to save note'); }
                                         setNoteSaving(false);
                                       }}
                                       className="text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded disabled:opacity-40"
@@ -846,9 +847,9 @@ export default function CustomersPage() {
                                   onClick={async () => {
                                     try {
                                       await reshopAPI.fromCustomer(detail.customer.id, { source: 'producer_referral' });
-                                      alert('Customer added to Reshop Pipeline!');
+                                      toast.info('Customer added to Reshop Pipeline!');
                                     } catch (e: any) {
-                                      alert(e.response?.data?.detail || 'Failed to create reshop');
+                                      toast.error(e.response?.data?.detail || 'Failed to create reshop');
                                     }
                                   }}
                                   className="flex items-center gap-2 text-sm font-semibold text-amber-600 hover:text-amber-700 transition-colors"
@@ -1028,7 +1029,7 @@ export default function CustomersPage() {
                                                   });
                                                   setEmailSent(true);
                                                 } catch (e: any) {
-                                                  alert(e.response?.data?.detail || 'Failed to send email');
+                                                  toast.error(e.response?.data?.detail || 'Failed to send email');
                                                 } finally {
                                                   setEmailSending(false);
                                                 }
@@ -1283,7 +1284,7 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
         await miaAPI.addVip({ phone, customer_name: customerName, reason: 'Added from customer card' });
       }
       await loadStatus();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed'); }
     setActing(false);
   };
 
@@ -1293,7 +1294,7 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
     try {
       await miaAPI.removeVip(status.vip.id);
       await loadStatus();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed'); }
     setActing(false);
   };
 
@@ -1304,7 +1305,7 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
       setShowAuthForm(false);
       setAuthReason('');
       await loadStatus();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed'); }
     setActing(false);
   };
 
@@ -1314,7 +1315,7 @@ const MiaBypassPanel: React.FC<{ phone: string; customerName: string }> = ({ pho
     try {
       await miaAPI.revokeAuth(status.temp_auth.id);
       await loadStatus();
-    } catch (e: any) { alert(e.response?.data?.detail || 'Failed'); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || 'Failed'); }
     setActing(false);
   };
 
@@ -1458,7 +1459,7 @@ const DupGroup: React.FC<{ group: any; onMerge: (k: number, m: number[]) => void
           <span className="text-sm text-slate-600 font-medium">&ldquo;{group.match_value}&rdquo;</span>
           <span className="text-xs text-slate-400">({custs.length} records)</span>
         </div>
-        <button onClick={() => { if (!keepId) return alert('Select which customer to keep.'); onMerge(keepId, custs.map((c: any) => c.id).filter((id: number) => id !== keepId)); }}
+        <button onClick={() => { if (!keepId) return toast.info('Select which customer to keep.'); onMerge(keepId, custs.map((c: any) => c.id).filter((id: number) => id !== keepId)); }}
           disabled={!keepId || merging} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"><Merge size={13} />Merge</button>
       </div>
       <div className="space-y-2">
@@ -1793,9 +1794,9 @@ const NonPayModal: React.FC<{
                         setSendingTest(true);
                         try {
                           const r = await nonpayAPI.sendTest({ to_email: testEmail, carrier: selectedCarrier || '' });
-                          if (r.data.success) alert(`Test email sent to ${testEmail}!`);
-                          else alert(`Failed: ${r.data.error || 'Unknown error'}`);
-                        } catch (e: any) { alert(e.response?.data?.detail || 'Send failed'); }
+                          if (r.data.success) toast.success(`Test email sent to ${testEmail}!`);
+                          else toast.error(`Failed: ${r.data.error || 'Unknown error'}`);
+                        } catch (e: any) { toast.error(e.response?.data?.detail || 'Send failed'); }
                         setSendingTest(false);
                       }}
                       disabled={!testEmail || sendingTest}

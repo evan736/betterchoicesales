@@ -19,6 +19,7 @@ import {
   X,
   Trash2,
 } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -185,14 +186,14 @@ export default function Statements() {
       if (res.data.carrier_overridden) {
         const detectedLabel = CARRIERS.find(c => c.value === res.data.carrier_detected)?.label || res.data.carrier_detected;
         const selectedLabel = CARRIERS.find(c => c.value === res.data.carrier_selected)?.label || res.data.carrier_selected;
-        alert(`Auto-detected: File looks like ${detectedLabel} (you selected ${selectedLabel}). Used ${detectedLabel} parser.`);
+        toast.info(`Auto-detected: File looks like ${detectedLabel} (you selected ${selectedLabel}). Used ${detectedLabel} parser.`);
       }
       await loadImports();
       // Auto-select the new import
       setSelectedImport(res.data.id);
       loadDetail(res.data.id);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Upload failed');
+      toast.error(err.response?.data?.detail || 'Upload failed');
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -218,11 +219,11 @@ export default function Statements() {
       const res = await reconciliationAPI.match(importId);
       // Show match results
       const msg = `Matched: ${res.data.matched} total (${res.data.newly_matched || 0} new), Unmatched: ${res.data.unmatched}`;
-      alert(msg);
+      toast.info(msg);
       await loadImports();
       await loadDetail(importId);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Matching failed');
+      toast.error(err.response?.data?.detail || 'Matching failed');
     } finally {
       setActionLoading(null);
     }
@@ -240,7 +241,7 @@ export default function Statements() {
       }
       await loadImports();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Delete failed');
+      toast.error(err.response?.data?.detail || 'Delete failed');
     }
   };
 
@@ -252,7 +253,7 @@ export default function Statements() {
       setActiveTab('agents');
       await loadDetail(importId, true);  // preserve agent summary
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Calculation failed');
+      toast.error(err.response?.data?.detail || 'Calculation failed');
     } finally {
       setActionLoading(null);
     }
@@ -417,7 +418,7 @@ export default function Statements() {
                     const res = await reconciliationAPI.monthlyPay(monthlyPayPeriod);
                     setMonthlyPay(res.data);
                   } catch (err: any) {
-                    alert(err.response?.data?.detail || 'Failed to calculate');
+                    toast.error(err.response?.data?.detail || 'Failed to calculate');
                   } finally {
                     setMonthlyPayLoading(false);
                   }
@@ -1090,7 +1091,7 @@ const PayrollActions: React.FC<{
       setHistory(res.data);
       setShowHistory(true);
     } catch (err: any) {
-      alert('Failed to load history');
+      toast.error('Failed to load history');
     }
   };
 
@@ -1112,10 +1113,10 @@ const PayrollActions: React.FC<{
         }
       });
       await payrollAPI.submit(period, agentOverrides);
-      alert('Payroll submitted and locked!');
+      toast.info('Payroll submitted and locked!');
       loadPayrollStatus();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to submit payroll');
+      toast.error(err.response?.data?.detail || 'Failed to submit payroll');
     } finally {
       setLoading(false);
     }
@@ -1126,10 +1127,10 @@ const PayrollActions: React.FC<{
     setLoading(true);
     try {
       await payrollAPI.markPaid(period);
-      alert('Payroll marked as paid! Sales updated to Premium Paid.');
+      toast.success('Payroll marked as paid! Sales updated to Premium Paid.');
       loadPayrollStatus();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to mark paid');
+      toast.error(err.response?.data?.detail || 'Failed to mark paid');
     } finally {
       setLoading(false);
     }
@@ -1140,10 +1141,10 @@ const PayrollActions: React.FC<{
     setLoading(true);
     try {
       await payrollAPI.unlock(period);
-      alert('Payroll unlocked.');
+      toast.info('Payroll unlocked.');
       loadPayrollStatus();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to unlock');
+      toast.error(err.response?.data?.detail || 'Failed to unlock');
     } finally {
       setLoading(false);
     }
@@ -1321,7 +1322,7 @@ const AgentSheetModal: React.FC<{
         link.click();
         URL.revokeObjectURL(link.href);
       })
-      .catch(err => alert('PDF download failed: ' + err.message));
+      .catch(err => toast.error('PDF download failed: ' + err.message));
   };
 
   const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

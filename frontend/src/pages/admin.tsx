@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { adminAPI, surveyAPI, chatAPI } from '../lib/api';
+import { toast } from '../components/ui/Toast';
 
 const ROLES = ['admin', 'manager', 'producer', 'retention_specialist'];
 
@@ -101,7 +102,7 @@ const EmployeesTab = () => {
       setForm({ email: '', username: '', full_name: '', password: '', role: 'producer', producer_code: '', commission_tier: 1 });
       load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to create employee');
+      toast.error(err.response?.data?.detail || 'Failed to create employee');
     }
   };
 
@@ -112,7 +113,7 @@ const EmployeesTab = () => {
       setEditingId(null);
       load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to update');
+      toast.error(err.response?.data?.detail || 'Failed to update');
     }
   };
 
@@ -122,7 +123,7 @@ const EmployeesTab = () => {
       await adminAPI.deleteEmployee(emp.id);
       load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to delete');
+      toast.error(err.response?.data?.detail || 'Failed to delete');
     }
   };
 
@@ -130,11 +131,11 @@ const EmployeesTab = () => {
     if (!resetId || !newPassword) return;
     try {
       await adminAPI.resetPassword(resetId, newPassword);
-      alert('Password reset successfully');
+      toast.success('Password reset successfully');
       setResetId(null);
       setNewPassword('');
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to reset password');
+      toast.error(err.response?.data?.detail || 'Failed to reset password');
     }
   };
 
@@ -328,13 +329,13 @@ const CommissionTiersTab = () => {
       setForm({ tier_level: 0, min_written_premium: 0, max_written_premium: null, commission_rate: 0, description: '' });
       load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to save tier');
+      toast.error(err.response?.data?.detail || 'Failed to save tier');
     }
   };
 
   const handleDelete = async (tier: any) => {
     if (!confirm(`Delete Tier ${tier.tier_level}?`)) return;
-    try { await adminAPI.deleteTier(tier.id); load(); } catch (err: any) { alert(err.response?.data?.detail || 'Failed'); }
+    try { await adminAPI.deleteTier(tier.id); load(); } catch (err: any) { toast.error(err.response?.data?.detail || 'Failed'); }
   };
 
   const startEdit = (tier: any) => {
@@ -444,7 +445,7 @@ const LeadSourcesTab = () => {
       await adminAPI.addLeadSource({ name: newSource });
       setNewSource('');
       load();
-    } catch (err: any) { alert(err.response?.data?.detail || 'Failed'); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || 'Failed'); }
   };
 
   if (loading) return <div className="text-center py-12 text-slate-500">Loading...</div>;
@@ -479,7 +480,7 @@ const LeadSourcesTab = () => {
                     onClick={async () => {
                       if (!confirm('Delete lead source "' + s.display_name + '"?')) return;
                       try { await adminAPI.deleteLeadSource(s.name); load(); }
-                      catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete'); }
+                      catch (err: any) { toast.error(err.response?.data?.detail || 'Failed to delete'); }
                     }}
                     className="text-red-400 hover:text-red-600 text-xs font-semibold"
                     title="Delete source"
@@ -517,7 +518,7 @@ const CarriersTab = () => {
       await adminAPI.addCarrier({ name: newCarrier });
       setNewCarrier('');
       load();
-    } catch (err: any) { alert(err.response?.data?.detail || 'Failed'); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || 'Failed'); }
   };
 
   if (loading) return <div className="text-center py-12 text-slate-500">Loading...</div>;
@@ -555,7 +556,7 @@ const CarriersTab = () => {
                     onClick={async () => {
                       if (!confirm('Delete carrier "' + c.display_name + '"?')) return;
                       try { await adminAPI.deleteCarrier(c.name); load(); }
-                      catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete'); }
+                      catch (err: any) { toast.error(err.response?.data?.detail || 'Failed to delete'); }
                     }}
                     className="text-red-400 hover:text-red-600 text-xs font-semibold"
                     title="Delete carrier"

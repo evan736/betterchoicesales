@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { salesAPI, surveyAPI, adminAPI } from '../lib/api';
 import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown } from 'lucide-react';
+import { toast } from '../components/ui/Toast';
 
 // ── Date range helpers ──────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ export default function Sales() {
       setImportResult(res.data);
       loadSales(dateFrom, dateTo);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Import failed');
+      toast.error(err.response?.data?.detail || 'Import failed');
     } finally {
       setImporting(false);
       e.target.value = '';
@@ -409,7 +410,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
         await salesAPI.uploadPDF(sale.id, f);
         onUpdate();
       } catch (err: any) {
-        alert(err.response?.data?.detail || 'Upload failed');
+        toast.error(err.response?.data?.detail || 'Upload failed');
       } finally {
         setUploadingPdf(false);
       }
@@ -419,7 +420,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
 
   const handleAddEmail = async () => {
     if (!newEmail.trim() || !newEmail.includes('@')) {
-      alert('Please enter a valid email address');
+      toast.info('Please enter a valid email address');
       return;
     }
     setSavingEmail(true);
@@ -431,7 +432,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
       setNewEmail('');
       onUpdate();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to save email');
+      toast.error(err.response?.data?.detail || 'Failed to save email');
     } finally {
       setSavingEmail(false);
     }
@@ -444,7 +445,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
       await salesAPI.delete(sale.id);
       onUpdate();
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to delete sale');
+      toast.error(error.response?.data?.detail || 'Failed to delete sale');
     } finally {
       setDeleting(false);
     }
@@ -452,7 +453,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
 
   const handleSendForSignature = async () => {
     if (!currentEmail) {
-      alert('Client email is required to send for signature');
+      toast.info('Client email is required to send for signature');
       return;
     }
 
@@ -467,9 +468,9 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
 
         if (sendUrl) {
           window.open(sendUrl, '_blank');
-          alert('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
+          toast.info('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
         } else {
-          alert('Document created but no BoldSign URL returned. Check the BoldSign dashboard.');
+          toast.success('Document created but no BoldSign URL returned. Check the BoldSign dashboard.');
         }
         onUpdate();
       } catch (error: any) {
@@ -483,7 +484,7 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
         } else if (error.message) {
           msg = error.message;
         }
-        alert(`Error sending for signature: ${msg}`);
+        toast.error(`Error sending for signature: ${msg}`);
       } finally {
         setSendingSig(false);
       }
@@ -513,17 +514,17 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
       const res = await salesAPI.signatureStatus(sale.id);
       setSigStatus(res.data.status);
       if (res.data.status === 'completed') {
-        alert('✓ Document has been signed!');
+        toast.info('✓ Document has been signed!');
         onUpdate();
       } else if (res.data.status === 'sent') {
-        alert('⏳ Waiting for signature...');
+        toast.info('⏳ Waiting for signature...');
       } else if (res.data.status === 'declined') {
-        alert('✗ Signer declined');
+        toast.info('✗ Signer declined');
       } else {
-        alert(`Status: ${res.data.status}`);
+        toast.info(`Status: ${res.data.status}`);
       }
     } catch (error: any) {
-      alert('Failed to check status');
+      toast.error('Failed to check status');
     }
   };
 
@@ -697,9 +698,9 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
                       await surveyAPI.sendWelcome(sale.id, { file: uploaded });
                     }
                     setWelcomeSent(true);
-                    alert('Welcome email sent!');
+                    toast.success('Welcome email sent!');
                   } catch (err: any) {
-                    alert(err.response?.data?.detail || 'Failed to send welcome email');
+                    toast.error(err.response?.data?.detail || 'Failed to send welcome email');
                   } finally {
                     setSendingWelcome(false);
                   }
@@ -739,9 +740,9 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
                     onUpdate();
                   } else {
                     const err = await res.json();
-                    alert(err.detail || 'Failed to reassign');
+                    toast.error(err.detail || 'Failed to reassign');
                   }
-                } catch (err) { alert('Failed to reassign'); }
+                } catch (err) { toast.error('Failed to reassign'); }
               }}
               className="px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white text-slate-700 focus:border-brand-400"
               title="Reassign to another producer"
@@ -856,7 +857,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
     
     // Validate all have policy numbers
     for (const pol of includedPolicies) {
-      if (!pol.policy_number) { alert('Please enter a policy number for all policies'); setSaving(false); return; }
+      if (!pol.policy_number) { toast.info('Please enter a policy number for all policies'); setSaving(false); return; }
     }
 
     // Group policies by base policy number to detect bundles

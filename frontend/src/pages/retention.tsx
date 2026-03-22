@@ -43,6 +43,7 @@ import {
   PieChart,
   Pie,
 } from 'recharts';
+import { toast } from '../components/ui/Toast';
 
 // ── Helper Components ──
 interface StatCardProps {
@@ -730,7 +731,7 @@ function GrowthTab({ data }: { data: any }) {
       await customersAPI.captureSnapshot();
       window.location.reload();
     } catch (e) {
-      alert('Failed to capture snapshot');
+      toast.error('Failed to capture snapshot');
     } finally {
       setCapturing(false);
     }

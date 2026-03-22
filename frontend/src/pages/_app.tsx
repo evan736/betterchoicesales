@@ -11,6 +11,7 @@ import '../styles/sakura-pink.css';
 import '../styles/apple-clean.css';
 import '../styles/blue-white.css';
 import '../styles/true-black.css';
+import { ToastProvider } from '../components/ui/Toast';
 
 const ChatSidebar = dynamic(() => import('../components/ChatPanel'), { ssr: false });
 const EmailSidebar = dynamic(() => import('../components/EmailPanel'), { ssr: false });
@@ -130,6 +131,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <AuthProvider>
         <InnerApp Component={Component} pageProps={pageProps} />
       </AuthProvider>
+      <ToastProvider />
     </ErrorBoundary>
   );
 }

@@ -10,6 +10,7 @@ import {
   Minimize2, Maximize2, Bell, EyeOff, Pause, Play, Paperclip
 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from '../components/ui/Toast';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 
@@ -291,12 +292,12 @@ export default function SmartInboxPage() {
   const selAll = () => { if (checked.size===filtered.length) setChecked(new Set()); else setChecked(new Set(filtered.map(e=>e.id))); };
 
   const approve = async (id:number) => {
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/approve`, {}, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/approve`, {}, { headers:hdr }); } catch(e:any) { toast.error(e.response?.data?.detail||'Failed'); return; }
     await fetchQueue(); await fetchEmails(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const reject = async (id:number) => {
     const reason = prompt('Rejection reason (optional):');
-    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/reject`, null, { headers:hdr, params:{reason} }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+    try { await axios.post(`${API}/api/smart-inbox/queue/${id}/reject`, null, { headers:hdr, params:{reason} }); } catch(e:any) { toast.error(e.response?.data?.detail||'Failed'); return; }
     await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const editSend = async (id:number) => {
@@ -305,7 +306,7 @@ export default function SmartInboxPage() {
           if (editEmail && editEmail !== queue.find((q:any)=>q.id===id)?.to_email) {
             await axios.post(`${API}/api/smart-inbox/queue/${id}/set-email`, { email: editEmail }, { headers:hdr });
           }
-          await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { alert(e.response?.data?.detail||'Failed'); return; }
+          await axios.post(`${API}/api/smart-inbox/queue/${id}/edit`, { subject:editSubj, body_html:`<div style="font-family:-apple-system,sans-serif;">${editBody.replace(/\n/g,'<br>')}</div>`, body_plain:editBody, send:true }, { headers:hdr }); } catch(e:any) { toast.error(e.response?.data?.detail||'Failed'); return; }
     setEditId(null); await fetchQueue(); if (sel?.id) { try { await fetchDetail(sel.id); } catch {} }
   };
   const reprocess = async (id:number) => { try { await axios.post(`${API}/api/smart-inbox/reprocess/${id}`, {}, { headers:hdr }); } catch{} fetchEmails(); };

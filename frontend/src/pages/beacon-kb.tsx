@@ -8,6 +8,7 @@ import {
   BookOpen, AlertTriangle, X,
 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from '../components/ui/Toast';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
 function headers() { return { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }; }
@@ -260,7 +261,7 @@ export default function BeaconKnowledgeBase() {
       // User cancelled the screen picker — that's fine
       if (e.name !== 'AbortError' && e.name !== 'NotAllowedError') {
         console.error('Screen capture failed:', e);
-        alert('Screen capture failed. Try pasting a screenshot instead (Ctrl+V).');
+        toast.error('Screen capture failed. Try pasting a screenshot instead (Ctrl+V).');
       }
     } finally {
       setScreenshotCapturing(false);
@@ -312,7 +313,7 @@ export default function BeaconKnowledgeBase() {
       if (pasteTags) fd.append('tags', pasteTags);
       const res = await axios.post(`${API}/api/beacon-kb/upload`, fd, { headers: headers() });
       if (res.data.error) {
-        alert(res.data.error);
+        toast.error(res.data.error);
       } else {
         setShowPasteModal(false);
         setPastedImage(null);
@@ -321,7 +322,7 @@ export default function BeaconKnowledgeBase() {
         loadStats();
       }
     } catch (e: any) {
-      alert(e.response?.data?.detail || 'Upload failed');
+      toast.error(e.response?.data?.detail || 'Upload failed');
     } finally { setUploading(false); }
   };
 
