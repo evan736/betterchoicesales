@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
+import NotificationCenter from './NotificationCenter';
 import { reshopAPI } from '../lib/api';
 import axios from 'axios';
 import {
@@ -414,6 +415,9 @@ const Navbar: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Notifications */}
+              <NotificationCenter />
 
               {/* User */}
               <div className="hidden sm:flex items-center space-x-1.5 pl-1.5 border-l nav-divider ml-1">

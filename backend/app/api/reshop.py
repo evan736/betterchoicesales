@@ -1087,6 +1087,18 @@ def update_reshop(
 
     db.commit()
     db.refresh(reshop)
+
+    # Broadcast live update
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("reshop:updated", {
+            "id": reshop.id,
+            "customer_name": reshop.customer_name,
+            "user": current_user.full_name or current_user.username,
+        })
+    except Exception:
+        pass
+
     return _reshop_to_dict(reshop)
 
 
@@ -1145,6 +1157,20 @@ def move_reshop_stage(
     _log_activity(db, reshop.id, current_user, "stage_change",
                   f"Moved from {old_stage} to {stage}", old_stage, stage)
     db.commit()
+
+    # Broadcast live update
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("reshop:updated", {
+            "id": reshop.id,
+            "customer_name": reshop.customer_name,
+            "old_stage": old_stage,
+            "new_stage": stage,
+            "user": current_user.full_name or current_user.username,
+        })
+    except Exception:
+        pass
+
     return _reshop_to_dict(reshop)
 
 
@@ -1239,9 +1265,10 @@ def _run_proactive_scan(
                 # Pick the most recent term that ISN'T the renewal
                 active_terms[t.policy_number] = t
 
+    # Check ALL reshops (active AND closed) to avoid re-creating cancelled/closed ones
     existing_policy_nums = set()
-    active_reshops = db.query(Reshop).filter(Reshop.stage.in_(ACTIVE_STAGES)).all()
-    for r in active_reshops:
+    all_reshops = db.query(Reshop).all()
+    for r in all_reshops:
         if r.policy_number:
             existing_policy_nums.add(r.policy_number.lower())
 
@@ -1399,6 +1426,9 @@ def _run_proactive_scan(
             pass
 
     return {
+        "created": created,
+        "policies_checked": len(renewing),
+        "skipped": skipped_existing,
         "renewing_terms_found": len(renewing),
         "skipped_existing_reshop": skipped_existing,
         "skipped_no_active_term": skipped_no_active,
