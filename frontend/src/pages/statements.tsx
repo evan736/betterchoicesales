@@ -698,7 +698,7 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
       const token = localStorage.getItem('token');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
       const params = producerId ? `?producer_id=${producerId}` : '';
-      const r = await fetch(`${baseUrl}/api/statements/lines/${lineId}/assign-producer${params}`, {
+      const r = await fetch(`${baseUrl}/api/reconciliation/lines/${lineId}/assign-producer${params}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
