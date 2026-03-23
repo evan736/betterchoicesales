@@ -167,7 +167,7 @@ export default function Analytics() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">Sales Analytics</h1>
+            <h1 className="font-display text-4xl font-bold text-slate-900 mb-2">Agency Sales</h1>
             <p className="text-slate-600">{scope === 'my' ? 'Your personal sales performance' : 'Agency-wide performance'}</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">

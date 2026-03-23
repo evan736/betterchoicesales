@@ -243,7 +243,7 @@ const Navbar: React.FC = () => {
         { href: '/beacon-kb', label: 'BEACON Knowledge', icon: <BookOpen size={16} />, show: true },
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
-        { href: '/analytics', label: 'Analytics', icon: <BarChart2 size={16} />, show: true },
+        { href: '/analytics', label: 'Agency Sales', icon: <BarChart2 size={16} />, show: true },
         { href: '/revenue-tracker', label: 'Revenue Tracker', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
         { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
