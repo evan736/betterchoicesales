@@ -698,7 +698,8 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
       const token = localStorage.getItem('token');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
       const params = producerId ? `?producer_id=${producerId}` : '';
-      const r = await fetch(`${baseUrl}/api/reconciliation/lines/${lineId}/assign-producer${params}`, {
+      const url = `${baseUrl}/api/reconciliation/lines/${lineId}/assign-producer${params}`;
+      const r = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -706,11 +707,15 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
         toast.success('Producer assigned');
         if (onRefresh) onRefresh();
       } else {
-        const err = await r.json();
-        toast.error(err.detail || 'Failed to assign');
+        let errMsg = `HTTP ${r.status}`;
+        try {
+          const err = await r.json();
+          errMsg = err.detail || errMsg;
+        } catch {}
+        toast.error(`Failed to assign: ${errMsg}`);
       }
-    } catch {
-      toast.error('Failed to assign producer');
+    } catch (e: any) {
+      toast.error(`Failed to assign: ${e.message || 'Network error'}`);
     }
     setAssigningId(null);
   };
