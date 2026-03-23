@@ -376,8 +376,20 @@ class ReconciliationService:
                 if line.matched_sale_id:
                     matched_sale = self.db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
 
-                # Only pay commission on transactions within the first policy term
-                if _is_within_first_term(line, matched_sale, imp.statement_period):
+                # For manually assigned unmatched lines (no matched sale),
+                # check if it's a new business transaction — if so, it's commissionable.
+                # The user explicitly assigned this producer, so honor it.
+                is_manual_assign = (not line.is_matched and line.assigned_agent_id is not None)
+                tx_raw = (line.transaction_type_raw or "").upper()
+                is_new_biz = "NEW-BUS" in tx_raw or "NEW BUS" in tx_raw or "NEWBUS" in tx_raw
+
+                if is_manual_assign and is_new_biz:
+                    # Manually assigned new business — always commissionable
+                    agent_comm = premium * agent_rate
+                elif is_manual_assign and carrier_comm > 0:
+                    # Manually assigned with carrier commission — commissionable
+                    agent_comm = premium * agent_rate
+                elif _is_within_first_term(line, matched_sale, imp.statement_period):
                     agent_comm = premium * agent_rate
                 else:
                     agent_comm = Decimal("0")
