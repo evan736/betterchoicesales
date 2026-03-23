@@ -7,6 +7,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.api import auth, sales, commissions, statements, analytics
+from app.api import reports as reports_api
 from app.api import payroll as payroll_api
 from app.api import retention as retention_api
 from app.api import chat as chat_api
@@ -1226,6 +1227,51 @@ async def lifespan(app: FastAPI):
     reshop_scan_thread.start()
     logger.info("Daily reshop scan scheduler started (7 AM CT, Mon-Fri)")
 
+    # Monthly Report Auto-Email — 1st of each month at 9 AM CT
+    def _run_monthly_report():
+        """Auto-send monthly agency report on the 1st of each month."""
+        import time
+        from datetime import datetime
+        import pytz
+
+        time.sleep(300)  # Wait 5 min for app to start
+        central = pytz.timezone("America/Chicago")
+        last_sent_month = None
+
+        while True:
+            try:
+                now_ct = datetime.now(central)
+                current_month = (now_ct.year, now_ct.month)
+
+                # Send on the 1st at 9 AM CT
+                if (now_ct.day == 1 and now_ct.hour >= 9 and
+                        last_sent_month != current_month):
+                    # Report for LAST month
+                    if now_ct.month == 1:
+                        report_year = now_ct.year - 1
+                        report_month = 12
+                    else:
+                        report_year = now_ct.year
+                        report_month = now_ct.month - 1
+
+                    logger.info("Sending monthly report for %d-%02d...", report_year, report_month)
+                    from app.services.monthly_report import send_monthly_report_email
+                    from app.core.database import SessionLocal
+                    rdb = SessionLocal()
+                    try:
+                        result = send_monthly_report_email(rdb, report_year, report_month)
+                        logger.info("Monthly report result: %s", result)
+                        last_sent_month = current_month
+                    finally:
+                        rdb.close()
+            except Exception as e:
+                logger.error("Monthly report scheduler error: %s", e)
+            time.sleep(600)  # Check every 10 minutes
+
+    report_thread = threading.Thread(target=_run_monthly_report, daemon=True)
+    report_thread.start()
+    logger.info("Monthly report scheduler started (1st of month, 9 AM CT)")
+
     # Start NowCerts Pending Cancellation Poller (every 4 hours)
     def _run_pending_cancel_poll():
         """Poll NowCerts for pending cancellations and trigger non-pay emails."""
@@ -1800,6 +1846,7 @@ app.include_router(sales.router)
 app.include_router(commissions.router)
 app.include_router(statements.router)
 app.include_router(analytics.router)
+app.include_router(reports_api.router)
 app.include_router(payroll_api.router)
 app.include_router(retention_api.router)
 app.include_router(survey_api.router)
