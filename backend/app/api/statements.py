@@ -143,6 +143,45 @@ def manually_match_line(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/lines/{line_id}/assign-producer")
+def assign_producer_to_line(
+    line_id: int,
+    producer_id: int = Query(None, description="User ID of the producer to assign"),
+    producer_name: str = Query(None, description="Producer name (if no user ID)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Assign a producer to an unmatched commission statement line."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    from app.models.statement import StatementLine
+
+    line = db.query(StatementLine).filter(StatementLine.id == line_id).first()
+    if not line:
+        raise HTTPException(status_code=404, detail="Statement line not found")
+
+    if producer_id:
+        user = db.query(User).filter(User.id == producer_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Producer not found")
+        line.assigned_agent_id = producer_id
+        line.producer_name = user.full_name
+    elif producer_name:
+        line.producer_name = producer_name
+        # Try to find matching user
+        user = db.query(User).filter(User.full_name.ilike(producer_name)).first()
+        if user:
+            line.assigned_agent_id = user.id
+    else:
+        # Clear assignment
+        line.assigned_agent_id = None
+        line.producer_name = None
+
+    db.commit()
+    return {"success": True, "line_id": line.id, "producer_name": line.producer_name, "assigned_agent_id": line.assigned_agent_id}
+
+
 @router.post("/monthly-pay/{period}")
 def calculate_monthly_pay(
     period: str,

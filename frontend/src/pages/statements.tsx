@@ -52,6 +52,7 @@ interface StatementLine {
   is_matched: boolean;
   match_confidence: string;
   assigned_agent?: string;
+  assigned_agent_id?: number;
   agent_commission?: number;
   agent_rate?: number;
 }
@@ -624,7 +625,7 @@ const DetailView: React.FC<{
         <div className="p-4">
           {activeTab === 'summary' && <SummaryTab data={data} />}
           {activeTab === 'matched' && <LinesTable lines={data.matched_lines} showAgent />}
-          {activeTab === 'unmatched' && <LinesTable lines={data.unmatched_lines} />}
+          {activeTab === 'unmatched' && <LinesTable lines={data.unmatched_lines} allowAssign importId={selectedImport} onRefresh={() => loadImportData(selectedImport!)} />}
           {activeTab === 'agents' && <AgentPayTab summary={agentSummary} />}
         </div>
       </div>
@@ -670,8 +671,50 @@ const SummaryTab: React.FC<{ data: ReconciliationData }> = ({ data }) => (
 
 // ── Lines Table ─────────────────────────────────────────────────────
 
-const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean }> = ({ lines, showAgent }) => {
+const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowAssign?: boolean; importId?: number; onRefresh?: () => void }> = ({ lines, showAgent, allowAssign, importId, onRefresh }) => {
   const [search, setSearch] = useState('');
+  const [producers, setProducers] = useState<any[]>([]);
+  const [assigningId, setAssigningId] = useState<number | null>(null);
+
+  // Load producers list for assignment dropdown
+  useEffect(() => {
+    if (allowAssign) {
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      fetch(`${baseUrl}/api/admin/employees`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setProducers(data.filter(e => e.role?.toLowerCase() !== 'admin' && e.is_active));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [allowAssign]);
+
+  const handleAssignProducer = async (lineId: number, producerId: number | null) => {
+    setAssigningId(lineId);
+    try {
+      const token = localStorage.getItem('token');
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const params = producerId ? `?producer_id=${producerId}` : '';
+      const r = await fetch(`${baseUrl}/api/statements/lines/${lineId}/assign-producer${params}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        toast.success('Producer assigned');
+        if (onRefresh) onRefresh();
+      } else {
+        const err = await r.json();
+        toast.error(err.detail || 'Failed to assign');
+      }
+    } catch {
+      toast.error('Failed to assign producer');
+    }
+    setAssigningId(null);
+  };
+
   const filtered = lines.filter(
     (l) =>
       l.policy_number?.toLowerCase().includes(search.toLowerCase()) ||
@@ -703,7 +746,7 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean }> = ({
                 <th className="text-right py-2 px-2 font-semibold text-slate-700">Premium</th>
                 <th className="text-right py-2 px-2 font-semibold text-slate-700">Comm</th>
                 <th className="text-right py-2 px-2 font-semibold text-slate-700">Rate</th>
-                {lines[0]?.producer_name && (
+                {(lines[0]?.producer_name || allowAssign) && (
                   <th className="text-left py-2 px-2 font-semibold text-slate-700">Producer</th>
                 )}
                 {showAgent && (
@@ -731,8 +774,28 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean }> = ({
                   <td className="py-1.5 px-2 text-right">
                     {line.commission_rate ? `${(line.commission_rate * 100).toFixed(0)}%` : '—'}
                   </td>
-                  {lines[0]?.producer_name && (
-                    <td className="py-1.5 px-2 text-xs">{line.producer_name}</td>
+                  {(lines[0]?.producer_name || allowAssign) && (
+                    <td className="py-1.5 px-2 text-xs">
+                      {allowAssign ? (
+                        <select
+                          value={line.assigned_agent_id || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            handleAssignProducer(line.id, val ? parseInt(val) : null);
+                          }}
+                          disabled={assigningId === line.id}
+                          className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white w-full max-w-[120px]"
+                          style={{ minWidth: '90px' }}
+                        >
+                          <option value="">—</option>
+                          {producers.map(p => (
+                            <option key={p.id} value={p.id}>{p.full_name?.split(' ')[0] || p.username}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        line.producer_name || '—'
+                      )}
+                    </td>
                   )}
                   {showAgent && (
                     <>
