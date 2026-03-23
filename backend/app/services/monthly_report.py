@@ -262,7 +262,7 @@ def generate_monthly_report(db: Session, year: int, month: int) -> dict:
     # 7. CAMPAIGN PERFORMANCE
     # ══════════════════════════════════════════════════════════════════
     try:
-        from app.models.requote_campaign import RequoteCampaign, RequoteLead
+        from app.api.requote_campaigns import RequoteCampaign
 
         campaigns = db.query(RequoteCampaign).filter(
             RequoteCampaign.status.in_(["active", "paused", "completed"])
