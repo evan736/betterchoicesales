@@ -845,10 +845,15 @@ def create_reshop(
         referred_by=current_user.full_name or current_user.username if is_producer else None,
     )
 
-    # Auto-assign via round-robin (customer-aware)
-    auto_agent_id = _get_next_round_robin_agent(db, customer_id=data.customer_id, customer_name=data.customer_name or "")
-    if auto_agent_id:
-        reshop.assigned_to = auto_agent_id
+    # Auto-assign: retention specialists (Salma/Michelle) assign to themselves.
+    # Producers and admins go through round-robin.
+    retention_usernames = [u.lower() for u in RESHOP_AUTO_ASSIGN_AGENTS]
+    if current_user.username and current_user.username.lower() in retention_usernames:
+        reshop.assigned_to = current_user.id
+    else:
+        auto_agent_id = _get_next_round_robin_agent(db, customer_id=data.customer_id, customer_name=data.customer_name or "")
+        if auto_agent_id:
+            reshop.assigned_to = auto_agent_id
 
     db.add(reshop)
     db.flush()
@@ -859,11 +864,14 @@ def create_reshop(
     db.commit()
     db.refresh(reshop)
 
-    # Notify assigned agent — DISABLED: replaced by daily digest email at 8:30 AM CT
-    # Individual assignment emails no longer sent; agents get a full pipeline summary instead
+    # Notify assigned agent immediately for manual/urgent reshops
     if reshop.assigned_to:
         assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
-        # Notification moved to daily digest (reshop_digest.py)
+        if assignee and reshop.priority in ("urgent", "high"):
+            try:
+                _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
+            except Exception as e:
+                logger.error("Reshop notification error: %s", e)
     else:
         # Fallback: notify retention team
         try:
@@ -1501,7 +1509,15 @@ def create_reshop_from_customer(
 
     # Manual reshop from customer center = URGENT, 24h deadline
     deadline = datetime.utcnow() + timedelta(hours=24)
-    auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
+
+    # If the person creating the reshop IS a retention specialist (Salma/Michelle),
+    # assign to themselves — don't round-robin to the other agent.
+    # Producers and admins still go through round-robin.
+    retention_usernames = [u.lower() for u in RESHOP_AUTO_ASSIGN_AGENTS]
+    if current_user.username and current_user.username.lower() in retention_usernames:
+        auto_agent_id = current_user.id
+    else:
+        auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
 
     reshop = Reshop(
         customer_id=customer.id,
