@@ -625,7 +625,7 @@ const DetailView: React.FC<{
         <div className="p-4">
           {activeTab === 'summary' && <SummaryTab data={data} />}
           {activeTab === 'matched' && <LinesTable lines={data.matched_lines} showAgent />}
-          {activeTab === 'unmatched' && <LinesTable lines={data.unmatched_lines} allowAssign onRefresh={() => { if (selectedImport) loadDetail(selectedImport); }} />}
+          {activeTab === 'unmatched' && <LinesTable lines={data.unmatched_lines} allowAssign />}
           {activeTab === 'agents' && <AgentPayTab summary={agentSummary} />}
         </div>
       </div>
