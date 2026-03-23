@@ -121,45 +121,47 @@ def forgot_password(request_data: dict, db: Session = Depends(get_db)):
     try:
         import requests
         import os
-        mailgun_key = os.getenv("MAILGUN_API_KEY")
-        mailgun_domain = os.getenv("MAILGUN_DOMAIN", "betterchoiceins.com")
+        from app.core.config import settings
+        mailgun_key = settings.MAILGUN_API_KEY or os.getenv("MAILGUN_API_KEY")
+        mailgun_domain = settings.MAILGUN_DOMAIN or os.getenv("MAILGUN_DOMAIN", "mg.betterchoiceins.com")
+        from_email = settings.MAILGUN_FROM_EMAIL or "welcome@" + mailgun_domain
         
         if mailgun_key:
             resp = requests.post(
-                f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
+                "https://api.mailgun.net/v3/" + mailgun_domain + "/messages",
                 auth=("api", mailgun_key),
                 data={
-                    "from": f"Better Choice Insurance <service@{mailgun_domain}>",
+                    "from": "Better Choice Insurance <" + from_email + ">",
                     "to": email,
                     "subject": "Your ORBIT Password Has Been Reset",
-                    "html": f"""
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                            <h1 style="color: #06b6d4; margin: 0; font-size: 28px;">🛰️ ORBIT</h1>
-                            <p style="color: #94a3b8; margin: 8px 0 0;">Better Choice Insurance</p>
-                        </div>
-                        <div style="background: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-top: none;">
-                            <h2 style="color: #1e293b; margin-top: 0;">Password Reset</h2>
-                            <p style="color: #475569;">Hi {user.full_name or user.username},</p>
-                            <p style="color: #475569;">Your password has been reset. Use the temporary password below to log in, then change it immediately from your profile.</p>
-                            <div style="background: #f1f5f9; border: 2px solid #06b6d4; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
-                                <p style="color: #64748b; margin: 0 0 8px; font-size: 14px;">Your temporary password:</p>
-                                <p style="color: #0f172a; font-size: 22px; font-weight: bold; margin: 0; letter-spacing: 1px;">{temp_password}</p>
-                            </div>
-                            <p style="color: #475569;">Login at: <a href="https://better-choice-web.onrender.com" style="color: #06b6d4;">better-choice-web.onrender.com</a></p>
-                            <p style="color: #94a3b8; font-size: 12px; margin-top: 20px;">If you did not request this reset, please contact your administrator immediately.</p>
-                        </div>
-                        <div style="background: #f8fafc; padding: 15px; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; border-top: none; text-align: center;">
-                            <p style="color: #94a3b8; font-size: 11px; margin: 0;">(773) 985-0711 • service@betterchoiceins.com</p>
-                        </div>
-                    </div>
-                    """
+                    "html": (
+                    '<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">'
+                        '<div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">'
+                            '<h1 style="color: #06b6d4; margin: 0; font-size: 28px;">ORBIT</h1>'
+                            '<p style="color: #94a3b8; margin: 8px 0 0;">Better Choice Insurance</p>'
+                        '</div>'
+                        '<div style="background: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-top: none;">'
+                            '<h2 style="color: #1e293b; margin-top: 0;">Password Reset</h2>'
+                            '<p style="color: #475569;">Hi ' + (user.full_name or user.username) + ',</p>'
+                            '<p style="color: #475569;">Your password has been reset. Use the temporary password below to log in, then change it immediately.</p>'
+                            '<div style="background: #f1f5f9; border: 2px solid #06b6d4; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">'
+                                '<p style="color: #64748b; margin: 0 0 8px; font-size: 14px;">Your temporary password:</p>'
+                                '<p style="color: #0f172a; font-size: 22px; font-weight: bold; margin: 0; letter-spacing: 1px;">' + temp_password + '</p>'
+                            '</div>'
+                            '<p style="color: #475569;">Login at: <a href="https://orbit.betterchoiceins.com" style="color: #06b6d4;">orbit.betterchoiceins.com</a></p>'
+                            '<p style="color: #94a3b8; font-size: 12px; margin-top: 20px;">If you did not request this reset, please contact your administrator immediately.</p>'
+                        '</div>'
+                        '<div style="background: #f8fafc; padding: 15px; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; border-top: none; text-align: center;">'
+                            '<p style="color: #94a3b8; font-size: 11px; margin: 0;">(847) 908-5665 &middot; service@betterchoiceins.com</p>'
+                        '</div>'
+                    '</div>'
+                    )
                 }
             )
-            logger.info(f"Password reset email sent to {email}: {resp.status_code}")
+            logger.info("Password reset email sent to %s: %s", email, resp.status_code)
         else:
             logger.warning("MAILGUN_API_KEY not set — cannot send reset email")
     except Exception as e:
-        logger.error(f"Failed to send password reset email: {e}")
+        logger.error("Failed to send password reset email: %s", e)
     
     return {"message": "If an account with that email exists, a reset link has been sent."}
