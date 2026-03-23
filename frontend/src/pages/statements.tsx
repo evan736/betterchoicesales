@@ -671,10 +671,11 @@ const SummaryTab: React.FC<{ data: ReconciliationData }> = ({ data }) => (
 
 // ── Lines Table ─────────────────────────────────────────────────────
 
-const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowAssign?: boolean; importId?: number; onRefresh?: () => void }> = ({ lines, showAgent, allowAssign, importId, onRefresh }) => {
+const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowAssign?: boolean }> = ({ lines, showAgent, allowAssign }) => {
   const [search, setSearch] = useState('');
   const [producers, setProducers] = useState<any[]>([]);
   const [assigningId, setAssigningId] = useState<number | null>(null);
+  const [localAssignments, setLocalAssignments] = useState<Record<number, number | null>>({});
 
   // Load producers list for assignment dropdown
   useEffect(() => {
@@ -694,6 +695,7 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
 
   const handleAssignProducer = async (lineId: number, producerId: number | null) => {
     setAssigningId(lineId);
+    setLocalAssignments(prev => ({ ...prev, [lineId]: producerId }));
     try {
       const token = localStorage.getItem('token');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -712,10 +714,12 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
           const err = await r.json();
           errMsg = err.detail || errMsg;
         } catch {}
-        toast.error(`Failed to assign: ${errMsg}`);
+        toast.error(`Failed: ${errMsg}`);
+        setLocalAssignments(prev => { const n = {...prev}; delete n[lineId]; return n; });
       }
     } catch (e: any) {
-      toast.error(`Failed to assign: ${e.message || 'Network error'}`);
+      toast.error(`Failed: ${e.message || 'Network error'}`);
+      setLocalAssignments(prev => { const n = {...prev}; delete n[lineId]; return n; });
     }
     setAssigningId(null);
   };
@@ -783,7 +787,7 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
                     <td className="py-1.5 px-2 text-xs">
                       {allowAssign ? (
                         <select
-                          value={line.assigned_agent_id || ''}
+                          value={localAssignments[line.id] !== undefined ? (localAssignments[line.id] || '') : (line.assigned_agent_id || '')}
                           onChange={(e) => {
                             const val = e.target.value;
                             handleAssignProducer(line.id, val ? parseInt(val) : null);
