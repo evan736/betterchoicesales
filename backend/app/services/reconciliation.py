@@ -483,12 +483,18 @@ class ReconciliationService:
                 "match_confidence": line.match_confidence,
             }
 
+            # Add agent info for ALL lines (matched AND unmatched with manual assignment)
+            if line.assigned_agent:
+                line_data["assigned_agent"] = line.assigned_agent.full_name or line.assigned_agent.username
+                line_data["assigned_agent_id"] = line.assigned_agent_id
+            if line.assigned_agent_id and not line_data.get("assigned_agent"):
+                line_data["assigned_agent_id"] = line.assigned_agent_id
+
             if line.is_matched:
-                # Add agent info
-                if line.assigned_agent:
-                    line_data["assigned_agent"] = line.assigned_agent.full_name or line.assigned_agent.username
-                    line_data["agent_commission"] = float(line.agent_commission_amount) if line.agent_commission_amount is not None else None
-                    line_data["agent_rate"] = float(line.agent_commission_rate) if line.agent_commission_rate is not None else None
+                if line.agent_commission_amount is not None:
+                    line_data["agent_commission"] = float(line.agent_commission_amount)
+                if line.agent_commission_rate is not None:
+                    line_data["agent_rate"] = float(line.agent_commission_rate)
                 matched_lines.append(line_data)
             else:
                 unmatched_lines.append(line_data)
