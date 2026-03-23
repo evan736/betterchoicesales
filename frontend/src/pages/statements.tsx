@@ -707,7 +707,6 @@ const LinesTable: React.FC<{ lines: StatementLine[]; showAgent?: boolean; allowA
       });
       if (r.ok) {
         toast.success('Producer assigned');
-        if (onRefresh) onRefresh();
       } else {
         let errMsg = `HTTP ${r.status}`;
         try {
