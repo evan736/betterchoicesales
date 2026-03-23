@@ -1573,11 +1573,13 @@ async def http_exception_handler(request, exc):
         content={"detail": exc.detail},
     )
 
-# CORS — allow Render frontend URL + local dev
+# CORS — allow Render frontend URL + custom domains + local dev
 allowed_origins = [
     "http://localhost:3000",
     "http://frontend:3000",
     "https://better-choice-web.onrender.com",
+    "https://orbit.betterchoiceins.com",
+    "https://quote.betterchoiceins.com",
 ]
 frontend_url = os.environ.get("FRONTEND_URL", "")
 if frontend_url and frontend_url not in allowed_origins:
