@@ -350,11 +350,27 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
     except Exception as e:
         _logger.warning(f"Reshop assignment notification failed: {e}")
 
-def _notify_retention_team(reshop: "Reshop", created_by: str):
-    """Send email notification to retention team about a new reshop request."""
+def _notify_retention_team(reshop: "Reshop", created_by: str, db: Session = None):
+    """Send email notification to the ASSIGNED agent about a new reshop request.
+    CC Andrey on all notifications. Highlights same-day/next-day urgency."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         logger.warning("Mailgun not configured — skipping reshop notification")
         return
+
+    # Determine recipient — assigned agent only
+    to_email = None
+    assignee_name = "Team"
+    if reshop.assigned_to and db:
+        assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
+        if assignee and assignee.email:
+            to_email = assignee.email
+            assignee_name = assignee.full_name.split()[0] if assignee.full_name else "Team"
+
+    if not to_email:
+        # Fallback: send to both
+        to_email = "salma@betterchoiceins.com"
+
+    cc_email = os.environ.get("RESHOP_CC_EMAIL", "andrey@betterchoiceins.com")
 
     source_label = {
         "inbound_call": "Inbound Call",
@@ -370,82 +386,98 @@ def _notify_retention_team(reshop: "Reshop", created_by: str):
         "normal": "#2563eb", "low": "#64748b",
     }.get(reshop.priority or "normal", "#2563eb")
 
-    premium_str = f"${float(reshop.current_premium):,.0f}" if reshop.current_premium else "N/A"
+    premium_str = "${:,.0f}".format(float(reshop.current_premium)) if reshop.current_premium else "N/A"
     exp_str = reshop.expiration_date.strftime("%m/%d/%Y") if reshop.expiration_date else "N/A"
 
-    html = f"""
-    <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0f2440 100%); padding: 20px 24px; border-radius: 12px 12px 0 0;">
-        <h2 style="color: #ffffff; margin: 0; font-size: 18px;">🔄 New Reshop Request</h2>
-        <p style="color: #94a3b8; margin: 6px 0 0; font-size: 13px;">Created by {created_by} via {source_label}</p>
-      </div>
-      <div style="background: #ffffff; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">
-        <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 8px 0; color: #64748b; width: 120px;">Customer</td>
-            <td style="padding: 8px 0; font-weight: 600; color: #1e293b;">{reshop.customer_name}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Phone</td>
-            <td style="padding: 8px 0; color: #1e293b;">{reshop.customer_phone or '—'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Email</td>
-            <td style="padding: 8px 0; color: #1e293b;">{reshop.customer_email or '—'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Policy</td>
-            <td style="padding: 8px 0; color: #1e293b;">{reshop.policy_number or '—'} ({reshop.carrier or 'Unknown carrier'})</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Premium</td>
-            <td style="padding: 8px 0; color: #1e293b;">{premium_str}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Expires</td>
-            <td style="padding: 8px 0; color: #1e293b;">{exp_str}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #64748b;">Priority</td>
-            <td style="padding: 8px 0;">
-              <span style="background: {priority_color}; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">{(reshop.priority or 'normal').upper()}</span>
-            </td>
-          </tr>
-          {"<tr><td style='padding: 8px 0; color: #64748b;'>Referred by</td><td style='padding: 8px 0; color: #1e293b;'>" + (reshop.referred_by or '') + "</td></tr>" if reshop.referred_by else ""}
-          {"<tr><td style='padding: 8px 0; color: #64748b;'>Notes</td><td style='padding: 8px 0; color: #1e293b;'>" + (reshop.notes or '') + "</td></tr>" if reshop.notes else ""}
-        </table>
-        <div style="margin-top: 20px; text-align: center;">
-          <a href="https://better-choice-web.onrender.com/reshop" 
-             style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px;">
-            Open Reshop Pipeline
-          </a>
-        </div>
-      </div>
-      <div style="padding: 12px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
-        <p style="color: #94a3b8; font-size: 11px; margin: 0;">Better Choice Insurance — ORBIT Reshop Pipeline</p>
-      </div>
-    </div>
-    """
+    # Determine urgency — same day or next day
+    import pytz
+    central = pytz.timezone("America/Chicago")
+    now_ct = datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(central)
+    is_after_2pm = now_ct.hour >= 14
 
-    subject = f"🔄 New Reshop: {reshop.customer_name}"
-    if reshop.priority in ("urgent", "high"):
-        subject = f"🚨 {reshop.priority.upper()} Reshop: {reshop.customer_name}"
+    urgency_html = ""
+    if reshop.priority == "urgent":
+        if is_after_2pm:
+            urgency_html = (
+                '<div style="background:#fef2f2; border:2px solid #dc2626; border-radius:10px; padding:16px; margin:0 0 16px; text-align:center;">'
+                '<p style="margin:0; font-size:18px; font-weight:800; color:#dc2626;">⚡ DUE TOMORROW MORNING</p>'
+                '<p style="margin:4px 0 0; font-size:13px; color:#991b1b;">Assigned after 2 PM — please prioritize first thing tomorrow</p>'
+                '</div>'
+            )
+        else:
+            urgency_html = (
+                '<div style="background:#fef2f2; border:2px solid #dc2626; border-radius:10px; padding:16px; margin:0 0 16px; text-align:center;">'
+                '<p style="margin:0; font-size:18px; font-weight:800; color:#dc2626;">⚡ DUE TODAY</p>'
+                '<p style="margin:4px 0 0; font-size:13px; color:#991b1b;">This customer needs to be contacted immediately</p>'
+                '</div>'
+            )
+
+    referred_row = ""
     if reshop.referred_by:
-        subject += f" (via {reshop.referred_by})"
+        referred_row = '<tr><td style="padding: 8px 0; color: #64748b;">Referred by</td><td style="padding: 8px 0; color: #1e293b;">' + (reshop.referred_by or '') + '</td></tr>'
+    
+    notes_row = ""
+    if reshop.notes:
+        notes_row = '<tr><td style="padding: 8px 0; color: #64748b;">Notes</td><td style="padding: 8px 0; color: #1e293b;">' + (reshop.notes or '') + '</td></tr>'
+
+    html = (
+        '<div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto;">'
+        '<div style="background: linear-gradient(135deg, #1e3a5f 0%, #0f2440 100%); padding: 20px 24px; border-radius: 12px 12px 0 0;">'
+        '<h2 style="color: #ffffff; margin: 0; font-size: 18px;">🔄 New Reshop Request</h2>'
+        '<p style="color: #94a3b8; margin: 6px 0 0; font-size: 13px;">Created by ' + created_by + ' via ' + source_label + '</p>'
+        '</div>'
+        '<div style="background: #ffffff; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">'
+        
+        + urgency_html +
+        
+        '<table style="width: 100%; font-size: 14px; border-collapse: collapse;">'
+        '<tr><td style="padding: 8px 0; color: #64748b; width: 120px;">Customer</td>'
+        '<td style="padding: 8px 0; font-weight: 600; color: #1e293b;">' + (reshop.customer_name or '') + '</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Phone</td>'
+        '<td style="padding: 8px 0; color: #1e293b;">' + (reshop.customer_phone or '—') + '</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Email</td>'
+        '<td style="padding: 8px 0; color: #1e293b;">' + (reshop.customer_email or '—') + '</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Policy</td>'
+        '<td style="padding: 8px 0; color: #1e293b;">' + (reshop.policy_number or '—') + ' (' + (reshop.carrier or 'Unknown carrier') + ')</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Premium</td>'
+        '<td style="padding: 8px 0; color: #1e293b;">' + premium_str + '</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Expires</td>'
+        '<td style="padding: 8px 0; color: #1e293b;">' + exp_str + '</td></tr>'
+        '<tr><td style="padding: 8px 0; color: #64748b;">Priority</td>'
+        '<td style="padding: 8px 0;"><span style="background: ' + priority_color + '; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">' + (reshop.priority or 'normal').upper() + '</span></td></tr>'
+        + referred_row + notes_row +
+        '</table>'
+        '<div style="margin-top: 20px; text-align: center;">'
+        '<a href="https://orbit.betterchoiceins.com/reshop" '
+        'style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px;">'
+        'Open Reshop Pipeline</a></div>'
+        '</div>'
+        '<div style="padding: 12px 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">'
+        '<p style="color: #94a3b8; font-size: 11px; margin: 0;">Better Choice Insurance — ORBIT Reshop Pipeline</p>'
+        '</div></div>'
+    )
+
+    subject = "🔄 New Reshop: " + (reshop.customer_name or "Unknown")
+    if reshop.priority in ("urgent", "high"):
+        subject = "🚨 URGENT Reshop: " + (reshop.customer_name or "Unknown")
+    if reshop.referred_by:
+        subject += " (via " + reshop.referred_by + ")"
 
     try:
+        from_email = settings.MAILGUN_FROM_EMAIL or "service@" + settings.MAILGUN_DOMAIN
         resp = http_requests.post(
-            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"ORBIT Reshop <service@{settings.MAILGUN_DOMAIN}>",
-                "to": RETENTION_NOTIFY_EMAILS,
+                "from": "ORBIT Reshop <" + from_email + ">",
+                "to": [to_email],
+                "cc": [cc_email],
                 "subject": subject,
                 "html": html,
             },
             timeout=10,
         )
-        logger.info("Reshop notification sent to %s: %s", RETENTION_NOTIFY_EMAILS, resp.status_code)
+        logger.info("Reshop notification sent to %s (cc: %s): %s", to_email, cc_email, resp.status_code)
     except Exception as e:
         logger.error("Failed to send reshop notification: %s", e)
 
@@ -835,7 +867,7 @@ def create_reshop(
     else:
         # Fallback: notify retention team
         try:
-            _notify_retention_team(reshop, current_user.full_name or current_user.username)
+            _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
         except Exception as e:
             logger.error("Reshop notification error: %s", e)
 
@@ -1499,7 +1531,7 @@ def create_reshop_from_customer(
 
     # Notify retention team
     try:
-        _notify_retention_team(reshop, current_user.full_name or current_user.username)
+        _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
     except Exception as e:
         logger.error("Reshop notification error: %s", e)
 
