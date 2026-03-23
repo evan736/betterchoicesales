@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     GOOGLE_REVIEW_URL: Optional[str] = None
     
     # App URL (frontend)
-    APP_URL: str = "https://better-choice-web.onrender.com"
+    APP_URL: str = "https://orbit.betterchoiceins.com"
     
     # Welcome email: CC the selling agent for QA (set to false to disable)
     WELCOME_EMAIL_CC_AGENT: bool = True

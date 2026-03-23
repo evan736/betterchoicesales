@@ -60,7 +60,7 @@ def build_nonpay_email_html(
     }
     logo_file = LOGO_FILES.get(carrier_key, "")
     if logo_file:
-        app_url = "https://better-choice-web.onrender.com"
+        app_url = "https://orbit.betterchoiceins.com"
         try:
             from app.core.config import settings
             app_url = getattr(settings, "APP_URL", app_url)

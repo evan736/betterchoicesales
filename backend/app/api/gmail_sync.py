@@ -112,7 +112,7 @@ def gmail_oauth_callback(
     }
     
     logger.info(f"Gmail OAuth complete for user {user_id}")
-    return RedirectResponse(url="https://better-choice-web.onrender.com/inbox?gmail_connected=true")
+    return RedirectResponse(url="https://orbit.betterchoiceins.com/inbox?gmail_connected=true")
 
 
 # ══════════════════════════════════════════════════════════════════════

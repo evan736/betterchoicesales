@@ -156,7 +156,7 @@ def build_uw_requirement_email_html(
     }
     logo_file = LOGO_FILES.get(carrier_key, "")
     if logo_file:
-        app_url = getattr(settings, "APP_URL", "https://better-choice-web.onrender.com")
+        app_url = getattr(settings, "APP_URL", "https://orbit.betterchoiceins.com")
         logo_url = f"{app_url}/carrier-logos/{logo_file}"
         h.append(f'<div style="text-align:center; margin:0 0 20px; padding:16px 0 8px;">')
         h.append(f'<img src="{logo_url}" alt="{display_carrier}" style="max-height:50px; max-width:240px; height:auto; width:auto;" />')

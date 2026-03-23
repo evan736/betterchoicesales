@@ -249,7 +249,7 @@ def initiate_cancellation(
         except Exception as e:
             logger.error(f"Failed to send cancellation form email: {e}")
 
-    frontend_url = os.environ.get("FRONTEND_URL", "https://better-choice-web.onrender.com")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://orbit.betterchoiceins.com")
     form_url = f"{frontend_url}/cancel/{token}"
 
     return {
@@ -470,7 +470,7 @@ def _send_cancellation_form_email(email: str, name: str, token: str):
         logger.warning("Mailgun not configured — skipping cancellation form email")
         return
 
-    frontend_url = os.environ.get("FRONTEND_URL", "https://better-choice-web.onrender.com")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://orbit.betterchoiceins.com")
     form_url = f"{frontend_url}/cancel/{token}"
     first_name = name.split()[0] if name else "there"
 

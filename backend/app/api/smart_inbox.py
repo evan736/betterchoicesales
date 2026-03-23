@@ -262,7 +262,7 @@ async def _send_evan_alert(inbound: InboundEmail, outbound: Optional[OutboundQue
             <p style="font-size: 13px; color: #94a3b8;">
                 {'A draft response is waiting for your approval in ORBIT Smart Inbox.' if outbound else 'This email requires your attention.'}
             </p>
-            <a href="https://better-choice-web.onrender.com/smart-inbox"
+            <a href="https://orbit.betterchoiceins.com/smart-inbox"
                style="display: inline-block; background: #22d3ee; color: #0f172a; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
                 Review in ORBIT →
             </a>

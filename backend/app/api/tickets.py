@@ -285,7 +285,7 @@ def _send_ticket_notification(ticket: Ticket, reporter: User):
             </div>
             {screenshot_html}
             <div style="margin-top:20px;">
-                <a href="https://better-choice-web.onrender.com/tickets"
+                <a href="https://orbit.betterchoiceins.com/tickets"
                    style="display:inline-block; background:#1d4ed8; color:#fff; padding:10px 24px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px;">
                     View in ORBIT →
                 </a>

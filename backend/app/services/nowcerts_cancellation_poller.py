@@ -416,7 +416,7 @@ def _send_poll_summary_email(result: dict):
             <tr><td style="padding:8px 0;color:#64748b;">Errors</td><td style="padding:8px 0;color:#dc2626;">{result.get('errors', 0)}</td></tr>
         </table>
         <div style="margin-top:16px;text-align:center;">
-            <a href="https://better-choice-web.onrender.com/retention" 
+            <a href="https://orbit.betterchoiceins.com/retention" 
                style="display:inline-block;background:#1a2b5f;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">
                 View Retention Dashboard
             </a>

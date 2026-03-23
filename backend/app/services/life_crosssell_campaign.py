@@ -32,7 +32,7 @@ AGENCY_EMAIL = "service@betterchoiceins.com"
 BCI_NAVY = "#0f172a"
 BCI_CYAN = "#22d3ee"
 ETHOS_LINK = "https://app.ethoslife.com/partner/c0fbf/q/goals"
-APP_URL = "https://better-choice-web.onrender.com"
+APP_URL = "https://orbit.betterchoiceins.com"
 
 
 def _fmt(amount) -> str:

@@ -479,7 +479,7 @@ def _requote_email_html(first_name: str, policy_type: str, carrier: str, x_date:
         'type': policy_type or 'insurance',
         'utm_campaign': f'requote_r{retarget_round}_t{touch_number}',
     }.items() if v})
-    landing_url = f"https://better-choice-web.onrender.com/get-quote?{landing_params}"
+    landing_url = f"https://quote.betterchoiceins.com/get-quote?{landing_params}"
 
     subject = ""
     body_content = ""
@@ -625,7 +625,7 @@ Respond ONLY with a JSON object (no markdown, no backticks):
             """
 
     # ── Wrap in branded HTML template (matches landing page design) ──
-    SITE = "https://better-choice-web.onrender.com"
+    SITE = "https://orbit.betterchoiceins.com"
     logo_url = f"{SITE}/carrier-logos/bci_logo_white.png"
     # Top 8 carrier logos for the strip
     carrier_row1 = ["safeco", "grange", "geico"]

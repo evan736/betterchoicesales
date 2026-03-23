@@ -1141,7 +1141,7 @@ def _build_branded_email(body_html: str, sender_name: str, sender_email: str) ->
     When sending from service@betterchoiceins.com, the signature shows the agency
     name rather than an individual agent name.
     """
-    frontend_url = "https://better-choice-web.onrender.com"
+    frontend_url = "https://orbit.betterchoiceins.com"
     logo_url = f"{frontend_url}/carrier-logos/bci_header_white.png"
     
     # When sending from the generic service address, show agency name, not agent name

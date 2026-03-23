@@ -320,7 +320,7 @@ def _notify_reshop_assignment(reshop, assignee, assigned_by, db=None):
         {cross_sell_html}
 
         <div style="text-align:center; margin:24px 0;">
-            <a href="https://better-choice-web.onrender.com/reshop" style="display:inline-block; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; padding:14px 36px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
+            <a href="https://orbit.betterchoiceins.com/reshop" style="display:inline-block; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; padding:14px 36px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
                 Open Reshop Pipeline →
             </a>
         </div>
