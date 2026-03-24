@@ -525,8 +525,8 @@ export default function Statements() {
                 agentSummary={agentSummary}
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
-                onMatch={() => handleMatch(selectedImport)}
-                onCalculate={() => handleCalculate(selectedImport)}
+                onMatch={() => { if (selectedImport) handleMatch(selectedImport); else toast.error('Please select an import first'); }}
+                onCalculate={() => { if (selectedImport) handleCalculate(selectedImport); else toast.error('Please select an import first'); }}
                 actionLoading={actionLoading}
               />
             ) : null}
