@@ -54,33 +54,11 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
     tx_type = (line.transaction_type or "").lower()
     tx_raw = (getattr(line, 'transaction_type_raw', '') or "").upper()
 
-    if tx_type == "renewal":
+    # Renewals and "other" types (including Payment Only) are not commissionable.
+    # Payment Only lines always have $0 carrier commission — the agency earns nothing,
+    # so producers shouldn't be paid on them either.
+    if tx_type in ("renewal", "other"):
         return False
-
-    # "Payment Only" (classified as "other") is commissionable IF the same policy
-    # had a NEW-BUS in a prior statement. This handles bounced check → re-payment.
-    if tx_type == "other" and "PAYMENT ONLY" not in tx_raw:
-        return False
-
-    # For Payment Only lines, check if this policy had a prior NEW-BUS
-    if "PAYMENT ONLY" in tx_raw:
-        session = None
-        try:
-            from sqlalchemy import inspect as sa_inspect
-            session = sa_inspect(line).session
-        except Exception:
-            pass
-        if session:
-            from app.models.statement import StatementLine as SL
-            pn = (line.policy_number or "").replace(" ", "").replace("-", "").upper()
-            prior_new_biz = session.query(SL).filter(
-                SL.policy_number == line.policy_number,
-                SL.transaction_type_raw.ilike("%NEW-BUS%"),
-                SL.id != line.id,
-            ).first()
-            if prior_new_biz:
-                return True  # Payment for a previously written new business policy
-        return False  # No prior new business found — not commissionable
 
     # Check if there's a "renewal" transaction for this same policy on this
     # same statement. If so, the carrier considers this a renewal term —
