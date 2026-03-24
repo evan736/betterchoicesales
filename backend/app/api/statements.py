@@ -182,7 +182,32 @@ def assign_producer_to_line(
     return {"success": True, "line_id": line.id, "producer_name": line.producer_name, "assigned_agent_id": line.assigned_agent_id}
 
 
-@router.post("/monthly-pay/{period}")
+@router.patch("/lines/{line_id}")
+def patch_statement_line(
+    line_id: int,
+    updates: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: patch fields on a statement line (commission_amount, commission_rate, transaction_type, etc.)."""
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.models.statement import StatementLine
+    line = db.query(StatementLine).filter(StatementLine.id == line_id).first()
+    if not line:
+        raise HTTPException(status_code=404, detail="Statement line not found")
+
+    allowed = {"commission_amount", "commission_rate", "transaction_type", "transaction_type_raw",
+               "premium_amount", "insured_name", "policy_number", "producer_name", "assigned_agent_id"}
+    changed = {}
+    for k, v in updates.items():
+        if k in allowed and hasattr(line, k):
+            setattr(line, k, v)
+            changed[k] = v
+
+    db.commit()
+    return {"success": True, "line_id": line.id, "changed": changed}
 def calculate_monthly_pay(
     period: str,
     current_user: User = Depends(get_current_user),
