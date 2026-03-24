@@ -529,6 +529,18 @@ def parse_travelers(file_bytes: bytes, filename: str) -> List[Dict]:
             trans_code_raw = str(row.get("POL-EFF-DT", "") or "").strip()
             is_payment_only = (not trans_code_raw or trans_code_raw == "nan" or trans_code_raw == "")
 
+            # Override: if the row has commission data, it's NOT payment-only
+            # even if the trans code is blank. Some rows (e.g., Forbes Raymond)
+            # have commission earned but no transaction code.
+            comm_earned_check = _clean_currency(row.get("COMMISSION"))
+            if comm_earned_check is None:
+                comm_earned_check = _clean_currency(row.get("PAID"))
+            if is_payment_only and comm_earned_check and comm_earned_check != 0:
+                is_payment_only = False
+                # Use blank trans code but mark as having commission
+                if not trans_code_raw or trans_code_raw == "nan":
+                    trans_code_raw = ""
+
             if is_payment_only:
                 # Payment Only — installment collection, NOT commissionable
                 # Still record for tracking but with $0 commission
