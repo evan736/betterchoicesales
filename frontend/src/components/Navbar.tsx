@@ -9,7 +9,7 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox, MessageCircle, Zap, BookOpen, Bug, Search,
+  Inbox, MessageCircle, Zap, BookOpen, Bug, Search, UserPlus,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -233,6 +233,7 @@ const Navbar: React.FC = () => {
         { href: '/reshop', label: 'Reshop Pipeline', icon: <Target size={16} />, show: isManager || user?.role?.toLowerCase() === 'retention_specialist', badge: reshopBadge },
         { href: '/campaigns', label: 'Campaigns', icon: <Mail size={16} />, show: isManager },
         { href: '/leads', label: 'Lead Control', icon: <Zap size={16} />, show: isManager },
+        { href: '/lead-pipeline', label: 'Lead Pipeline', icon: <UserPlus size={16} />, show: true },
         { href: '/life-crosssell', label: 'Life Insurance', icon: <Shield size={16} />, show: isManager },
       ],
     },

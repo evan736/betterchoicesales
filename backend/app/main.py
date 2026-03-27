@@ -29,6 +29,7 @@ from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
 from app.api import reshop as reshop_api
+from app.api import leads as leads_api
 from app.models.inspection import InspectionDraft
 
 logger = logging.getLogger(__name__)
@@ -848,6 +849,14 @@ async def lifespan(app: FastAPI):
         logger.info("Requote campaign tables migrated")
     except Exception as e:
         logger.warning(f"Requote migration: {e}")
+
+    # Leads + round-robin tables
+    try:
+        from app.migrations.leads_migration import migrate_leads
+        migrate_leads()
+        logger.info("Leads tables migrated")
+    except Exception as e:
+        logger.warning(f"Leads migration: {e}")
 
     # Self-healing: create daily_checklist_items table
     try:
@@ -1938,6 +1947,7 @@ app.include_router(requote_campaigns_api.router)
 
 from app.api import property as property_api
 app.include_router(property_api.router)
+app.include_router(leads_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

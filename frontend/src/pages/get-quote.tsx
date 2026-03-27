@@ -124,7 +124,7 @@ export default function GetQuotePage() {
     });
     // Send partial lead for fallback too
     try {
-      await fetch(`${API}/api/campaigns/landing-lead`, {
+      await fetch(`${API}/api/leads/inbound`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

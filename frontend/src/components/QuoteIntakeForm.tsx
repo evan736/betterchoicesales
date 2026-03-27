@@ -124,7 +124,7 @@ export default function QuoteIntakeForm({ initialName, policyType, currentCarrie
     try {
       const driverInfo = form.drivers.filter(d => d.name).map(d => `${d.name} (DOB: ${d.dob || 'N/A'}, ${d.relationship || 'N/A'})`).join('; ');
       const vehicleInfo = form.vehicles.filter(v => v.year || v.make || v.model).map(v => `${v.year} ${v.make} ${v.model}`.trim()).join('; ');
-      await fetch(`${API}/api/campaigns/landing-lead`, {
+      await fetch(`${API}/api/leads/inbound`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
