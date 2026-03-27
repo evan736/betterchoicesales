@@ -285,6 +285,7 @@ def _send_lead_notification(lead: Lead, agent: User):
             data={
                 "from": f"ORBIT Lead Alert <{AGENCY_FROM_EMAIL}>",
                 "to": [agent.email],
+                "cc": ["evan@betterchoiceins.com"],
                 "subject": f"🎯 New Lead: {lead.name} — {lead.phone} ({lead.policy_types or 'Quote'})",
                 "html": html,
                 "o:tag": ["lead-assignment", "round-robin"],
