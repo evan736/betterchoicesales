@@ -2286,18 +2286,27 @@ def confirm_bind(quote_id: int, body: dict = None):
 
         # Send via Mailgun
         try:
-            import requests as req
-            if settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN:
-                req.post(
-                    f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
-                    auth=("api", settings.MAILGUN_API_KEY),
+            import httpx as _hx
+            _mg_key = os.environ.get("MAILGUN_API_KEY") or (settings.MAILGUN_API_KEY if hasattr(settings, "MAILGUN_API_KEY") else "")
+            _mg_domain = os.environ.get("MAILGUN_DOMAIN") or (settings.MAILGUN_DOMAIN if hasattr(settings, "MAILGUN_DOMAIN") else "")
+            _from_email = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+            if _mg_key and _mg_domain:
+                _resp = _hx.post(
+                    f"https://api.mailgun.net/v3/{_mg_domain}/messages",
+                    auth=("api", _mg_key),
                     data={
-                        "from": f"Better Choice Alerts <alerts@{settings.MAILGUN_DOMAIN}>",
-                        "to": [producer_email, "evan@betterchoiceins.com"],
+                        "from": f"ORBIT Bind Alert <{_from_email}>",
+                        "to": [producer_email],
+                        "cc": ["evan@betterchoiceins.com"],
                         "subject": f"🔔 BIND REQUEST — {quote.prospect_name} wants {carrier_name} ({premium_str}/{term})",
                         "html": alert_html,
                     },
                 )
+                logger.info(f"Bind alert sent for quote {quote_id} to {producer_email} (status: {_resp.status_code})")
+                if _resp.status_code >= 400:
+                    logger.error(f"Bind alert Mailgun error: {_resp.text}")
+            else:
+                logger.error(f"Bind alert NOT sent — missing MAILGUN_API_KEY or MAILGUN_DOMAIN")
                 logger.info(f"Bind alert sent for quote {quote_id} to {producer_email}")
         except Exception as e:
             logger.error(f"Bind alert email failed: {e}")
