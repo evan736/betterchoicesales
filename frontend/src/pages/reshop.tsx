@@ -16,13 +16,10 @@ const STAGES = [
   { key: 'new_request', label: 'New Request', color: 'blue', icon: <Plus size={14} /> },
   { key: 'quoting', label: 'Quoting', color: 'amber', icon: <FileText size={14} /> },
   { key: 'quote_ready', label: 'Quote Ready', color: 'cyan', icon: <CheckCircle2 size={14} /> },
-  { key: 'presenting', label: 'Presenting', color: 'emerald', icon: <Send size={14} /> },
+  { key: 'bound', label: 'Rewrote / Renewed', color: 'green', icon: <CheckCircle2 size={14} /> },
+  { key: 'lost', label: 'Lost', color: 'red', icon: <XCircle size={14} /> },
 ];
-const CLOSED_STAGES = [
-  { key: 'bound', label: 'Rewrote', color: 'green' },
-  { key: 'renewed', label: 'Renewed — Stayed', color: 'teal' },
-  { key: 'lost', label: 'Lost', color: 'red' },
-];
+const CLOSED_STAGES: typeof STAGES = [];
 
 const SOURCES = [
   { value: 'inbound_call', label: 'Inbound Call' },
@@ -97,7 +94,7 @@ export default function ReshopPage() {
     setLoading(true);
     try {
       const [reshopsRes, statsRes] = await Promise.all([
-        reshopAPI.list({ show_closed: showClosed, search: search || undefined }),
+        reshopAPI.list({ show_closed: true, search: search || undefined }),
         reshopAPI.stats(),
       ]);
       setReshops(reshopsRes.data.reshops);
@@ -177,7 +174,12 @@ export default function ReshopPage() {
   const byStage: Record<string, any[]> = {};
   for (const s of [...STAGES, ...CLOSED_STAGES]) byStage[s.key] = [];
   for (const r of reshops) {
-    if (byStage[r.stage]) byStage[r.stage].push(r);
+    // Map old stages to new columns
+    let stage = r.stage;
+    if (stage === 'presenting') stage = 'quote_ready'; // presenting → quote_ready
+    if (stage === 'renewed') stage = 'bound';           // renewed → rewrote/renewed
+    if (stage === 'cancelled') stage = 'lost';           // cancelled → lost
+    if (byStage[stage]) byStage[stage].push(r);
     else byStage['new_request']?.push(r);
   }
 
@@ -277,16 +279,6 @@ export default function ReshopPage() {
             ))}
           </select>
 
-          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showClosed}
-              onChange={e => setShowClosed(e.target.checked)}
-              className="rounded border-slate-300"
-            />
-            Show Closed
-          </label>
-
           <button onClick={loadData} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
             <RefreshCw size={16} />
           </button>
@@ -354,24 +346,6 @@ export default function ReshopPage() {
               );
             })}
 
-            {/* Closed column (collapsed) */}
-            {showClosed && CLOSED_STAGES.map(stage => {
-              const items = filteredByStage(stage.key);
-              if (items.length === 0) return null;
-              return (
-                <div key={stage.key} className="flex-shrink-0 w-[240px]">
-                  <div className={`flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-${stage.color}-50 border border-${stage.color}-200`}>
-                    <span className="text-sm font-semibold text-slate-600">{stage.label}</span>
-                    <span className="ml-auto text-xs font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">{items.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {items.map(r => (
-                      <ReshopCard key={r.id} reshop={r} onOpen={() => openDetail(r)} onMove={(s: string) => handleStageMove(r.id, s)} stages={STAGES} canManage={isManager} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </div>
@@ -525,10 +499,10 @@ const ReshopCard: React.FC<{
             </button>
           )}
           <button
-            onClick={e => { e.stopPropagation(); onMove('renewed'); }}
+            onClick={e => { e.stopPropagation(); onMove('bound'); }}
             className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-green-600 hover:bg-green-50 rounded py-1 transition-colors"
           >
-            <CheckCircle2 size={10} /> Skip — Renewed
+            <CheckCircle2 size={10} /> Rewrote / Renewed
           </button>
         </div>
       )}
