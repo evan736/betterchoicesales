@@ -305,6 +305,20 @@ CARRIER_INFO = {
         "payment_url": "",
         "extra_tip": "Log in to your CoverTree account to manage your manufactured home policy and file claims.",
     },
+    "bamboo": {
+        "display_name": "Bamboo Insurance",
+        "accent_color": "#E8552D",
+        "logo_url": "",
+        "mobile_app_url": "",
+        "mobile_app_name": "",
+        "online_account_url": "https://bambooinsurance.com/",
+        "online_account_text": "Visit Bamboo Insurance",
+        "claims_url": "https://bambooinsurance.com/",
+        "claims_phone": "(877) 333-6938",
+        "customer_service": "(833) 922-6266",
+        "payment_url": "",
+        "extra_tip": "For claims call (877) 333-6938. For customer service call (833) 922-6266 or email customerservice@bambooinsurance.com.",
+    },
 }
 
 # ── Carrier aliases ──────────────────────────────────────────────────
@@ -356,6 +370,8 @@ CARRIER_ALIASES = {
     "travelers_home_and_marine": "travelers",
     "travelers_home_and_marine_insurance": "travelers",
     "the_travelers": "travelers",
+    "bamboo_insurance": "bamboo",
+    "bamboo_ins": "bamboo",
 }
 
 

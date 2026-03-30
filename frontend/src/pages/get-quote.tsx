@@ -21,6 +21,7 @@ const CARRIERS = [
   { name: 'American Modern', logo: '/carrier-logos/american_modern.png' },
   { name: 'Universal Property', logo: '/carrier-logos/universal_property.png' },
   { name: 'CoverTree', logo: '/carrier-logos/covertree.png' },
+  { name: 'Bamboo', logo: '/carrier-logos/bamboo.png' },
 ];
 
 const PHONE = '(847) 908-5665';

@@ -858,6 +858,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Leads migration: {e}")
 
+    # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
+    try:
+        from app.core.database import SessionLocal as _ac_sl
+        from app.models.agency_config import AgencyConfig
+        _ac_db = _ac_sl()
+        existing = _ac_db.query(AgencyConfig).filter(
+            AgencyConfig.config_type == "carrier", AgencyConfig.name == "bamboo"
+        ).first()
+        if not existing:
+            _ac_db.add(AgencyConfig(config_type="carrier", name="bamboo", display_name="Bamboo Insurance", is_active=True))
+            _ac_db.commit()
+            logger.info("Seeded Bamboo Insurance carrier")
+        _ac_db.close()
+    except Exception as e:
+        logger.debug(f"Bamboo carrier seed: {e}")
+
     # Self-healing: create daily_checklist_items table
     try:
         from sqlalchemy import text as _ck_text
