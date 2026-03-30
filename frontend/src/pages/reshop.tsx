@@ -173,12 +173,21 @@ export default function ReshopPage() {
   // Group reshops by stage
   const byStage: Record<string, any[]> = {};
   for (const s of [...STAGES, ...CLOSED_STAGES]) byStage[s.key] = [];
+  const now = Date.now();
+  const HOURS_48 = 48 * 60 * 60 * 1000;
   for (const r of reshops) {
     // Map old stages to new columns
     let stage = r.stage;
     if (stage === 'presenting') stage = 'quote_ready'; // presenting → quote_ready
     if (stage === 'renewed') stage = 'bound';           // renewed → rewrote/renewed
     if (stage === 'cancelled') stage = 'lost';           // cancelled → lost
+
+    // Hide bound/lost items after 48 hours
+    if ((stage === 'bound' || stage === 'lost') && r.completed_at) {
+      const completedTime = new Date(r.completed_at).getTime();
+      if (now - completedTime > HOURS_48) continue;
+    }
+
     if (byStage[stage]) byStage[stage].push(r);
     else byStage['new_request']?.push(r);
   }
