@@ -13,7 +13,7 @@ import { toast } from '../components/ui/Toast';
 
 const STAGES = [
   { key: 'proactive', label: 'Proactive', color: 'purple', icon: <Eye size={14} /> },
-  { key: 'new_request', label: 'Urgent Requests', color: 'blue', icon: <Plus size={14} /> },
+  { key: 'new_request', label: 'Urgent Requests', color: 'red', icon: <Plus size={14} /> },
   { key: 'quoting', label: 'Quoting', color: 'amber', icon: <FileText size={14} /> },
   { key: 'quote_ready', label: 'Quote Ready', color: 'cyan', icon: <CheckCircle2 size={14} /> },
   { key: 'bound', label: 'Rewrote / Renewed', color: 'green', icon: <CheckCircle2 size={14} /> },
@@ -183,9 +183,9 @@ export default function ReshopPage() {
     if (stage === 'cancelled') stage = 'lost';           // cancelled → lost
 
     // Hide bound/lost items after 48 hours
-    if ((stage === 'bound' || stage === 'lost') && r.completed_at) {
-      const completedTime = new Date(r.completed_at).getTime();
-      if (now - completedTime > HOURS_48) continue;
+    if (stage === 'bound' || stage === 'lost') {
+      const closedTime = new Date(r.completed_at || r.stage_updated_at || r.updated_at || r.created_at).getTime();
+      if (now - closedTime > HOURS_48) continue;
     }
 
     if (byStage[stage]) byStage[stage].push(r);
