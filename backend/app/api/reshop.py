@@ -1290,6 +1290,7 @@ def _run_proactive_scan(
     renewing_ids = set(p.id for p in renewing)
     active_terms = {}
     if renewing_policy_nums:
+        # Pass A: exact policy number match (standard carriers)
         active_results = (
             db.query(CustomerPolicy)
             .filter(
@@ -1302,8 +1303,31 @@ def _run_proactive_scan(
         )
         for t in active_results:
             if t.policy_number and t.policy_number not in active_terms:
-                # Pick the most recent term that ISN'T the renewal
                 active_terms[t.policy_number] = t
+
+        # Pass B: for renewing terms without an exact match, try matching by
+        # customer_id + carrier + earlier effective date (handles NatGen-style
+        # term suffixes like 202268745800, 202268745801, 202268745802)
+        unmatched_renewals = [r for r in renewing if r.policy_number not in active_terms]
+        if unmatched_renewals:
+            for renewal in unmatched_renewals:
+                if not renewal.customer_id or not renewal.effective_date:
+                    continue
+                prior = (
+                    db.query(CustomerPolicy)
+                    .filter(
+                        CustomerPolicy.customer_id == renewal.customer_id,
+                        CustomerPolicy.carrier == renewal.carrier,
+                        func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+                        CustomerPolicy.effective_date < renewal.effective_date,
+                        ~CustomerPolicy.id.in_(renewing_ids) if renewing_ids else True,
+                    )
+                    .order_by(CustomerPolicy.effective_date.desc())
+                    .first()
+                )
+                if prior:
+                    # Store under the RENEWAL's policy number so lookup works later
+                    active_terms[renewal.policy_number] = prior
 
     # Check ALL reshops (active AND closed) to avoid re-creating cancelled/closed ones
     existing_policy_nums = set()
