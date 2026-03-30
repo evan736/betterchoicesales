@@ -42,6 +42,8 @@ def count_business_days_in_range(year: int, month: int) -> int:
 def get_trending_projection(
     target_date: Optional[str] = Query(None, description="Target date YYYY-MM-DD, defaults to end of current month"),
     period: Optional[str] = Query(None, description="monthly, annual, last_year"),
+    start_date: Optional[str] = Query(None, description="Custom range start YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Custom range end YYYY-MM-DD"),
     producer_id: Optional[int] = None,
     scope: Optional[str] = Query(None, description="'my' for own sales (default for agents), 'agency' for all"),
     exclude_rewrites: Optional[bool] = None,
@@ -57,7 +59,7 @@ def get_trending_projection(
     Supports monthly (current month), annual (this year), and last_year views.
     """
     from app.core.cache import get as cache_get, set as cache_set
-    cache_key = f"trending:{period}:{producer_id}:{target_date}:{current_user.id}:{scope}:{exclude_rewrites}:{lead_source}:{policy_type}:{carrier}:{state}"
+    cache_key = f"trending:{period}:{producer_id}:{target_date}:{current_user.id}:{scope}:{exclude_rewrites}:{lead_source}:{policy_type}:{carrier}:{state}:{start_date}:{end_date}"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
@@ -132,6 +134,64 @@ def get_trending_projection(
         }
 
     # Determine period start and premium window
+    if start_date and end_date:
+        # Custom date range — project based on pace within actual data days
+        try:
+            custom_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            custom_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            custom_start = date(today.year, today.month, 1)
+            custom_end = today
+
+        # Actual premium in the custom range (up to today)
+        actual_end = min(today, custom_end)
+        custom_premium = float(
+            db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
+                Sale.sale_date >= datetime.combine(custom_start, datetime.min.time()),
+                Sale.sale_date <= datetime.combine(actual_end, datetime.max.time()),
+                *user_filters,
+            ).scalar() or 0
+        )
+
+        # Policy/item count
+        custom_policies = db.query(func.count(Sale.id)).filter(
+            Sale.sale_date >= datetime.combine(custom_start, datetime.min.time()),
+            Sale.sale_date <= datetime.combine(actual_end, datetime.max.time()),
+            *user_filters,
+        ).scalar() or 0
+
+        # Business days elapsed (from range start to today or range end, whichever is earlier)
+        elapsed = count_business_days(custom_start, actual_end)
+        pace = custom_premium / elapsed if elapsed > 0 else 0
+
+        # Business days remaining (from tomorrow to range end, if end is in the future)
+        if custom_end > today:
+            remaining = count_business_days(today + timedelta(days=1), custom_end)
+        else:
+            remaining = 0
+
+        total_biz = count_business_days(custom_start, custom_end)
+        projected = custom_premium + (pace * remaining)
+
+        result = {
+            "mode": "custom",
+            "current_premium": custom_premium,
+            "ytd_premium": custom_premium,
+            "projected_premium": projected,
+            "daily_pace": pace,
+            "biz_days_elapsed": elapsed,
+            "biz_days_remaining": remaining,
+            "total_biz_days": total_biz,
+            "target_date": custom_end.isoformat(),
+            "start_date": custom_start.isoformat(),
+            "total_sales": custom_policies,
+            "period": f"{custom_start} to {custom_end}",
+            "current_tier": None,
+            "goals": [],
+        }
+        cache_set(cache_key, result, ttl=60)
+        return result
+
     if period == "today":
         period_start = today
         default_target = today

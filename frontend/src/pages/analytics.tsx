@@ -133,7 +133,7 @@ export default function Analytics() {
           ...activeFilters,
           limit: 200,
         }),
-        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope, ...activeFilters }),
+        analyticsAPI.trending({ period: period === 'all-time' ? 'annual' : (period === 'last_month' ? 'monthly' : period), scope, ...extraParams, ...activeFilters }),
       ]);
       setSummary(summaryRes.data);
       setChartData(groupRes.data.results || []);
@@ -245,14 +245,14 @@ export default function Analytics() {
           <SummaryCard icon={<DollarSign />} label="Total Premium" value={formatCurrency(summary?.total_premium || 0)} color="text-green-600" bg="bg-green-100" />
           <SummaryCard
             icon={<TrendingUp />}
-            label={period === 'last_year' ? 'Last Year Total' : 'Projected'}
+            label={period === 'last_year' ? 'Last Year Total' : `Projected${trendingData?.biz_days_remaining > 0 ? ` (${trendingData.biz_days_remaining}d left)` : ''}`}
             value={trendingData ? formatCurrency(trendingData.projected_premium) : '—'}
             color="text-brand-600"
             bg="bg-brand-100"
           />
           <SummaryCard
             icon={<FileText />}
-            label="Daily Pace"
+            label={`Daily Pace${trendingData?.biz_days_elapsed > 0 ? ` (${trendingData.biz_days_elapsed}d)` : ''}`}
             value={trendingData && trendingData.daily_pace > 0 ? formatCurrency(trendingData.daily_pace) : '—'}
             color="text-blue-600"
             bg="bg-blue-100"
