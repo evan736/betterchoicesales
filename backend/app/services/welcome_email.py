@@ -311,13 +311,13 @@ CARRIER_INFO = {
         "logo_url": "",
         "mobile_app_url": "",
         "mobile_app_name": "",
-        "online_account_url": "https://bambooinsurance.com/",
-        "online_account_text": "Visit Bamboo Insurance",
+        "online_account_url": "https://bambooinsurance.com/your-account/",
+        "online_account_text": "Log In to Your Bamboo Account",
         "claims_url": "https://bambooinsurance.com/",
         "claims_phone": "(877) 333-6938",
         "customer_service": "(833) 922-6266",
-        "payment_url": "",
-        "extra_tip": "For claims call (877) 333-6938. For customer service call (833) 922-6266 or email customerservice@bambooinsurance.com.",
+        "payment_url": "https://bambooinsurance.com/your-account/",
+        "extra_tip": "Log in to your Bamboo policyholder portal to view documents, make payments, and manage your policy. For claims call (877) 333-6938. For customer service call (833) 922-6266 or email customerservice@bambooinsurance.com.",
     },
 }
 
