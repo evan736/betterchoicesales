@@ -13,7 +13,7 @@ import { toast } from '../components/ui/Toast';
 
 const STAGES = [
   { key: 'proactive', label: 'Proactive', color: 'purple', icon: <Eye size={14} /> },
-  { key: 'new_request', label: 'New Request', color: 'blue', icon: <Plus size={14} /> },
+  { key: 'new_request', label: 'Urgent Requests', color: 'blue', icon: <Plus size={14} /> },
   { key: 'quoting', label: 'Quoting', color: 'amber', icon: <FileText size={14} /> },
   { key: 'quote_ready', label: 'Quote Ready', color: 'cyan', icon: <CheckCircle2 size={14} /> },
   { key: 'bound', label: 'Rewrote / Renewed', color: 'green', icon: <CheckCircle2 size={14} /> },
