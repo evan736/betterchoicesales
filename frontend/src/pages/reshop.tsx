@@ -16,6 +16,7 @@ const STAGES = [
   { key: 'new_request', label: 'Urgent Requests', color: 'red', icon: <Plus size={14} /> },
   { key: 'quoting', label: 'Quoting', color: 'amber', icon: <FileText size={14} /> },
   { key: 'quote_ready', label: 'Quote Ready', color: 'cyan', icon: <CheckCircle2 size={14} /> },
+  { key: 'presenting', label: 'Quote Presented', color: 'emerald', icon: <Send size={14} /> },
   { key: 'bound', label: 'Rewrote / Renewed', color: 'green', icon: <CheckCircle2 size={14} /> },
   { key: 'lost', label: 'Lost', color: 'red', icon: <XCircle size={14} /> },
 ];
@@ -178,7 +179,6 @@ export default function ReshopPage() {
   for (const r of reshops) {
     // Map old stages to new columns
     let stage = r.stage;
-    if (stage === 'presenting') stage = 'quote_ready'; // presenting → quote_ready
     if (stage === 'renewed') stage = 'bound';           // renewed → rewrote/renewed
     if (stage === 'cancelled') stage = 'lost';           // cancelled → lost
 
