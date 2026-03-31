@@ -313,7 +313,7 @@ export default function ReshopPage() {
               return (
                 <div
                   key={stage.key}
-                  className={`flex-shrink-0 w-[260px] transition-all ${isDragOver ? 'scale-[1.02]' : ''}`}
+                  className={`flex-shrink-0 w-[220px] transition-all ${isDragOver ? 'scale-[1.02]' : ''}`}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
