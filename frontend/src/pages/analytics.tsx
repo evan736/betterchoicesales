@@ -39,12 +39,8 @@ export default function Analytics() {
   const [period, setPeriod] = useState('monthly');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [searchTrigger, setSearchTrigger] = useState(0);
-  // Refs to avoid stale closure in loadData
-  const customStartRef = React.useRef(customStart);
-  const customEndRef = React.useRef(customEnd);
-  customStartRef.current = customStart;
-  customEndRef.current = customEnd;
+  // activeRange is set ONLY when the user clicks Search — this is what loadData reads
+  const [activeRange, setActiveRange] = useState<{ start: string; end: string } | null>(null);
   const [groupBy, setGroupBy] = useState('producer');
   const [summary, setSummary] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -113,8 +109,8 @@ export default function Analytics() {
         apiPeriod = undefined;
       } else if (period === 'custom') {
         apiPeriod = undefined;
-        if (customStartRef.current) extraParams.start_date = customStartRef.current;
-        if (customEndRef.current) extraParams.end_date = customEndRef.current;
+        if (activeRange?.start) extraParams.start_date = activeRange.start;
+        if (activeRange?.end) extraParams.end_date = activeRange.end;
       } else {
         apiPeriod = period;
       }
@@ -146,12 +142,12 @@ export default function Analytics() {
     finally { setLoadingData(false); }
   };
 
-  // Auto-load on filter/period changes; for custom range, only after Search
+  // Auto-load on filter/period changes; for custom range, only after Search sets activeRange
   useEffect(() => {
     if (!user) return;
-    if (period === 'custom' && (!customStartRef.current || !customEndRef.current)) return;
+    if (period === 'custom' && !activeRange) return;
     loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, searchTrigger]);
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, activeRange]);
 
   if (loading || !user) return (
     <div className="min-h-screen">
@@ -218,7 +214,7 @@ export default function Analytics() {
             {PERIOD_OPTIONS.map((p) => (
               <button
                 key={p.value}
-                onClick={() => setPeriod(p.value)}
+                onClick={() => { setPeriod(p.value); if (p.value !== 'custom') setActiveRange(null); }}
                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
                   period === p.value
                     ? 'bg-brand-600 text-white shadow-md'
@@ -246,7 +242,7 @@ export default function Analytics() {
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
               />
               <button
-                onClick={() => { setSearchTrigger(t => t + 1); loadData(); }}
+                onClick={() => setActiveRange({ start: customStart, end: customEnd })}
                 disabled={!customStart || !customEnd}
                 className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
