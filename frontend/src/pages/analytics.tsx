@@ -83,8 +83,11 @@ export default function Analytics() {
   }, [user]);
 
   useEffect(() => {
-    if (user) loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, customStart, customEnd]);
+    if (!user) return;
+    // For custom range: only auto-load if both dates are already set (filter change while searching)
+    if (period === 'custom' && (!customStart || !customEnd)) return;
+    loadData();
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly]);
 
   const loadFilterOptions = async () => {
     try {
@@ -236,6 +239,13 @@ export default function Analytics() {
                 onChange={(e) => setCustomEnd(e.target.value)}
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
               />
+              <button
+                onClick={loadData}
+                disabled={!customStart || !customEnd}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Search
+              </button>
             </div>
           )}
         </div>
