@@ -242,7 +242,27 @@ export default function Analytics() {
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
               />
               <button
-                onClick={() => setActiveRange({ start: customStart, end: customEnd })}
+                onClick={async () => {
+                  if (!customStart || !customEnd) return;
+                  setLoadingData(true);
+                  try {
+                    const p: any = { scope, start_date: customStart, end_date: customEnd };
+                    if (newBizOnly) p.exclude_rewrites = true;
+                    Object.entries(tableFilters).forEach(([k, v]) => { if (v) p[k] = v; });
+                    const [summaryRes, groupRes, tableRes, trendRes] = await Promise.all([
+                      analyticsAPI.summary(p),
+                      analyticsAPI.byGroup({ group_by: groupBy, ...p }),
+                      analyticsAPI.salesTable({ sort_by: sortBy, sort_order: sortOrder, limit: 200, ...p }),
+                      analyticsAPI.trending({ period: 'custom', ...p }),
+                    ]);
+                    setSummary(summaryRes.data);
+                    setChartData(groupRes.data.results || []);
+                    setSalesData(tableRes.data.sales || []);
+                    setSalesTotal(tableRes.data.total || 0);
+                    setTrendingData(trendRes.data);
+                  } catch (e) { console.error(e); }
+                  finally { setLoadingData(false); }
+                }}
                 disabled={!customStart || !customEnd}
                 className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
