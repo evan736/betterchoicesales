@@ -1326,8 +1326,12 @@ def sync_customer(
         logger.error("Sync failed for customer %s: %s", customer_id, e)
         raise HTTPException(status_code=502, detail=f"NowCerts sync failed: {str(e)}")
 
-    """Internal version of sync_all_customers for background scheduler. No auth required."""
+
+def sync_all_customers_internal(db: Session):
+    """Internal version of sync_all_customers for background scheduler. No auth required.
+    Processes in batches to limit memory usage."""
     from app.services.nowcerts import get_nowcerts_client, normalize_insured
+    import gc
 
     client = get_nowcerts_client()
     if not client.is_configured:
@@ -1340,76 +1344,105 @@ def sync_customer(
     errors = []
 
     try:
-        all_insureds = client.get_all_insureds_paginated(page_size=200)
-        logger.info("Auto-sync: fetched %d insureds from NowCerts", len(all_insureds))
-
-        for raw in all_insureds:
+        # Process insureds in pages instead of loading all at once
+        skip = 0
+        page_size = 200
+        while True:
             try:
-                normalized = normalize_insured(raw)
-                nc_id = normalized.get("nowcerts_insured_id")
-                if not nc_id:
-                    continue
-                existing = db.query(Customer).filter(Customer.nowcerts_insured_id == nc_id).first()
-                if existing:
-                    for k, v in normalized.items():
-                        if v is not None:
-                            setattr(existing, k, v)
-                    existing.last_synced_at = datetime.utcnow()
-                    updated += 1
-                else:
-                    customer = Customer(**normalized, last_synced_at=datetime.utcnow())
-                    db.add(customer)
-                    imported += 1
-                if (imported + updated) % 200 == 0:
-                    db.commit()
-            except Exception as e:
-                errors.append(f"Insured: {str(e)[:80]}")
-
-        db.commit()
-
-        try:
-            all_policies = client.get_all_policies_paginated(page_size=200)
-            for raw_pol in all_policies:
-                try:
-                    iid = raw_pol.get("insuredDatabaseId", "")
-                    if not iid:
-                        continue
-                    customer = db.query(Customer).filter(Customer.nowcerts_insured_id == iid).first()
-                    if not customer:
-                        cust_data = {
-                            "nowcerts_insured_id": iid,
-                            "first_name": raw_pol.get("insuredFirstName", ""),
-                            "last_name": raw_pol.get("insuredLastName", ""),
-                            "full_name": raw_pol.get("insuredCommercialName") or f"{raw_pol.get('insuredFirstName', '')} {raw_pol.get('insuredLastName', '')}".strip() or "Unknown",
-                            "email": raw_pol.get("insuredEmail", ""),
-                            "phone": raw_pol.get("insuredPhoneNumber", ""),
-                            "last_synced_at": datetime.utcnow(),
-                        }
-                        customer = Customer(**cust_data)
-                        db.add(customer)
-                        db.flush()
-                        imported += 1
-                    norm_pol = client._normalize_odata_policy(raw_pol, customer.id)
-                    nc_pol_id = norm_pol.get("nowcerts_policy_id")
-                    if nc_pol_id:
-                        existing_pol = db.query(CustomerPolicy).filter(CustomerPolicy.nowcerts_policy_id == nc_pol_id).first()
-                        if existing_pol:
-                            for k, v in norm_pol.items():
+                data = client._odata_get("InsuredDetailList", skip=skip, top=page_size)
+                batch = data.get("value", [])
+                if not batch:
+                    break
+                for raw in batch:
+                    try:
+                        normalized = normalize_insured(raw)
+                        nc_id = normalized.get("nowcerts_insured_id")
+                        if not nc_id:
+                            continue
+                        existing = db.query(Customer).filter(Customer.nowcerts_insured_id == nc_id).first()
+                        if existing:
+                            for k, v in normalized.items():
                                 if v is not None:
-                                    setattr(existing_pol, k, v)
-                            existing_pol.last_synced_at = datetime.utcnow()
-                            policies_updated += 1
+                                    setattr(existing, k, v)
+                            existing.last_synced_at = datetime.utcnow()
+                            updated += 1
                         else:
-                            policy = CustomerPolicy(**norm_pol, last_synced_at=datetime.utcnow())
-                            db.add(policy)
-                            policies_imported += 1
-                    if (policies_imported + policies_updated) % 200 == 0:
-                        db.commit()
-                except Exception as e:
-                    errors.append(f"Policy: {str(e)[:80]}")
-            db.commit()
-        except Exception as e:
-            errors.append(f"Policy sync: {str(e)[:100]}")
+                            customer = Customer(**normalized, last_synced_at=datetime.utcnow())
+                            db.add(customer)
+                            imported += 1
+                    except Exception as e:
+                        errors.append(f"Insured: {str(e)[:80]}")
+                db.commit()
+                # Expire loaded objects to free memory
+                db.expire_all()
+                skip += len(batch)
+                total = data.get("@odata.count", 0)
+                if total and skip >= total:
+                    break
+                if skip > 10000:
+                    break
+            except Exception as e:
+                logger.error("Insured sync page failed at skip=%d: %s", skip, e)
+                break
+        gc.collect()
+        logger.info("Auto-sync insureds: %d imported, %d updated", imported, updated)
+
+        # Process policies in pages
+        skip = 0
+        while True:
+            try:
+                data = client._odata_get("PolicyDetailList", skip=skip, top=page_size)
+                batch = data.get("value", [])
+                if not batch:
+                    break
+                for raw_pol in batch:
+                    try:
+                        iid = raw_pol.get("insuredDatabaseId", "")
+                        if not iid:
+                            continue
+                        customer = db.query(Customer).filter(Customer.nowcerts_insured_id == iid).first()
+                        if not customer:
+                            cust_data = {
+                                "nowcerts_insured_id": iid,
+                                "first_name": raw_pol.get("insuredFirstName", ""),
+                                "last_name": raw_pol.get("insuredLastName", ""),
+                                "full_name": raw_pol.get("insuredCommercialName") or f"{raw_pol.get('insuredFirstName', '')} {raw_pol.get('insuredLastName', '')}".strip() or "Unknown",
+                                "email": raw_pol.get("insuredEmail", ""),
+                                "phone": raw_pol.get("insuredPhoneNumber", ""),
+                                "last_synced_at": datetime.utcnow(),
+                            }
+                            customer = Customer(**cust_data)
+                            db.add(customer)
+                            db.flush()
+                            imported += 1
+                        norm_pol = client._normalize_odata_policy(raw_pol, customer.id)
+                        nc_pol_id = norm_pol.get("nowcerts_policy_id")
+                        if nc_pol_id:
+                            existing_pol = db.query(CustomerPolicy).filter(CustomerPolicy.nowcerts_policy_id == nc_pol_id).first()
+                            if existing_pol:
+                                for k, v in norm_pol.items():
+                                    if v is not None:
+                                        setattr(existing_pol, k, v)
+                                existing_pol.last_synced_at = datetime.utcnow()
+                                policies_updated += 1
+                            else:
+                                policy = CustomerPolicy(**norm_pol, last_synced_at=datetime.utcnow())
+                                db.add(policy)
+                                policies_imported += 1
+                    except Exception as e:
+                        errors.append(f"Policy: {str(e)[:80]}")
+                db.commit()
+                db.expire_all()
+                skip += len(batch)
+                total = data.get("@odata.count", 0)
+                if total and skip >= total:
+                    break
+                if skip > 15000:
+                    break
+            except Exception as e:
+                logger.error("Policy sync page failed at skip=%d: %s", skip, e)
+                break
+        gc.collect()
 
     except Exception as e:
         logger.error("Auto-sync error: %s", e)

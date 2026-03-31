@@ -30,6 +30,7 @@ from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
 from app.api import reshop as reshop_api
 from app.api import leads as leads_api
+from app.api import sales_records as sales_records_api
 from app.models.inspection import InspectionDraft
 
 logger = logging.getLogger(__name__)
@@ -858,6 +859,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Leads migration: {e}")
 
+    # Sales records tables
+    try:
+        from app.migrations.sales_records_migration import migrate_sales_records
+        migrate_sales_records()
+        logger.info("Sales records tables migrated")
+    except Exception as e:
+        logger.warning(f"Sales records migration: {e}")
+
     # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
     try:
         from app.core.database import SessionLocal as _ac_sl
@@ -973,6 +982,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Sales PDF column migration: {e}")
 
+    # Fix corrupt timestamps (year > 9999 crashes PostgreSQL)
+    try:
+        from sqlalchemy import text as _ts_text
+        from app.core.database import engine as _ts_engine
+        with _ts_engine.connect() as conn:
+            for col in ["sale_date", "effective_date", "created_at"]:
+                r = conn.execute(_ts_text(f"""
+                    UPDATE sales SET {col} = '2026-01-01'
+                    WHERE {col} > '2099-12-31' OR {col} < '2000-01-01'
+                """))
+                if r.rowcount > 0:
+                    logger.warning(f"Fixed {r.rowcount} corrupt {col} timestamps in sales table")
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Timestamp fix: {e}")
+
     # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
     try:
         from sqlalchemy import text as sa_text
@@ -1011,6 +1036,7 @@ async def lifespan(app: FastAPI):
                     logger.error(f"Follow-up check error: {e}")
                 finally:
                     db.close()
+                gc.collect()
             except Exception as e:
                 logger.error(f"Follow-up scheduler error: {e}")
             time.sleep(6 * 3600)  # Every 6 hours
@@ -1099,23 +1125,24 @@ async def lifespan(app: FastAPI):
                             ).scalar() or 0
                             total_pol = sdb.query(sqlfunc.count(CustomerPolicy.id)).scalar() or 0
 
-                            # Premium calculation
-                            active_rows = sdb.query(CustomerPolicy).filter(
-                                sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"])
-                            ).all()
-                            total_prem = Decimal("0")
-                            for p in active_rows:
-                                if not p.premium: continue
-                                prem = Decimal(str(p.premium))
-                                lob = (p.line_of_business or "").lower()
-                                ptype = (p.policy_type or "").lower()
-                                is_auto = any(kw in lob or kw in ptype for kw in ["auto", "vehicle", "car"])
-                                if is_auto and p.effective_date and p.expiration_date:
-                                    try:
-                                        term = (p.expiration_date.replace(tzinfo=None) - p.effective_date.replace(tzinfo=None)).days
-                                        if 150 <= term <= 200: prem *= 2
-                                    except: pass
-                                total_prem += prem
+                            # Premium calculation via SQL (don't load all policies into memory)
+                            from sqlalchemy import text as _snap_text, case
+                            prem_result = sdb.execute(_snap_text("""
+                                SELECT COALESCE(SUM(
+                                    CASE
+                                        WHEN (LOWER(line_of_business) LIKE '%auto%' OR LOWER(policy_type) LIKE '%auto%'
+                                              OR LOWER(line_of_business) LIKE '%vehicle%' OR LOWER(policy_type) LIKE '%vehicle%')
+                                             AND effective_date IS NOT NULL AND expiration_date IS NOT NULL
+                                             AND (expiration_date - effective_date) BETWEEN 150 AND 200
+                                        THEN premium * 2
+                                        ELSE premium
+                                    END
+                                ), 0)
+                                FROM customer_policies
+                                WHERE LOWER(status) IN ('active', 'in force', 'inforce')
+                                AND premium IS NOT NULL
+                            """)).scalar()
+                            total_prem = float(prem_result or 0)
 
                             snap = AgencySnapshot(
                                 snapshot_date=today, period=today.strftime("%Y-%m"),
@@ -1964,6 +1991,7 @@ app.include_router(requote_campaigns_api.router)
 from app.api import property as property_api
 app.include_router(property_api.router)
 app.include_router(leads_api.router)
+app.include_router(sales_records_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

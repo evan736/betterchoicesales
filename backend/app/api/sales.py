@@ -751,6 +751,15 @@ def create_sale(
         db.commit()
     except Exception as e:
         logger.warning(f"Quote auto-conversion check failed: {e}")
+
+    # Check if this sale sets a new daily/monthly record
+    try:
+        from app.api.sales_records import check_for_new_records
+        new_records = check_for_new_records(db)
+        if new_records:
+            logger.info(f"🏆 {len(new_records)} new sales record(s) set!")
+    except Exception as e:
+        logger.warning(f"Sales record check failed: {e}")
     
     return sale
 
