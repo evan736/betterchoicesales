@@ -423,6 +423,8 @@ def get_sales_summary(
     if exclude_rewrites:
         query = query.filter(Sale.lead_source != "rewrite")
 
+    # Exclude corrupt timestamps
+    query = query.filter(Sale.sale_date < '2100-01-01')
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
@@ -456,7 +458,7 @@ def get_sales_summary(
 
     sales = query.all()
 
-    total_premium = sum(float(s.written_premium) for s in sales)
+    total_premium = sum(float(s.written_premium or 0) for s in sales)
     total_items = sum(s.item_count or 1 for s in sales)
     total_policies = len(sales)
 
@@ -528,6 +530,8 @@ def get_sales_by_group(
     if exclude_rewrites:
         query = query.filter(Sale.lead_source != "rewrite")
 
+    # Exclude corrupt timestamps
+    query = query.filter(Sale.sale_date < '2100-01-01')
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
@@ -620,6 +624,8 @@ def get_sales_table(
     elif producer_id:
         query = query.filter(Sale.producer_id == producer_id)
 
+    # Exclude corrupt timestamps
+    query = query.filter(Sale.sale_date < '2100-01-01')
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
