@@ -82,18 +82,11 @@ export default function Analytics() {
       es = new EventSource(`${baseUrl}/api/events/stream`);
       es.addEventListener('sales:new', () => loadData());
       es.addEventListener('sales:updated', () => loadData());
-      es.addEventListener('dashboard:refresh', () => loadData());
+      es.addEventListener('dashboard:refresh', () => { /* handled by useEffect */ });
       es.onerror = () => es?.close();
     } catch {}
     return () => es?.close();
   }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    // For custom range: only load if both dates are set (set by Search button via searchTrigger)
-    if (period === 'custom' && (!customStart || !customEnd)) return;
-    loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, searchTrigger]);
 
   const loadFilterOptions = async () => {
     try {
@@ -152,6 +145,13 @@ export default function Analytics() {
     } catch (e) { console.error(e); }
     finally { setLoadingData(false); }
   };
+
+  // Auto-load on filter/period changes; for custom range, only after Search
+  useEffect(() => {
+    if (!user) return;
+    if (period === 'custom' && (!customStartRef.current || !customEndRef.current)) return;
+    loadData();
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, searchTrigger]);
 
   if (loading || !user) return (
     <div className="min-h-screen">
@@ -246,7 +246,7 @@ export default function Analytics() {
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
               />
               <button
-                onClick={() => setSearchTrigger(t => t + 1)}
+                onClick={() => { setSearchTrigger(t => t + 1); loadData(); }}
                 disabled={!customStart || !customEnd}
                 className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
