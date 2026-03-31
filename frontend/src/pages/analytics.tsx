@@ -40,6 +40,11 @@ export default function Analytics() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [searchTrigger, setSearchTrigger] = useState(0);
+  // Refs to avoid stale closure in loadData
+  const customStartRef = React.useRef(customStart);
+  const customEndRef = React.useRef(customEnd);
+  customStartRef.current = customStart;
+  customEndRef.current = customEnd;
   const [groupBy, setGroupBy] = useState('producer');
   const [summary, setSummary] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -115,8 +120,8 @@ export default function Analytics() {
         apiPeriod = undefined;
       } else if (period === 'custom') {
         apiPeriod = undefined;
-        if (customStart) extraParams.start_date = customStart;
-        if (customEnd) extraParams.end_date = customEnd;
+        if (customStartRef.current) extraParams.start_date = customStartRef.current;
+        if (customEndRef.current) extraParams.end_date = customEndRef.current;
       } else {
         apiPeriod = period;
       }
