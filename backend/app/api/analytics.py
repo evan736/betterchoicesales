@@ -189,7 +189,7 @@ def get_trending_projection(
             "current_tier": None,
             "goals": [],
         }
-        cache_set(cache_key, result, ttl=60)
+        cache_set(cache_key, result, ttl_seconds=60)
         return result
 
     if period == "today":
