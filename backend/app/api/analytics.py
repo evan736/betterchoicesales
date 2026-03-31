@@ -424,7 +424,7 @@ def get_sales_summary(
         query = query.filter(Sale.lead_source != "rewrite")
 
     # Exclude corrupt timestamps
-    query = query.filter(Sale.sale_date < '2100-01-01')
+    query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
@@ -531,7 +531,7 @@ def get_sales_by_group(
         query = query.filter(Sale.lead_source != "rewrite")
 
     # Exclude corrupt timestamps
-    query = query.filter(Sale.sale_date < '2100-01-01')
+    query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
@@ -625,7 +625,7 @@ def get_sales_table(
         query = query.filter(Sale.producer_id == producer_id)
 
     # Exclude corrupt timestamps
-    query = query.filter(Sale.sale_date < '2100-01-01')
+    query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
     now = datetime.utcnow()
     today_date = now.date()
