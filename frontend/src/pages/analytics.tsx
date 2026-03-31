@@ -39,6 +39,7 @@ export default function Analytics() {
   const [period, setPeriod] = useState('monthly');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [searchTrigger, setSearchTrigger] = useState(0);
   const [groupBy, setGroupBy] = useState('producer');
   const [summary, setSummary] = useState<any>(null);
   const [chartData, setChartData] = useState<any[]>([]);
@@ -84,10 +85,10 @@ export default function Analytics() {
 
   useEffect(() => {
     if (!user) return;
-    // For custom range: only auto-load if both dates are already set (filter change while searching)
+    // For custom range: only load if both dates are set (set by Search button via searchTrigger)
     if (period === 'custom' && (!customStart || !customEnd)) return;
     loadData();
-  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly]);
+  }, [period, groupBy, tableFilters, sortBy, sortOrder, scope, newBizOnly, searchTrigger]);
 
   const loadFilterOptions = async () => {
     try {
@@ -240,7 +241,7 @@ export default function Analytics() {
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
               />
               <button
-                onClick={loadData}
+                onClick={() => setSearchTrigger(t => t + 1)}
                 disabled={!customStart || !customEnd}
                 className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
