@@ -208,6 +208,9 @@ def patch_statement_line(
 
     db.commit()
     return {"success": True, "line_id": line.id, "changed": changed}
+
+
+@router.post("/monthly-pay/{period}")
 def calculate_monthly_pay(
     period: str,
     current_user: User = Depends(get_current_user),
