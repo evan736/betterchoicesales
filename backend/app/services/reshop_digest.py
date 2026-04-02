@@ -32,8 +32,8 @@ def send_reshop_digests(db: Session, today: date = None) -> dict:
     today = today or date.today()
     now = datetime.utcnow()
 
-    # Get all open reshops (not bound, lost, or cancelled)
-    closed_stages = ("bound", "lost", "cancelled")
+    # Get all open reshops (not bound, renewed, lost, or cancelled)
+    closed_stages = ("bound", "renewed", "lost", "cancelled")
     open_reshops = db.query(Reshop).filter(
         Reshop.assigned_to.isnot(None),
         ~Reshop.stage.in_(closed_stages),
