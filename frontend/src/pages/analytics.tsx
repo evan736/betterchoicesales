@@ -500,6 +500,7 @@ export default function Analytics() {
               <thead>
                 <tr className="border-b border-slate-200">
                   <SortHeader label="Sale Date" field="sale_date" sortBy={sortBy} sortOrder={sortOrder} onSort={(f, o) => { setSortBy(f); setSortOrder(o); }} />
+                  <th className="text-left py-3 px-3 font-semibold text-slate-600">Eff. Date</th>
                   <th className="text-left py-3 px-3 font-semibold text-slate-600">Policy #</th>
                   <th className="text-left py-3 px-3 font-semibold text-slate-600">Customer</th>
                   <th className="text-left py-3 px-3 font-semibold text-slate-600">Type</th>
@@ -514,6 +515,7 @@ export default function Analytics() {
                 {salesData.map((s: any) => (
                   <tr key={s.id} className="border-b border-slate-100 hover:bg-brand-50/30 transition-colors">
                     <td className="py-3 px-3 text-slate-700">{s.sale_date ? new Date(s.sale_date).toLocaleDateString() : '—'}</td>
+                    <td className="py-3 px-3 text-slate-500">{s.effective_date ? new Date(s.effective_date).toLocaleDateString() : '—'}</td>
                     <td className="py-3 px-3 font-medium text-slate-900">{s.policy_number}</td>
                     <td className="py-3 px-3 text-slate-700">{s.client_name}</td>
                     <td className="py-3 px-3"><TypeBadge type={s.policy_type} /></td>
@@ -525,7 +527,7 @@ export default function Analytics() {
                   </tr>
                 ))}
                 {salesData.length === 0 && (
-                  <tr><td colSpan={9} className="py-12 text-center text-slate-400">No sales match your filters</td></tr>
+                  <tr><td colSpan={10} className="py-12 text-center text-slate-400">No sales match your filters</td></tr>
                 )}
               </tbody>
             </table>
