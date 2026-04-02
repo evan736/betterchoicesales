@@ -1386,9 +1386,7 @@ const AgentSheetModal: React.FC<{
 
   const handleDownloadPdf = () => {
     const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || '') : '';
-    const apiBase = typeof window !== 'undefined'
-      ? window.location.origin.replace('-web', '-api').replace('better-choice-web', 'better-choice-api')
-      : '';
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
     let url = `${apiBase}${reconciliationAPI.agentSheetPdfUrl(period, agentId)}`;
     const params = new URLSearchParams();
     if (rateAdjustment !== 0) params.set('rate_adjustment', String(rateAdjustment));
