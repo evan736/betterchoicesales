@@ -198,6 +198,15 @@ export default function ReshopPage() {
     if (filterAssigned !== 'all') {
       items = items.filter(r => String(r.assigned_to) === filterAssigned || (!r.assigned_to && filterAssigned === 'unassigned'));
     }
+    // Sort by renewal date (earliest first — most urgent at top)
+    items.sort((a, b) => {
+      const dateA = a.renewal_date || a.expiration_date || '';
+      const dateB = b.renewal_date || b.expiration_date || '';
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return new Date(dateA).getTime() - new Date(dateB).getTime();
+    });
     return items;
   };
 
