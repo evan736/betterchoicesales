@@ -343,17 +343,18 @@ class ReconciliationService:
             agent_lines.setdefault(line.assigned_agent_id, []).append(line)
 
         agent_summaries = []
-        used_period = current_period  # tier is based on current month premium
+        used_period = prior_period  # tier is based on PRIOR month premium
 
         for agent_id, agent_line_list in agent_lines.items():
             agent = self.db.query(User).filter(User.id == agent_id).first()
             if not agent:
                 continue
 
-            # Get agent's current month written premium to determine tier
-            current_premium = self._get_agent_period_premium(agent_id, current_period)
+            # Get agent's PRIOR month written premium to determine tier
+            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+            current_month_premium = self._get_agent_period_premium(agent_id, current_period)
 
-            tier = self._get_tier_for_premium(current_premium)
+            tier = self._get_tier_for_premium(prior_premium)
 
             # Check for flat rate override (e.g. Salma/Michelle at 3%)
             rate_override = getattr(agent, 'commission_rate_override', None)
@@ -415,7 +416,8 @@ class ReconciliationService:
                 "agent_name": agent.full_name or agent.username,
                 "tier_level": tier_level,
                 "commission_rate": float(agent_rate),
-                "prior_month_premium": float(current_premium),
+                "prior_month_premium": float(prior_premium),
+                "current_month_premium": float(current_month_premium),
                 "total_premium": float(agent_total_premium),
                 "total_agent_commission": float(agent_total_commission),
                 "chargebacks": float(agent_chargebacks),
@@ -607,9 +609,9 @@ class ReconciliationService:
             if not agent:
                 continue
 
-            # Determine tier from CURRENT month written premium
-            current_premium = self._get_agent_period_premium(agent_id, current_period)
-            tier = self._get_tier_for_premium(current_premium)
+            # Determine tier from PRIOR month written premium
+            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+            tier = self._get_tier_for_premium(prior_premium)
             
             # Check for flat rate override
             rate_override = getattr(agent, 'commission_rate_override', None)
@@ -712,7 +714,7 @@ class ReconciliationService:
                     "total_days": attendance["total_days"],
                     "label": attendance["label"],
                 },
-                "tier_premium": float(current_premium),
+                "tier_premium": float(prior_premium),
                 "total_premium": float(agent_total_premium),
                 "carrier_commission_total": float(carrier_commission_total),
                 "total_agent_commission": float(agent_total_commission),
@@ -796,9 +798,9 @@ class ReconciliationService:
             StatementLine.is_matched == True,
         ).all()
 
-        # Determine tier from current month written premium
-        current_premium = self._get_agent_period_premium(agent_id, current_period)
-        tier = self._get_tier_for_premium(current_premium)
+        # Determine tier from PRIOR month written premium
+        prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+        tier = self._get_tier_for_premium(prior_premium)
         
         # Check for flat rate override (e.g. Salma/Michelle at 3%)
         rate_override = getattr(agent, 'commission_rate_override', None)
@@ -889,7 +891,7 @@ class ReconciliationService:
             "base_commission_rate": float(base_rate),
             "rate_adjustment": float(adj),
             "commission_rate": float(agent_rate),
-            "tier_premium": float(current_premium),
+            "tier_premium": float(prior_premium),
             "bonus": bonus,
             "summary": {
                 "new_business_premium": float(total_new_biz_premium),
