@@ -54,11 +54,12 @@ def _is_within_first_term(line, matched_sale, statement_period: str) -> bool:
     tx_type = (line.transaction_type or "").lower()
     tx_raw = (getattr(line, 'transaction_type_raw', '') or "").upper()
 
-    # Renewals, reinstatements, and "other" types (including Payment Only) are not commissionable.
-    # Reinstatements restore a cancelled policy — not a new sale, so no new commission.
+    # Renewals and "other" types (including Payment Only) are not commissionable.
     # Payment Only lines always have $0 carrier commission — the agency earns nothing,
     # so producers shouldn't be paid on them either.
-    if tx_type in ("renewal", "reinstatement", "other"):
+    # Note: Reinstatements ARE commissionable — they restore coverage and the carrier
+    # pays commission on them. A cancel+reinstate pair nets correctly (chargeback + new comm).
+    if tx_type in ("renewal", "other"):
         return False
 
     # Check if there's a "renewal" transaction for this same policy on this
