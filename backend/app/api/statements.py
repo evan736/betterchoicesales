@@ -91,6 +91,44 @@ async def upload_statement(
         result["carrier_selected"] = carrier
         result["carrier_overridden"] = True
 
+    # Auto-match commission expectations against this new statement
+    try:
+        from app.api.commission_tracker import _normalize_policy, _get_overdue_days
+        from app.models.commission_tracker import CommissionExpectation
+        from datetime import datetime as _dt
+
+        pending = db.query(CommissionExpectation).filter(
+            CommissionExpectation.status == "pending",
+            CommissionExpectation.carrier.ilike(f"%{actual_carrier}%"),
+        ).all()
+
+        lines = db.query(StatementLine).filter(
+            StatementLine.statement_import_id == imp.id,
+        ).all()
+
+        auto_matched = 0
+        for exp in pending:
+            pn_norm = _normalize_policy(exp.policy_number)
+            if len(pn_norm) < 5:
+                continue
+            search_key = pn_norm[:9] if len(pn_norm) >= 9 else pn_norm
+            for line in lines:
+                line_norm = _normalize_policy(line.policy_number or "")
+                if len(line_norm) >= 9 and line_norm[:9] == search_key:
+                    if line.premium_amount and abs(float(line.premium_amount)) > 1:
+                        exp.status = "paid"
+                        exp.matched_statement_line_id = line.id
+                        exp.matched_amount = line.commission_amount or line.premium_amount
+                        exp.matched_at = _dt.utcnow()
+                        auto_matched += 1
+                        break
+        if auto_matched:
+            db.commit()
+            result["commission_tracker_matched"] = auto_matched
+            logger.info(f"Commission tracker: auto-matched {auto_matched} expectations from new {actual_carrier} statement")
+    except Exception as e:
+        logger.warning(f"Commission tracker auto-match failed: {e}")
+
     return result
 
 

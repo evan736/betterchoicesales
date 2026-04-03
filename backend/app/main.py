@@ -867,6 +867,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Sales records migration: {e}")
 
+    # Commission tracker tables
+    try:
+        from app.migrations.commission_tracker_migration import run_commission_tracker_migration
+        from app.database import engine
+        run_commission_tracker_migration(engine)
+        logger.info("Commission tracker tables migrated")
+    except Exception as e:
+        logger.warning(f"Commission tracker migration: {e}")
+
     # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
     try:
         from app.core.database import SessionLocal as _ac_sl
@@ -1992,6 +2001,9 @@ from app.api import property as property_api
 app.include_router(property_api.router)
 app.include_router(leads_api.router)
 app.include_router(sales_records_api.router)
+
+from app.api import commission_tracker as commission_tracker_api
+app.include_router(commission_tracker_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
