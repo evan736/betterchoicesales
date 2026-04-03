@@ -12,7 +12,7 @@ Key logic for Travelers:
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean, Text, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.database import Base
+from app.core.database import Base
 
 
 class CommissionExpectation(Base):

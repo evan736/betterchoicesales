@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, and_, or_, extract
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.core.database import get_db
 from app.models.commission_tracker import CommissionExpectation
 from app.models.sale import Sale
 from app.models.reshop import Reshop

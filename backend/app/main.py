@@ -870,8 +870,8 @@ async def lifespan(app: FastAPI):
     # Commission tracker tables
     try:
         from app.migrations.commission_tracker_migration import run_commission_tracker_migration
-        from app.database import engine
-        run_commission_tracker_migration(engine)
+        from app.core.database import engine as _ct_engine
+        run_commission_tracker_migration(_ct_engine)
         logger.info("Commission tracker tables migrated")
     except Exception as e:
         logger.warning(f"Commission tracker migration: {e}")
