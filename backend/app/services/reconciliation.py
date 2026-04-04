@@ -301,6 +301,13 @@ class ReconciliationService:
         imp.matched_rows = matched
         imp.unmatched_rows = unmatched
         imp.status = StatementStatus.PARTIALLY_MATCHED
+
+        # ── Producer resolution from statement data ──
+        # If the carrier provides a producer name (e.g. Progressive "Prod Name"),
+        # use it to assign the correct agent, overriding the sale's producer.
+        # This handles cases where the sale was entered under the wrong person in ORBIT.
+        self._resolve_producers_from_statement(lines)
+
         self.db.commit()
 
         logger.info(f"Matching import {import_id}: {matched} matched ({newly_matched} new), {unmatched} unmatched")
@@ -462,6 +469,70 @@ class ReconciliationService:
             "note": "Using current month premium (no prior month data)" if used_period == current_period else None,
             "agent_summaries": agent_summaries,
         }
+
+    def _resolve_producers_from_statement(self, lines):
+        """Resolve producer assignment from statement-provided producer names.
+        
+        Carriers like Progressive include a 'Prod Name' column that tells us
+        exactly who the selling producer is. This should override whatever
+        producer was assigned from the ORBIT sale record, because:
+        1. Sales may have been entered under the wrong person
+        2. The carrier's records are authoritative for who earns commission
+        """
+        # Build a name -> user_id lookup from all users
+        users = self.db.query(User).all()
+        name_map = {}  # normalized name fragments -> user_id
+        for u in users:
+            full = (u.full_name or "").upper().strip()
+            uname = (u.username or "").upper().strip()
+            # Map various formats: "MARQUEZ, SALMA" / "SALMA MARQUEZ" / "RIVERA, JOSEPH"
+            if full:
+                name_map[full] = u.id
+                parts = full.split()
+                if len(parts) >= 2:
+                    # "SALMA MARQUEZ" -> also map "MARQUEZ, SALMA" and "MARQUEZ SALMA"
+                    name_map[f"{parts[-1]}, {parts[0]}"] = u.id
+                    name_map[f"{parts[-1]} {parts[0]}"] = u.id
+                    name_map[parts[-1]] = u.id  # last name only as fallback
+            if uname:
+                # "evan.larson" -> "EVAN LARSON"
+                name_map[uname.replace(".", " ").upper()] = u.id
+
+        resolved = 0
+        for line in lines:
+            prod_name = (line.producer_name or "").strip()
+            if not prod_name or prod_name.lower() in ("unassigned", "nan", ""):
+                continue
+
+            prod_upper = prod_name.upper()
+            
+            # Try exact match first
+            user_id = name_map.get(prod_upper)
+            
+            # Try partial match: "BAEZ SOTO, GIULIAN" -> check if any key contains the last name
+            if not user_id:
+                for name_key, uid in name_map.items():
+                    # Check if the producer name from statement contains the user's last name
+                    if len(name_key) > 3 and name_key in prod_upper:
+                        user_id = uid
+                        break
+            
+            if not user_id:
+                # Try first significant word match
+                prod_parts = [p.strip().strip(",") for p in prod_upper.split() if len(p.strip().strip(",")) > 2]
+                for part in prod_parts:
+                    if part in name_map:
+                        user_id = name_map[part]
+                        break
+
+            if user_id and line.assigned_agent_id != user_id:
+                logger.info(f"Producer override: line {line.id} ({line.policy_number}) "
+                           f"'{prod_name}' -> user {user_id} (was {line.assigned_agent_id})")
+                line.assigned_agent_id = user_id
+                resolved += 1
+
+        if resolved:
+            logger.info(f"Resolved {resolved} producer assignments from statement data")
 
     def _get_agent_period_premium(self, agent_id: int, period: str) -> Decimal:
         """Get total written premium for an agent in a given period."""
