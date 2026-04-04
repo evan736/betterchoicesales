@@ -328,6 +328,28 @@ class ReconciliationService:
 
         # Determine prior month for tier calculation
         period = imp.statement_period  # "2026-01"
+        if not period:
+            # Auto-detect period from statement lines or filename
+            # Try filename first (e.g. "DetailedStatement20260404" -> month_end in data)
+            sample_line = self.db.query(StatementLine).filter(
+                StatementLine.statement_import_id == import_id,
+                StatementLine.effective_date.isnot(None),
+            ).first()
+            if sample_line and sample_line.effective_date:
+                d = sample_line.effective_date
+                if hasattr(d, 'date'):
+                    d = d.date()
+                period = f"{d.year:04d}-{d.month:02d}"
+            else:
+                # Last resort: use current date
+                from datetime import date as _date
+                today = _date.today()
+                period = f"{today.year:04d}-{today.month:02d}"
+            # Save it back so future calls work
+            imp.statement_period = period
+            self.db.flush()
+            logger.info(f"Auto-detected statement_period={period} for import #{import_id}")
+
         year, month = map(int, period.split("-"))
         prior_date = datetime(year, month, 1) - relativedelta(months=1)
         prior_period = prior_date.strftime("%Y-%m")
