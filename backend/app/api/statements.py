@@ -200,23 +200,47 @@ def assign_producer_to_line(
         raise HTTPException(status_code=404, detail="Statement line not found")
 
     if producer_id:
+        from datetime import datetime
         user = db.query(User).filter(User.id == producer_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="Producer not found")
         line.assigned_agent_id = producer_id
         line.producer_name = user.full_name
+        # Mark as matched so it moves to the Matched tab and earns commission
+        if not line.is_matched:
+            line.is_matched = True
+            line.match_confidence = "manual"
+            line.matched_at = datetime.utcnow()
     elif producer_name:
         line.producer_name = producer_name
         # Try to find matching user
         user = db.query(User).filter(User.full_name.ilike(producer_name)).first()
         if user:
             line.assigned_agent_id = user.id
+            if not line.is_matched:
+                line.is_matched = True
+                line.match_confidence = "manual"
+                line.matched_at = datetime.utcnow()
     else:
         # Clear assignment
         line.assigned_agent_id = None
         line.producer_name = None
 
     db.commit()
+
+    # Update import matched/unmatched counts
+    from app.models.statement import StatementImport
+    if line.statement_import_id:
+        imp = db.query(StatementImport).filter(StatementImport.id == line.statement_import_id).first()
+        if imp:
+            matched_count = db.query(StatementLine).filter(
+                StatementLine.statement_import_id == imp.id,
+                StatementLine.is_matched == True,
+            ).count()
+            imp.matched_rows = matched_count
+            imp.unmatched_rows = imp.total_rows - matched_count if imp.total_rows else 0
+            db.commit()
+
     return {"success": True, "line_id": line.id, "producer_name": line.producer_name, "assigned_agent_id": line.assigned_agent_id}
 
 
