@@ -410,10 +410,11 @@ class ReconciliationService:
                 # The user explicitly assigned this producer, so honor it.
                 is_manual_assign = (not line.is_matched and line.assigned_agent_id is not None)
                 tx_raw = (line.transaction_type_raw or "").upper()
-                is_new_biz = "NEW-BUS" in tx_raw or "NEW BUS" in tx_raw or "NEWBUS" in tx_raw
+                tx_type_norm = (line.transaction_type or "").lower()
+                is_new_biz = "NEW-BUS" in tx_raw or "NEW BUS" in tx_raw or "NEWBUS" in tx_raw or tx_type_norm == "new_business"
 
-                if is_manual_assign and is_new_biz:
-                    # Manually assigned new business — always commissionable
+                if is_new_biz:
+                    # New business transaction — always commissionable regardless of match status
                     agent_comm = premium * agent_rate
                 elif is_manual_assign and carrier_comm > 0:
                     # Manually assigned with carrier commission — commissionable
