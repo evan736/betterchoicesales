@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { salesAPI, surveyAPI, adminAPI } from '../lib/api';
-import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown } from 'lucide-react';
+import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown, Search } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 
 // ── Date range helpers ──────────────────────────────────────────────
@@ -72,6 +72,11 @@ export default function Sales() {
   const [dateFrom, setDateFrom] = useState(thisMonthRange.from);
   const [dateTo, setDateTo] = useState(thisMonthRange.to);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+
+  // Search & sort
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState<'sale_date' | 'effective_date' | 'client_name' | 'written_premium' | 'lead_source'>('sale_date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
@@ -365,13 +370,85 @@ export default function Sales() {
               Create Your First Sale
             </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {sales.map((sale) => (
-              <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} isPrivileged={isPrivileged} employees={employees} />
-            ))}
-          </div>
-        )}
+        ) : (() => {
+          const q = searchTerm.toLowerCase().trim();
+          const filtered = q
+            ? sales.filter((s: any) =>
+                (s.client_name || '').toLowerCase().includes(q) ||
+                (s.policy_number || '').toLowerCase().includes(q) ||
+                (s.carrier || '').toLowerCase().includes(q) ||
+                (s.lead_source || '').toLowerCase().includes(q))
+            : sales;
+          const sorted = [...filtered].sort((a: any, b: any) => {
+            let va = a[sortField], vb = b[sortField];
+            if (sortField === 'written_premium') { va = parseFloat(va || 0); vb = parseFloat(vb || 0); }
+            else if (sortField === 'sale_date' || sortField === 'effective_date') { va = va || ''; vb = vb || ''; }
+            else { va = (va || '').toString().toLowerCase(); vb = (vb || '').toString().toLowerCase(); }
+            if (va < vb) return sortDir === 'asc' ? -1 : 1;
+            if (va > vb) return sortDir === 'asc' ? 1 : -1;
+            return 0;
+          });
+          const toggleSort = (field: typeof sortField) => {
+            if (sortField === field) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+            else { setSortField(field); setSortDir(field === 'client_name' ? 'asc' : 'desc'); }
+          };
+          const SortBtn = ({ field, label }: { field: typeof sortField; label: string }) => (
+            <button
+              onClick={() => toggleSort(field)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                sortField === field ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {label} {sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </button>
+          );
+          return (
+            <>
+              {/* Search & Sort Controls */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, policy #, carrier, source..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs text-slate-500 mr-1">Sort:</span>
+                  <SortBtn field="sale_date" label="Sale Date" />
+                  <SortBtn field="effective_date" label="Eff. Date" />
+                  <SortBtn field="client_name" label="Name" />
+                  <SortBtn field="written_premium" label="Premium" />
+                  <SortBtn field="lead_source" label="Source" />
+                </div>
+              </div>
+
+              {/* Result count */}
+              {searchTerm && (
+                <p className="text-xs text-slate-500 mb-3">{sorted.length} of {sales.length} sales match "{searchTerm}"</p>
+              )}
+
+              <div className="grid grid-cols-1 gap-4">
+                {sorted.map((sale: any) => (
+                  <SaleListItem key={sale.id} sale={sale} onUpdate={loadSales} isPrivileged={isPrivileged} employees={employees} />
+                ))}
+                {sorted.length === 0 && searchTerm && (
+                  <div className="text-center py-8 text-slate-500">
+                    No sales match your search. <button onClick={() => setSearchTerm('')} className="text-blue-600 hover:underline">Clear search</button>
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
 
         {showCreateModal && (
           <CreateSaleModal
