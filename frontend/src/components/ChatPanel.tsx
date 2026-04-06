@@ -227,7 +227,8 @@ export default function ChatPanel() {
   }, [user]);
 
   const justSentRef = useRef(false);
-  const initialLoadRef = useRef(true);
+  const userScrolledUpRef = useRef(false);
+  const prevMessageCountRef = useRef(0);
 
   // Scroll the messages container to the very bottom
   const scrollToBottom = () => {
@@ -237,21 +238,29 @@ export default function ChatPanel() {
     }
   };
 
-  // After messages change, decide whether to scroll
+  // Track if user has scrolled away from bottom
+  const handleContainerScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUpRef.current = distFromBottom > 200;
+  };
+
+  // After messages change, scroll to bottom unless user deliberately scrolled up
   useEffect(() => {
     if (messages.length === 0) return;
 
-    if (justSentRef.current || initialLoadRef.current) {
-      // Force scroll to bottom — user sent a message or just opened channel
+    const isNewMessages = messages.length !== prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    // Always scroll on: send, channel open, or new messages arriving while at bottom
+    if (justSentRef.current || !userScrolledUpRef.current) {
       justSentRef.current = false;
-      initialLoadRef.current = false;
-      // Use a chain of attempts since React may not have painted yet
       scrollToBottom();
       requestAnimationFrame(scrollToBottom);
       setTimeout(scrollToBottom, 100);
       setTimeout(scrollToBottom, 300);
     }
-    // If user scrolled up, do NOT auto-scroll (polling won't disturb them)
   }, [messages]);
 
   const loadChannels = async () => {
@@ -331,7 +340,7 @@ export default function ChatPanel() {
   const openChannel = async (ch: Channel) => {
     setActiveChannel(ch);
     setView('chat');
-    initialLoadRef.current = true; // Scroll to bottom on channel open
+    userScrolledUpRef.current = false; // Reset scroll state on channel open
 
     // BEACON: auto-clear if last message is >10 min old (conversation ended)
     if (ch.channel_type === 'beacon') {
@@ -794,7 +803,7 @@ export default function ChatPanel() {
       ) : (
         /* ── Messages View ── */
         <>
-          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+          <div ref={messagesContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 size={24} className="animate-spin text-cyan-400" />
