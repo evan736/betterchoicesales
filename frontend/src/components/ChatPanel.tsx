@@ -201,26 +201,32 @@ export default function ChatPanel() {
   }, [user]);
 
   const justSentRef = useRef(false);
+  const shouldScrollRef = useRef(true); // Start scrolled to bottom
 
-  // Scroll to bottom of messages container (not the page)
-  // Only auto-scroll if user is already near the bottom or just sent a message
+  // Track if user is near bottom before messages update
+  const handleScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldScrollRef.current = distFromBottom < 150;
+  };
+
+  // Scroll to bottom after messages render
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    
-    requestAnimationFrame(() => {
-      if (justSentRef.current) {
-        // User just sent — always scroll to bottom
+
+    const doScroll = () => {
+      if (justSentRef.current || shouldScrollRef.current) {
         el.scrollTop = el.scrollHeight;
         justSentRef.current = false;
-      } else {
-        // Only auto-scroll if user is within 150px of the bottom
-        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distFromBottom < 150) {
-          el.scrollTop = el.scrollHeight;
-        }
       }
-    });
+    };
+    
+    // Multiple attempts to catch post-render layout
+    doScroll();
+    requestAnimationFrame(doScroll);
+    setTimeout(doScroll, 50);
   }, [messages, beaconTyping]);
 
   const loadChannels = async () => {
@@ -720,7 +726,7 @@ export default function ChatPanel() {
       ) : (
         /* ── Messages View ── */
         <>
-          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+          <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 size={24} className="animate-spin text-cyan-400" />
