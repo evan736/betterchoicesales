@@ -7,7 +7,7 @@ import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
   Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
   Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
-  Mail, Zap,
+  Mail, Zap, Minimize2, Maximize2, ExternalLink,
 } from 'lucide-react';
 
 // Email toggle button used in collapsed sidebar
@@ -110,16 +110,22 @@ export default function ChatPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<any>(null);
   const notifAudio = useRef<HTMLAudioElement | null>(null);
+  const mentionAudio = useRef<HTMLAudioElement | null>(null);
   const prevUnreadRef = useRef<number>(0);
+  const prevMentionsRef = useRef<number>(0);
   const activeChannelRef = useRef<Channel | null>(null);
+  const [compact, setCompact] = useState(false);
 
   // Keep ref in sync
   useEffect(() => { activeChannelRef.current = activeChannel; }, [activeChannel]);
 
-  // Initialize notification sound
+  // Initialize notification sounds
   useEffect(() => {
     notifAudio.current = new Audio('/notification.wav');
     notifAudio.current.volume = 0.5;
+    mentionAudio.current = new Audio('/notification.wav');
+    mentionAudio.current.volume = 1.0;
+    mentionAudio.current.playbackRate = 1.0;
   }, []);
 
   // Load channels + unread on mount
@@ -179,6 +185,26 @@ export default function ChatPanel() {
               if (msg.sender_username === 'beacon.ai' || msg.sender_name === 'BEACON') {
                 setBeaconTyping(false);
               }
+            }
+            // Play loud mention ding if user was @mentioned
+            const currentUsername = user?.username?.toLowerCase() || '';
+            const currentName = user?.full_name?.toLowerCase() || '';
+            const msgContent = (msg?.content || '').toLowerCase();
+            const isMentioned = msgContent.includes(`@${currentUsername}`) || 
+                               (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
+                               (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
+            if (isMentioned && msg?.sender_id !== user?.id) {
+              // Play mention sound 3 times rapidly for urgency
+              try {
+                const playMention = () => {
+                  const a = new Audio('/notification.wav');
+                  a.volume = 1.0;
+                  a.play().catch(() => {});
+                };
+                playMention();
+                setTimeout(playMention, 300);
+                setTimeout(playMention, 600);
+              } catch {}
             }
             // Refresh unread counts
             loadUnread();
@@ -254,11 +280,25 @@ export default function ChatPanel() {
     try {
       const res = await chatAPI.unread();
       const newTotal = res.data.total_unread;
-      // Play notification sound when new unread messages arrive
-      if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
+      const newMentions = res.data.total_mentions || 0;
+      // Play loud mention ding when new mentions arrive
+      if (newMentions > (prevMentionsRef.current || 0)) {
+        try {
+          const playMention = () => {
+            const a = new Audio('/notification.wav');
+            a.volume = 1.0;
+            a.play().catch(() => {});
+          };
+          playMention();
+          setTimeout(playMention, 300);
+          setTimeout(playMention, 600);
+        } catch {}
+      } else if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
+        // Regular notification sound for non-mention messages
         try { notifAudio.current?.play(); } catch {}
       }
       prevUnreadRef.current = newTotal;
+      prevMentionsRef.current = newMentions;
       setTotalUnread(newTotal);
       setTotalMentions(res.data.total_mentions);
       const map: Record<number, number> = {};
@@ -548,10 +588,20 @@ export default function ChatPanel() {
     return collapsedBar;
   }
 
+  const handlePopOut = () => {
+    const w = compact ? 360 : 440;
+    const popout = window.open(
+      `${window.location.origin}/chat`,
+      'orbit-chat',
+      `width=${w},height=720,resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no`
+    );
+    if (popout) closeSidebar();
+  };
+
   return (
     <>
       {collapsedBar}
-      <div className="fixed top-0 h-full w-[380px] z-30 flex flex-col bg-[#0a1628] border-l border-cyan-900/30 shadow-2xl shadow-black/40"
+      <div className={`fixed top-0 h-full z-30 flex flex-col bg-[#0a1628] border-l border-cyan-900/30 shadow-2xl shadow-black/40 transition-all duration-200 ${compact ? 'w-[300px]' : 'w-[380px]'}`}
         style={{ right: '48px', backdropFilter: 'blur(20px)' }}
       >
       {/* Header */}
@@ -585,9 +635,17 @@ export default function ChatPanel() {
             <span className="text-sm font-semibold text-white">Team Chat</span>
           </div>
         )}
-        <button onClick={closeSidebar} className="text-slate-500 hover:text-white transition-colors">
-          <PanelRightClose size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setCompact(!compact)} className="text-slate-500 hover:text-white transition-colors" title={compact ? "Expand chat" : "Compact chat"}>
+            {compact ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
+          </button>
+          <button onClick={handlePopOut} className="text-slate-500 hover:text-white transition-colors" title="Pop out chat">
+            <ExternalLink size={15} />
+          </button>
+          <button onClick={closeSidebar} className="text-slate-500 hover:text-white transition-colors">
+            <PanelRightClose size={18} />
+          </button>
+        </div>
       </div>
 
       {view === 'channels' ? (
