@@ -840,7 +840,7 @@ export default function ChatPanel() {
                 const isGif = msg.message_type === 'gif';
 
                 return (
-                  <div key={msg.id} className={`group ${showAvatar ? 'mt-3' : 'mt-0.5'}`}>
+                  <div key={msg.id} id={`msg-${msg.id}`} className={`group ${showAvatar ? 'mt-3' : 'mt-0.5'} transition-all`}>
                     {/* Sender info */}
                     {showAvatar && (
                       <div className="flex items-center gap-2 mb-0.5">
@@ -862,11 +862,24 @@ export default function ChatPanel() {
                     )}
 
                     {/* Reply reference */}
-                    {msg.reply_to_id && (
-                      <div className="ml-8 mb-0.5 px-2 py-1 rounded bg-white/[0.02] border-l-2 border-cyan-800 text-[10px] text-slate-500 truncate">
-                        ↩ Reply
-                      </div>
-                    )}
+                    {msg.reply_to_id && (() => {
+                      const original = messages.find((m: Message) => m.id === msg.reply_to_id);
+                      return (
+                        <div 
+                          className="ml-8 mb-0.5 px-2 py-1 rounded bg-white/[0.03] border-l-2 border-cyan-800 text-[10px] text-slate-500 truncate cursor-pointer hover:bg-white/[0.06]"
+                          onClick={() => {
+                            const el = document.getElementById(`msg-${msg.reply_to_id}`);
+                            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('ring-1', 'ring-cyan-500/50'); setTimeout(() => el.classList.remove('ring-1', 'ring-cyan-500/50'), 2000); }
+                          }}
+                        >
+                          {original ? (
+                            <><span className="text-cyan-500 font-medium">{original.sender_name?.split(' ')[0]}</span>: {original.content?.slice(0, 80)}{(original.content?.length || 0) > 80 ? '...' : ''}</>
+                          ) : (
+                            <>↩ Reply</>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Message bubble */}
                     <div className={`ml-8 relative ${isGif ? '' : `rounded-lg px-3 py-1.5 text-sm max-w-[85%] ${
