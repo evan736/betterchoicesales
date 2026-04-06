@@ -201,33 +201,32 @@ export default function ChatPanel() {
   }, [user]);
 
   const justSentRef = useRef(false);
-  const shouldScrollRef = useRef(true); // Start scrolled to bottom
+  const initialLoadRef = useRef(true);
 
-  // Track if user is near bottom before messages update
-  const handleScroll = () => {
+  // Scroll the messages container to the very bottom
+  const scrollToBottom = () => {
     const el = messagesContainerRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldScrollRef.current = distFromBottom < 150;
+    if (el) {
+      el.scrollTop = el.scrollHeight + 9999;
+    }
   };
 
-  // Scroll to bottom after messages render
+  // After messages change, decide whether to scroll
   useEffect(() => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
+    if (messages.length === 0) return;
 
-    const doScroll = () => {
-      if (justSentRef.current || shouldScrollRef.current) {
-        el.scrollTop = el.scrollHeight;
-        justSentRef.current = false;
-      }
-    };
-    
-    // Multiple attempts to catch post-render layout
-    doScroll();
-    requestAnimationFrame(doScroll);
-    setTimeout(doScroll, 50);
-  }, [messages, beaconTyping]);
+    if (justSentRef.current || initialLoadRef.current) {
+      // Force scroll to bottom — user sent a message or just opened channel
+      justSentRef.current = false;
+      initialLoadRef.current = false;
+      // Use a chain of attempts since React may not have painted yet
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
+      setTimeout(scrollToBottom, 100);
+      setTimeout(scrollToBottom, 300);
+    }
+    // If user scrolled up, do NOT auto-scroll (polling won't disturb them)
+  }, [messages]);
 
   const loadChannels = async () => {
     try {
@@ -292,7 +291,7 @@ export default function ChatPanel() {
   const openChannel = async (ch: Channel) => {
     setActiveChannel(ch);
     setView('chat');
-    justSentRef.current = true; // Scroll to bottom on channel open
+    initialLoadRef.current = true; // Scroll to bottom on channel open
 
     // BEACON: auto-clear if last message is >10 min old (conversation ended)
     if (ch.channel_type === 'beacon') {
@@ -360,7 +359,7 @@ export default function ChatPanel() {
       }
       if (mentionIds.length > 0) fd.append('mentions', mentionIds.join(','));
 
-      await chatAPI.send(activeChannel!.id, fd);
+      const res = await chatAPI.send(activeChannel!.id, fd);
       setInput('');
       setFile(null);
       setReplyTo(null);
@@ -370,7 +369,18 @@ export default function ChatPanel() {
         setBeaconTyping(true);
         setTimeout(() => setBeaconTyping(false), 30000); // safety timeout
       }
-      await loadMessages(activeChannel!.id);
+      // Optimistically append the sent message so we don't need a full reload
+      // The poll will reconcile with server state in 3 seconds
+      const sentMsg = res?.data;
+      if (sentMsg && sentMsg.id) {
+        setMessages(prev => prev.find(m => m.id === sentMsg.id) ? prev : [...prev, sentMsg]);
+      } else {
+        // Fallback: reload messages if we didn't get the sent message back
+        await loadMessages(activeChannel!.id);
+      }
+      // Scroll after a tick
+      setTimeout(scrollToBottom, 50);
+      setTimeout(scrollToBottom, 200);
     } catch (e) {
       console.error('Send failed:', e);
     } finally {
@@ -726,7 +736,7 @@ export default function ChatPanel() {
       ) : (
         /* ── Messages View ── */
         <>
-          <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 size={24} className="animate-spin text-cyan-400" />
