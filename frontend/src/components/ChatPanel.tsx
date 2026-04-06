@@ -200,14 +200,27 @@ export default function ChatPanel() {
     };
   }, [user]);
 
+  const justSentRef = useRef(false);
+
   // Scroll to bottom of messages container (not the page)
+  // Only auto-scroll if user is already near the bottom or just sent a message
   useEffect(() => {
     const el = messagesContainerRef.current;
-    if (el) {
-      requestAnimationFrame(() => {
+    if (!el) return;
+    
+    requestAnimationFrame(() => {
+      if (justSentRef.current) {
+        // User just sent — always scroll to bottom
         el.scrollTop = el.scrollHeight;
-      });
-    }
+        justSentRef.current = false;
+      } else {
+        // Only auto-scroll if user is within 150px of the bottom
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distFromBottom < 150) {
+          el.scrollTop = el.scrollHeight;
+        }
+      }
+    });
   }, [messages, beaconTyping]);
 
   const loadChannels = async () => {
@@ -273,6 +286,7 @@ export default function ChatPanel() {
   const openChannel = async (ch: Channel) => {
     setActiveChannel(ch);
     setView('chat');
+    justSentRef.current = true; // Scroll to bottom on channel open
 
     // BEACON: auto-clear if last message is >10 min old (conversation ended)
     if (ch.channel_type === 'beacon') {
@@ -344,6 +358,7 @@ export default function ChatPanel() {
       setInput('');
       setFile(null);
       setReplyTo(null);
+      justSentRef.current = true;
       // Show BEACON typing if in BEACON channel
       if (activeChannel?.channel_type === 'beacon') {
         setBeaconTyping(true);
