@@ -6,7 +6,7 @@ import { useEmail } from '../contexts/EmailContext';
 import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
   Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
-  Bell, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
+  Bell, BellOff, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
   Mail, Zap, Minimize2, Maximize2, ExternalLink,
 } from 'lucide-react';
 
@@ -115,6 +115,23 @@ export default function ChatPanel() {
   const prevMentionsRef = useRef<number>(0);
   const activeChannelRef = useRef<Channel | null>(null);
   const [compact, setCompact] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Load sound preference from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('orbit-chat-sound');
+    if (saved === 'off') setSoundEnabled(false);
+  }, []);
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    soundEnabledRef.current = next;
+    localStorage.setItem('orbit-chat-sound', next ? 'on' : 'off');
+  };
+
+  const soundEnabledRef = useRef(true);
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
 
   // Keep ref in sync
   useEffect(() => { activeChannelRef.current = activeChannel; }, [activeChannel]);
@@ -195,7 +212,7 @@ export default function ChatPanel() {
                                (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
             if (isMentioned && msg?.sender_id !== user?.id) {
               // Play mention sound 3 times rapidly for urgency
-              try {
+              if (soundEnabledRef.current) try {
                 const playMention = () => {
                   const a = new Audio('/notification.wav');
                   a.volume = 1.0;
@@ -292,7 +309,7 @@ export default function ChatPanel() {
       const newMentions = res.data.total_mentions || 0;
       // Play loud mention ding when new mentions arrive
       if (newMentions > (prevMentionsRef.current || 0)) {
-        try {
+        if (soundEnabledRef.current) try {
           const playMention = () => {
             const a = new Audio('/notification.wav');
             a.volume = 1.0;
@@ -304,7 +321,7 @@ export default function ChatPanel() {
         } catch {}
       } else if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
         // Regular notification sound for non-mention messages
-        try { notifAudio.current?.play(); } catch {}
+        if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
       }
       prevUnreadRef.current = newTotal;
       prevMentionsRef.current = newMentions;
@@ -645,6 +662,9 @@ export default function ChatPanel() {
           </div>
         )}
         <div className="flex items-center gap-1">
+          <button onClick={toggleSound} className={`transition-colors ${soundEnabled ? 'text-cyan-400 hover:text-cyan-300' : 'text-slate-600 hover:text-slate-400'}`} title={soundEnabled ? "Mute notifications" : "Unmute notifications"}>
+            {soundEnabled ? <Bell size={15} /> : <BellOff size={15} />}
+          </button>
           <button onClick={() => setCompact(!compact)} className="text-slate-500 hover:text-white transition-colors" title={compact ? "Expand chat" : "Compact chat"}>
             {compact ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
           </button>
