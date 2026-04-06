@@ -623,7 +623,8 @@ def list_reshops(
     db: Session = Depends(get_db),
 ):
     """List reshops with filters. Agents see only their assigned reshops. Admin/Manager/Andrey see all."""
-    if not _can_access(current_user):
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     query = db.query(Reshop)
@@ -633,7 +634,10 @@ def list_reshops(
     # Andrey has elevated visibility (can see all reshops)
     is_elevated = current_user.username == "andrey.dayson"
     
-    if not is_admin_or_manager and not is_elevated:
+    if is_producer:
+        # Producers only see reshops they referred
+        query = query.filter(Reshop.referred_by == current_user.full_name)
+    elif not is_admin_or_manager and not is_elevated:
         # Retention specialists (Salma, Michelle) only see their assigned reshops
         query = query.filter(Reshop.assigned_to == current_user.id)
 
@@ -681,7 +685,8 @@ def reshop_stats(
     db: Session = Depends(get_db),
 ):
     """Pipeline stats for the reshop board."""
-    if not _can_access(current_user):
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Scope query same as list endpoint
@@ -772,7 +777,8 @@ def get_team_members(
     db: Session = Depends(get_db),
 ):
     """Get team members for assignment dropdowns."""
-    if not _can_access(current_user):
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     users = db.query(User).filter(User.is_active == True).all()
