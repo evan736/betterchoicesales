@@ -358,6 +358,8 @@ export default function ChatPanel() {
     setActiveChannel(ch);
     setView('chat');
     userScrolledUpRef.current = false; // Reset scroll state on channel open
+    // Immediately clear the unread badge for this channel (optimistic)
+    setUnreadMap(prev => ({ ...prev, [ch.id]: 0 }));
 
     // BEACON: auto-clear if last message is >10 min old (conversation ended)
     if (ch.channel_type === 'beacon') {
@@ -386,7 +388,8 @@ export default function ChatPanel() {
 
     await loadMessages(ch.id);
     await chatAPI.markRead(ch.id);
-    loadUnread();
+    // Small delay to ensure server has processed the markRead before we fetch counts
+    setTimeout(() => loadUnread(), 300);
   };
 
   const startDM = async (userId: number) => {
