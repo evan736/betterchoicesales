@@ -197,6 +197,8 @@ export default function ChatPanel() {
                 if (prev.find(m => m.id === msg.id)) return prev;
                 return [...prev, msg];
               });
+              // Mark as read immediately since user is viewing this channel
+              chatAPI.markRead(channelId).catch(() => {});
               // Clear BEACON typing when bot responds
               if (msg.sender_username === 'beacon.ai' || msg.sender_name === 'BEACON') {
                 setBeaconTyping(false);
@@ -342,10 +344,9 @@ export default function ChatPanel() {
       const res = await chatAPI.messages(channelId);
       const msgs = res.data || [];
       setMessages(msgs);
-      if (!silent) {
-        await chatAPI.markRead(channelId);
-        loadUnread();
-      }
+      // Always mark as read when viewing a channel
+      await chatAPI.markRead(channelId);
+      if (!silent) loadUnread();
     } catch (e) {
       console.error('Failed to load messages:', e);
     } finally {
