@@ -255,6 +255,7 @@ CARRIER_SELF_SERVICE = {
     "hagerty":          {"website": "hagerty.com",           "app": "Hagerty"},
     "openly":           {"website": "openly.com",            "app": "Openly"},
     "steadily":         {"website": "steadily.com",          "app": "Steadily"},
+    "bristol west":     {"website": "bristolwest.com",       "app": "Bristol West"},
 }
 
 
@@ -1844,3 +1845,98 @@ async def debug_db_lookup(phone: str):
             db.close()
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── 5. INTAKE BOT POST-CALL WEBHOOK ─────────────────────────────
+@router.post("/intake-post-call")
+async def intake_post_call_webhook(request: Request):
+    """Handle post-call events from the Home Intake Bot — email lead to sales."""
+    try:
+        body = await request.json()
+        event = body.get("event", "")
+        call = body.get("call", {})
+
+        if event not in ("call_ended", "call_analyzed"):
+            return {"status": "ok", "message": f"Ignored event: {event}"}
+
+        call_id = call.get("call_id", "")
+        from_number = call.get("from_number", "")
+        duration_ms = call.get("duration_ms", 0)
+        transcript = call.get("transcript", "")
+        disconnection_reason = call.get("disconnection_reason", "")
+
+        duration_sec = (duration_ms or 0) / 1000
+        duration_str = f"{int(duration_sec // 60)}m {int(duration_sec % 60)}s"
+
+        # Extract lead data from call analysis
+        call_analysis = call.get("call_analysis", {})
+        custom = call_analysis.get("custom_analysis_data", {})
+        if isinstance(custom, str):
+            try:
+                custom = json.loads(custom)
+            except Exception:
+                custom = {}
+
+        caller_name = custom.get("caller_name", "") or "Unknown"
+        property_address = custom.get("property_address", "") or "Not collected"
+        phone_number = custom.get("phone_number", "") or from_number or "Not collected"
+        roof_year = custom.get("roof_year", "") or "Not collected"
+        current_premium = custom.get("current_premium", "") or "Not collected"
+        fields_collected = custom.get("fields_collected", "")
+        lead_complete = custom.get("lead_complete", "false")
+
+        logger.info(
+            "Intake bot post-call: call_id=%s name=%s complete=%s duration=%s",
+            call_id, caller_name, lead_complete, duration_str
+        )
+
+        # Only send email on call_analyzed (has full analysis)
+        if event == "call_analyzed":
+            complete_badge = "✅ Complete" if lead_complete == "true" else "⚠️ Partial"
+
+            html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px;">
+                <div style="background: #2d7d46; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+                    <h2 style="margin: 0;">🏠 Home Insurance Lead</h2>
+                    <p style="margin: 4px 0 0; opacity: 0.9;">Intake Bot · {complete_badge}</p>
+                </div>
+                <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr><td style="padding: 8px 0; font-weight: bold; width: 160px;">Name:</td>
+                            <td style="padding: 8px 0; font-size: 16px;">{caller_name}</td></tr>
+                        <tr><td style="padding: 8px 0; font-weight: bold;">Property Address:</td>
+                            <td style="padding: 8px 0;">{property_address}</td></tr>
+                        <tr><td style="padding: 8px 0; font-weight: bold;">Phone:</td>
+                            <td style="padding: 8px 0;">{phone_number}</td></tr>
+                        <tr><td style="padding: 8px 0; font-weight: bold;">Roof Replaced:</td>
+                            <td style="padding: 8px 0;">{roof_year}</td></tr>
+                        <tr><td style="padding: 8px 0; font-weight: bold;">Current Premium:</td>
+                            <td style="padding: 8px 0;">{current_premium}</td></tr>
+                    </table>
+                    <hr style="margin: 16px 0; border: none; border-top: 1px solid #eee;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #666;">
+                        <tr><td style="padding: 4px 0;">Duration:</td><td>{duration_str}</td></tr>
+                        <tr><td style="padding: 4px 0;">Caller ID:</td><td>{from_number}</td></tr>
+                        <tr><td style="padding: 4px 0;">Fields Collected:</td><td>{fields_collected}</td></tr>
+                        <tr><td style="padding: 4px 0;">Lead Status:</td><td>{complete_badge}</td></tr>
+                    </table>
+                    <details style="margin-top: 16px;">
+                        <summary style="cursor: pointer; font-weight: bold; color: #2d7d46;">View Transcript</summary>
+                        <pre style="white-space: pre-wrap; font-size: 13px; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 8px; max-height: 300px; overflow-y: auto;">{transcript[:3000] if transcript else "No transcript"}</pre>
+                    </details>
+                    <p style="color: #999; font-size: 11px; margin-top: 12px;">
+                        Call ID: {call_id} · Disconnect: {disconnection_reason}
+                    </p>
+                </div>
+            </div>
+            """
+
+            subject = f"🏠 Home Lead — {caller_name} — {complete_badge}"
+            send_mailgun_email("sales@betterchoiceins.com", subject, html)
+            logger.info("Intake lead email sent for %s", caller_name)
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        logger.error("Intake post-call error: %s", e)
+        return {"status": "error", "message": str(e)}
