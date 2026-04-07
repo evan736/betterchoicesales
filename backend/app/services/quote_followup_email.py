@@ -185,6 +185,7 @@ def send_followup_email(
         "subject": subject,
         "html": html,
         "h:Reply-To": reply_to,
+        "bcc": os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com"),
         "o:tracking-clicks": "yes",
         "o:tracking-opens": "yes",
         "v:email_type": "quote_followup",
