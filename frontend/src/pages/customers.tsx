@@ -701,6 +701,11 @@ export default function CustomersPage() {
                                         {copiedPolicy === (p.policy_number || '') ? '✓ Copied!' : (p.policy_number || '—')}
                                       </button>
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : p.status?.toLowerCase() === 'non-renewed' || p.status?.toLowerCase() === 'nonrenewed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || '?'}</span>
+                                      {p.first_term_producer && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-cyan-100 text-cyan-700" title="Policy is in first term — original selling agent">
+                                          🏷️ Sold by {p.first_term_producer}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
                                       <span>{normCarrier(p.carrier)}</span>

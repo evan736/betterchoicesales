@@ -1067,9 +1067,47 @@ def get_customer(
         .all()
     )
 
+    # Enrich policies with first-term sale producer info
+    from app.models.sale import Sale
+    from app.models.user import User as UserModel
+    policy_dicts = []
+    now = datetime.utcnow()
+
+    for p in policies:
+        pd = _policy_to_dict(p)
+        pd["first_term_producer"] = None
+
+        if p.policy_number:
+            # Find matching sale by policy number
+            sale = db.query(Sale).filter(
+                Sale.policy_number == p.policy_number,
+                Sale.status != "cancelled",
+            ).first()
+
+            if not sale:
+                # Try fuzzy match — strip carrier prefixes like PA3 for Grange
+                clean_pn = p.policy_number
+                if clean_pn and len(clean_pn) > 3:
+                    sale = db.query(Sale).filter(
+                        Sale.policy_number.ilike(f"%{clean_pn[-8:]}"),
+                        Sale.status != "cancelled",
+                    ).first()
+
+            if sale:
+                # Check if still in first term: policy hasn't reached its first expiration date
+                exp = p.expiration_date
+                if exp and now < exp:
+                    # Still in first term — show the producer
+                    producer = db.query(UserModel).filter(UserModel.id == sale.producer_id).first()
+                    if producer:
+                        pd["first_term_producer"] = producer.full_name or producer.username
+                        pd["first_term_sale_date"] = sale.sale_date.isoformat() if sale.sale_date else None
+
+        policy_dicts.append(pd)
+
     return {
         "customer": _customer_to_dict(customer),
-        "policies": [_policy_to_dict(p) for p in policies],
+        "policies": policy_dicts,
     }
 
 
