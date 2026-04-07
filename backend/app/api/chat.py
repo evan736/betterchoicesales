@@ -501,6 +501,9 @@ def send_message(
         logger.warning(f"BEACON trigger failed: {e}")
 
     return _serialize_message(msg, current_user.id)
+
+
+@router.post("/channels/{channel_id}/read")
 def mark_read(
     channel_id: int,
     current_user: User = Depends(get_current_user),
