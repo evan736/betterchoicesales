@@ -51,8 +51,9 @@ async def create_signature_request(
     clean_title = re.sub(r'[^a-zA-Z0-9_ -]', '', title)[:80] or "Application"
 
     if not redirect_url:
-        # Use orbit domain so BoldSign redirects back correctly
-        redirect_url = "https://orbit.betterchoiceins.com/sales"
+        # Redirect to a simple success page after agent clicks Send in BoldSign
+        # Don't redirect back to ORBIT — the agent already has ORBIT open in their main tab
+        redirect_url = "https://orbit.betterchoiceins.com/esign-complete"
 
     logger.info(
         f"BoldSign embedded request: '{clean_title}' for {signer_email}, "
