@@ -115,13 +115,12 @@ export default function ChatPanel() {
   const prevMentionsRef = useRef<number>(0);
   const activeChannelRef = useRef<Channel | null>(null);
   const [compact, setCompact] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-
-  // Load sound preference from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('orbit-chat-sound');
-    if (saved === 'off') setSoundEnabled(false);
-  }, []);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('orbit-chat-sound') !== 'off';
+    }
+    return true;
+  });
 
   const toggleSound = () => {
     const next = !soundEnabled;
@@ -130,7 +129,7 @@ export default function ChatPanel() {
     localStorage.setItem('orbit-chat-sound', next ? 'on' : 'off');
   };
 
-  const soundEnabledRef = useRef(true);
+  const soundEnabledRef = useRef(typeof window !== 'undefined' ? localStorage.getItem('orbit-chat-sound') !== 'off' : true);
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
 
   // Keep ref in sync
