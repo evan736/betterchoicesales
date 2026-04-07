@@ -2013,6 +2013,9 @@ app.include_router(sales_records_api.router)
 from app.api import commission_tracker as commission_tracker_api
 app.include_router(commission_tracker_api.router)
 
+from app.api import renewal_survey as renewal_survey_api
+app.include_router(renewal_survey_api.router)
+
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
 @app.get("/api/bind/{quote_id}")
@@ -2454,6 +2457,3 @@ _static_dir = Path(__file__).parent.parent / "static"
 _static_dir.mkdir(parents=True, exist_ok=True)
 (_static_dir / "temp-letters").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
-
-from app.api import renewal_survey as renewal_survey_api
-app.include_router(renewal_survey_api.router)
