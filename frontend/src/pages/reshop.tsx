@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar';
 import { reshopAPI } from '../lib/api';
 import {
   Plus, Search, Loader2, ChevronDown, ChevronRight, X, User, Phone, Mail, FileText,
-  DollarSign, Calendar, AlertTriangle, CheckCircle2, XCircle, Clock, RefreshCw,
+  DollarSign, Calendar, AlertTriangle, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw,
   ArrowRight, Shield, Target, TrendingUp, TrendingDown, Zap, MessageSquare,
   Send, Eye, Filter, BarChart2, Users,
 } from 'lucide-react';
@@ -27,6 +27,7 @@ const SOURCES = [
   { value: 'inbound_email', label: 'Inbound Email' },
   { value: 'producer_referral', label: 'Producer Referral' },
   { value: 'proactive_renewal', label: 'Proactive (Renewal)' },
+  { value: 'non_renewal', label: 'Non-Renewal Pending' },
   { value: 'nonpay_escalation', label: 'Non-Pay Escalation' },
   { value: 'walk_in', label: 'Walk-in' },
   { value: 'other', label: 'Other' },
@@ -39,6 +40,7 @@ const REASONS = [
   { value: 'shopping', label: 'Just Shopping' },
   { value: 'nonpay', label: 'Non-Payment' },
   { value: 'renewal_increase', label: 'Renewal Increase' },
+  { value: 'non_renewal', label: 'Non-Renewal by Carrier' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -61,6 +63,7 @@ export default function ReshopPage() {
   const [detailData, setDetailData] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showNonRenewal, setShowNonRenewal] = useState(false);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [noteText, setNoteText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -248,6 +251,12 @@ export default function ReshopPage() {
               </button>
             )}
             <button
+              onClick={() => setShowNonRenewal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-sm"
+            >
+              <AlertCircle size={15} />Non-Renewal
+            </button>
+            <button
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
             >
@@ -391,6 +400,16 @@ export default function ReshopPage() {
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); loadData(); }}
           isProducer={isProducer}
+        />
+      )}
+
+      {/* Non-Renewal Modal */}
+      {showNonRenewal && (
+        <CreateModal
+          onClose={() => setShowNonRenewal(false)}
+          onCreated={() => { setShowNonRenewal(false); loadData(); }}
+          isProducer={isProducer}
+          nonRenewalMode
         />
       )}
     </div>
@@ -806,24 +825,28 @@ const DetailField: React.FC<{ icon: React.ReactNode; label: string; value: any }
 
 // ── Create Modal ─────────────────────────────────────────────────
 const CreateModal: React.FC<{
-  onClose: () => void; onCreated: () => void; isProducer: boolean;
-}> = ({ onClose, onCreated, isProducer }) => {
+  onClose: () => void; onCreated: () => void; isProducer: boolean; nonRenewalMode?: boolean;
+}> = ({ onClose, onCreated, isProducer, nonRenewalMode = false }) => {
   const [form, setForm] = useState({
     customer_name: '', customer_phone: '', customer_email: '',
     policy_number: '', carrier: '', line_of_business: '',
-    current_premium: '', source: isProducer ? 'producer_referral' : 'inbound_call',
-    reason: '', notes: '', priority: 'normal',
+    current_premium: '', source: nonRenewalMode ? 'non_renewal' : isProducer ? 'producer_referral' : 'inbound_call',
+    reason: nonRenewalMode ? 'non_renewal' : '', notes: '', priority: nonRenewalMode ? 'normal' : 'normal',
+    expiration_date: '',
   });
   const [creating, setCreating] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.customer_name.trim()) return toast.info('Customer name is required');
+    if (nonRenewalMode && !form.expiration_date) return toast.info('Non-renewal date is required');
     setCreating(true);
     try {
       await reshopAPI.create({
         ...form,
         current_premium: form.current_premium ? Number(form.current_premium) : null,
+        expiration_date: form.expiration_date || null,
+        source_detail: nonRenewalMode ? 'Non-renewal notice from carrier' : undefined,
       });
       onCreated();
     } catch (e: any) {
@@ -832,17 +855,26 @@ const CreateModal: React.FC<{
     setCreating(false);
   };
 
+  const title = nonRenewalMode ? 'Non-Renewal Pending' : isProducer ? 'Refer Customer for Reshop' : 'New Reshop Request';
+  const submitLabel = nonRenewalMode ? 'Add Non-Renewal' : isProducer ? 'Refer for Reshop' : 'Create Reshop';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-bold text-slate-900">
-            {isProducer ? 'Refer Customer for Reshop' : 'New Reshop Request'}
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${nonRenewalMode ? 'border-amber-200 bg-amber-50' : 'border-slate-200'}`}>
+          <h2 className={`text-lg font-bold ${nonRenewalMode ? 'text-amber-900' : 'text-slate-900'}`}>
+            {title}
           </h2>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
             <X size={18} />
           </button>
         </div>
+
+        {nonRenewalMode && (
+          <div className="mx-5 mt-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            This will add the customer to the reshop pipeline as a non-renewal. The retention team will reshop before the non-renewal date.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="px-5 py-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -881,45 +913,55 @@ const CreateModal: React.FC<{
               <input type="number" value={form.current_premium} onChange={e => setForm(f => ({ ...f, current_premium: e.target.value }))}
                 placeholder="0.00" className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2" />
             </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600">Source</label>
-              <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
-                className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
-                {SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600">Reason</label>
-              <select value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-                className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
-                <option value="">Select...</option>
-                {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-600">Priority</label>
-              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
-                className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
+            {nonRenewalMode ? (
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-amber-700">Non-Renewal Date *</label>
+                <input type="date" value={form.expiration_date} onChange={e => setForm(f => ({ ...f, expiration_date: e.target.value }))}
+                  className="w-full mt-0.5 text-sm border border-amber-300 rounded-lg px-3 py-2 bg-amber-50" required />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Source</label>
+                  <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
+                    className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
+                    {SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Reason</label>
+                  <select value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+                    className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
+                    <option value="">Select...</option>
+                    {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Priority</label>
+                  <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                    className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2">
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
           <div>
             <label className="text-xs font-medium text-slate-600">Notes</label>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              rows={3} placeholder="What did the customer say? Any specific concerns?" className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2 resize-y" />
+              rows={3} placeholder={nonRenewalMode ? "Reason for non-renewal, any details from the carrier notice..." : "What did the customer say? Any specific concerns?"} className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2 resize-y" />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
               Cancel
             </button>
-            <button type="submit" disabled={creating} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
-              {creating ? <Loader2 size={14} className="animate-spin" /> : isProducer ? 'Refer for Reshop' : 'Create Reshop'}
+            <button type="submit" disabled={creating} className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors disabled:opacity-50 ${nonRenewalMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              {creating ? <Loader2 size={14} className="animate-spin" /> : submitLabel}
             </button>
           </div>
         </form>
