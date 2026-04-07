@@ -771,13 +771,16 @@ export default function ChatPanel() {
           {/* DM Header */}
           <div className="flex items-center justify-between px-4 py-2 mt-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Direct Messages</span>
-            <button onClick={() => setShowNewDM(!showNewDM)} className="text-cyan-400 hover:text-cyan-300 text-xs font-bold">+ New</button>
+            <button onClick={() => setShowNewDM(!showNewDM)} className="px-2 py-0.5 text-[10px] font-bold text-cyan-300 bg-cyan-500/15 rounded hover:bg-cyan-500/25 transition-colors">
+              {showNewDM ? 'Close' : '+ New DM'}
+            </button>
           </div>
 
           {/* New DM User Picker */}
           {showNewDM && (
-            <div className="mx-3 mb-2 bg-white/[0.03] rounded-lg border border-white/[0.06] p-2 max-h-40 overflow-y-auto">
-              {chatUsers.map(u => (
+            <div className="mx-3 mb-2 bg-white/[0.05] rounded-lg border border-cyan-800/30 p-2 max-h-40 overflow-y-auto">
+              <div className="text-[9px] text-slate-500 px-2 pb-1 mb-1 border-b border-white/[0.05]">Select a person to message:</div>
+              {chatUsers.filter(u => u.role !== 'system' && u.username !== 'beacon.ai').map(u => (
                 <button
                   key={u.id}
                   onClick={() => startDM(u.id)}
