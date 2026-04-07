@@ -544,8 +544,18 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
         setSigStatus('draft');
 
         if (sendUrl) {
-          window.open(sendUrl, '_blank');
-          toast.info('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
+          const newTab = window.open(sendUrl, '_blank');
+          if (!newTab || newTab.closed) {
+            // Popup was blocked — show the URL as a clickable link instead of navigating away
+            toast.info('Your browser blocked the popup. Click the link below to open BoldSign.');
+            const linkEl = document.createElement('a');
+            linkEl.href = sendUrl;
+            linkEl.target = '_blank';
+            linkEl.rel = 'noopener noreferrer';
+            linkEl.click();
+          } else {
+            toast.info('BoldSign opened in a new tab. Place the signature fields on the PDF and click Send.');
+          }
         } else {
           toast.success('Document created but no BoldSign URL returned. Check the BoldSign dashboard.');
         }
