@@ -475,6 +475,18 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
   const [currentEmail, setCurrentEmail] = useState(sale.client_email || '');
   const [uploadingPdf, setUploadingPdf] = useState(false);
 
+  // Auto-check BoldSign status on mount if signature is in draft or sent state
+  useEffect(() => {
+    if ((sale.signature_status === 'draft' || sale.signature_status === 'sent') && sale.id) {
+      salesAPI.signatureStatus(sale.id).then((res: any) => {
+        if (res.data?.status && res.data.status !== sigStatus) {
+          setSigStatus(res.data.status);
+          if (res.data.status === 'completed') onUpdate();
+        }
+      }).catch(() => { /* silent — manual Check Status still available */ });
+    }
+  }, [sale.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleUploadPdf = () => {
     const input = document.createElement('input');
     input.type = 'file';
