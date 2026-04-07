@@ -876,6 +876,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Commission tracker migration: {e}")
 
+    try:
+        from app.migrations.renewal_survey_migration import run_migration as run_renewal_survey_migration
+        from app.core.database import engine as _rs_engine
+        run_renewal_survey_migration(_rs_engine)
+        logger.info("Renewal survey tables migrated")
+    except Exception as e:
+        logger.warning(f"Renewal survey migration: {e}")
+
     # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
     try:
         from app.core.database import SessionLocal as _ac_sl
@@ -2446,3 +2454,6 @@ _static_dir = Path(__file__).parent.parent / "static"
 _static_dir.mkdir(parents=True, exist_ok=True)
 (_static_dir / "temp-letters").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+from app.api import renewal_survey as renewal_survey_api
+app.include_router(renewal_survey_api.router)
