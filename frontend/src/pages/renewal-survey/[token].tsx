@@ -23,6 +23,7 @@ export default function RenewalSurveyPage() {
   const [multiSelect, setMultiSelect] = useState<string[]>([]);
   const [textInput, setTextInput] = useState('');
   const [phase, setPhase] = useState<'loading' | 'survey' | 'thank_you' | 'completed'>('loading');
+  const [starHover, setStarHover] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -76,7 +77,6 @@ export default function RenewalSurveyPage() {
 
   // Render star rating
   const renderStars = (q: any) => {
-    const [hover, setHover] = useState(0);
     const selected = currentAnswer as number || 0;
     return (
       <div className="flex flex-col items-center gap-4">
@@ -84,18 +84,18 @@ export default function RenewalSurveyPage() {
           {[1, 2, 3, 4, 5].map(star => (
             <button
               key={star}
-              onMouseEnter={() => setHover(star)}
-              onMouseLeave={() => setHover(0)}
+              onMouseEnter={() => setStarHover(star)}
+              onMouseLeave={() => setStarHover(0)}
               onClick={() => { setCurrentAnswer(star); submitAnswer(q.id, star); }}
               disabled={submitting}
               className="text-5xl transition-transform hover:scale-110 disabled:opacity-50"
             >
-              {star <= (hover || selected) ? '⭐' : '☆'}
+              {star <= (starHover || selected) ? '⭐' : '☆'}
             </button>
           ))}
         </div>
-        {(hover || selected) > 0 && (
-          <span className="text-sm text-slate-500">{STAR_LABELS[hover || selected]}</span>
+        {(starHover || selected) > 0 && (
+          <span className="text-sm text-slate-500">{STAR_LABELS[starHover || selected]}</span>
         )}
       </div>
     );
