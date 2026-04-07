@@ -406,6 +406,23 @@ export default function ChatPanel() {
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = items[i].getAsFile();
+        if (blob) {
+          const ext = items[i].type.split('/')[1] || 'png';
+          const named = new File([blob], `pasted-image.${ext}`, { type: items[i].type });
+          setFile(named);
+        }
+        return;
+      }
+    }
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && !file) || sending) return;
     setSending(true);
@@ -1005,7 +1022,11 @@ export default function ChatPanel() {
           {/* File preview */}
           {file && (
             <div className="px-3 py-1.5 bg-white/[0.02] border-t border-white/[0.04] flex items-center gap-2">
-              <FileText size={12} className="text-amber-400" />
+              {file.type?.startsWith('image/') ? (
+                <img src={URL.createObjectURL(file)} alt="preview" className="h-10 w-10 rounded object-cover border border-white/10" />
+              ) : (
+                <FileText size={12} className="text-amber-400" />
+              )}
               <span className="text-[10px] text-slate-300 truncate flex-1">{file.name}</span>
               <button onClick={() => setFile(null)} className="text-slate-600 hover:text-white"><X size={12} /></button>
             </div>
@@ -1089,6 +1110,7 @@ export default function ChatPanel() {
                 value={input}
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                onPaste={handlePaste}
                 placeholder={activeChannel?.channel_type === 'beacon' ? "Ask BEACON about insurance..." : "Type a message... (@mention)"}
                 className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-600 outline-none focus:border-cyan-500/40 transition-colors"
               />
