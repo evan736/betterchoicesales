@@ -870,20 +870,17 @@ def create_reshop(
     db.commit()
     db.refresh(reshop)
 
-    # Notify assigned agent immediately for manual/urgent reshops
+    # Notify assigned agent / retention team on all new reshops
     if reshop.assigned_to:
-        assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
-        if assignee and reshop.priority in ("urgent", "high"):
-            try:
-                _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
-            except Exception as e:
-                logger.error("Reshop notification error: %s", e)
-    else:
-        # Fallback: notify retention team
         try:
-            _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
+            assignee = db.query(User).filter(User.id == reshop.assigned_to).first()
+            _notify_reshop_assignment(reshop, assignee, current_user.full_name or current_user.username, db)
         except Exception as e:
             logger.error("Reshop notification error: %s", e)
+    try:
+        _notify_retention_team(reshop, current_user.full_name or current_user.username, db)
+    except Exception as e:
+        logger.error("Reshop notification error: %s", e)
 
     return _reshop_to_dict(reshop)
 
