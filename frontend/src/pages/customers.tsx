@@ -53,6 +53,7 @@ export default function CustomersPage() {
   const [emailCc, setEmailCc] = useState('');
   const emailFileRef = useRef<HTMLInputElement>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [nonRenewalCustomer, setNonRenewalCustomer] = useState<any>(null);
   const [showCancelled, setShowCancelled] = useState(false);
   const [customerNotes, setCustomerNotes] = useState<any[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -842,7 +843,7 @@ export default function CustomersPage() {
 
                             {/* Quick Reshop Refer */}
                             {detail.customer?.id && (
-                              <div className="mt-4 border-t border-slate-200 pt-4">
+                              <div className="mt-4 border-t border-slate-200 pt-4 flex items-center gap-4">
                                 <button
                                   onClick={async () => {
                                     try {
@@ -856,6 +857,13 @@ export default function CustomersPage() {
                                 >
                                   <Target size={15} />
                                   Refer for Reshop
+                                </button>
+                                <button
+                                  onClick={() => setNonRenewalCustomer(detail.customer)}
+                                  className="flex items-center gap-2 text-sm font-semibold text-red-600 hover:text-red-700 transition-colors"
+                                >
+                                  <AlertCircle size={15} />
+                                  Non-Renewal Pending
                                 </button>
                               </div>
                             )}
@@ -1108,10 +1116,115 @@ export default function CustomersPage() {
             hasPendingFile={!!pendingFile}
           />
         )}
+
+        {/* Non-Renewal Modal */}
+        {nonRenewalCustomer && (
+          <NonRenewalModal
+            customer={nonRenewalCustomer}
+            onClose={() => setNonRenewalCustomer(null)}
+            onCreated={() => { setNonRenewalCustomer(null); toast.info('Non-renewal added to reshop pipeline!'); }}
+          />
+        )}
       </main>
     </div>
   );
 }
+
+const NonRenewalModal: React.FC<{
+  customer: any; onClose: () => void; onCreated: () => void;
+}> = ({ customer, onClose, onCreated }) => {
+  const [form, setForm] = useState({
+    expiration_date: '', carrier: '', policy_number: '', notes: '',
+  });
+  const [creating, setCreating] = useState(false);
+
+  // Pre-fill carrier and policy from customer's first active policy
+  useEffect(() => {
+    if (customer?.policies?.length) {
+      const active = customer.policies.find((p: any) => p.status === 'active') || customer.policies[0];
+      setForm(f => ({
+        ...f,
+        carrier: active.carrier || '',
+        policy_number: active.policy_number || '',
+      }));
+    }
+  }, [customer]);
+
+  const handleSubmit = async () => {
+    if (!form.expiration_date) return;
+    setCreating(true);
+    try {
+      await reshopAPI.create({
+        customer_id: customer.id,
+        customer_name: customer.full_name || customer.name || '',
+        customer_phone: customer.phone || '',
+        customer_email: customer.email || '',
+        policy_number: form.policy_number,
+        carrier: form.carrier,
+        source: 'non_renewal',
+        reason: 'non_renewal',
+        priority: 'normal',
+        expiration_date: form.expiration_date,
+        source_detail: 'Non-renewal notice from carrier',
+        notes: form.notes,
+      });
+      onCreated();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'Failed to create');
+    }
+    setCreating(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-amber-200 bg-amber-50 rounded-t-xl">
+          <h2 className="text-lg font-bold text-amber-900">Non-Renewal Pending</h2>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
+          Adding <strong>{customer.full_name || customer.name}</strong> to the reshop pipeline as a non-renewal.
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-amber-700">Non-Renewal Date *</label>
+            <input type="date" value={form.expiration_date} onChange={e => setForm(f => ({ ...f, expiration_date: e.target.value }))}
+              className="w-full mt-0.5 text-sm border border-amber-300 rounded-lg px-3 py-2 bg-amber-50" required />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-600">Carrier</label>
+              <input value={form.carrier} onChange={e => setForm(f => ({ ...f, carrier: e.target.value }))}
+                className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Policy Number</label>
+              <input value={form.policy_number} onChange={e => setForm(f => ({ ...f, policy_number: e.target.value }))}
+                className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              rows={2} placeholder="Reason for non-renewal, carrier notice details..."
+              className="w-full mt-0.5 text-sm border border-slate-200 rounded-lg px-3 py-2 resize-y" />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+            <button onClick={handleSubmit} disabled={creating || !form.expiration_date}
+              className="px-4 py-2 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50">
+              {creating ? 'Adding...' : 'Add Non-Renewal'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; color: string }> = ({ icon, label, value, color }) => {
   const cls: Record<string, string> = { blue: 'text-blue-600 bg-blue-50', green: 'text-green-600 bg-green-50', indigo: 'text-indigo-600 bg-indigo-50', emerald: 'text-emerald-600 bg-emerald-50', slate: 'text-slate-600 bg-slate-100' };
