@@ -82,7 +82,15 @@ function AppLayout({ Component, pageProps }: { Component: any; pageProps: any })
   const { sidebarOpen: chatOpen } = useChat();
   const { sidebarOpen: emailOpen, expanded: emailExpanded } = useEmail();
 
-  if (!user) {
+  // Public pages — never show internal sidebars/tools even if user is logged in
+  const isPublicPage = typeof window !== 'undefined' && (
+    window.location.pathname.startsWith('/survey') ||
+    window.location.pathname.startsWith('/renewal-survey') ||
+    window.location.pathname.startsWith('/login') ||
+    window.location.pathname.startsWith('/esign')
+  );
+
+  if (!user || isPublicPage) {
     return <Component {...pageProps} />;
   }
 
