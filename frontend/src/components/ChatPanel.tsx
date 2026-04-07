@@ -210,8 +210,8 @@ export default function ChatPanel() {
                                (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
                                (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
             if (isMentioned && msg?.sender_id !== user?.id) {
-              // Play mention sound 3 times rapidly for urgency
-              if (soundEnabledRef.current) try {
+              // Play mention sound 3 times rapidly — ALWAYS plays even if muted
+              try {
                 const playMention = () => {
                   const a = new Audio('/notification.wav');
                   a.volume = 1.0;
@@ -306,9 +306,9 @@ export default function ChatPanel() {
       const res = await chatAPI.unread();
       const newTotal = res.data.total_unread;
       const newMentions = res.data.total_mentions || 0;
-      // Play loud mention ding when new mentions arrive
+      // Play loud mention ding when new mentions arrive — ALWAYS plays even if muted
       if (newMentions > (prevMentionsRef.current || 0)) {
-        if (soundEnabledRef.current) try {
+        try {
           const playMention = () => {
             const a = new Audio('/notification.wav');
             a.volume = 1.0;
