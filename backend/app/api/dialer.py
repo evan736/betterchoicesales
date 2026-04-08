@@ -1193,3 +1193,23 @@ async def backfill_leads(campaign_id: int, file: UploadFile = File(...)):
         return {"updated": updated}
     finally:
         db.close()
+
+
+@router.post("/numbers/seed")
+def seed_numbers():
+    """Seed the phone number pool with SA numbers."""
+    db = SessionLocal()
+    try:
+        from app.models.dialer import DialerPhoneNumber
+        nums = ["+12108649246", "+12109886575", "+12109344252", "+12108710493", "+12108791893"]
+        added = 0
+        for num in nums:
+            existing = db.query(DialerPhoneNumber).filter(DialerPhoneNumber.phone == num).first()
+            if not existing:
+                db.add(DialerPhoneNumber(phone=num, status="active", first_used_date=datetime.now()))
+                added += 1
+        db.commit()
+        all_nums = db.query(DialerPhoneNumber).all()
+        return {"added": added, "total": len(all_nums), "numbers": [{"phone": n.phone, "status": n.status} for n in all_nums]}
+    finally:
+        db.close()
