@@ -738,6 +738,78 @@ def _unsub_page(title: str, message: str) -> str:
     </div>
   </div>
 </div></body></html>"""
+@router.post("/test-followup-email")
+def test_followup_email(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a test follow-up email to Evan to verify Mailgun is working."""
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.quote_followup_email import build_followup_email, send_followup_email
+
+    subject, html = build_followup_email(
+        prospect_name="Test Customer",
+        carrier="National General",
+        policy_type="bundled",
+        premium=3500.00,
+        premium_term="12 months",
+        agent_name="Evan Larson",
+        agent_email="evan@betterchoiceins.com",
+        quote_id=0,
+        day=3,
+        unsubscribe_token="test-token-12345",
+    )
+
+    result = send_followup_email(
+        to_email="evan@betterchoiceins.com",
+        subject=f"[TEST] {subject}",
+        html=html,
+        agent_email="evan@betterchoiceins.com",
+        quote_id=0,
+    )
+
+    return {"test_result": result, "subject": subject}
+
+
+@router.post("/reset-followup-flags")
+def reset_followup_flags(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reset followup flags for quotes where emails never actually sent.
+    This allows the scheduler to retry them on next run."""
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    now = datetime.utcnow()
+    reset_count = 0
+
+    # Find quotes with fu3=True but status still 'following_up' and sent 3-14 days ago
+    # These likely had failed sends
+    quotes = db.query(Quote).filter(
+        Quote.followup_3day_sent == True,
+        Quote.status.in_(["following_up", "sent"]),
+        Quote.email_sent_at.isnot(None),
+        Quote.followup_disabled == False,
+    ).all()
+
+    for q in quotes:
+        sent_at = q.email_sent_at.replace(tzinfo=None) if q.email_sent_at.tzinfo else q.email_sent_at
+        days = (now - sent_at).days
+
+        # Reset Day 3 flag if quote was sent 3-6 days ago (Day 3 window)
+        if days >= 3 and days <= 20:
+            q.followup_3day_sent = False
+            q.status = "sent"  # Reset to sent so scheduler picks it up
+            reset_count += 1
+            logger.info(f"Reset Day 3 flag for {q.prospect_name} (quote {q.id}, {days}d old)")
+
+    db.commit()
+    return {"reset_count": reset_count, "message": f"Reset {reset_count} follow-up flags. Run check-followups to retry."}
+
+
 @router.get("/stats/summary")
 def quote_stats(
     current_user: User = Depends(get_current_user),
@@ -982,37 +1054,31 @@ def _check_followups_logic(db: Session) -> dict:
 
         # Process follow-ups on the latest quote only — send actual emails
         followup_day = None
+        flag_field = None  # Which flag to set on success
+
         if days_since >= 3 and not latest.followup_3day_sent:
             followup_day = 3
-            latest.followup_3day_sent = True
-            latest.status = "following_up"
-            results["day3"] += 1
+            flag_field = "followup_3day_sent"
 
         elif days_since >= 7 and not latest.followup_7day_sent:
             followup_day = 7
-            latest.followup_7day_sent = True
-            results["day7"] += 1
+            flag_field = "followup_7day_sent"
 
         elif days_since >= 14 and not latest.followup_14day_sent:
             followup_day = 14
-            latest.followup_14day_sent = True
-            results["day14"] += 1
+            flag_field = "followup_14day_sent"
 
         elif days_since >= 30 and not getattr(latest, 'retarget_30_sent', False):
             followup_day = 30
-            latest.status = "remarket"
-            results["retarget"] = results.get("retarget", 0) + 1
-            # Use entered_remarket as the 30-day marker
-            latest.entered_remarket = True
-            latest.remarket_start_date = now
+            flag_field = "entered_remarket"
 
         elif days_since >= 60 and latest.entered_remarket and not getattr(latest, 'retarget_60_sent', False):
             followup_day = 60
-            results["retarget"] = results.get("retarget", 0) + 1
+            flag_field = None  # No dedicated flag for 60
 
         elif days_since >= 90 and latest.entered_remarket and not getattr(latest, 'retarget_90_sent', False):
             followup_day = 90
-            results["retarget"] = results.get("retarget", 0) + 1
+            flag_field = None
 
         elif days_since >= 180 and latest.entered_remarket:
             # Long-term remarket: first touch at 6 months, then every 90 days
@@ -1020,23 +1086,16 @@ def _check_followups_logic(db: Session) -> dict:
             touch_count = getattr(latest, 'remarket_touch_count', 0) or 0
 
             if touch_count == 0:
-                # First long-term remarket at ~180 days
                 followup_day = 180
-                latest.last_remarket_sent_at = now
-                latest.remarket_touch_count = 1
-                results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
             elif last_sent:
                 last_sent_dt = last_sent.replace(tzinfo=None) if last_sent.tzinfo else last_sent
                 days_since_last = (now - last_sent_dt).days
                 if days_since_last >= 90:
-                    # Rolling 90-day remarket
                     followup_day = "remarket_quarterly"
-                    latest.last_remarket_sent_at = now
-                    latest.remarket_touch_count = touch_count + 1
-                    results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
 
-        # Send the follow-up email
+        # Send the follow-up email — only set flags on SUCCESS
         if followup_day and latest.prospect_email:
+            email_sent = False
             try:
                 subject, html = build_followup_email(
                     prospect_name=latest.prospect_name or "",
@@ -1051,15 +1110,50 @@ def _check_followups_logic(db: Session) -> dict:
                     unsubscribe_token=latest.unsubscribe_token or "",
                 )
                 if subject and html:
-                    send_followup_email(
+                    result = send_followup_email(
                         to_email=latest.prospect_email,
                         subject=subject,
                         html=html,
                         agent_email=latest.producer_email or "",
                         quote_id=latest.id,
                     )
+                    email_sent = result.get("success", False)
+                    if not email_sent:
+                        logger.error(f"Follow-up email FAILED for {latest.prospect_name}: {result.get('error', 'unknown')}")
             except Exception as e:
                 logger.error(f"Follow-up email error for {latest.prospect_name}: {e}")
+
+            # Only mark flags if email actually sent
+            if email_sent:
+                if followup_day == 3:
+                    latest.followup_3day_sent = True
+                    latest.status = "following_up"
+                    results["day3"] += 1
+                elif followup_day == 7:
+                    latest.followup_7day_sent = True
+                    results["day7"] += 1
+                elif followup_day == 14:
+                    latest.followup_14day_sent = True
+                    results["day14"] += 1
+                elif followup_day == 30:
+                    latest.status = "remarket"
+                    latest.entered_remarket = True
+                    latest.remarket_start_date = now
+                    results["retarget"] = results.get("retarget", 0) + 1
+                elif followup_day == 60:
+                    results["retarget"] = results.get("retarget", 0) + 1
+                elif followup_day == 90:
+                    results["retarget"] = results.get("retarget", 0) + 1
+                elif followup_day == 180:
+                    latest.last_remarket_sent_at = now
+                    latest.remarket_touch_count = 1
+                    results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
+                elif followup_day == "remarket_quarterly":
+                    latest.last_remarket_sent_at = now
+                    latest.remarket_touch_count = (getattr(latest, 'remarket_touch_count', 0) or 0) + 1
+                    results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
+            else:
+                results["send_failed"] = results.get("send_failed", 0) + 1
 
         # Also fire GHL webhook (keep existing behavior)
         if followup_day:
