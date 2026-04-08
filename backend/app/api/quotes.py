@@ -740,10 +740,11 @@ def _unsub_page(title: str, message: str) -> str:
 </div></body></html>"""
 @router.post("/test-followup-email")
 def test_followup_email(
+    to: str = Query("evan@betterchoiceins.com", description="Email to send test to"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a test follow-up email to Evan to verify Mailgun is working."""
+    """Send a test follow-up email to verify Mailgun is working."""
     if current_user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
@@ -763,14 +764,110 @@ def test_followup_email(
     )
 
     result = send_followup_email(
-        to_email="evan@betterchoiceins.com",
+        to_email=to,
         subject=f"[TEST] {subject}",
         html=html,
         agent_email="evan@betterchoiceins.com",
         quote_id=0,
     )
 
-    return {"test_result": result, "subject": subject}
+    return {"test_result": result, "subject": subject, "sent_to": to}
+
+
+@router.post("/check-followups-verbose")
+def check_followups_verbose(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check followups with detailed error reporting per prospect."""
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.quote_followup_email import (
+        build_followup_email, send_followup_email, _has_matching_sale,
+    )
+    from collections import defaultdict
+
+    now = datetime.utcnow()
+    details = []
+
+    active_quotes = db.query(Quote).filter(
+        Quote.status.in_(["sent", "following_up", "bind_requested", "remarket"]),
+        Quote.email_sent == True,
+        Quote.email_sent_at.isnot(None),
+    ).all()
+
+    prospect_groups: dict = defaultdict(list)
+    for q in active_quotes:
+        key = (q.prospect_email or "").lower().strip() or f"name:{(q.prospect_name or '').lower().strip()}"
+        prospect_groups[key].append(q)
+
+    for key, quotes in prospect_groups.items():
+        quotes.sort(key=lambda q: q.email_sent_at or q.created_at, reverse=True)
+        latest = quotes[0]
+
+        if any(getattr(q, 'followup_disabled', False) for q in quotes):
+            details.append({"name": latest.prospect_name, "action": "skipped_disabled"})
+            continue
+
+        if _has_matching_sale(db, latest.prospect_name or "", latest.prospect_email or "", latest.carrier or ""):
+            details.append({"name": latest.prospect_name, "action": "skipped_sold"})
+            continue
+
+        sent_at = latest.email_sent_at.replace(tzinfo=None) if latest.email_sent_at.tzinfo else latest.email_sent_at
+        days_since = (now - sent_at).days
+
+        followup_day = None
+        if days_since >= 3 and not latest.followup_3day_sent:
+            followup_day = 3
+        elif days_since >= 7 and not latest.followup_7day_sent:
+            followup_day = 7
+
+        if followup_day and latest.prospect_email:
+            try:
+                subject, html = build_followup_email(
+                    prospect_name=latest.prospect_name or "",
+                    carrier=latest.carrier or "",
+                    policy_type=latest.policy_type or "",
+                    premium=float(latest.quoted_premium or 0),
+                    premium_term=latest.premium_term or "6 months",
+                    agent_name=latest.producer_name or "",
+                    agent_email=latest.producer_email or "",
+                    quote_id=latest.id,
+                    day=followup_day,
+                    unsubscribe_token=latest.unsubscribe_token or "",
+                )
+                if subject and html:
+                    result = send_followup_email(
+                        to_email=latest.prospect_email,
+                        subject=subject,
+                        html=html,
+                        agent_email=latest.producer_email or "",
+                        quote_id=latest.id,
+                    )
+                    details.append({
+                        "name": latest.prospect_name,
+                        "email": latest.prospect_email,
+                        "day": followup_day,
+                        "days_since": days_since,
+                        "result": result,
+                    })
+                else:
+                    details.append({"name": latest.prospect_name, "day": followup_day, "error": "build returned None"})
+            except Exception as e:
+                details.append({"name": latest.prospect_name, "day": followup_day, "error": str(e)})
+        else:
+            details.append({
+                "name": latest.prospect_name,
+                "days_since": days_since,
+                "followup_day": followup_day,
+                "has_email": bool(latest.prospect_email),
+                "fu3": latest.followup_3day_sent,
+                "fu7": latest.followup_7day_sent,
+                "action": "no_action_needed",
+            })
+
+    return {"details": details}
 
 
 @router.post("/reset-followup-flags")
