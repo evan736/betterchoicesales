@@ -214,6 +214,8 @@ class Quote(Base):
     # Remarket
     entered_remarket = Column(Boolean, default=False)
     remarket_start_date = Column(DateTime(timezone=True), nullable=True)
+    last_remarket_sent_at = Column(DateTime(timezone=True), nullable=True)
+    remarket_touch_count = Column(Integer, default=0)  # How many long-term remarket emails sent
 
     # NowCerts
     nowcerts_prospect_created = Column(Boolean, default=False)

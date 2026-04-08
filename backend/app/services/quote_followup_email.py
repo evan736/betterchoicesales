@@ -104,9 +104,19 @@ def build_followup_email(
         closing = "If you've already found coverage elsewhere, congratulations — and no need to reply. But if you're still shopping or your situation has changed, I'd love to help. We often find savings people didn't expect."
     elif day == 90:
         subject = f"{first_name} — one last check-in from Better Choice Insurance"
-        intro = f"This is my final follow-up. It's been about 3 months since your original quote, and I wanted to make one last offer to help before I close out your file."
+        intro = f"This is my final follow-up for now. It's been about 3 months since your original quote, and I wanted to make one last offer to help before I step back for a while."
         cta_text = "Yes, I Still Need Coverage"
         closing = f"If you ever need insurance down the road — whether it's home, auto, or anything else — my door is always open. You can reach me anytime at {PHONE} or just reply to this email. Wishing you all the best!"
+    elif day == 180:
+        subject = f"{first_name} — it's been a while! Let's see if we can save you money"
+        intro = f"It's been about 6 months since we last connected, and a lot can change in that time — rates, carriers, your coverage needs. As an independent agency with 15+ carriers, I'd love to take another look and see if I can find you a better deal than what you have today."
+        cta_text = "Get a Fresh Quote — No Obligation"
+        closing = f"Even if you found coverage elsewhere, rates shift constantly and we often save people hundreds by re-shopping. It only takes a few minutes — just reply to this email, call me at {PHONE}, or click above. No pressure either way!"
+    elif day == "remarket_quarterly":
+        subject = f"{first_name}, rates have changed — time for a free insurance check-up?"
+        intro = f"Just a quick note from your friends at Better Choice Insurance! Insurance rates change every quarter, and I wanted to reach out in case now is a better time to look at your options. Whether you're paying too much or just want to make sure you have the right coverage, I'm here to help."
+        cta_text = "Check My Rates — Free & Easy"
+        closing = f"We work with 15+ top carriers so we can shop the market for you in minutes. No cost, no obligation — just honest advice. Reply here, call {PHONE}, or click above whenever you're ready."
     else:
         return None, None
 

@@ -861,7 +861,7 @@ def _check_followups_logic(db: Session) -> dict:
     )
 
     active_quotes = db.query(Quote).filter(
-        Quote.status.in_(["sent", "following_up", "bind_requested"]),
+        Quote.status.in_(["sent", "following_up", "bind_requested", "remarket"]),
         Quote.email_sent == True,
         Quote.email_sent_at.isnot(None),
     ).all()
@@ -972,6 +972,27 @@ def _check_followups_logic(db: Session) -> dict:
         elif days_since >= 90 and latest.entered_remarket and not getattr(latest, 'retarget_90_sent', False):
             followup_day = 90
             results["retarget"] = results.get("retarget", 0) + 1
+
+        elif days_since >= 180 and latest.entered_remarket:
+            # Long-term remarket: first touch at 6 months, then every 90 days
+            last_sent = getattr(latest, 'last_remarket_sent_at', None)
+            touch_count = getattr(latest, 'remarket_touch_count', 0) or 0
+
+            if touch_count == 0:
+                # First long-term remarket at ~180 days
+                followup_day = 180
+                latest.last_remarket_sent_at = now
+                latest.remarket_touch_count = 1
+                results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
+            elif last_sent:
+                last_sent_dt = last_sent.replace(tzinfo=None) if last_sent.tzinfo else last_sent
+                days_since_last = (now - last_sent_dt).days
+                if days_since_last >= 90:
+                    # Rolling 90-day remarket
+                    followup_day = "remarket_quarterly"
+                    latest.last_remarket_sent_at = now
+                    latest.remarket_touch_count = touch_count + 1
+                    results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
 
         # Send the follow-up email
         if followup_day and latest.prospect_email:

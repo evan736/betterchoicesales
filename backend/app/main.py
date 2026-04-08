@@ -479,6 +479,8 @@ def init_database():
             "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
             "ALTER TABLE quotes ADD COLUMN followup_disabled BOOLEAN DEFAULT FALSE",
             "ALTER TABLE quotes ADD COLUMN unsubscribe_token VARCHAR",
+            "ALTER TABLE quotes ADD COLUMN last_remarket_sent_at TIMESTAMPTZ",
+            "ALTER TABLE quotes ADD COLUMN remarket_touch_count INTEGER DEFAULT 0",
         ]:
             try:
                 with engine.connect() as conn:
@@ -1706,6 +1708,8 @@ def force_migrate():
         "ALTER TABLE quotes ADD COLUMN policy_lines TEXT",
         "ALTER TABLE quotes ADD COLUMN followup_disabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE quotes ADD COLUMN unsubscribe_token VARCHAR",
+        "ALTER TABLE quotes ADD COLUMN last_remarket_sent_at TIMESTAMPTZ",
+        "ALTER TABLE quotes ADD COLUMN remarket_touch_count INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS life_cross_sells (
             id SERIAL PRIMARY KEY,
             sale_id INTEGER REFERENCES sales(id),
