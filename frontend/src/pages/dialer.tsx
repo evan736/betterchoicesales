@@ -347,6 +347,50 @@ export default function DialerPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Number Pool */}
+                {dialerInfo?.numbers && (
+                  <div className="bg-[#141a2a] border border-slate-700/50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium text-slate-400">Outbound Number Pool</h3>
+                      <span className="text-xs text-slate-500">
+                        {dialerInfo.config?.active_days_before_rest}d active → {dialerInfo.config?.rest_days}d cooldown → {dialerInfo.config?.calls_per_number_per_day} calls/day
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {dialerInfo.numbers.map((n: any) => {
+                        const fmt = n.phone?.replace('+1', '(').replace(/(\d{3})(\d{3})(\d{4})/, '$1) $2-$3');
+                        const isActive = n.status === 'active';
+                        const isResting = n.status === 'resting';
+                        return (
+                          <div key={n.phone} className={`rounded-lg p-3 border ${isActive ? 'bg-emerald-500/10 border-emerald-500/30' : isResting ? 'bg-slate-500/10 border-slate-600/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-sm">{fmt}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${isActive ? 'bg-emerald-500/20 text-emerald-400' : isResting ? 'bg-slate-500/20 text-slate-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                {n.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between mt-2 text-xs text-slate-500">
+                              {isActive && (
+                                <>
+                                  <span>Day {n.days_active}/5</span>
+                                  <span>{n.calls_today}/{n.max_per_day} today</span>
+                                  <span>{n.days_until_rest}d until rest</span>
+                                </>
+                              )}
+                              {isResting && (
+                                <span>Resting until {n.rest_until}</span>
+                              )}
+                              {n.status === 'available' && (
+                                <span>Ready to activate</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
