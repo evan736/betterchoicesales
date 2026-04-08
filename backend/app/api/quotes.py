@@ -832,7 +832,7 @@ def check_followups_verbose(
                     premium=float(latest.quoted_premium or 0),
                     premium_term=latest.premium_term or "6 months",
                     agent_name=latest.producer_name or "",
-                    agent_email=latest.producer_email or "",
+                    agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
                     quote_id=latest.id,
                     day=followup_day,
                     unsubscribe_token=latest.unsubscribe_token or "",
@@ -842,7 +842,7 @@ def check_followups_verbose(
                         to_email=latest.prospect_email,
                         subject=subject,
                         html=html,
-                        agent_email=latest.producer_email or "",
+                        agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
                         quote_id=latest.id,
                     )
                     details.append({
@@ -1118,7 +1118,7 @@ def _check_followups_logic(db: Session) -> dict:
                             premium=float(br.quoted_premium or 0),
                             premium_term=br.premium_term or "6 months",
                             agent_name=br.producer_name or "",
-                            agent_email=br.producer_email or "",
+                            agent_email=getattr(br, 'producer_email', '') or 'service@betterchoiceins.com',
                             quote_id=br.id,
                             day="bind_retarget",
                             unsubscribe_token=br.unsubscribe_token or "",
@@ -1128,7 +1128,7 @@ def _check_followups_logic(db: Session) -> dict:
                                 to_email=br.prospect_email,
                                 subject=subject,
                                 html=html,
-                                agent_email=br.producer_email or "",
+                                agent_email=getattr(br, 'producer_email', '') or 'service@betterchoiceins.com',
                                 quote_id=br.id,
                             )
                             results["bind_retarget"] = results.get("bind_retarget", 0) + 1
@@ -1201,7 +1201,7 @@ def _check_followups_logic(db: Session) -> dict:
                     premium=float(latest.quoted_premium or 0),
                     premium_term=latest.premium_term or "6 months",
                     agent_name=latest.producer_name or "",
-                    agent_email=latest.producer_email or "",
+                    agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
                     quote_id=latest.id,
                     day=followup_day,
                     unsubscribe_token=latest.unsubscribe_token or "",
@@ -1211,7 +1211,7 @@ def _check_followups_logic(db: Session) -> dict:
                         to_email=latest.prospect_email,
                         subject=subject,
                         html=html,
-                        agent_email=latest.producer_email or "",
+                        agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
                         quote_id=latest.id,
                     )
                     email_sent = result.get("success", False)
