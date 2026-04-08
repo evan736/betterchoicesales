@@ -210,4 +210,57 @@ async def mailgun_tracking_webhook(request: Request):
         url = event_data.get("url", data.get("url", ""))
         logger.info(f"Email click: {customer_name} clicked {url} in {email_type} email")
 
+    # Handle requote campaign open/click events — update lead + campaign counters
+    if email_type == "requote_campaign" and event_type in ("opened", "clicked"):
+        try:
+            from app.core.database import SessionLocal
+            from app.models.campaign import RequoteCampaign
+            db = SessionLocal()
+            try:
+                # Find the lead by email
+                from sqlalchemy import text
+                lead_row = db.execute(text(
+                    "SELECT id, campaign_id, touch1_opened, touch2_opened, touch3_opened "
+                    "FROM requote_leads WHERE LOWER(email) = :email LIMIT 1"
+                ), {"email": (recipient or customer_email or "").lower().strip()}).fetchone()
+
+                if lead_row:
+                    lead_id, campaign_id = lead_row[0], lead_row[1]
+                    # Mark the latest touch as opened
+                    if not lead_row[2]:
+                        db.execute(text("UPDATE requote_leads SET touch1_opened = TRUE WHERE id = :id"), {"id": lead_id})
+                    elif not lead_row[3]:
+                        db.execute(text("UPDATE requote_leads SET touch2_opened = TRUE WHERE id = :id"), {"id": lead_id})
+                    elif not lead_row[4]:
+                        db.execute(text("UPDATE requote_leads SET touch3_opened = TRUE WHERE id = :id"), {"id": lead_id})
+
+                    # Increment campaign counter
+                    if event_type == "opened":
+                        db.execute(text("UPDATE requote_campaigns SET emails_opened = emails_opened + 1 WHERE id = :id"), {"id": campaign_id})
+                    elif event_type == "clicked":
+                        db.execute(text("UPDATE requote_campaigns SET emails_clicked = COALESCE(emails_clicked, 0) + 1 WHERE id = :id"), {"id": campaign_id})
+                    db.commit()
+                    logger.info(f"Campaign {event_type} tracked: {recipient} (lead {lead_id}, campaign {campaign_id})")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Campaign tracking error: {e}")
+
+    # Handle quote followup open/click events
+    if email_type == "quote_followup" and event_type == "opened":
+        try:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                from sqlalchemy import text
+                db.execute(text(
+                    "UPDATE quotes SET followup_disabled = followup_disabled WHERE prospect_email ILIKE :email"
+                ), {"email": (recipient or customer_email or "").lower().strip()})
+                # Just log — the important thing is we know they're engaged
+                logger.info(f"Quote followup opened by {recipient}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Quote followup tracking error: {e}")
+
     return {"status": "ok", "event": event_type}
