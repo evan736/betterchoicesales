@@ -253,22 +253,92 @@ def campaign_stats(campaign_id: int):
         by_attempts = {}
         due_now = 0
 
+        # Conversion tracking by age bucket
+        age_performance = {}
+        for bucket in ["0-7d", "8-14d", "15-21d", "22-30d", "31-60d", "61-75d"]:
+            age_performance[bucket] = {
+                "total": 0, "dialed": 0, "contacted": 0, "transferred": 0,
+                "callbacks": 0, "soft_no": 0, "hard_no": 0, "dnc": 0,
+                "contact_rate": 0, "transfer_rate": 0,
+            }
+
+        total_dialed = 0
+        total_contacted = 0  # answered (not no_answer, not voicemail)
+        total_transferred = 0
+        total_callbacks = 0
+        total_dnc = 0
+        total_attempts = 0
+        next_scheduled = None
+        last_dialed = None
+
+        contacted_statuses = {"transferred", "callback_scheduled", "soft_no", "hard_no", "do_not_call", "interested", "already_insured"}
+
         for l in leads:
             statuses[l.status] = statuses.get(l.status, 0) + 1
             age = get_lead_age(l)
-            if age <= 7: age_buckets["0-7d"] += 1
-            elif age <= 14: age_buckets["8-14d"] += 1
-            elif age <= 21: age_buckets["15-21d"] += 1
-            elif age <= 30: age_buckets["22-30d"] += 1
-            elif age <= 60: age_buckets["31-60d"] += 1
-            else: age_buckets["61-75d"] += 1
+
+            # Age bucket
+            if age <= 7: bucket = "0-7d"
+            elif age <= 14: bucket = "8-14d"
+            elif age <= 21: bucket = "15-21d"
+            elif age <= 30: bucket = "22-30d"
+            elif age <= 60: bucket = "31-60d"
+            else: bucket = "61-75d"
+
+            age_buckets[bucket] += 1
+            age_performance[bucket]["total"] += 1
 
             by_attempts[l.attempts] = by_attempts.get(l.attempts, 0) + 1
+
+            if l.attempts > 0:
+                total_dialed += 1
+                total_attempts += l.attempts
+                age_performance[bucket]["dialed"] += 1
+
+            if l.status in contacted_statuses:
+                total_contacted += 1
+                age_performance[bucket]["contacted"] += 1
+
+            if l.status == "transferred":
+                total_transferred += 1
+                age_performance[bucket]["transferred"] += 1
+            elif l.status == "callback_scheduled":
+                total_callbacks += 1
+                age_performance[bucket]["callbacks"] += 1
+            elif l.status == "soft_no":
+                age_performance[bucket]["soft_no"] += 1
+            elif l.status == "hard_no":
+                age_performance[bucket]["hard_no"] += 1
+            elif l.status == "do_not_call":
+                total_dnc += 1
+                age_performance[bucket]["dnc"] += 1
+
+            # Track next scheduled dial
+            if l.next_attempt_after and l.status in ("pending", "dialed"):
+                if not next_scheduled or l.next_attempt_after < next_scheduled:
+                    next_scheduled = l.next_attempt_after
+
+            # Track last dialed
+            if l.last_attempt_at:
+                if not last_dialed or l.last_attempt_at > last_dialed:
+                    last_dialed = l.last_attempt_at
 
             # Check if due
             if l.status in ("pending", "dialed") and l.attempts < 10 and age <= MAX_LEAD_AGE:
                 if not l.next_attempt_after or datetime.now() >= l.next_attempt_after:
                     due_now += 1
+
+        # Calculate rates per age bucket
+        for bucket in age_performance:
+            p = age_performance[bucket]
+            if p["dialed"] > 0:
+                p["contact_rate"] = round(p["contacted"] / p["dialed"] * 100, 1)
+                p["transfer_rate"] = round(p["transferred"] / p["dialed"] * 100, 1)
+
+        # Overall rates
+        contact_rate = round(total_contacted / total_dialed * 100, 1) if total_dialed > 0 else 0
+        transfer_rate = round(total_transferred / total_dialed * 100, 1) if total_dialed > 0 else 0
+        answer_rate = round(total_contacted / total_dialed * 100, 1) if total_dialed > 0 else 0
 
         return {
             "total": len(leads),
@@ -276,6 +346,20 @@ def campaign_stats(campaign_id: int):
             "statuses": statuses,
             "age_buckets": age_buckets,
             "by_attempts": by_attempts,
+            "age_performance": age_performance,
+            # Overall metrics
+            "total_dialed": total_dialed,
+            "total_contacted": total_contacted,
+            "total_transferred": total_transferred,
+            "total_callbacks": total_callbacks,
+            "total_dnc": total_dnc,
+            "total_attempts": total_attempts,
+            "contact_rate": contact_rate,
+            "transfer_rate": transfer_rate,
+            "answer_rate": answer_rate,
+            "avg_attempts": round(total_attempts / total_dialed, 1) if total_dialed > 0 else 0,
+            "next_scheduled": next_scheduled.isoformat() if next_scheduled else None,
+            "last_dialed": last_dialed.isoformat() if last_dialed else None,
         }
     finally:
         db.close()
@@ -300,11 +384,70 @@ def list_leads(campaign_id: int, status: Optional[str] = None, limit: int = 50, 
                     "attempts": l.attempts, "interest_level": l.interest_level,
                     "request_date": l.request_date.isoformat() if l.request_date else None,
                     "last_attempt_at": l.last_attempt_at.isoformat() if l.last_attempt_at else None,
+                    "next_attempt_after": l.next_attempt_after.isoformat() if l.next_attempt_after else None,
                     "notes": l.notes,
+                    "call_ids": l.call_ids or [],
                 }
                 for l in leads
             ]
         }
+    finally:
+        db.close()
+
+
+# ── DNC Management ─────────────────────────────────────────────
+
+@router.post("/leads/{lead_id}/dnc")
+def mark_lead_dnc(lead_id: int):
+    """Mark a specific lead as DNC from the UI."""
+    db = SessionLocal()
+    try:
+        lead = db.query(DialerLead).filter(DialerLead.id == lead_id).first()
+        if not lead:
+            return {"error": "Lead not found"}
+        lead.status = "do_not_call"
+        # Also add to global DNC
+        existing = db.query(DialerDNC).filter(DialerDNC.phone == lead.phone).first()
+        if not existing:
+            db.add(DialerDNC(phone=lead.phone, reason="lead_request"))
+        db.commit()
+        return {"id": lead.id, "status": "do_not_call"}
+    finally:
+        db.close()
+
+
+# ── Lead Pipeline Integration ──────────────────────────────────
+
+@router.post("/campaigns/{campaign_id}/export-to-pipeline")
+async def export_to_pipeline(campaign_id: int, request: Request):
+    """Export contacted/interested leads to the outreach campaign pipeline."""
+    body = await request.json()
+    export_statuses = body.get("statuses", ["transferred", "callback_scheduled", "interested", "soft_no"])
+
+    db = SessionLocal()
+    try:
+        leads = db.query(DialerLead).filter(
+            DialerLead.campaign_id == campaign_id,
+            DialerLead.status.in_(export_statuses),
+            DialerLead.email != "",
+            DialerLead.email != None,
+        ).all()
+
+        exported = []
+        for l in leads:
+            exported.append({
+                "name": l.name,
+                "email": l.email,
+                "phone": l.phone,
+                "address": l.address,
+                "carrier": l.carrier,
+                "source": "ai_dialer",
+                "status": l.status,
+                "interest_level": l.interest_level,
+                "notes": l.notes,
+            })
+
+        return {"exported": len(exported), "leads": exported}
     finally:
         db.close()
 
