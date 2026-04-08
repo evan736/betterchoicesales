@@ -2008,8 +2008,9 @@ async def dialer_post_call_webhook(request: Request):
             }
             interest_badge = interest_badges.get(interest, f"❓ {interest}")
 
-            # Only email for actionable outcomes
-            skip_email = lead_status in ("no_answer", "wrong_number")
+            # Only email for outcomes the sales team needs to act on
+            email_statuses = ("transferred", "callback_scheduled", "interested")
+            skip_email = lead_status not in email_statuses
 
             if not skip_email:
                 # Color header based on status
