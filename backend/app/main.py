@@ -863,6 +863,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Leads migration: {e}")
 
+    # Dialer tables
+    try:
+        from app.migrations.dialer_migration import migrate_dialer
+        migrate_dialer()
+        logger.info("Dialer tables migrated")
+    except Exception as e:
+        logger.warning(f"Dialer migration: {e}")
+
     # Sales records tables
     try:
         from app.migrations.sales_records_migration import migrate_sales_records
