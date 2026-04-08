@@ -101,9 +101,8 @@ def list_campaigns():
 
 
 @router.post("/campaigns")
-def create_campaign(request: Request):
-    import asyncio
-    body = asyncio.get_event_loop().run_until_complete(request.json())
+async def create_campaign(request: Request):
+    body = await request.json()
     db = SessionLocal()
     try:
         c = DialerCampaign(
