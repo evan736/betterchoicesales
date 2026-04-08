@@ -121,6 +121,17 @@ export const statementsAPI = {
 
 export default api;
 
+// Commission Tracker API
+export const commissionTrackerAPI = {
+  dashboard: (params?: any) => api.get('/api/commission-tracker/', { params }),
+  scanSales: (params?: any) => api.post('/api/commission-tracker/scan-sales', null, { params }),
+  scanRenewals: (params?: any) => api.post('/api/commission-tracker/scan-renewals', null, { params }),
+  autoMatch: () => api.post('/api/commission-tracker/auto-match'),
+  resolve: (id: number, notes: string) => api.post(`/api/commission-tracker/${id}/resolve`, null, { params: { notes } }),
+  flag: (id: number, reason: string) => api.post(`/api/commission-tracker/${id}/flag`, null, { params: { reason } }),
+  carrierReport: (carrier: string, months?: number) => api.get(`/api/commission-tracker/carrier-report/${carrier}`, { params: { months } }),
+};
+
 // Analytics API
 export const analyticsAPI = {
   summary: (params?: any) => api.get('/api/analytics/summary', { params }),

@@ -7,7 +7,7 @@ import NotificationCenter from './NotificationCenter';
 import { reshopAPI } from '../lib/api';
 import axios from 'axios';
 import {
-  LogOut, TrendingUp, FileText, Upload, BarChart2, Clock,
+  LogOut, TrendingUp, FileText, Upload, BarChart2, Clock, DollarSign,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
   Inbox, MessageCircle, Zap, BookOpen, Bug, Search, UserPlus,
 } from 'lucide-react';
@@ -244,6 +244,7 @@ const Navbar: React.FC = () => {
         { href: '/beacon-kb', label: 'BEACON Knowledge', icon: <BookOpen size={16} />, show: true },
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
+        { href: '/commission-tracker', label: 'Commission Tracker', icon: <DollarSign size={16} />, show: isManager },
         { href: '/analytics', label: 'Agency Sales', icon: <BarChart2 size={16} />, show: true },
         { href: '/revenue-tracker', label: 'Revenue Tracker', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
