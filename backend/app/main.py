@@ -53,7 +53,7 @@ def init_database():
     )
     from app.models.cancellation import CancellationRequest, CancellationCarrier  # ensure tables
     from app.models.mia_bypass import VipBypass, TempAuthorization  # ensure MIA bypass tables
-    from app.models.dialer import DialerCampaign, DialerLead, DialerDNC  # dialer tables
+    from app.models.dialer import DialerCampaign, DialerLead, DialerDNC, DialerPhoneNumber  # dialer tables
     from decimal import Decimal
 
     logger.info("Creating database tables...")

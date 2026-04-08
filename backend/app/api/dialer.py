@@ -606,49 +606,131 @@ import threading
 
 _dialer_threads = {}  # campaign_id -> thread reference
 
-# Number rotation pool — 5 San Antonio TX numbers
-ROTATION_NUMBERS = [
-    "+12108649246",
-    "+12109886575",
-    "+12109344252",
-    "+12108710493",
-    "+12108791893",
-]
-CALLS_PER_NUMBER = 60  # Rotate after this many calls per number per day
-_number_daily_counts = {}  # "YYYY-MM-DD:+1number" -> count
+# Number rotation config
+CALLS_PER_NUMBER_PER_DAY = 60
+ACTIVE_DAYS_BEFORE_REST = 5   # Use a number for 5 days then rest it
+REST_DAYS = 30                 # Rest a number for 30 days before reuse
+ACTIVE_POOL_SIZE = 5           # Always keep 5 numbers active
+AREA_CODE = 210                # San Antonio TX
+
+# In-memory daily counts (reset on restart, which is fine)
+_number_daily_counts = {}
 _current_number_idx = 0
 
 
-def _get_next_from_number():
-    """Get the next outbound number, rotating after CALLS_PER_NUMBER calls."""
+def _get_number_pool(db):
+    """Get active numbers, handle rotation/cooldown/purchasing."""
+    from app.models.dialer import DialerPhoneNumber
+
+    today = datetime.now().date()
+
+    # Check all numbers
+    all_numbers = db.query(DialerPhoneNumber).order_by(DialerPhoneNumber.created_at).all()
+
+    active = []
+    resting = []
+
+    for n in all_numbers:
+        if n.status == "resting":
+            # Check if rest period is over
+            if n.rest_until and today >= n.rest_until.date():
+                n.status = "available"
+                n.days_used = 0
+                n.first_used_date = None
+                n.rest_until = None
+                db.commit()
+
+        if n.status == "active":
+            # Check if this number has been active for 5 days
+            if n.first_used_date and (today - n.first_used_date.date()).days >= ACTIVE_DAYS_BEFORE_REST:
+                n.status = "resting"
+                n.rest_until = datetime.now() + timedelta(days=REST_DAYS)
+                db.commit()
+                logger.info(f"[NumberPool] {n.phone} resting until {n.rest_until.strftime('%m/%d/%Y')}")
+                resting.append(n)
+                continue
+            active.append(n)
+
+        elif n.status == "available":
+            active.append(n)
+
+    # If we don't have enough active numbers, promote available or buy new
+    while len(active) < ACTIVE_POOL_SIZE:
+        # Try to find an available number
+        avail = db.query(DialerPhoneNumber).filter(DialerPhoneNumber.status == "available").first()
+        if avail:
+            avail.status = "active"
+            if not avail.first_used_date:
+                avail.first_used_date = datetime.now()
+            db.commit()
+            active.append(avail)
+            logger.info(f"[NumberPool] Activated {avail.phone}")
+        else:
+            # Buy a new number
+            try:
+                resp = http_requests.post(
+                    "https://api.retellai.com/create-phone-number",
+                    headers=RETELL_HEADERS,
+                    json={"area_code": AREA_CODE, "outbound_agent_id": "agent_9053034bcaf1d5142849878c2d"},
+                    timeout=30,
+                )
+                if resp.status_code == 201:
+                    new_phone = resp.json().get("phone_number")
+                    new_num = DialerPhoneNumber(
+                        phone=new_phone, status="active",
+                        first_used_date=datetime.now(),
+                    )
+                    db.add(new_num)
+                    db.commit()
+                    active.append(new_num)
+                    logger.info(f"[NumberPool] Purchased & activated {new_phone}")
+                else:
+                    logger.error(f"[NumberPool] Failed to buy number: {resp.text}")
+                    break
+            except Exception as e:
+                logger.error(f"[NumberPool] Error buying number: {e}")
+                break
+
+    return [n.phone for n in active]
+
+
+def _get_next_from_number(db):
+    """Get the next outbound number with daily count rotation."""
     global _current_number_idx
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Try current number first
-    for _ in range(len(ROTATION_NUMBERS)):
-        num = ROTATION_NUMBERS[_current_number_idx]
+    pool = _get_number_pool(db)
+    if not pool:
+        return "+12108649246"  # Fallback
+
+    for _ in range(len(pool)):
+        idx = _current_number_idx % len(pool)
+        num = pool[idx]
         key = f"{today}:{num}"
         count = _number_daily_counts.get(key, 0)
 
-        if count < CALLS_PER_NUMBER:
+        if count < CALLS_PER_NUMBER_PER_DAY:
             _number_daily_counts[key] = count + 1
+
+            # Update first_used_date if needed
+            from app.models.dialer import DialerPhoneNumber
+            pn = db.query(DialerPhoneNumber).filter(DialerPhoneNumber.phone == num).first()
+            if pn and not pn.first_used_date:
+                pn.first_used_date = datetime.now()
+                db.commit()
+
             return num
 
-        # This number is maxed, try next
-        _current_number_idx = (_current_number_idx + 1) % len(ROTATION_NUMBERS)
+        _current_number_idx = (_current_number_idx + 1) % len(pool)
 
-    # All numbers maxed for today — use first one anyway (over daily limit)
-    num = ROTATION_NUMBERS[0]
-    key = f"{today}:{num}"
-    _number_daily_counts[key] = _number_daily_counts.get(key, 0) + 1
-    return num
+    # All maxed — use first
+    return pool[0]
 
 
 def _reset_daily_counts_if_new_day():
     """Clear counts at midnight."""
     global _number_daily_counts
     today = datetime.now().strftime("%Y-%m-%d")
-    # Remove old days
     _number_daily_counts = {k: v for k, v in _number_daily_counts.items() if k.startswith(today)}
 
 
@@ -721,7 +803,7 @@ def _auto_dial_loop(campaign_id: int):
                 first_name = lead.name.split()[0] if lead.name else "there"
 
                 try:
-                    from_number = _get_next_from_number()
+                    from_number = _get_next_from_number(db)
                     resp = http_requests.post(
                         "https://api.retellai.com/v2/create-phone-call",
                         headers=RETELL_HEADERS,
@@ -840,23 +922,51 @@ async def stop_auto_dialer(campaign_id: int):
 
 @router.get("/campaigns/{campaign_id}/dialer-status")
 def dialer_status(campaign_id: int):
-    """Check if the auto-dialer is currently running + number rotation stats."""
+    """Check auto-dialer status + number rotation pool."""
     running = campaign_id in _dialer_threads and _dialer_threads[campaign_id].is_alive()
     today = datetime.now().strftime("%Y-%m-%d")
-    number_stats = {}
-    for num in ROTATION_NUMBERS:
-        key = f"{today}:{num}"
-        count = _number_daily_counts.get(key, 0)
-        number_stats[num] = {"calls_today": count, "max": CALLS_PER_NUMBER, "exhausted": count >= CALLS_PER_NUMBER}
-    current_num = ROTATION_NUMBERS[_current_number_idx] if ROTATION_NUMBERS else None
-    return {
-        "campaign_id": campaign_id,
-        "running": running,
-        "current_number": current_num,
-        "number_rotation": number_stats,
-        "total_numbers": len(ROTATION_NUMBERS),
-        "calls_per_number": CALLS_PER_NUMBER,
-    }
+
+    db = SessionLocal()
+    try:
+        from app.models.dialer import DialerPhoneNumber
+        all_nums = db.query(DialerPhoneNumber).order_by(DialerPhoneNumber.created_at).all()
+
+        numbers = []
+        active_count = 0
+        resting_count = 0
+        for n in all_nums:
+            key = f"{today}:{n.phone}"
+            calls_today = _number_daily_counts.get(key, 0)
+            days_active = (datetime.now() - n.first_used_date).days if n.first_used_date else 0
+
+            numbers.append({
+                "phone": n.phone,
+                "status": n.status,
+                "days_active": days_active if n.status == "active" else 0,
+                "days_until_rest": max(0, ACTIVE_DAYS_BEFORE_REST - days_active) if n.status == "active" else None,
+                "rest_until": n.rest_until.strftime("%m/%d/%Y") if n.rest_until else None,
+                "calls_today": calls_today,
+                "max_per_day": CALLS_PER_NUMBER_PER_DAY,
+            })
+            if n.status == "active": active_count += 1
+            if n.status == "resting": resting_count += 1
+
+        return {
+            "campaign_id": campaign_id,
+            "running": running,
+            "active_numbers": active_count,
+            "resting_numbers": resting_count,
+            "total_numbers": len(all_nums),
+            "numbers": numbers,
+            "config": {
+                "calls_per_number_per_day": CALLS_PER_NUMBER_PER_DAY,
+                "active_days_before_rest": ACTIVE_DAYS_BEFORE_REST,
+                "rest_days": REST_DAYS,
+                "pool_size": ACTIVE_POOL_SIZE,
+            },
+        }
+    finally:
+        db.close()
 
 
 # Keep old manual dial endpoint for testing

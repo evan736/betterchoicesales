@@ -24,4 +24,29 @@ def migrate_dialer():
         _add_col(conn, "dialer_leads", "state", "VARCHAR")
         _add_col(conn, "dialer_leads", "city", "VARCHAR")
         _add_col(conn, "dialer_leads", "dob", "VARCHAR")
+
+        # Create dialer_phone_numbers if not exists
+        result = conn.execute(text(
+            "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename='dialer_phone_numbers'"
+        ))
+        if not list(result):
+            conn.execute(text("""
+                CREATE TABLE dialer_phone_numbers (
+                    id SERIAL PRIMARY KEY,
+                    phone VARCHAR UNIQUE NOT NULL,
+                    status VARCHAR DEFAULT 'active',
+                    first_used_date TIMESTAMP,
+                    rest_until TIMESTAMP,
+                    total_calls INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            # Seed existing 5 SA numbers
+            for num in ['+12108649246', '+12109886575', '+12109344252', '+12108710493', '+12108791893']:
+                conn.execute(text(
+                    "INSERT INTO dialer_phone_numbers (phone, status) VALUES (:phone, 'active') ON CONFLICT (phone) DO NOTHING"
+                ), {"phone": num})
+            logger.info("Created dialer_phone_numbers table with 5 SA numbers")
+
         logger.info("Dialer tables migrated")

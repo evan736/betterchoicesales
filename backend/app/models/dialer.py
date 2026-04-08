@@ -67,3 +67,17 @@ class DialerDNC(Base):
     phone = Column(String, unique=True, nullable=False, index=True)
     reason = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class DialerPhoneNumber(Base):
+    """Outbound phone numbers for the dialer with rotation/cooldown tracking."""
+    __tablename__ = "dialer_phone_numbers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, unique=True, nullable=False, index=True)
+    status = Column(String, default="active")  # active, resting, available, retired
+    first_used_date = Column(DateTime, nullable=True)  # When this number started being used
+    rest_until = Column(DateTime, nullable=True)  # When cooldown ends
+    total_calls = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
