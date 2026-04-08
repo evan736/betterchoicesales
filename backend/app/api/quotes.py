@@ -779,13 +779,11 @@ def check_followups_verbose(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Check followups with detailed error reporting per prospect."""
+    """DIAGNOSTIC ONLY — shows what the scheduler would do, sends nothing."""
     if current_user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
-    from app.services.quote_followup_email import (
-        build_followup_email, send_followup_email, _has_matching_sale,
-    )
+    from app.services.quote_followup_email import _has_matching_sale
     from collections import defaultdict
 
     now = datetime.utcnow()
@@ -809,7 +807,6 @@ def check_followups_verbose(
         if any(getattr(q, 'followup_disabled', False) for q in quotes):
             details.append({"name": latest.prospect_name, "action": "skipped_disabled"})
             continue
-
         if _has_matching_sale(db, latest.prospect_name or "", latest.prospect_email or "", latest.carrier or ""):
             details.append({"name": latest.prospect_name, "action": "skipped_sold"})
             continue
@@ -818,56 +815,18 @@ def check_followups_verbose(
         days_since = (now - sent_at).days
 
         followup_day = None
-        if days_since >= 3 and not latest.followup_3day_sent:
-            followup_day = 3
-        elif days_since >= 7 and not latest.followup_7day_sent:
-            followup_day = 7
+        if days_since >= 3 and not latest.followup_3day_sent: followup_day = 3
+        elif days_since >= 7 and not latest.followup_7day_sent: followup_day = 7
+        elif days_since >= 14 and not latest.followup_14day_sent: followup_day = 14
 
-        if followup_day and latest.prospect_email:
-            try:
-                subject, html = build_followup_email(
-                    prospect_name=latest.prospect_name or "",
-                    carrier=latest.carrier or "",
-                    policy_type=latest.policy_type or "",
-                    premium=float(latest.quoted_premium or 0),
-                    premium_term=latest.premium_term or "6 months",
-                    agent_name=latest.producer_name or "",
-                    agent_email=_get_producer_email(latest),
-                    quote_id=latest.id,
-                    day=followup_day,
-                    unsubscribe_token=latest.unsubscribe_token or "",
-                )
-                if subject and html:
-                    result = send_followup_email(
-                        to_email=latest.prospect_email,
-                        subject=subject,
-                        html=html,
-                        agent_email=_get_producer_email(latest),
-                        quote_id=latest.id,
-                    )
-                    details.append({
-                        "name": latest.prospect_name,
-                        "email": latest.prospect_email,
-                        "day": followup_day,
-                        "days_since": days_since,
-                        "result": result,
-                    })
-                else:
-                    details.append({"name": latest.prospect_name, "day": followup_day, "error": "build returned None"})
-            except Exception as e:
-                details.append({"name": latest.prospect_name, "day": followup_day, "error": str(e)})
-        else:
-            details.append({
-                "name": latest.prospect_name,
-                "days_since": days_since,
-                "followup_day": followup_day,
-                "has_email": bool(latest.prospect_email),
-                "fu3": latest.followup_3day_sent,
-                "fu7": latest.followup_7day_sent,
-                "action": "no_action_needed",
-            })
+        details.append({
+            "name": latest.prospect_name, "email": latest.prospect_email,
+            "days_since": days_since, "would_send": f"Day {followup_day}" if followup_day else "no_action",
+            "fu3": latest.followup_3day_sent, "fu7": latest.followup_7day_sent,
+            "fu14": latest.followup_14day_sent, "status": latest.status,
+        })
 
-    return {"details": details}
+    return {"details": details, "note": "DIAGNOSTIC ONLY — no emails sent"}
 
 
 @router.post("/reset-followup-flags")
