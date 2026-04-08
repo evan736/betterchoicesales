@@ -1,0 +1,464 @@
+"""Dialer API — manage outbound calling campaigns."""
+import csv
+import io
+import json
+import logging
+import random
+import requests as http_requests
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import APIRouter, Request, UploadFile, File, Form, Query
+from app.core.database import SessionLocal
+from app.models.dialer import DialerCampaign, DialerLead, DialerDNC
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/dialer", tags=["dialer"])
+
+RETELL_API_KEY = "key_316cf491d8daeb1214e3490380a7"
+RETELL_HEADERS = {
+    "Authorization": f"Bearer {RETELL_API_KEY}",
+    "Content-Type": "application/json",
+}
+
+# 30-day cadence: (day_offset, preferred_time_slot)
+CADENCE = [
+    (0, "morning"), (0, "afternoon"),
+    (1, "evening"), (2, "morning"),
+    (4, "afternoon"), (6, "evening"),
+    (10, "morning"), (14, "afternoon"),
+    (21, "evening"), (29, "morning"),
+]
+
+MAX_LEAD_AGE = 75
+
+
+def get_ct_now():
+    try:
+        import zoneinfo
+        return datetime.now(zoneinfo.ZoneInfo("America/Chicago"))
+    except:
+        return datetime.utcnow() - timedelta(hours=6)
+
+
+def get_time_slot():
+    h = get_ct_now().hour
+    if h < 12: return "morning"
+    elif h < 15: return "afternoon"
+    return "evening"
+
+
+def clean_phone(phone):
+    if not phone: return None
+    p = str(phone).strip().replace("-","").replace("(","").replace(")","").replace(" ","").replace(".","")
+    if p.startswith("+1"): return p
+    if p.startswith("1") and len(p) == 11: return f"+{p}"
+    if len(p) == 10: return f"+1{p}"
+    return None
+
+
+def is_calling_hours():
+    ct = get_ct_now()
+    if ct.weekday() >= 5: return False, "Weekend"
+    if ct.hour < 10 or (ct.hour == 10 and ct.minute < 30): return False, "Before 10:30 AM"
+    if ct.hour >= 18: return False, "After 6 PM"
+    return True, "OK"
+
+
+def get_lead_age(lead):
+    if lead.request_date:
+        return (datetime.now() - lead.request_date).days
+    return (datetime.now() - lead.created_at).days
+
+
+def pitch_style(age):
+    if age <= 7: return "hot"
+    elif age <= 21: return "warm"
+    elif age <= 45: return "cool"
+    return "cold"
+
+
+# ── Campaign CRUD ──────────────────────────────────────────────
+
+@router.get("/campaigns")
+def list_campaigns():
+    db = SessionLocal()
+    try:
+        campaigns = db.query(DialerCampaign).order_by(DialerCampaign.created_at.desc()).all()
+        return [
+            {
+                "id": c.id, "name": c.name, "agent_id": c.agent_id,
+                "agent_name": c.agent_name, "from_number": c.from_number,
+                "status": c.status, "total_leads": c.total_leads,
+                "total_dialed": c.total_dialed, "total_transferred": c.total_transferred,
+                "total_callbacks": c.total_callbacks,
+                "max_calls_per_day": c.max_calls_per_day,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in campaigns
+        ]
+    finally:
+        db.close()
+
+
+@router.post("/campaigns")
+def create_campaign(request: Request):
+    import asyncio
+    body = asyncio.get_event_loop().run_until_complete(request.json())
+    db = SessionLocal()
+    try:
+        c = DialerCampaign(
+            name=body.get("name", "New Campaign"),
+            agent_id=body.get("agent_id", "agent_9053034bcaf1d5142849878c2d"),
+            agent_name=body.get("agent_name", "Grace"),
+            from_number=body.get("from_number", "+16304267466"),
+            max_calls_per_day=body.get("max_calls_per_day", 300),
+        )
+        db.add(c)
+        db.commit()
+        db.refresh(c)
+        return {"id": c.id, "name": c.name, "status": c.status}
+    finally:
+        db.close()
+
+
+@router.patch("/campaigns/{campaign_id}")
+async def update_campaign(campaign_id: int, request: Request):
+    body = await request.json()
+    db = SessionLocal()
+    try:
+        c = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not c:
+            return {"error": "Campaign not found"}
+        for key in ["name", "status", "agent_id", "from_number", "max_calls_per_day"]:
+            if key in body:
+                setattr(c, key, body[key])
+        db.commit()
+        return {"id": c.id, "status": c.status}
+    finally:
+        db.close()
+
+
+# ── Lead Upload ────────────────────────────────────────────────
+
+@router.post("/campaigns/{campaign_id}/upload")
+async def upload_leads(campaign_id: int, file: UploadFile = File(...)):
+    db = SessionLocal()
+    try:
+        campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not campaign:
+            return {"error": "Campaign not found"}
+
+        # Get existing phones + DNC
+        existing = {l.phone for l in db.query(DialerLead.phone).filter(DialerLead.campaign_id == campaign_id).all()}
+        dnc = {d.phone for d in db.query(DialerDNC.phone).all()}
+
+        content = await file.read()
+        text = content.decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+
+        added = 0
+        skipped_dup = 0
+        skipped_dnc = 0
+        skipped_bad = 0
+        skipped_expired = 0
+
+        for row in reader:
+            first = row.get("FirstName") or row.get("firstname") or row.get("first_name") or ""
+            last = row.get("LastName") or row.get("lastname") or row.get("last_name") or ""
+            name = (row.get("name") or row.get("Name") or f"{first} {last}").strip()
+
+            phone_raw = row.get("PHONE") or row.get("phone") or row.get("Phone") or row.get("phone_number") or ""
+            phone = clean_phone(phone_raw)
+
+            if not phone:
+                skipped_bad += 1
+                continue
+            if phone in dnc:
+                skipped_dnc += 1
+                continue
+            if phone in existing:
+                skipped_dup += 1
+                continue
+
+            # Parse request date
+            rd_raw = row.get("requestdate") or row.get("RequestDate") or row.get("request_date") or ""
+            request_date = None
+            if rd_raw:
+                try:
+                    request_date = datetime.strptime(rd_raw.split(" ")[0], "%m/%d/%Y")
+                except:
+                    try:
+                        request_date = datetime.strptime(rd_raw.split(" ")[0], "%Y-%m-%d")
+                    except:
+                        pass
+
+            if request_date and (datetime.now() - request_date).days > MAX_LEAD_AGE:
+                skipped_expired += 1
+                continue
+
+            # Build address
+            parts = []
+            for f in ["address", "Address", "ADDRESS"]:
+                if row.get(f): parts.append(row[f])
+            for f in ["city", "City", "CITY"]:
+                if row.get(f): parts.append(row[f])
+            for f in ["state", "State", "STATE"]:
+                if row.get(f): parts.append(row[f])
+            for f in ["zip", "Zip", "Zipcode", "ZIP"]:
+                if row.get(f): parts.append(row[f])
+
+            lead = DialerLead(
+                campaign_id=campaign_id,
+                name=name or "Unknown",
+                phone=phone,
+                email=row.get("email") or row.get("Email") or row.get("EMAIL") or "",
+                address=", ".join(parts),
+                carrier=row.get("Carrier") or row.get("carrier") or "",
+                home_value=row.get("HOMEVALUE") or "",
+                roof_installed=row.get("RoofInstalled") or "",
+                prop_type=row.get("Proptype") or "",
+                request_date=request_date,
+            )
+            db.add(lead)
+            existing.add(phone)
+            added += 1
+
+        db.commit()
+
+        # Update campaign totals
+        campaign.total_leads = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id).count()
+        db.commit()
+
+        return {
+            "added": added,
+            "skipped_dup": skipped_dup,
+            "skipped_dnc": skipped_dnc,
+            "skipped_bad": skipped_bad,
+            "skipped_expired": skipped_expired,
+            "total_leads": campaign.total_leads,
+        }
+    finally:
+        db.close()
+
+
+# ── Lead Stats ─────────────────────────────────────────────────
+
+@router.get("/campaigns/{campaign_id}/stats")
+def campaign_stats(campaign_id: int):
+    db = SessionLocal()
+    try:
+        leads = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id).all()
+
+        statuses = {}
+        age_buckets = {"0-7d": 0, "8-14d": 0, "15-21d": 0, "22-30d": 0, "31-60d": 0, "61-75d": 0}
+        by_attempts = {}
+        due_now = 0
+
+        for l in leads:
+            statuses[l.status] = statuses.get(l.status, 0) + 1
+            age = get_lead_age(l)
+            if age <= 7: age_buckets["0-7d"] += 1
+            elif age <= 14: age_buckets["8-14d"] += 1
+            elif age <= 21: age_buckets["15-21d"] += 1
+            elif age <= 30: age_buckets["22-30d"] += 1
+            elif age <= 60: age_buckets["31-60d"] += 1
+            else: age_buckets["61-75d"] += 1
+
+            by_attempts[l.attempts] = by_attempts.get(l.attempts, 0) + 1
+
+            # Check if due
+            if l.status in ("pending", "dialed") and l.attempts < 10 and age <= MAX_LEAD_AGE:
+                if not l.next_attempt_after or datetime.now() >= l.next_attempt_after:
+                    due_now += 1
+
+        return {
+            "total": len(leads),
+            "due_now": due_now,
+            "statuses": statuses,
+            "age_buckets": age_buckets,
+            "by_attempts": by_attempts,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/campaigns/{campaign_id}/leads")
+def list_leads(campaign_id: int, status: Optional[str] = None, limit: int = 50, offset: int = 0):
+    db = SessionLocal()
+    try:
+        q = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id)
+        if status:
+            q = q.filter(DialerLead.status == status)
+        q = q.order_by(DialerLead.request_date.desc().nullslast())
+        total = q.count()
+        leads = q.offset(offset).limit(limit).all()
+        return {
+            "total": total,
+            "leads": [
+                {
+                    "id": l.id, "name": l.name, "phone": l.phone, "email": l.email,
+                    "address": l.address, "carrier": l.carrier, "status": l.status,
+                    "attempts": l.attempts, "interest_level": l.interest_level,
+                    "request_date": l.request_date.isoformat() if l.request_date else None,
+                    "last_attempt_at": l.last_attempt_at.isoformat() if l.last_attempt_at else None,
+                    "notes": l.notes,
+                }
+                for l in leads
+            ]
+        }
+    finally:
+        db.close()
+
+
+# ── Dialing Engine ─────────────────────────────────────────────
+
+@router.post("/campaigns/{campaign_id}/dial")
+async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(default=None)):
+    """Start a dial session — calls due leads newest first."""
+    db = SessionLocal()
+    try:
+        campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not campaign:
+            return {"error": "Campaign not found"}
+        if campaign.status != "active":
+            return {"error": f"Campaign is {campaign.status} — set to active first"}
+
+        ok, msg = is_calling_hours()
+        if not ok:
+            return {"error": f"Outside calling hours: {msg}"}
+
+        session_max = max_calls or campaign.max_calls_per_session or 75
+        from_number = campaign.from_number or "+16304267466"
+
+        # Get due leads sorted by age (newest first)
+        leads = db.query(DialerLead).filter(
+            DialerLead.campaign_id == campaign_id,
+            DialerLead.status.in_(["pending", "dialed"]),
+            DialerLead.attempts < 10,
+        ).all()
+
+        due = []
+        for l in leads:
+            age = get_lead_age(l)
+            if age > MAX_LEAD_AGE:
+                l.status = "expired"
+                continue
+            if l.next_attempt_after and datetime.now() < l.next_attempt_after:
+                continue
+            # Check 4hr minimum gap
+            if l.last_attempt_at and (datetime.now() - l.last_attempt_at).total_seconds() < 14400:
+                continue
+            due.append((l, age))
+
+        db.commit()  # save any expired
+
+        # Sort newest first
+        due.sort(key=lambda x: x[1])
+        to_dial = due[:session_max]
+
+        if not to_dial:
+            return {"dialed": 0, "message": "No leads due right now"}
+
+        results = []
+        dialed = 0
+        current_slot = get_time_slot()
+
+        for lead, age in to_dial:
+            ok, _ = is_calling_hours()
+            if not ok:
+                break
+
+            first_name = lead.name.split()[0] if lead.name else "there"
+
+            resp = http_requests.post(
+                "https://api.retellai.com/v2/create-phone-call",
+                headers=RETELL_HEADERS,
+                json={
+                    "agent_id": campaign.agent_id,
+                    "from_number": from_number,
+                    "to_number": lead.phone,
+                    "retell_llm_dynamic_variables": {
+                        "lead_name": first_name,
+                        "lead_full_name": lead.name,
+                        "lead_address": lead.address or "",
+                        "callback_number": "6304267466",
+                        "lead_age_days": str(age),
+                        "pitch_style": pitch_style(age),
+                    },
+                },
+            )
+
+            if resp.status_code == 201:
+                call_id = resp.json().get("call_id", "")
+                lead.attempts += 1
+                lead.last_attempt_at = datetime.now()
+                lead.last_time_slot = current_slot
+                lead.status = "dialed"
+                cids = lead.call_ids or []
+                cids.append(call_id)
+                lead.call_ids = cids
+
+                # Calculate next attempt time based on cadence
+                if lead.attempts < len(CADENCE):
+                    next_day, _ = CADENCE[lead.attempts]
+                    base = lead.request_date or lead.created_at
+                    lead.next_attempt_after = base + timedelta(days=next_day)
+                else:
+                    lead.status = "exhausted"
+
+                campaign.total_dialed = (campaign.total_dialed or 0) + 1
+                dialed += 1
+                results.append({"name": lead.name, "phone": lead.phone, "call_id": call_id, "attempt": lead.attempts, "age": age})
+            else:
+                err = resp.json().get("message", "")
+                results.append({"name": lead.name, "phone": lead.phone, "error": err})
+                if "invalid" in err.lower():
+                    lead.status = "wrong_number"
+
+            db.commit()
+
+            # Pacing
+            if dialed < len(to_dial):
+                delay = random.uniform(
+                    campaign.min_delay_seconds or 30,
+                    campaign.max_delay_seconds or 60
+                )
+                import asyncio
+                await asyncio.sleep(delay)
+
+        return {"dialed": dialed, "total_due": len(due), "results": results}
+    finally:
+        db.close()
+
+
+# ── DNC ────────────────────────────────────────────────────────
+
+@router.post("/dnc")
+async def add_dnc(request: Request):
+    body = await request.json()
+    phone = clean_phone(body.get("phone", ""))
+    if not phone:
+        return {"error": "Invalid phone"}
+
+    db = SessionLocal()
+    try:
+        existing = db.query(DialerDNC).filter(DialerDNC.phone == phone).first()
+        if not existing:
+            db.add(DialerDNC(phone=phone, reason=body.get("reason", "manual")))
+
+        # Mark all leads with this number
+        db.query(DialerLead).filter(DialerLead.phone == phone).update({"status": "do_not_call"})
+        db.commit()
+        return {"phone": phone, "status": "added"}
+    finally:
+        db.close()
+
+
+@router.get("/dnc")
+def list_dnc():
+    db = SessionLocal()
+    try:
+        entries = db.query(DialerDNC).order_by(DialerDNC.created_at.desc()).all()
+        return [{"phone": d.phone, "reason": d.reason, "created_at": d.created_at.isoformat()} for d in entries]
+    finally:
+        db.close()

@@ -1940,3 +1940,134 @@ async def intake_post_call_webhook(request: Request):
     except Exception as e:
         logger.error("Intake post-call error: %s", e)
         return {"status": "error", "message": str(e)}
+
+
+# ── 6. AGED LEAD DIALER POST-CALL WEBHOOK ────────────────────────
+@router.post("/dialer-post-call")
+async def dialer_post_call_webhook(request: Request):
+    """Handle post-call events from the Aged Lead Dialer — email results to sales."""
+    try:
+        body = await request.json()
+        event = body.get("event", "")
+        call = body.get("call", {})
+
+        if event not in ("call_ended", "call_analyzed"):
+            return {"status": "ok", "message": f"Ignored event: {event}"}
+
+        call_id = call.get("call_id", "")
+        from_number = call.get("from_number", "")
+        to_number = call.get("to_number", "")
+        duration_ms = call.get("duration_ms", 0)
+        transcript = call.get("transcript", "")
+        disconnection_reason = call.get("disconnection_reason", "")
+
+        duration_sec = (duration_ms or 0) / 1000
+        duration_str = f"{int(duration_sec // 60)}m {int(duration_sec % 60)}s"
+
+        call_analysis = call.get("call_analysis", {})
+        custom = call_analysis.get("custom_analysis_data", {})
+        if isinstance(custom, str):
+            try:
+                custom = json.loads(custom)
+            except Exception:
+                custom = {}
+
+        lead_name = custom.get("lead_name", "") or "Unknown"
+        lead_status = custom.get("lead_status", "") or "unknown"
+        home_carrier = custom.get("current_home_carrier", "") or "—"
+        auto_carrier = custom.get("current_auto_carrier", "") or "—"
+        premium = custom.get("current_premium", "") or "—"
+        callback_number = custom.get("callback_number", "") or to_number
+        callback_time = custom.get("callback_time", "") or "Any time"
+        notes = custom.get("notes", "") or "—"
+        interest = custom.get("interest_level", "") or "unknown"
+
+        logger.info(
+            "Dialer post-call: call_id=%s name=%s status=%s interest=%s",
+            call_id, lead_name, lead_status, interest
+        )
+
+        if event == "call_analyzed":
+            status_badges = {
+                "transferred": "🟢 Transferred",
+                "callback_scheduled": "📅 Callback Scheduled",
+                "soft_no": "🟡 Soft No",
+                "hard_no": "🔴 Hard No",
+                "voicemail": "📱 Voicemail Left",
+                "no_answer": "📵 No Answer",
+                "wrong_number": "❌ Wrong Number",
+                "do_not_call": "🚫 Do Not Call",
+            }
+            status_badge = status_badges.get(lead_status, f"❓ {lead_status}")
+
+            interest_badges = {
+                "hot": "🔥 Hot",
+                "warm": "🌤️ Warm",
+                "cold": "❄️ Cold",
+                "hostile": "⛔ Hostile",
+            }
+            interest_badge = interest_badges.get(interest, f"❓ {interest}")
+
+            # Only email for actionable outcomes
+            skip_email = lead_status in ("no_answer", "wrong_number")
+
+            if not skip_email:
+                # Color header based on status
+                header_color = {
+                    "transferred": "#27ae60",
+                    "callback_scheduled": "#2980b9",
+                    "soft_no": "#f39c12",
+                    "voicemail": "#8e44ad",
+                    "hard_no": "#e74c3c",
+                    "do_not_call": "#e74c3c",
+                }.get(lead_status, "#34495e")
+
+                html = f"""
+                <div style="font-family: Arial, sans-serif; max-width: 600px;">
+                    <div style="background: {header_color}; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+                        <h2 style="margin: 0;">📞 Aged Lead Result</h2>
+                        <p style="margin: 4px 0 0; opacity: 0.9;">{status_badge} · {interest_badge}</p>
+                    </div>
+                    <div style="border: 1px solid #ddd; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr><td style="padding: 8px 0; font-weight: bold; width: 160px;">Lead Name:</td>
+                                <td style="padding: 8px 0; font-size: 16px;">{lead_name}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Phone Dialed:</td>
+                                <td style="padding: 8px 0;">{to_number}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Callback Number:</td>
+                                <td style="padding: 8px 0;">{callback_number}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Callback Time:</td>
+                                <td style="padding: 8px 0;">{callback_time}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Home Carrier:</td>
+                                <td style="padding: 8px 0;">{home_carrier}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Auto Carrier:</td>
+                                <td style="padding: 8px 0;">{auto_carrier}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Current Premium:</td>
+                                <td style="padding: 8px 0;">{premium}</td></tr>
+                            <tr><td style="padding: 8px 0; font-weight: bold;">Notes:</td>
+                                <td style="padding: 8px 0;">{notes}</td></tr>
+                        </table>
+                        <hr style="margin: 16px 0; border: none; border-top: 1px solid #eee;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #666;">
+                            <tr><td>Duration: {duration_str}</td><td>Disconnect: {disconnection_reason}</td></tr>
+                        </table>
+                        <details style="margin-top: 16px;">
+                            <summary style="cursor: pointer; font-weight: bold; color: {header_color};">View Transcript</summary>
+                            <pre style="white-space: pre-wrap; font-size: 13px; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 8px; max-height: 300px; overflow-y: auto;">{transcript[:3000] if transcript else "No transcript"}</pre>
+                        </details>
+                        <p style="color: #999; font-size: 11px; margin-top: 12px;">Call ID: {call_id}</p>
+                    </div>
+                </div>
+                """
+
+                subject = f"📞 Aged Lead — {lead_name} — {status_badge}"
+                send_mailgun_email("sales@betterchoiceins.com", subject, html)
+                logger.info("Dialer lead email sent: %s → %s", lead_name, lead_status)
+            else:
+                logger.info("Dialer skip email: %s → %s (no action needed)", lead_name, lead_status)
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        logger.error("Dialer post-call error: %s", e)
+        return {"status": "error", "message": str(e)}
