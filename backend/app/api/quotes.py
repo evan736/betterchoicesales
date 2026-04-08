@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel
@@ -697,7 +698,46 @@ def check_followups(
     return {"followups_triggered": results}
 
 
+@router.get("/unsubscribe/{token}")
+def unsubscribe_from_followups(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — customer clicks unsubscribe link in follow-up email."""
+    quote = db.query(Quote).filter(Quote.unsubscribe_token == token).first()
+    if not quote:
+        return HTMLResponse(content=_unsub_page("Link Expired", "This unsubscribe link is no longer valid. If you're still receiving emails, please contact us at service@betterchoiceins.com or call 847-908-5665."), status_code=200)
 
+    # Disable followups for ALL quotes with this prospect's email
+    email = (quote.prospect_email or "").lower().strip()
+    if email:
+        all_quotes = db.query(Quote).filter(
+            Quote.prospect_email.ilike(email)
+        ).all()
+        for q in all_quotes:
+            q.followup_disabled = True
+    else:
+        quote.followup_disabled = True
+    db.commit()
+
+    logger.info(f"Unsubscribed: {quote.prospect_name} ({quote.prospect_email}) via token {token[:8]}...")
+    return HTMLResponse(content=_unsub_page("You've Been Unsubscribed", f"You will no longer receive follow-up emails from Better Choice Insurance Group about your quote. If you ever need insurance help in the future, we're always here — just call us at 847-908-5665."), status_code=200)
+
+
+def _unsub_page(title: str, message: str) -> str:
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>{title}</title></head>
+<body style="margin:0;padding:40px 20px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1a2b5f,#0c4a6e);padding:24px;text-align:center;">
+    <h1 style="color:#fff;font-size:20px;margin:0;">{title}</h1>
+  </div>
+  <div style="padding:24px;">
+    <p style="color:#334155;font-size:15px;line-height:1.6;">{message}</p>
+    <div style="text-align:center;margin-top:24px;">
+      <p style="color:#94a3b8;font-size:12px;">Better Choice Insurance Group · 847-908-5665</p>
+    </div>
+  </div>
+</div></body></html>"""
 @router.get("/stats/summary")
 def quote_stats(
     current_user: User = Depends(get_current_user),
@@ -912,6 +952,7 @@ def _check_followups_logic(db: Session) -> dict:
                             agent_email=br.producer_email or "",
                             quote_id=br.id,
                             day="bind_retarget",
+                            unsubscribe_token=br.unsubscribe_token or "",
                         )
                         if subject and html and br.prospect_email:
                             send_followup_email(
@@ -1007,6 +1048,7 @@ def _check_followups_logic(db: Session) -> dict:
                     agent_email=latest.producer_email or "",
                     quote_id=latest.id,
                     day=followup_day,
+                    unsubscribe_token=latest.unsubscribe_token or "",
                 )
                 if subject and html:
                     send_followup_email(

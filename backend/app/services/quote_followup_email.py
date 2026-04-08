@@ -54,6 +54,7 @@ def build_followup_email(
     agent_email: str,
     quote_id: int,
     day: int,
+    unsubscribe_token: str = "",
 ) -> tuple:
     """Build follow-up email subject + HTML for the given day."""
     first_name = prospect_name.split()[0] if prospect_name else "there"
@@ -122,6 +123,9 @@ def build_followup_email(
 
     bind_url = f"https://better-choice-api.onrender.com/api/bind/{quote_id}"
 
+    unsub_url = f"https://better-choice-api.onrender.com/api/quotes/unsubscribe/{unsubscribe_token}" if unsubscribe_token else ""
+    unsub_html = f'<p style="margin:8px 0 0;"><a href="{unsub_url}" style="color:#94a3b8; font-size:11px; text-decoration:underline;">Unsubscribe from future emails</a></p>' if unsub_url else ""
+
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
@@ -168,6 +172,7 @@ def build_followup_email(
       <p style="color:#94a3b8; font-size:11px; margin:0;">
         {AGENCY_NAME} · {PHONE} · service@betterchoiceins.com
       </p>
+      {unsub_html}
     </div>
   </div>
 </div></body></html>"""
