@@ -52,6 +52,7 @@ export default function DialerPage() {
   const [leadsTotal, setLeadsTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [dialing, setDialing] = useState(false);
+  const [dialerRunning, setDialerRunning] = useState(false);
   const [dialResults, setDialResults] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [dncPhone, setDncPhone] = useState('');
@@ -87,7 +88,22 @@ export default function DialerPage() {
   }, [selected, statusFilter]);
 
   useEffect(() => { fetchCampaigns(); }, []);
-  useEffect(() => { fetchStats(); fetchLeads(); }, [selected, statusFilter]);
+  useEffect(() => { fetchStats(); fetchLeads(); fetchDialerStatus(); }, [selected, statusFilter]);
+
+  // Poll dialer status every 30s when running
+  useEffect(() => {
+    if (!dialerRunning || !selected) return;
+    const interval = setInterval(() => { fetchStats(); fetchDialerStatus(); }, 30000);
+    return () => clearInterval(interval);
+  }, [dialerRunning, selected]);
+
+  const fetchDialerStatus = useCallback(async () => {
+    if (!selected) return;
+    try {
+      const { data } = await axios.get(`${API}/api/dialer/campaigns/${selected.id}/dialer-status`, { headers: headers() });
+      setDialerRunning(data.running);
+    } catch (e) { console.error(e); }
+  }, [selected]);
 
   const createCampaign = async () => {
     if (!newName.trim()) return;
@@ -102,13 +118,26 @@ export default function DialerPage() {
     } catch (e) { toast.error('Failed'); }
   };
 
-  const toggleCampaign = async () => {
+  const startAutoDialer = async () => {
     if (!selected) return;
-    const newStatus = selected.status === 'active' ? 'paused' : 'active';
-    await axios.patch(`${API}/api/dialer/campaigns/${selected.id}`, { status: newStatus }, { headers: headers() });
-    setSelected({ ...selected, status: newStatus });
-    fetchCampaigns();
-    toast.success(`Campaign ${newStatus}`);
+    try {
+      const { data } = await axios.post(`${API}/api/dialer/campaigns/${selected.id}/start`, {}, { headers: headers() });
+      setDialerRunning(true);
+      setSelected({ ...selected, status: 'active' });
+      fetchCampaigns();
+      toast.success('Auto-dialer started — Grace is dialing M-F 10:30AM-6PM CT');
+    } catch (e) { toast.error('Failed to start'); }
+  };
+
+  const stopAutoDialer = async () => {
+    if (!selected) return;
+    try {
+      const { data } = await axios.post(`${API}/api/dialer/campaigns/${selected.id}/stop`, {}, { headers: headers() });
+      setDialerRunning(false);
+      setSelected({ ...selected, status: 'paused' });
+      fetchCampaigns();
+      toast.success('Auto-dialer paused');
+    } catch (e) { toast.error('Failed to stop'); }
   };
 
   const uploadCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,6 +155,7 @@ export default function DialerPage() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // Manual dial kept for testing
   const startDialing = async () => {
     if (!selected) return;
     setDialing(true); setDialResults([]);
@@ -194,15 +224,23 @@ export default function DialerPage() {
           <>
             {/* Controls */}
             <div className="bg-[#141a2a] border border-slate-700/50 rounded-lg p-4 mb-4 flex items-center gap-3 flex-wrap">
-              <button onClick={toggleCampaign}
-                className={`flex items-center gap-2 px-4 py-2 rounded font-medium text-sm ${selected.status === 'active' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
-                {selected.status === 'active' ? <Pause size={16} /> : <Play size={16} />}
-                {selected.status === 'active' ? 'Pause' : 'Activate'}
-              </button>
-              <button onClick={startDialing} disabled={dialing || selected.status !== 'active'}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-4 py-2 rounded font-medium text-sm">
-                <Zap size={16} /> {dialing ? 'Dialing...' : 'Start Dial Session'}
-              </button>
+              {dialerRunning || selected.status === 'active' ? (
+                <button onClick={stopAutoDialer}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded font-medium text-sm bg-red-600 hover:bg-red-500 animate-pulse">
+                  <Pause size={16} /> Stop Dialer
+                </button>
+              ) : (
+                <button onClick={startAutoDialer}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded font-medium text-sm bg-emerald-600 hover:bg-emerald-500">
+                  <Play size={16} /> Start Auto-Dialer
+                </button>
+              )}
+              {dialerRunning && (
+                <span className="flex items-center gap-2 text-sm text-emerald-400">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                  Dialing — M-F 10:30AM-6PM CT
+                </span>
+              )}
               <label className="flex items-center gap-2 bg-[#1a2035] hover:bg-[#1f2845] border border-slate-600 px-4 py-2 rounded cursor-pointer text-sm">
                 <Upload size={16} /> Upload CSV
                 <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={uploadCSV} />

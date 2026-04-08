@@ -599,11 +599,211 @@ def export_leads_csv(campaign_id: int, status: Optional[str] = None):
         db.close()
 
 
-# ── Dialing Engine ─────────────────────────────────────────────
+# ── Auto-Dialer Engine ─────────────────────────────────────────
 
+import asyncio
+import threading
+
+_dialer_threads = {}  # campaign_id -> thread reference
+
+
+def _auto_dial_loop(campaign_id: int):
+    """Background loop that dials continuously M-F 10:30AM-6PM CT while campaign is active."""
+    logger.info(f"[AutoDialer] Campaign {campaign_id} — background dialer started")
+
+    while True:
+        db = SessionLocal()
+        try:
+            campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+            if not campaign or campaign.status != "active":
+                logger.info(f"[AutoDialer] Campaign {campaign_id} — stopped (status: {campaign.status if campaign else 'deleted'})")
+                break
+
+            ok, msg = is_calling_hours()
+            if not ok:
+                db.close()
+                # Sleep until next check — 5 minutes if outside hours
+                import time
+                time.sleep(300)
+                continue
+
+            from_number = campaign.from_number or "+12108649246"
+
+            # Get due leads sorted by age (newest first)
+            leads = db.query(DialerLead).filter(
+                DialerLead.campaign_id == campaign_id,
+                DialerLead.status.in_(["pending", "dialed"]),
+                DialerLead.attempts < 10,
+            ).all()
+
+            due = []
+            for l in leads:
+                age = get_lead_age(l)
+                if age > MAX_LEAD_AGE:
+                    l.status = "expired"
+                    continue
+                if l.next_attempt_after and datetime.now() < l.next_attempt_after:
+                    continue
+                if l.last_attempt_at and (datetime.now() - l.last_attempt_at).total_seconds() < 14400:
+                    continue
+                due.append((l, age))
+
+            db.commit()
+
+            if not due:
+                db.close()
+                import time
+                time.sleep(300)  # Check again in 5 min
+                continue
+
+            due.sort(key=lambda x: x[1])
+            session_max = campaign.max_calls_per_session or 75
+            to_dial = due[:session_max]
+
+            current_slot = get_time_slot()
+            dialed = 0
+
+            for lead, age in to_dial:
+                # Re-check campaign status every call
+                db.refresh(campaign)
+                if campaign.status != "active":
+                    logger.info(f"[AutoDialer] Campaign {campaign_id} — paused mid-session")
+                    break
+
+                ok, _ = is_calling_hours()
+                if not ok:
+                    break
+
+                first_name = lead.name.split()[0] if lead.name else "there"
+
+                try:
+                    resp = http_requests.post(
+                        "https://api.retellai.com/v2/create-phone-call",
+                        headers=RETELL_HEADERS,
+                        json={
+                            "agent_id": campaign.agent_id,
+                            "from_number": from_number,
+                            "to_number": lead.phone,
+                            "retell_llm_dynamic_variables": {
+                                "lead_name": first_name,
+                                "lead_full_name": lead.name,
+                                "lead_address": lead.address or "",
+                                "callback_number": "2108649246",
+                                "lead_age_days": str(age),
+                                "pitch_style": pitch_style(age),
+                            },
+                        },
+                        timeout=30,
+                    )
+
+                    if resp.status_code == 201:
+                        call_id = resp.json().get("call_id", "")
+                        lead.attempts += 1
+                        lead.last_attempt_at = datetime.now()
+                        lead.last_time_slot = current_slot
+                        lead.status = "dialed"
+                        cids = lead.call_ids or []
+                        cids.append(call_id)
+                        lead.call_ids = cids
+
+                        if lead.attempts < len(CADENCE):
+                            next_day, _ = CADENCE[lead.attempts]
+                            base = lead.request_date or lead.created_at
+                            lead.next_attempt_after = base + timedelta(days=next_day)
+                        else:
+                            lead.status = "exhausted"
+
+                        campaign.total_dialed = (campaign.total_dialed or 0) + 1
+                        dialed += 1
+                        logger.info(f"[AutoDialer] Called {lead.name} ({lead.phone}) — attempt {lead.attempts}, age {age}d")
+                    else:
+                        err = resp.json().get("message", "")
+                        if "invalid" in err.lower():
+                            lead.status = "wrong_number"
+                        logger.warning(f"[AutoDialer] Failed {lead.phone}: {err}")
+
+                except Exception as e:
+                    logger.error(f"[AutoDialer] Error calling {lead.phone}: {e}")
+
+                db.commit()
+
+                # Pacing — wait between calls
+                delay = random.uniform(
+                    campaign.min_delay_seconds or 30,
+                    campaign.max_delay_seconds or 60
+                )
+                import time
+                time.sleep(delay)
+
+            logger.info(f"[AutoDialer] Campaign {campaign_id} — session complete: {dialed} calls")
+
+        except Exception as e:
+            logger.error(f"[AutoDialer] Campaign {campaign_id} — error: {e}")
+        finally:
+            db.close()
+
+        # Wait between sessions — 2 minutes
+        import time
+        time.sleep(120)
+
+    # Cleanup
+    _dialer_threads.pop(campaign_id, None)
+    logger.info(f"[AutoDialer] Campaign {campaign_id} — thread exited")
+
+
+@router.post("/campaigns/{campaign_id}/start")
+async def start_auto_dialer(campaign_id: int):
+    """Start the auto-dialer. Runs continuously M-F 10:30AM-6PM CT until paused."""
+    db = SessionLocal()
+    try:
+        campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not campaign:
+            return {"error": "Campaign not found"}
+
+        # Set to active
+        campaign.status = "active"
+        db.commit()
+
+        # Check if already running
+        if campaign_id in _dialer_threads and _dialer_threads[campaign_id].is_alive():
+            return {"status": "already_running", "campaign_id": campaign_id}
+
+        # Start background thread
+        t = threading.Thread(target=_auto_dial_loop, args=(campaign_id,), daemon=True)
+        t.start()
+        _dialer_threads[campaign_id] = t
+
+        return {"status": "started", "campaign_id": campaign_id, "message": "Auto-dialer running. Will dial M-F 10:30AM-6PM CT until paused."}
+    finally:
+        db.close()
+
+
+@router.post("/campaigns/{campaign_id}/stop")
+async def stop_auto_dialer(campaign_id: int):
+    """Stop the auto-dialer by setting campaign to paused."""
+    db = SessionLocal()
+    try:
+        campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not campaign:
+            return {"error": "Campaign not found"}
+        campaign.status = "paused"
+        db.commit()
+        return {"status": "paused", "campaign_id": campaign_id, "message": "Auto-dialer will stop after current call completes."}
+    finally:
+        db.close()
+
+
+@router.get("/campaigns/{campaign_id}/dialer-status")
+def dialer_status(campaign_id: int):
+    """Check if the auto-dialer is currently running."""
+    running = campaign_id in _dialer_threads and _dialer_threads[campaign_id].is_alive()
+    return {"campaign_id": campaign_id, "running": running}
+
+
+# Keep old manual dial endpoint for testing
 @router.post("/campaigns/{campaign_id}/dial")
 async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(default=None)):
-    """Start a dial session — calls due leads newest first."""
+    """Manual dial session — for testing. Use /start for auto-dialing."""
     db = SessionLocal()
     try:
         campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
