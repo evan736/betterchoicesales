@@ -109,7 +109,7 @@ async def create_campaign(request: Request):
             name=body.get("name", "New Campaign"),
             agent_id=body.get("agent_id", "agent_9053034bcaf1d5142849878c2d"),
             agent_name=body.get("agent_name", "Grace"),
-            from_number=body.get("from_number", "+16304267466"),
+            from_number=body.get("from_number", "+12108649246"),
             max_calls_per_day=body.get("max_calls_per_day", 300),
         )
         db.add(c)
@@ -206,6 +206,22 @@ async def upload_leads(campaign_id: int, file: UploadFile = File(...)):
             for f in ["zip", "Zip", "Zipcode", "ZIP"]:
                 if row.get(f): parts.append(row[f])
 
+            # Parse insurance expiration
+            insexp_raw = row.get("insexp") or row.get("InsExp") or row.get("insurance_exp") or ""
+            insurance_exp = None
+            if insexp_raw:
+                try:
+                    insurance_exp = datetime.strptime(insexp_raw.split(" ")[0], "%m/%d/%Y")
+                except:
+                    try:
+                        insurance_exp = datetime.strptime(insexp_raw.split(" ")[0], "%Y-%m-%d")
+                    except:
+                        pass
+
+            lead_state = row.get("state") or row.get("State") or row.get("STATE") or ""
+            lead_city = row.get("city") or row.get("City") or row.get("CITY") or ""
+            lead_dob = row.get("dob") or row.get("DOB") or row.get("DateOfBirth") or ""
+
             lead = DialerLead(
                 campaign_id=campaign_id,
                 name=name or "Unknown",
@@ -216,6 +232,10 @@ async def upload_leads(campaign_id: int, file: UploadFile = File(...)):
                 home_value=row.get("HOMEVALUE") or "",
                 roof_installed=row.get("RoofInstalled") or "",
                 prop_type=row.get("Proptype") or "",
+                insurance_exp=insurance_exp,
+                state=lead_state,
+                city=lead_city,
+                dob=lead_dob,
                 request_date=request_date,
             )
             db.add(lead)
@@ -420,34 +440,101 @@ def mark_lead_dnc(lead_id: int):
 
 @router.post("/campaigns/{campaign_id}/export-to-pipeline")
 async def export_to_pipeline(campaign_id: int, request: Request):
-    """Export contacted/interested leads to the outreach campaign pipeline."""
-    body = await request.json()
-    export_statuses = body.get("statuses", ["transferred", "callback_scheduled", "interested", "soft_no"])
-
+    """Export ALL leads to email outreach campaigns, grouped by insurance expiration date."""
     db = SessionLocal()
     try:
         leads = db.query(DialerLead).filter(
             DialerLead.campaign_id == campaign_id,
-            DialerLead.status.in_(export_statuses),
+            DialerLead.status != "do_not_call",
             DialerLead.email != "",
             DialerLead.email != None,
         ).all()
 
+        # Group by insurance expiration month for targeted campaigns
+        by_exp_month = {}
+        no_exp = []
         exported = []
+
         for l in leads:
-            exported.append({
+            lead_data = {
                 "name": l.name,
                 "email": l.email,
                 "phone": l.phone,
                 "address": l.address,
+                "city": l.city or "",
+                "state": l.state or "",
                 "carrier": l.carrier,
-                "source": "ai_dialer",
-                "status": l.status,
+                "home_value": l.home_value,
+                "prop_type": l.prop_type,
+                "insurance_exp": l.insurance_exp.isoformat() if l.insurance_exp else None,
+                "request_date": l.request_date.isoformat() if l.request_date else None,
+                "dialer_status": l.status,
+                "attempts": l.attempts,
                 "interest_level": l.interest_level,
-                "notes": l.notes,
-            })
+                "source": "ai_dialer",
+            }
+            exported.append(lead_data)
 
-        return {"exported": len(exported), "leads": exported}
+            if l.insurance_exp:
+                month_key = l.insurance_exp.strftime("%Y-%m")
+                if month_key not in by_exp_month:
+                    by_exp_month[month_key] = []
+                by_exp_month[month_key].append(lead_data)
+            else:
+                no_exp.append(lead_data)
+
+        # Summary for UI
+        exp_summary = {}
+        for month, leads_in_month in sorted(by_exp_month.items()):
+            exp_summary[month] = len(leads_in_month)
+
+        return {
+            "exported": len(exported),
+            "with_exp_date": len(exported) - len(no_exp),
+            "without_exp_date": len(no_exp),
+            "by_exp_month": exp_summary,
+            "leads": exported,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/campaigns/{campaign_id}/export-csv")
+def export_leads_csv(campaign_id: int, status: Optional[str] = None):
+    """Download leads as CSV for email campaign import."""
+    db = SessionLocal()
+    try:
+        q = db.query(DialerLead).filter(
+            DialerLead.campaign_id == campaign_id,
+            DialerLead.status != "do_not_call",
+        )
+        if status:
+            q = q.filter(DialerLead.status == status)
+        leads = q.all()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "name", "email", "phone", "address", "city", "state",
+            "carrier", "home_value", "prop_type", "insurance_exp",
+            "request_date", "dialer_status", "attempts", "interest_level",
+        ])
+        for l in leads:
+            writer.writerow([
+                l.name, l.email, l.phone, l.address, l.city or "", l.state or "",
+                l.carrier, l.home_value, l.prop_type,
+                l.insurance_exp.strftime("%m/%d/%Y") if l.insurance_exp else "",
+                l.request_date.strftime("%m/%d/%Y") if l.request_date else "",
+                l.status, l.attempts, l.interest_level or "",
+            ])
+
+        from fastapi.responses import StreamingResponse
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=dialer_leads_{campaign_id}.csv"},
+        )
     finally:
         db.close()
 
@@ -470,7 +557,7 @@ async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(defaul
             return {"error": f"Outside calling hours: {msg}"}
 
         session_max = max_calls or campaign.max_calls_per_session or 75
-        from_number = campaign.from_number or "+16304267466"
+        from_number = campaign.from_number or "+12108649246"
 
         # Get due leads sorted by age (newest first)
         leads = db.query(DialerLead).filter(
@@ -523,7 +610,7 @@ async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(defaul
                         "lead_name": first_name,
                         "lead_full_name": lead.name,
                         "lead_address": lead.address or "",
-                        "callback_number": "6304267466",
+                        "callback_number": "2108649246",
                         "lead_age_days": str(age),
                         "pitch_style": pitch_style(age),
                     },

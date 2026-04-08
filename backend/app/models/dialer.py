@@ -39,6 +39,10 @@ class DialerLead(Base):
     home_value = Column(String, nullable=True)
     roof_installed = Column(String, nullable=True)
     prop_type = Column(String, nullable=True)
+    insurance_exp = Column(DateTime, nullable=True)  # Insurance expiration date
+    state = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    dob = Column(String, nullable=True)
     request_date = Column(DateTime, nullable=True)
     status = Column(String, default="pending", index=True)
     # pending, dialed, transferred, callback_scheduled, soft_no, hard_no,
