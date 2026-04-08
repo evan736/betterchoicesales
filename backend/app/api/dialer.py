@@ -440,60 +440,120 @@ def mark_lead_dnc(lead_id: int):
 
 @router.post("/campaigns/{campaign_id}/export-to-pipeline")
 async def export_to_pipeline(campaign_id: int, request: Request):
-    """Export ALL leads to email outreach campaigns, grouped by insurance expiration date."""
+    """Export ALL leads into a Requote Campaign for X-date email drip targeting."""
     db = SessionLocal()
     try:
-        leads = db.query(DialerLead).filter(
+        from app.api.requote_campaigns import RequoteCampaign, RequoteLead, GlobalOptOut
+        import hashlib
+
+        dialer_leads = db.query(DialerLead).filter(
             DialerLead.campaign_id == campaign_id,
             DialerLead.status != "do_not_call",
-            DialerLead.email != "",
-            DialerLead.email != None,
         ).all()
 
-        # Group by insurance expiration month for targeted campaigns
+        if not dialer_leads:
+            return {"error": "No leads to export"}
+
+        # Get opt-outs to skip
+        opt_outs = {o.email.lower() for o in db.query(GlobalOptOut).all() if o.email}
+
+        # Get existing requote emails to dedup
+        # Create a new RequoteCampaign
+        campaign_name = f"AI Dialer Export {datetime.now().strftime('%m/%d/%Y')}"
+        rc = RequoteCampaign(
+            name=campaign_name,
+            description="Auto-exported from AI Dialer — aged home leads with insurance expiration targeting",
+            status="active",
+            original_filename="ai_dialer_export",
+            touch1_days_before=45,
+            touch2_days_before=28,
+            touch3_days_before=15,
+        )
+        db.add(rc)
+        db.flush()  # get rc.id
+
+        added = 0
+        skipped_no_email = 0
+        skipped_opted_out = 0
+        skipped_no_xdate = 0
         by_exp_month = {}
-        no_exp = []
-        exported = []
 
-        for l in leads:
-            lead_data = {
-                "name": l.name,
-                "email": l.email,
-                "phone": l.phone,
-                "address": l.address,
-                "city": l.city or "",
-                "state": l.state or "",
-                "carrier": l.carrier,
-                "home_value": l.home_value,
-                "prop_type": l.prop_type,
-                "insurance_exp": l.insurance_exp.isoformat() if l.insurance_exp else None,
-                "request_date": l.request_date.isoformat() if l.request_date else None,
-                "dialer_status": l.status,
-                "attempts": l.attempts,
-                "interest_level": l.interest_level,
-                "source": "ai_dialer",
-            }
-            exported.append(lead_data)
+        for l in dialer_leads:
+            if not l.email or not l.email.strip():
+                skipped_no_email += 1
+                continue
 
-            if l.insurance_exp:
-                month_key = l.insurance_exp.strftime("%Y-%m")
-                if month_key not in by_exp_month:
-                    by_exp_month[month_key] = []
-                by_exp_month[month_key].append(lead_data)
-            else:
-                no_exp.append(lead_data)
+            if l.email.lower().strip() in opt_outs:
+                skipped_opted_out += 1
+                continue
 
-        # Summary for UI
-        exp_summary = {}
-        for month, leads_in_month in sorted(by_exp_month.items()):
-            exp_summary[month] = len(leads_in_month)
+            # Parse name
+            parts = (l.name or "").split()
+            first_name = parts[0] if parts else ""
+            last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+            # Parse address parts
+            addr_parts = (l.address or "").split(", ")
+
+            # X-date is the insurance expiration date
+            x_date = l.insurance_exp
+
+            # Schedule touches based on x_date
+            t1_date = None
+            t2_date = None
+            t3_date = None
+            if x_date:
+                t1_date = x_date - timedelta(days=45)
+                t2_date = x_date - timedelta(days=28)
+                t3_date = x_date - timedelta(days=15)
+                # If touch date is in the past, schedule for tomorrow
+                now = datetime.now()
+                if t1_date < now: t1_date = now + timedelta(days=1)
+                if t2_date < now: t2_date = now + timedelta(days=2)
+                if t3_date < now: t3_date = now + timedelta(days=3)
+
+                month_key = x_date.strftime("%Y-%m")
+                by_exp_month[month_key] = by_exp_month.get(month_key, 0) + 1
+
+            # Generate unsubscribe token
+            token = hashlib.sha256(f"{l.email}-{rc.id}-{l.id}".encode()).hexdigest()[:24]
+
+            rl = RequoteLead(
+                campaign_id=rc.id,
+                first_name=first_name,
+                last_name=last_name,
+                email=l.email.strip(),
+                phone=l.phone,
+                address=addr_parts[0] if addr_parts else "",
+                city=l.city or (addr_parts[1] if len(addr_parts) > 1 else ""),
+                state=l.state or (addr_parts[2] if len(addr_parts) > 2 else ""),
+                zip_code=addr_parts[3] if len(addr_parts) > 3 else "",
+                policy_type="home",
+                carrier=l.carrier or "",
+                x_date=x_date,
+                touch1_scheduled_date=t1_date,
+                touch2_scheduled_date=t2_date,
+                touch3_scheduled_date=t3_date,
+                status="touch1_scheduled" if t1_date else "pending",
+                unsubscribe_token=token,
+            )
+            db.add(rl)
+            added += 1
+
+        # Update campaign stats
+        rc.total_uploaded = len(dialer_leads)
+        rc.total_valid = added
+        rc.total_skipped = skipped_no_email + skipped_opted_out
+
+        db.commit()
 
         return {
-            "exported": len(exported),
-            "with_exp_date": len(exported) - len(no_exp),
-            "without_exp_date": len(no_exp),
-            "by_exp_month": exp_summary,
-            "leads": exported,
+            "campaign_id": rc.id,
+            "campaign_name": campaign_name,
+            "exported": added,
+            "skipped_no_email": skipped_no_email,
+            "skipped_opted_out": skipped_opted_out,
+            "by_exp_month": dict(sorted(by_exp_month.items())),
         }
     finally:
         db.close()
@@ -720,5 +780,47 @@ def run_migration():
                 else:
                     added.append(f"{col_name}: {str(e)[:50]}")
         return {"migrated": added}
+    finally:
+        db.close()
+
+
+@router.post("/campaigns/{campaign_id}/backfill")
+async def backfill_leads(campaign_id: int, file: UploadFile = File(...)):
+    """Re-upload CSV to backfill insurance_exp, state, city, dob on existing leads."""
+    db = SessionLocal()
+    try:
+        content = await file.read()
+        text = content.decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+
+        updated = 0
+        for row in reader:
+            phone_raw = row.get("PHONE") or row.get("phone") or row.get("Phone") or ""
+            phone = clean_phone(phone_raw)
+            if not phone:
+                continue
+
+            lead = db.query(DialerLead).filter(
+                DialerLead.campaign_id == campaign_id,
+                DialerLead.phone == phone,
+            ).first()
+            if not lead:
+                continue
+
+            # Parse insexp
+            insexp_raw = row.get("insexp") or row.get("InsExp") or ""
+            if insexp_raw:
+                try:
+                    lead.insurance_exp = datetime.strptime(insexp_raw.split(" ")[0], "%m/%d/%Y")
+                except:
+                    pass
+
+            lead.state = row.get("state") or row.get("State") or lead.state
+            lead.city = row.get("city") or row.get("City") or row.get("CITY") or lead.city
+            lead.dob = row.get("dob") or row.get("DOB") or lead.dob
+            updated += 1
+
+        db.commit()
+        return {"updated": updated}
     finally:
         db.close()
