@@ -370,6 +370,10 @@ CARRIER_ALIASES = {
     "travelers_home_and_marine": "travelers",
     "travelers_home_and_marine_insurance": "travelers",
     "the_travelers": "travelers",
+    "standard_fire": "travelers",
+    "standard_fire_insurance": "travelers",
+    "standard_fire_insurance_company": "travelers",
+    "the_standard_fire_insurance_company": "travelers",
     "bamboo_insurance": "bamboo",
     "bamboo_ins": "bamboo",
 }

@@ -81,6 +81,10 @@ CARRIER_ALIASES = {
     "st. paul": "Travelers",
     "st paul": "Travelers",
     "charter oak": "Travelers",
+    "standard fire": "Travelers",
+    "standard fire insurance": "Travelers",
+    "standard fire insurance company": "Travelers",
+    "the standard fire insurance company": "Travelers",
     # Common abbreviations
     "natgen": "National General",
     "trv": "Travelers",

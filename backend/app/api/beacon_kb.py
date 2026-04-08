@@ -667,7 +667,7 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
             # Handle aliases: "natgen" = "national general"
             carrier_aliases = {
                 'national general': ['natgen', 'national general', 'integon', 'encompass'],
-                'travelers': ['travelers'],
+                'travelers': ['travelers', 'standard fire', 'travco', 'charter oak'],
                 'safeco': ['safeco'],
                 'grange': ['grange'],
                 'progressive': ['progressive'],

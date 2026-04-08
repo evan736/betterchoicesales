@@ -17,6 +17,9 @@ const CARRIER_DISPLAY: Record<string, string> = {
   'integon natl': 'National General', 'integon natl ins': 'National General',
   'integon national': 'National General', 'integon': 'National General',
   'ngic': 'National General', 'nat gen': 'National General',
+  'the standard fire insurance company': 'Travelers', 'standard fire insurance company': 'Travelers',
+  'standard fire': 'Travelers', 'standard fire insurance': 'Travelers',
+  'travco': 'Travelers', 'travco insurance': 'Travelers',
 };
 function normCarrier(c: string | null): string {
   if (!c) return '—';

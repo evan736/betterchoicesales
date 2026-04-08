@@ -45,6 +45,10 @@ CARRIER_NORMALIZE = {
     "travco": "Travelers",
     "travco insurance": "Travelers",
     "travco insurance company": "Travelers",
+    "the standard fire insurance company": "Travelers",
+    "standard fire insurance company": "Travelers",
+    "standard fire insurance": "Travelers",
+    "standard fire": "Travelers",
     # Progressive
     "progressive": "Progressive",
     "progressive insurance": "Progressive",
