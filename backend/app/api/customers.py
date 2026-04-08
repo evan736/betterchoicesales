@@ -1078,20 +1078,37 @@ def get_customer(
         pd["first_term_producer"] = None
 
         if p.policy_number:
-            # Find matching sale by policy number
+            # Normalize: strip spaces, dashes for comparison
+            nowcerts_pn = p.policy_number.replace(" ", "").replace("-", "").strip()
+            
+            # 1) Exact match
             sale = db.query(Sale).filter(
                 Sale.policy_number == p.policy_number,
                 Sale.status != "cancelled",
             ).first()
 
-            if not sale:
-                # Try fuzzy match — strip carrier prefixes like PA3 for Grange
-                clean_pn = p.policy_number
-                if clean_pn and len(clean_pn) > 3:
-                    sale = db.query(Sale).filter(
-                        Sale.policy_number.ilike(f"%{clean_pn[-8:]}"),
-                        Sale.status != "cancelled",
-                    ).first()
+            # 2) ilike match on first 10 chars (handles NatGen term suffixes like 203352764100 vs 2033527641)
+            if not sale and nowcerts_pn and len(nowcerts_pn) >= 8:
+                prefix = nowcerts_pn[:10]
+                sale = db.query(Sale).filter(
+                    Sale.policy_number.ilike(f"{prefix}%"),
+                    Sale.status != "cancelled",
+                ).first()
+
+            # 3) Reverse: NowCerts pn starts with sale policy number (sale=2033527641, nowcerts=203352764100)
+            if not sale and nowcerts_pn and len(nowcerts_pn) >= 10:
+                # Narrow by customer name to avoid full table scan
+                cust_name = (customer.full_name or "").strip()
+                name_filter = Sale.client_name.ilike(f"%{cust_name.split()[-1]}%") if cust_name else Sale.id > 0
+                possible_sales = db.query(Sale).filter(
+                    Sale.status != "cancelled",
+                    name_filter,
+                ).limit(50).all()
+                for s in possible_sales:
+                    sale_pn_clean = (s.policy_number or "").replace(" ", "").replace("-", "").strip()
+                    if sale_pn_clean and len(sale_pn_clean) >= 8 and nowcerts_pn.startswith(sale_pn_clean):
+                        sale = s
+                        break
 
             if sale:
                 # Check if still in first term: policy hasn't reached its first expiration date
