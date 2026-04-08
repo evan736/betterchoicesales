@@ -832,7 +832,7 @@ def check_followups_verbose(
                     premium=float(latest.quoted_premium or 0),
                     premium_term=latest.premium_term or "6 months",
                     agent_name=latest.producer_name or "",
-                    agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
+                    agent_email=_get_producer_email(latest),
                     quote_id=latest.id,
                     day=followup_day,
                     unsubscribe_token=latest.unsubscribe_token or "",
@@ -842,7 +842,7 @@ def check_followups_verbose(
                         to_email=latest.prospect_email,
                         subject=subject,
                         html=html,
-                        agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
+                        agent_email=_get_producer_email(latest),
                         quote_id=latest.id,
                     )
                     details.append({
@@ -1060,6 +1060,21 @@ def delete_quote(
     db.delete(quote)
     db.commit()
     return {"deleted": True, "id": quote_id}
+def _get_producer_email(quote, db=None):
+    """Safely get producer email — Quote model doesn't have producer_email column."""
+    try:
+        if quote.producer_id:
+            if db is None:
+                from app.core.database import SessionLocal
+                db = SessionLocal()
+            producer = db.query(User).filter(User.id == quote.producer_id).first()
+            if producer and producer.email:
+                return producer.email
+    except Exception:
+        pass
+    return "service@betterchoiceins.com"
+
+
 def _check_followups_logic(db: Session) -> dict:
     """Core follow-up check logic — sends actual emails, skips if customer already bought."""
     now = datetime.utcnow()
@@ -1118,7 +1133,7 @@ def _check_followups_logic(db: Session) -> dict:
                             premium=float(br.quoted_premium or 0),
                             premium_term=br.premium_term or "6 months",
                             agent_name=br.producer_name or "",
-                            agent_email=getattr(br, 'producer_email', '') or 'service@betterchoiceins.com',
+                            agent_email=_get_producer_email(br),
                             quote_id=br.id,
                             day="bind_retarget",
                             unsubscribe_token=br.unsubscribe_token or "",
@@ -1128,7 +1143,7 @@ def _check_followups_logic(db: Session) -> dict:
                                 to_email=br.prospect_email,
                                 subject=subject,
                                 html=html,
-                                agent_email=getattr(br, 'producer_email', '') or 'service@betterchoiceins.com',
+                                agent_email=_get_producer_email(br),
                                 quote_id=br.id,
                             )
                             results["bind_retarget"] = results.get("bind_retarget", 0) + 1
@@ -1201,7 +1216,7 @@ def _check_followups_logic(db: Session) -> dict:
                     premium=float(latest.quoted_premium or 0),
                     premium_term=latest.premium_term or "6 months",
                     agent_name=latest.producer_name or "",
-                    agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
+                    agent_email=_get_producer_email(latest),
                     quote_id=latest.id,
                     day=followup_day,
                     unsubscribe_token=latest.unsubscribe_token or "",
@@ -1211,7 +1226,7 @@ def _check_followups_logic(db: Session) -> dict:
                         to_email=latest.prospect_email,
                         subject=subject,
                         html=html,
-                        agent_email=getattr(latest, 'producer_email', '') or 'service@betterchoiceins.com',
+                        agent_email=_get_producer_email(latest),
                         quote_id=latest.id,
                     )
                     email_sent = result.get("success", False)
