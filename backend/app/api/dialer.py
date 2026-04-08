@@ -691,3 +691,34 @@ def list_dnc():
         return [{"phone": d.phone, "reason": d.reason, "created_at": d.created_at.isoformat()} for d in entries]
     finally:
         db.close()
+
+
+# ── DB Migration (run once) ────────────────────────────────────
+
+@router.post("/migrate")
+def run_migration():
+    """Add new columns to dialer_leads if they don't exist."""
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        cols = [
+            ("insurance_exp", "TIMESTAMP"),
+            ("state", "VARCHAR"),
+            ("city", "VARCHAR"),
+            ("dob", "VARCHAR"),
+        ]
+        added = []
+        for col_name, col_type in cols:
+            try:
+                db.execute(text(f"ALTER TABLE dialer_leads ADD COLUMN {col_name} {col_type}"))
+                db.commit()
+                added.append(col_name)
+            except Exception as e:
+                db.rollback()
+                if "already exists" in str(e):
+                    pass
+                else:
+                    added.append(f"{col_name}: {str(e)[:50]}")
+        return {"migrated": added}
+    finally:
+        db.close()
