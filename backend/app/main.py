@@ -871,6 +871,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Dialer migration: {e}")
 
+    # Auto-restart active dialer campaigns
+    try:
+        from app.api.dialer import _auto_dial_loop, _dialer_threads
+        from app.models.dialer import DialerCampaign
+        import threading
+        restart_db = SessionLocal()
+        active_campaigns = restart_db.query(DialerCampaign).filter(DialerCampaign.status == "active").all()
+        for campaign in active_campaigns:
+            if campaign.id not in _dialer_threads or not _dialer_threads[campaign.id].is_alive():
+                t = threading.Thread(target=_auto_dial_loop, args=(campaign.id,), daemon=True)
+                t.start()
+                _dialer_threads[campaign.id] = t
+                logger.info(f"Auto-restarted dialer for campaign {campaign.id}: {campaign.name}")
+        restart_db.close()
+    except Exception as e:
+        logger.warning(f"Dialer auto-restart: {e}")
+
     # Sales records tables
     try:
         from app.migrations.sales_records_migration import migrate_sales_records
