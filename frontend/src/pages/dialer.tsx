@@ -53,6 +53,7 @@ export default function DialerPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dialing, setDialing] = useState(false);
   const [dialerRunning, setDialerRunning] = useState(false);
+  const [dialerInfo, setDialerInfo] = useState<any>(null);
   const [dialResults, setDialResults] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [dncPhone, setDncPhone] = useState('');
@@ -102,6 +103,7 @@ export default function DialerPage() {
     try {
       const { data } = await axios.get(`${API}/api/dialer/campaigns/${selected.id}/dialer-status`, { headers: headers() });
       setDialerRunning(data.running);
+      setDialerInfo(data);
     } catch (e) { console.error(e); }
   }, [selected]);
 
@@ -236,10 +238,20 @@ export default function DialerPage() {
                 </button>
               )}
               {dialerRunning && (
-                <span className="flex items-center gap-2 text-sm text-emerald-400">
-                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                  Dialing — M-F 10:30AM-6PM CT
-                </span>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="flex items-center gap-2 text-emerald-400">
+                    <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                    Auto-Dialing
+                  </span>
+                  {dialerInfo?.current_number && (
+                    <span className="text-slate-500">
+                      From: <span className="text-slate-300">{dialerInfo.current_number.replace('+1', '(').replace(/(\d{3})(\d{3})(\d{4})/, '$1) $2-$3')}</span>
+                    </span>
+                  )}
+                  <span className="text-slate-500">
+                    {dialerInfo?.total_numbers || 5} numbers rotating every {dialerInfo?.calls_per_number || 60} calls
+                  </span>
+                </div>
               )}
               <label className="flex items-center gap-2 bg-[#1a2035] hover:bg-[#1f2845] border border-slate-600 px-4 py-2 rounded cursor-pointer text-sm">
                 <Upload size={16} /> Upload CSV

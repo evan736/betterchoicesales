@@ -606,6 +606,51 @@ import threading
 
 _dialer_threads = {}  # campaign_id -> thread reference
 
+# Number rotation pool — 5 San Antonio TX numbers
+ROTATION_NUMBERS = [
+    "+12108649246",
+    "+12109886575",
+    "+12109344252",
+    "+12108710493",
+    "+12108791893",
+]
+CALLS_PER_NUMBER = 60  # Rotate after this many calls per number per day
+_number_daily_counts = {}  # "YYYY-MM-DD:+1number" -> count
+_current_number_idx = 0
+
+
+def _get_next_from_number():
+    """Get the next outbound number, rotating after CALLS_PER_NUMBER calls."""
+    global _current_number_idx
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Try current number first
+    for _ in range(len(ROTATION_NUMBERS)):
+        num = ROTATION_NUMBERS[_current_number_idx]
+        key = f"{today}:{num}"
+        count = _number_daily_counts.get(key, 0)
+
+        if count < CALLS_PER_NUMBER:
+            _number_daily_counts[key] = count + 1
+            return num
+
+        # This number is maxed, try next
+        _current_number_idx = (_current_number_idx + 1) % len(ROTATION_NUMBERS)
+
+    # All numbers maxed for today — use first one anyway (over daily limit)
+    num = ROTATION_NUMBERS[0]
+    key = f"{today}:{num}"
+    _number_daily_counts[key] = _number_daily_counts.get(key, 0) + 1
+    return num
+
+
+def _reset_daily_counts_if_new_day():
+    """Clear counts at midnight."""
+    global _number_daily_counts
+    today = datetime.now().strftime("%Y-%m-%d")
+    # Remove old days
+    _number_daily_counts = {k: v for k, v in _number_daily_counts.items() if k.startswith(today)}
+
 
 def _auto_dial_loop(campaign_id: int):
     """Background loop that dials continuously M-F 10:30AM-6PM CT while campaign is active."""
@@ -622,12 +667,11 @@ def _auto_dial_loop(campaign_id: int):
             ok, msg = is_calling_hours()
             if not ok:
                 db.close()
-                # Sleep until next check — 5 minutes if outside hours
                 import time
                 time.sleep(300)
                 continue
 
-            from_number = campaign.from_number or "+12108649246"
+            _reset_daily_counts_if_new_day()
 
             # Get due leads sorted by age (newest first)
             leads = db.query(DialerLead).filter(
@@ -677,6 +721,7 @@ def _auto_dial_loop(campaign_id: int):
                 first_name = lead.name.split()[0] if lead.name else "there"
 
                 try:
+                    from_number = _get_next_from_number()
                     resp = http_requests.post(
                         "https://api.retellai.com/v2/create-phone-call",
                         headers=RETELL_HEADERS,
@@ -715,7 +760,7 @@ def _auto_dial_loop(campaign_id: int):
 
                         campaign.total_dialed = (campaign.total_dialed or 0) + 1
                         dialed += 1
-                        logger.info(f"[AutoDialer] Called {lead.name} ({lead.phone}) — attempt {lead.attempts}, age {age}d")
+                        logger.info(f"[AutoDialer] Called {lead.name} ({lead.phone}) from {from_number} — attempt {lead.attempts}, age {age}d")
                     else:
                         err = resp.json().get("message", "")
                         if "invalid" in err.lower():
@@ -795,9 +840,23 @@ async def stop_auto_dialer(campaign_id: int):
 
 @router.get("/campaigns/{campaign_id}/dialer-status")
 def dialer_status(campaign_id: int):
-    """Check if the auto-dialer is currently running."""
+    """Check if the auto-dialer is currently running + number rotation stats."""
     running = campaign_id in _dialer_threads and _dialer_threads[campaign_id].is_alive()
-    return {"campaign_id": campaign_id, "running": running}
+    today = datetime.now().strftime("%Y-%m-%d")
+    number_stats = {}
+    for num in ROTATION_NUMBERS:
+        key = f"{today}:{num}"
+        count = _number_daily_counts.get(key, 0)
+        number_stats[num] = {"calls_today": count, "max": CALLS_PER_NUMBER, "exhausted": count >= CALLS_PER_NUMBER}
+    current_num = ROTATION_NUMBERS[_current_number_idx] if ROTATION_NUMBERS else None
+    return {
+        "campaign_id": campaign_id,
+        "running": running,
+        "current_number": current_num,
+        "number_rotation": number_stats,
+        "total_numbers": len(ROTATION_NUMBERS),
+        "calls_per_number": CALLS_PER_NUMBER,
+    }
 
 
 # Keep old manual dial endpoint for testing
