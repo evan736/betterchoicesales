@@ -264,10 +264,12 @@ export default function Dashboard() {
             </h1>
             <p className="text-slate-600">Here's your performance snapshot.</p>
           </div>
-          <ClockWidget
-            status={clockStatus} elapsedTime={elapsedTime} clockLoading={clockLoading}
-            gpsStatus={gpsStatus} onClockIn={handleClockIn} onClockOut={handleClockOut} fmtTime={fmtTime}
-          />
+          {user.role === 'admin' && (
+            <ClockWidget
+              status={clockStatus} elapsedTime={elapsedTime} clockLoading={clockLoading}
+              gpsStatus={gpsStatus} onClockIn={handleClockIn} onClockOut={handleClockOut} fmtTime={fmtTime}
+            />
+          )}
         </div>
 
         {/* ── Row 2: Links & Start a Quote ── */}
