@@ -5,7 +5,7 @@ import { useChat } from '../contexts/ChatContext';
 import { useEmail } from '../contexts/EmailContext';
 import {
   MessageCircle, X, Send, Paperclip, Smile, AtSign, Hash,
-  Users, ChevronLeft, Image, FileText, Trash2, Edit3, Reply,
+  Users, ChevronLeft, ChevronRight, Image, FileText, Trash2, Edit3, Reply,
   Bell, BellOff, Search, Loader2, Check, CheckCheck, PanelRightClose, PanelRightOpen,
   Mail, Zap, Minimize2, Maximize2, ExternalLink,
 } from 'lucide-react';
@@ -102,6 +102,10 @@ export default function ChatPanel() {
   const [chatSearch, setChatSearch] = useState('');
   const [chatSearchResults, setChatSearchResults] = useState<any[] | null>(null);
   const [chatSearching, setChatSearching] = useState(false);
+  const [inlineSearch, setInlineSearch] = useState('');
+  const [inlineSearchOpen, setInlineSearchOpen] = useState(false);
+  const [inlineMatchIds, setInlineMatchIds] = useState<number[]>([]);
+  const [inlineMatchIdx, setInlineMatchIdx] = useState(0);
   const [beaconTyping, setBeaconTyping] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -509,6 +513,46 @@ export default function ChatPanel() {
     setChatSearchResults(null);
   };
 
+  // Inline search within current chat
+  const doInlineSearch = (term: string) => {
+    setInlineSearch(term);
+    if (!term.trim()) {
+      setInlineMatchIds([]);
+      setInlineMatchIdx(0);
+      return;
+    }
+    const lower = term.toLowerCase();
+    const matches = messages
+      .filter(m => (m.content || '').toLowerCase().includes(lower))
+      .map(m => m.id);
+    setInlineMatchIds(matches);
+    setInlineMatchIdx(0);
+    // Scroll to first match
+    if (matches.length > 0) {
+      const el = document.getElementById(`msg-${matches[0]}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const inlineSearchNav = (dir: 1 | -1) => {
+    if (inlineMatchIds.length === 0) return;
+    const next = (inlineMatchIdx + dir + inlineMatchIds.length) % inlineMatchIds.length;
+    setInlineMatchIdx(next);
+    const el = document.getElementById(`msg-${inlineMatchIds[next]}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-1', 'ring-yellow-400/60');
+      setTimeout(() => el.classList.remove('ring-1', 'ring-yellow-400/60'), 1500);
+    }
+  };
+
+  const closeInlineSearch = () => {
+    setInlineSearchOpen(false);
+    setInlineSearch('');
+    setInlineMatchIds([]);
+    setInlineMatchIdx(0);
+  };
+
   const searchGifs = async (query: string) => {
     if (!query.trim()) return;
     setGifLoading(true);
@@ -682,6 +726,12 @@ export default function ChatPanel() {
           </div>
         )}
         <div className="flex items-center gap-1">
+          {view === 'chat' && activeChannel && (
+            <button onClick={() => { setInlineSearchOpen(!inlineSearchOpen); if (inlineSearchOpen) closeInlineSearch(); }}
+              className={`transition-colors ${inlineSearchOpen ? 'text-yellow-400' : 'text-slate-500 hover:text-white'}`} title="Search in chat">
+              <Search size={15} />
+            </button>
+          )}
           <button onClick={toggleSound} className={`transition-colors ${soundEnabled ? 'text-cyan-400 hover:text-cyan-300' : 'text-slate-600 hover:text-slate-400'}`} title={soundEnabled ? "Mute notifications" : "Unmute notifications"}>
             {soundEnabled ? <Bell size={15} /> : <BellOff size={15} />}
           </button>
@@ -846,6 +896,38 @@ export default function ChatPanel() {
       ) : (
         /* ── Messages View ── */
         <>
+          {/* Inline search bar */}
+          {inlineSearchOpen && (
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-[#0d1a2e] border-b border-yellow-900/30">
+              <Search size={13} className="text-yellow-500 flex-shrink-0" />
+              <input
+                value={inlineSearch}
+                onChange={e => doInlineSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') inlineSearchNav(e.shiftKey ? -1 : 1);
+                  if (e.key === 'Escape') closeInlineSearch();
+                }}
+                placeholder="Find in conversation..."
+                className="flex-1 bg-transparent text-xs text-slate-200 placeholder:text-slate-600 outline-none"
+                autoFocus
+              />
+              {inlineMatchIds.length > 0 && (
+                <span className="text-[10px] text-yellow-400 whitespace-nowrap">
+                  {inlineMatchIdx + 1}/{inlineMatchIds.length}
+                </span>
+              )}
+              {inlineSearch && inlineMatchIds.length === 0 && (
+                <span className="text-[10px] text-slate-500">No results</span>
+              )}
+              <button onClick={() => inlineSearchNav(-1)} className="text-slate-500 hover:text-white" title="Previous">
+                <ChevronLeft size={14} />
+              </button>
+              <button onClick={() => inlineSearchNav(1)} className="text-slate-500 hover:text-white" title="Next">
+                <ChevronRight size={14} />
+              </button>
+              <button onClick={closeInlineSearch} className="text-slate-500 hover:text-white text-xs ml-1">✕</button>
+            </div>
+          )}
           <div ref={messagesContainerRef} onScroll={handleContainerScroll} className="flex-1 overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
             {loading ? (
               <div className="flex items-center justify-center h-full">
@@ -862,8 +944,11 @@ export default function ChatPanel() {
                 const showAvatar = i === 0 || messages[i - 1]?.sender_id !== msg.sender_id;
                 const isGif = msg.message_type === 'gif';
 
+                const isMatch = inlineSearch && inlineMatchIds.includes(msg.id);
+                const isCurrentMatch = isMatch && inlineMatchIds[inlineMatchIdx] === msg.id;
+
                 return (
-                  <div key={msg.id} id={`msg-${msg.id}`} className={`group ${showAvatar ? 'mt-3' : 'mt-0.5'} transition-all`}>
+                  <div key={msg.id} id={`msg-${msg.id}`} className={`group ${showAvatar ? 'mt-3' : 'mt-0.5'} transition-all ${isCurrentMatch ? 'bg-yellow-500/10 rounded-lg ring-1 ring-yellow-500/30' : isMatch ? 'bg-yellow-500/5 rounded-lg' : ''}`}>
                     {/* Sender info */}
                     {showAvatar && (
                       <div className="flex items-center gap-2 mb-0.5">
