@@ -49,4 +49,7 @@ def migrate_dialer():
                 ), {"phone": num})
             logger.info("Created dialer_phone_numbers table with 5 SA numbers")
 
+        # Add concurrency_cap to campaigns
+        _add_col(conn, "dialer_campaigns", "concurrency_cap", "INTEGER", 1)
+
         logger.info("Dialer tables migrated")

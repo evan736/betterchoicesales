@@ -20,6 +20,35 @@ RETELL_HEADERS = {
     "Content-Type": "application/json",
 }
 
+
+def _get_active_call_count() -> int:
+    """Check how many calls are currently active/in-progress via Retell API."""
+    try:
+        resp = http_requests.post(
+            "https://api.retellai.com/v2/list-calls",
+            headers=RETELL_HEADERS,
+            json={
+                "filter_criteria": [
+                    {"member": "status", "operator": "eq", "value": ["in_progress"]},
+                    {"member": "direction", "operator": "eq", "value": ["outbound"]},
+                ],
+                "sort_order": "descending",
+                "limit": 50,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            calls = resp.json()
+            if isinstance(calls, list):
+                return len(calls)
+            return len(calls.get("calls", calls.get("data", [])))
+        else:
+            logger.warning(f"[Concurrency] Retell list-calls error: {resp.status_code} {resp.text[:200]}")
+            return 0  # Fail open — don't block dialing if API errors
+    except Exception as e:
+        logger.warning(f"[Concurrency] Failed to check active calls: {e}")
+        return 0  # Fail open
+
 # 30-day cadence: (day_offset, preferred_time_slot)
 CADENCE = [
     (0, "morning"), (0, "afternoon"),
@@ -92,6 +121,7 @@ def list_campaigns():
                 "total_dialed": c.total_dialed, "total_transferred": c.total_transferred,
                 "total_callbacks": c.total_callbacks,
                 "max_calls_per_day": c.max_calls_per_day,
+                "concurrency_cap": c.concurrency_cap or 1,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
             }
             for c in campaigns
@@ -111,6 +141,7 @@ async def create_campaign(request: Request):
             agent_name=body.get("agent_name", "Grace"),
             from_number=body.get("from_number", "+12108649246"),
             max_calls_per_day=body.get("max_calls_per_day", 300),
+            concurrency_cap=body.get("concurrency_cap", 1),
         )
         db.add(c)
         db.commit()
@@ -128,7 +159,7 @@ async def update_campaign(campaign_id: int, request: Request):
         c = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
         if not c:
             return {"error": "Campaign not found"}
-        for key in ["name", "status", "agent_id", "from_number", "max_calls_per_day"]:
+        for key in ["name", "status", "agent_id", "from_number", "max_calls_per_day", "concurrency_cap"]:
             if key in body:
                 setattr(c, key, body[key])
         db.commit()
@@ -799,6 +830,26 @@ def _auto_dial_loop(campaign_id: int):
                 ok, _ = is_calling_hours()
                 if not ok:
                     break
+
+                # Concurrency cap — wait if too many active calls
+                cap = campaign.concurrency_cap or 1
+                wait_count = 0
+                while True:
+                    active = _get_active_call_count()
+                    if active < cap:
+                        break
+                    wait_count += 1
+                    if wait_count == 1:
+                        logger.info(f"[AutoDialer] Concurrency cap hit ({active}/{cap} active) — waiting for transfer to finish")
+                    if wait_count > 60:  # 5 min max wait (60 * 5s)
+                        logger.warning(f"[AutoDialer] Concurrency wait timeout — proceeding")
+                        break
+                    # Re-check campaign status while waiting
+                    db.refresh(campaign)
+                    if campaign.status != "active":
+                        break
+                    import time
+                    time.sleep(5)
 
                 first_name = lead.name.split()[0] if lead.name else "there"
 

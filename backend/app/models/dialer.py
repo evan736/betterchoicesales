@@ -18,6 +18,7 @@ class DialerCampaign(Base):
     min_delay_seconds = Column(Integer, default=30)
     max_delay_seconds = Column(Integer, default=60)
     max_lead_age_days = Column(Integer, default=75)
+    concurrency_cap = Column(Integer, default=1)  # Max simultaneous live calls before pausing dialer
     total_leads = Column(Integer, default=0)
     total_dialed = Column(Integer, default=0)
     total_transferred = Column(Integer, default=0)

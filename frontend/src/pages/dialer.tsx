@@ -263,6 +263,27 @@ export default function DialerPage() {
               <button onClick={() => { fetchStats(); fetchLeads(); }} className="flex items-center gap-2 text-slate-400 hover:text-white px-3 py-2 text-sm">
                 <RefreshCw size={16} /> Refresh
               </button>
+              {/* Concurrency Cap */}
+              <div className="flex items-center gap-2 bg-[#1a2035] border border-slate-600 rounded px-3 py-1.5">
+                <span className="text-xs text-slate-400 whitespace-nowrap">Max Live Calls:</span>
+                <select
+                  value={selected.concurrency_cap || 1}
+                  onChange={async (e) => {
+                    const cap = parseInt(e.target.value);
+                    try {
+                      await axios.patch(`${API}/api/dialer/campaigns/${selected.id}`, { concurrency_cap: cap }, { headers: headers() });
+                      setSelected({ ...selected, concurrency_cap: cap });
+                      fetchCampaigns();
+                      toast.success(`Concurrency cap set to ${cap}`);
+                    } catch { toast.error('Failed to update'); }
+                  }}
+                  className="bg-[#0a0e17] border border-slate-700 rounded px-2 py-1 text-sm text-white w-14"
+                >
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
               <div className="ml-auto flex items-center gap-2">
                 <input value={dncPhone} onChange={e => setDncPhone(e.target.value)} placeholder="Add to DNC..."
                   className="bg-[#0a0e17] border border-slate-700 rounded px-3 py-1.5 text-sm w-36"
