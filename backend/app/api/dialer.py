@@ -112,7 +112,9 @@ def pitch_style(age):
 def list_campaigns():
     db = SessionLocal()
     try:
-        campaigns = db.query(DialerCampaign).order_by(DialerCampaign.created_at.desc()).all()
+        campaigns = db.query(DialerCampaign).filter(
+            DialerCampaign.status != "deleted"
+        ).order_by(DialerCampaign.created_at.desc()).all()
         return [
             {
                 "id": c.id, "name": c.name, "agent_id": c.agent_id,
@@ -164,6 +166,25 @@ async def update_campaign(campaign_id: int, request: Request):
                 setattr(c, key, body[key])
         db.commit()
         return {"id": c.id, "status": c.status}
+    finally:
+        db.close()
+
+
+@router.delete("/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: int):
+    """Delete a campaign and all its leads. Cannot delete an active campaign."""
+    db = SessionLocal()
+    try:
+        c = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+        if not c:
+            return {"error": "Campaign not found"}
+        if c.status == "active":
+            return {"error": "Cannot delete an active campaign — pause it first"}
+        # Delete leads first
+        deleted_leads = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id).delete()
+        db.delete(c)
+        db.commit()
+        return {"status": "deleted", "campaign_id": campaign_id, "leads_deleted": deleted_leads}
     finally:
         db.close()
 
