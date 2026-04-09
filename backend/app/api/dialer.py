@@ -659,10 +659,10 @@ import threading
 _dialer_threads = {}  # campaign_id -> thread reference
 
 # Number rotation config
-CALLS_PER_NUMBER_PER_DAY = 60
+CALLS_PER_NUMBER_PER_DAY = 100
 ACTIVE_DAYS_BEFORE_REST = 5   # Use a number for 5 days then rest it
 REST_DAYS = 30                 # Rest a number for 30 days before reuse
-ACTIVE_POOL_SIZE = 5           # Always keep 5 numbers active
+ACTIVE_POOL_SIZE = 20          # Always keep 20 numbers active
 AREA_CODE = 210                # San Antonio TX
 
 # In-memory daily counts (reset on restart, which is fine)
