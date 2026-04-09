@@ -1657,6 +1657,74 @@ async def post_call_webhook(request: Request):
                 except Exception as e:
                     logger.error("Post-call SMS failed: %s", e)
 
+        # ── Update dialer lead status if this was an outbound dialer call ──
+        if call_id and direction == "outbound":
+            try:
+                from app.core.database import SessionLocal as _dl_session
+                from app.models.dialer import DialerLead, DialerCampaign
+                dl_db = _dl_session()
+                try:
+                    # Find lead by call_id in the JSON array
+                    lead = dl_db.query(DialerLead).filter(
+                        DialerLead.call_ids.contains([call_id])
+                    ).first()
+
+                    if lead:
+                        answered = duration_sec >= 5  # >5s means someone picked up
+                        disconnect = (disconnection_reason or "").lower()
+
+                        if answered:
+                            sentiment_lower = (sentiment or "").lower()
+                            resolution_lower = (resolution or "").lower()
+
+                            if "transfer" in resolution_lower:
+                                lead.status = "transferred"
+                                camp = dl_db.query(DialerCampaign).filter(DialerCampaign.id == lead.campaign_id).first()
+                                if camp:
+                                    camp.total_transferred = (camp.total_transferred or 0) + 1
+                            elif "callback" in resolution_lower:
+                                lead.status = "callback_scheduled"
+                                camp = dl_db.query(DialerCampaign).filter(DialerCampaign.id == lead.campaign_id).first()
+                                if camp:
+                                    camp.total_callbacks = (camp.total_callbacks or 0) + 1
+                            elif "not_interested" in resolution_lower or "hard_no" in resolution_lower or sentiment_lower in ("hostile", "upset"):
+                                lead.status = "hard_no"
+                            elif "not right now" in resolution_lower or "soft_no" in resolution_lower:
+                                lead.status = "soft_no"
+                            elif "interested" in resolution_lower or sentiment_lower == "positive":
+                                lead.status = "interested"
+                            elif "already" in resolution_lower:
+                                lead.status = "already_insured"
+                            elif "do_not_call" in resolution_lower or "dnc" in resolution_lower:
+                                lead.status = "do_not_call"
+                            else:
+                                lead.status = "soft_no"
+
+                            if sentiment_lower == "positive":
+                                lead.interest_level = "warm"
+                            elif sentiment_lower in ("hostile", "upset", "frustrated"):
+                                lead.interest_level = "hostile"
+                            elif sentiment_lower == "neutral":
+                                lead.interest_level = "cold"
+                        else:
+                            if "voicemail" in disconnect or "machine" in disconnect:
+                                if lead.status == "dialed":
+                                    lead.status = "voicemail"
+
+                        if call_summary:
+                            existing = lead.notes or ""
+                            lead.notes = (f"{call_summary}\n---\n{existing}").strip() if existing else call_summary
+
+                        dl_db.commit()
+                        logger.info(f"[Dialer] Updated lead {lead.name} ({lead.phone}) -> {lead.status} (duration: {duration_str})")
+                except Exception as dl_err:
+                    logger.error(f"[Dialer] Lead update error: {dl_err}")
+                    dl_db.rollback()
+                finally:
+                    dl_db.close()
+            except Exception as dl_import_err:
+                logger.warning(f"[Dialer] Could not update lead: {dl_import_err}")
+
         return {"status": "ok"}
 
     except Exception as e:
