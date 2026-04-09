@@ -537,7 +537,6 @@ def send_message(
         file_path=file_path,
         file_type=file_type,
         file_size=file_size,
-        file_data=file_data,
         mentions=mention_ids,
         reply_to_id=reply_to_id,
     )
@@ -548,6 +547,19 @@ def send_message(
     
     db.commit()
     db.refresh(msg)
+
+    # Store file bytes in DB separately (safe even if column doesn't exist yet)
+    if file_data:
+        try:
+            from sqlalchemy import text as sa_text
+            db.execute(
+                sa_text("UPDATE chat_messages SET file_data = :data WHERE id = :mid"),
+                {"data": file_data, "mid": msg.id}
+            )
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Could not store file_data in DB: {e}")
+            db.rollback()
 
     # Broadcast via SSE for live chat
     try:
