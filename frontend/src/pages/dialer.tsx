@@ -63,8 +63,9 @@ export default function DialerPage() {
   const fetchCampaigns = useCallback(async () => {
     try {
       const { data } = await axios.get(`${API}/api/dialer/campaigns`, { headers: headers() });
-      setCampaigns(data);
-      if (data.length > 0 && !selected) setSelected(data[0]);
+      const visible = data.filter((c: any) => c.status !== 'deleted');
+      setCampaigns(visible);
+      if (visible.length > 0 && !selected) setSelected(visible[0]);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
