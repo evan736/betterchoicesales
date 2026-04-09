@@ -191,8 +191,8 @@ def send_followup_email(
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return {"success": False, "error": "Mailgun not configured"}
 
-    from_email = settings.MAILGUN_FROM_EMAIL or "service@betterchoiceins.com"
-    reply_to = agent_email or "service@betterchoiceins.com"
+    from_email = "sales@betterchoiceins.com"
+    reply_to = "sales@betterchoiceins.com"
 
     data = {
         "from": f"{AGENCY_NAME} <{from_email}>",
