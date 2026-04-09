@@ -71,26 +71,33 @@ def serve_chat_file(message_id: int, filename: str, db: Session = Depends(get_db
     if msg.file_path != filename:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Try DB first (persistent)
-    if msg.file_data:
-        ext = (msg.file_type or "").lower()
-        content_type = MIME_MAP.get(ext, "application/octet-stream")
-        return Response(
-            content=msg.file_data,
-            media_type=content_type,
-            headers={
-                "Content-Disposition": f'inline; filename="{msg.file_name or filename}"',
-                "Cache-Control": "public, max-age=86400",
-            },
-        )
+    ext = (msg.file_type or "").lower()
+    content_type = MIME_MAP.get(ext, "application/octet-stream")
+
+    # Try DB first (persistent) — file_data is not on the ORM model, use raw SQL
+    try:
+        from sqlalchemy import text as sa_text
+        row = db.execute(
+            sa_text("SELECT file_data FROM chat_messages WHERE id = :mid AND file_data IS NOT NULL"),
+            {"mid": message_id}
+        ).fetchone()
+        if row and row[0]:
+            return Response(
+                content=bytes(row[0]),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{msg.file_name or filename}"',
+                    "Cache-Control": "public, max-age=86400",
+                },
+            )
+    except Exception as e:
+        logger.warning(f"DB file_data fetch failed: {e}")
 
     # Fallback: try disk (works within same deploy)
     disk_path = os.path.join(UPLOAD_DIR, msg.file_path)
     if os.path.exists(disk_path):
         with open(disk_path, "rb") as f:
             data = f.read()
-        ext = (msg.file_type or "").lower()
-        content_type = MIME_MAP.get(ext, "application/octet-stream")
         return Response(
             content=data,
             media_type=content_type,
