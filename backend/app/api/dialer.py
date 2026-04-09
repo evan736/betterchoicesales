@@ -819,9 +819,11 @@ def _auto_dial_loop(campaign_id: int):
 
             current_slot = get_time_slot()
             dialed = 0
+            cap = campaign.concurrency_cap or 1
+            idx = 0  # pointer into to_dial list
 
-            for lead, age in to_dial:
-                # Re-check campaign status every call
+            while idx < len(to_dial):
+                # Re-check campaign status
                 db.refresh(campaign)
                 if campaign.status != "active":
                     logger.info(f"[AutoDialer] Campaign {campaign_id} — paused mid-session")
@@ -831,87 +833,77 @@ def _auto_dial_loop(campaign_id: int):
                 if not ok:
                     break
 
-                # Concurrency cap — wait if too many active calls
-                cap = campaign.concurrency_cap or 1
-                wait_count = 0
-                while True:
-                    active = _get_active_call_count()
-                    if active < cap:
-                        break
-                    wait_count += 1
-                    if wait_count == 1:
-                        logger.info(f"[AutoDialer] Concurrency cap hit ({active}/{cap} active) — waiting for transfer to finish")
-                    if wait_count > 60:  # 5 min max wait (60 * 5s)
-                        logger.warning(f"[AutoDialer] Concurrency wait timeout — proceeding")
-                        break
-                    # Re-check campaign status while waiting
-                    db.refresh(campaign)
-                    if campaign.status != "active":
-                        break
+                # How many slots are free?
+                active = _get_active_call_count()
+                slots = max(0, cap - active)
+
+                if slots == 0:
                     import time
                     time.sleep(5)
+                    continue
 
-                first_name = lead.name.split()[0] if lead.name else "there"
+                # Grab the next batch of leads to dial concurrently
+                batch = to_dial[idx:idx + slots]
+                idx += len(batch)
 
-                try:
-                    from_number = _get_next_from_number(db)
-                    resp = http_requests.post(
-                        "https://api.retellai.com/v2/create-phone-call",
-                        headers=RETELL_HEADERS,
-                        json={
-                            "agent_id": campaign.agent_id,
-                            "from_number": from_number,
-                            "to_number": lead.phone,
-                            "retell_llm_dynamic_variables": {
-                                "lead_name": first_name,
-                                "lead_full_name": lead.name,
-                                "lead_address": lead.address or "",
-                                "callback_number": "2108649246",
-                                "lead_age_days": str(age),
-                                "pitch_style": pitch_style(age),
+                # Fire all calls in the batch
+                for lead, age in batch:
+                    first_name = lead.name.split()[0] if lead.name else "there"
+                    try:
+                        from_number = _get_next_from_number(db)
+                        resp = http_requests.post(
+                            "https://api.retellai.com/v2/create-phone-call",
+                            headers=RETELL_HEADERS,
+                            json={
+                                "agent_id": campaign.agent_id,
+                                "from_number": from_number,
+                                "to_number": lead.phone,
+                                "retell_llm_dynamic_variables": {
+                                    "lead_name": first_name,
+                                    "lead_full_name": lead.name,
+                                    "lead_address": lead.address or "",
+                                    "callback_number": "2108649246",
+                                    "lead_age_days": str(age),
+                                    "pitch_style": pitch_style(age),
+                                },
                             },
-                        },
-                        timeout=30,
-                    )
+                            timeout=30,
+                        )
 
-                    if resp.status_code == 201:
-                        call_id = resp.json().get("call_id", "")
-                        lead.attempts += 1
-                        lead.last_attempt_at = datetime.now()
-                        lead.last_time_slot = current_slot
-                        lead.status = "dialed"
-                        cids = lead.call_ids or []
-                        cids.append(call_id)
-                        lead.call_ids = cids
+                        if resp.status_code == 201:
+                            call_id = resp.json().get("call_id", "")
+                            lead.attempts += 1
+                            lead.last_attempt_at = datetime.now()
+                            lead.last_time_slot = current_slot
+                            lead.status = "dialed"
+                            cids = lead.call_ids or []
+                            cids.append(call_id)
+                            lead.call_ids = cids
 
-                        if lead.attempts < len(CADENCE):
-                            next_day, _ = CADENCE[lead.attempts]
-                            base = lead.request_date or lead.created_at
-                            lead.next_attempt_after = base + timedelta(days=next_day)
+                            if lead.attempts < len(CADENCE):
+                                next_day, _ = CADENCE[lead.attempts]
+                                base = lead.request_date or lead.created_at
+                                lead.next_attempt_after = base + timedelta(days=next_day)
+                            else:
+                                lead.status = "exhausted"
+
+                            campaign.total_dialed = (campaign.total_dialed or 0) + 1
+                            dialed += 1
+                            logger.info(f"[AutoDialer] Called {lead.name} ({lead.phone}) from {from_number} — attempt {lead.attempts}, age {age}d")
                         else:
-                            lead.status = "exhausted"
+                            err = resp.json().get("message", "")
+                            if "invalid" in err.lower():
+                                lead.status = "wrong_number"
+                            logger.warning(f"[AutoDialer] Failed {lead.phone}: {err}")
 
-                        campaign.total_dialed = (campaign.total_dialed or 0) + 1
-                        dialed += 1
-                        logger.info(f"[AutoDialer] Called {lead.name} ({lead.phone}) from {from_number} — attempt {lead.attempts}, age {age}d")
-                    else:
-                        err = resp.json().get("message", "")
-                        if "invalid" in err.lower():
-                            lead.status = "wrong_number"
-                        logger.warning(f"[AutoDialer] Failed {lead.phone}: {err}")
-
-                except Exception as e:
-                    logger.error(f"[AutoDialer] Error calling {lead.phone}: {e}")
+                    except Exception as e:
+                        logger.error(f"[AutoDialer] Error calling {lead.phone}: {e}")
 
                 db.commit()
 
-                # Pacing — wait between calls
-                delay = random.uniform(
-                    campaign.min_delay_seconds or 30,
-                    campaign.max_delay_seconds or 60
-                )
+                # Brief pause between batches (let calls connect before checking slots again)
                 import time
-                time.sleep(delay)
+                time.sleep(random.uniform(8, 15))
 
             logger.info(f"[AutoDialer] Campaign {campaign_id} — session complete: {dialed} calls")
 
