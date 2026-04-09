@@ -20,6 +20,7 @@ const CARRIER_DISPLAY: Record<string, string> = {
   'the standard fire insurance company': 'Travelers', 'standard fire insurance company': 'Travelers',
   'standard fire': 'Travelers', 'standard fire insurance': 'Travelers',
   'travco': 'Travelers', 'travco insurance': 'Travelers',
+  'spinnaker': 'Hippo', 'spinnaker insurance': 'Hippo', 'spinnaker insurance company': 'Hippo',
 };
 function normCarrier(c: string | null): string {
   if (!c) return '—';

@@ -138,9 +138,12 @@ CARRIER_NORMALIZE = {
     "bristol west": "Bristol West",
     "bristol west insurance": "Bristol West",
     "bristol west insurance group": "Bristol West",
-    # Hippo
+    # Hippo / Spinnaker
     "hippo": "Hippo",
     "hippo insurance": "Hippo",
+    "spinnaker": "Hippo",
+    "spinnaker insurance": "Hippo",
+    "spinnaker insurance company": "Hippo",
     # Branch
     "branch": "Branch",
     "branch insurance": "Branch",

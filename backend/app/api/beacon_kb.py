@@ -672,6 +672,7 @@ def get_relevant_knowledge(query: str, db: Session, limit: int = 5) -> str:
                 'grange': ['grange'],
                 'progressive': ['progressive'],
                 'geico': ['geico'],
+                'hippo': ['hippo', 'spinnaker', 'spinnaker insurance'],
             }
             for canonical, aliases in carrier_aliases.items():
                 if any(a in ai_carrier for a in aliases) and any(a in carrier_lower for a in aliases):

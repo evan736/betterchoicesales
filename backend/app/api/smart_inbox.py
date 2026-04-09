@@ -85,6 +85,10 @@ CARRIER_ALIASES = {
     "standard fire insurance": "Travelers",
     "standard fire insurance company": "Travelers",
     "the standard fire insurance company": "Travelers",
+    # Hippo / Spinnaker
+    "spinnaker": "Hippo",
+    "spinnaker insurance": "Hippo",
+    "spinnaker insurance company": "Hippo",
     # Common abbreviations
     "natgen": "National General",
     "trv": "Travelers",
