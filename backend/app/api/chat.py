@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import Response
 from sqlalchemy import func, and_, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -33,7 +34,7 @@ def _serialize_message(msg: ChatMessage, current_user_id: int = None) -> dict:
         "content": msg.content if not msg.is_deleted else "[Message deleted]",
         "message_type": msg.message_type,
         "file_name": msg.file_name,
-        "file_path": f"/static/chat-files/{msg.file_path}" if msg.file_path else None,
+        "file_path": f"/api/chat/files/{msg.id}/{msg.file_path}" if msg.file_path else None,
         "file_type": msg.file_type,
         "file_size": msg.file_size,
         "mentions": msg.mentions or [],
@@ -43,6 +44,63 @@ def _serialize_message(msg: ChatMessage, current_user_id: int = None) -> dict:
         "is_deleted": msg.is_deleted,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
     }
+
+
+# --- File serving (persistent, from DB) ---
+
+MIME_MAP = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml",
+    "pdf": "application/pdf", "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv", "txt": "text/plain", "zip": "application/zip",
+    "mp4": "video/mp4", "mp3": "audio/mpeg",
+}
+
+
+@router.get("/files/{message_id}/{filename}")
+def serve_chat_file(message_id: int, filename: str, db: Session = Depends(get_db)):
+    """Serve a chat file attachment from the database (persistent across deploys)."""
+    msg = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    if not msg or not msg.file_path:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Verify filename matches to prevent enumeration
+    if msg.file_path != filename:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Try DB first (persistent)
+    if msg.file_data:
+        ext = (msg.file_type or "").lower()
+        content_type = MIME_MAP.get(ext, "application/octet-stream")
+        return Response(
+            content=msg.file_data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{msg.file_name or filename}"',
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+
+    # Fallback: try disk (works within same deploy)
+    disk_path = os.path.join(UPLOAD_DIR, msg.file_path)
+    if os.path.exists(disk_path):
+        with open(disk_path, "rb") as f:
+            data = f.read()
+        ext = (msg.file_type or "").lower()
+        content_type = MIME_MAP.get(ext, "application/octet-stream")
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{msg.file_name or filename}"',
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+
+    raise HTTPException(status_code=404, detail="File data not available — uploaded before persistent storage was enabled")
 
 
 def _serialize_channel(channel: ChatChannel, current_user_id: int, db: Session) -> dict:
@@ -433,11 +491,11 @@ def send_message(
     file_path = None
     file_type = None
     file_size = None
+    file_data = None
 
     if file:
         ext = os.path.splitext(file.filename)[1].lower()
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        save_path = os.path.join(UPLOAD_DIR, unique_name)
         
         file_bytes = file.file.read()
         file_size = len(file_bytes)
@@ -445,8 +503,16 @@ def send_message(
         if file_size > 25 * 1024 * 1024:  # 25MB limit
             raise HTTPException(status_code=400, detail="File too large (max 25MB)")
 
-        with open(save_path, "wb") as f:
-            f.write(file_bytes)
+        # Store in DB for persistence (Render filesystem is ephemeral)
+        file_data = file_bytes
+
+        # Also save to disk as fallback/cache
+        try:
+            save_path = os.path.join(UPLOAD_DIR, unique_name)
+            with open(save_path, "wb") as f:
+                f.write(file_bytes)
+        except Exception:
+            pass  # DB is the source of truth
 
         file_name = file.filename
         file_path = unique_name
@@ -471,6 +537,7 @@ def send_message(
         file_path=file_path,
         file_type=file_type,
         file_size=file_size,
+        file_data=file_data,
         mentions=mention_ids,
         reply_to_id=reply_to_id,
     )

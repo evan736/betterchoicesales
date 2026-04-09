@@ -1,6 +1,6 @@
 """Internal agency chat — messages, channels, read receipts."""
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, JSON, LargeBinary
+from sqlalchemy.orm import relationship, deferred
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -48,6 +48,7 @@ class ChatMessage(Base):
     file_path = Column(String, nullable=True)
     file_type = Column(String, nullable=True)  # pdf, image, etc.
     file_size = Column(Integer, nullable=True)
+    file_data = deferred(Column(LargeBinary, nullable=True))  # Store file bytes in DB (Render ephemeral FS)
 
     # @mentions — list of user IDs mentioned
     mentions = Column(JSON, nullable=True)  # [1, 3, 5]

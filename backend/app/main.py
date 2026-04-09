@@ -1921,6 +1921,15 @@ def force_migrate():
     except Exception as e:
         results.append(f"SKIP statement_lines.is_renewal_term: {str(e)[:80]}")
 
+    # Add file_data BYTEA column to chat_messages for persistent file storage
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE chat_messages ADD COLUMN file_data BYTEA"))
+            conn.commit()
+        results.append("OK: Added chat_messages.file_data")
+    except Exception as e:
+        results.append(f"SKIP chat_messages.file_data: {str(e)[:80]}")
+
     # Mark all sales before Jan 2026 as premium paid
     try:
         with engine.connect() as conn:

@@ -1023,20 +1023,33 @@ export default function ChatPanel() {
 
                       {/* File attachment */}
                       {msg.file_path && (
-                        <a
-                          href={`${API_BASE}${msg.file_path}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 mt-1 px-2 py-1.5 rounded bg-white/[0.04] hover:bg-white/[0.08] transition-colors border border-white/[0.06]"
-                        >
+                        <div className="mt-1">
                           {msg.file_type && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(msg.file_type) ? (
-                            <Image size={14} className="text-green-400" />
+                            <a
+                              href={`${API_BASE}${msg.file_path}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={`${API_BASE}${msg.file_path}`}
+                                alt={msg.file_name || 'image'}
+                                className="max-w-[280px] max-h-[200px] rounded-lg border border-white/[0.08] cursor-pointer hover:opacity-90 transition-opacity object-contain"
+                                loading="lazy"
+                              />
+                            </a>
                           ) : (
-                            <FileText size={14} className="text-amber-400" />
+                            <a
+                              href={`${API_BASE}${msg.file_path}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/[0.04] hover:bg-white/[0.08] transition-colors border border-white/[0.06]"
+                            >
+                              <FileText size={14} className="text-amber-400" />
+                              <span className="text-xs text-slate-300 truncate">{msg.file_name}</span>
+                              <span className="text-[10px] text-slate-600 ml-auto">{msg.file_size ? `${(msg.file_size / 1024).toFixed(0)}KB` : ''}</span>
+                            </a>
                           )}
-                          <span className="text-xs text-slate-300 truncate">{msg.file_name}</span>
-                          <span className="text-[10px] text-slate-600 ml-auto">{msg.file_size ? `${(msg.file_size / 1024).toFixed(0)}KB` : ''}</span>
-                        </a>
+                        </div>
                       )}
 
                       {msg.is_edited && <span className="text-[9px] text-slate-600 ml-1">(edited)</span>}
