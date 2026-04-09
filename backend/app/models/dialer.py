@@ -80,5 +80,7 @@ class DialerPhoneNumber(Base):
     first_used_date = Column(DateTime, nullable=True)  # When this number started being used
     rest_until = Column(DateTime, nullable=True)  # When cooldown ends
     total_calls = Column(Integer, default=0)
+    calls_today = Column(Integer, default=0)
+    calls_today_date = Column(String, nullable=True)  # "2026-04-09" — resets when date changes
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

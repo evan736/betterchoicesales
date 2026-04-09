@@ -52,4 +52,36 @@ def migrate_dialer():
         # Add concurrency_cap to campaigns
         _add_col(conn, "dialer_campaigns", "concurrency_cap", "INTEGER", 1)
 
+        # Add daily call tracking to phone numbers (persists across deploys)
+        _add_col(conn, "dialer_phone_numbers", "calls_today", "INTEGER", 0)
+        _add_col(conn, "dialer_phone_numbers", "calls_today_date", "VARCHAR")
+
         logger.info("Dialer tables migrated")
+
+    # Auto-resume active campaigns after deploy/restart
+    _auto_resume_active_campaigns()
+
+
+def _auto_resume_active_campaigns():
+    """Restart dialer threads for any campaigns that were active before deploy."""
+    try:
+        from app.core.database import SessionLocal
+        from app.models.dialer import DialerCampaign
+        db = SessionLocal()
+        try:
+            active = db.query(DialerCampaign).filter(DialerCampaign.status == "active").all()
+            for c in active:
+                try:
+                    from app.api.dialer import _auto_dial_loop, _dialer_threads
+                    import threading
+                    if c.id not in _dialer_threads or not _dialer_threads[c.id].is_alive():
+                        t = threading.Thread(target=_auto_dial_loop, args=(c.id,), daemon=True)
+                        t.start()
+                        _dialer_threads[c.id] = t
+                        logger.info(f"[AutoDialer] Auto-resumed campaign {c.id}: {c.name}")
+                except Exception as e:
+                    logger.warning(f"[AutoDialer] Failed to auto-resume campaign {c.id}: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[AutoDialer] Auto-resume failed: {e}")

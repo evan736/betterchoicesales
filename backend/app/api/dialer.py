@@ -747,9 +747,10 @@ def _get_number_pool(db):
 
 
 def _get_next_from_number(db):
-    """Get the next outbound number with daily count rotation."""
+    """Get the next outbound number with daily count rotation (DB-persisted)."""
     global _current_number_idx
     today = datetime.now().strftime("%Y-%m-%d")
+    from app.models.dialer import DialerPhoneNumber
 
     pool = _get_number_pool(db)
     if not pool:
@@ -758,20 +759,21 @@ def _get_next_from_number(db):
     for _ in range(len(pool)):
         idx = _current_number_idx % len(pool)
         num = pool[idx]
-        key = f"{today}:{num}"
-        count = _number_daily_counts.get(key, 0)
 
-        if count < CALLS_PER_NUMBER_PER_DAY:
-            _number_daily_counts[key] = count + 1
+        pn = db.query(DialerPhoneNumber).filter(DialerPhoneNumber.phone == num).first()
+        if pn:
+            # Reset daily count if new day
+            if pn.calls_today_date != today:
+                pn.calls_today = 0
+                pn.calls_today_date = today
 
-            # Update first_used_date if needed
-            from app.models.dialer import DialerPhoneNumber
-            pn = db.query(DialerPhoneNumber).filter(DialerPhoneNumber.phone == num).first()
-            if pn and not pn.first_used_date:
-                pn.first_used_date = datetime.now()
+            if (pn.calls_today or 0) < CALLS_PER_NUMBER_PER_DAY:
+                pn.calls_today = (pn.calls_today or 0) + 1
+                pn.total_calls = (pn.total_calls or 0) + 1
+                if not pn.first_used_date:
+                    pn.first_used_date = datetime.now()
                 db.commit()
-
-            return num
+                return num
 
         _current_number_idx = (_current_number_idx + 1) % len(pool)
 
@@ -780,10 +782,25 @@ def _get_next_from_number(db):
 
 
 def _reset_daily_counts_if_new_day():
-    """Clear counts at midnight."""
-    global _number_daily_counts
+    """Reset DB daily counts at midnight (called from dial loop)."""
     today = datetime.now().strftime("%Y-%m-%d")
-    _number_daily_counts = {k: v for k, v in _number_daily_counts.items() if k.startswith(today)}
+    try:
+        from app.models.dialer import DialerPhoneNumber
+        db = SessionLocal()
+        try:
+            stale = db.query(DialerPhoneNumber).filter(
+                DialerPhoneNumber.calls_today_date != today,
+                DialerPhoneNumber.calls_today > 0
+            ).all()
+            for pn in stale:
+                pn.calls_today = 0
+                pn.calls_today_date = today
+            if stale:
+                db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 def _auto_dial_loop(campaign_id: int):
@@ -999,8 +1016,10 @@ def dialer_status(campaign_id: int):
         active_count = 0
         resting_count = 0
         for n in all_nums:
-            key = f"{today}:{n.phone}"
-            calls_today = _number_daily_counts.get(key, 0)
+            # Read daily count from DB (persists across deploys)
+            calls_today = n.calls_today or 0
+            if n.calls_today_date != today:
+                calls_today = 0
             days_active = (datetime.now() - n.first_used_date).days if n.first_used_date else 0
 
             numbers.append({
