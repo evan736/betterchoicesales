@@ -548,10 +548,10 @@ def send_quote_email(
         unsubscribe_token=unsubscribe_token,
     )
 
-    reply_to = agent_email if agent_email else "service@betterchoiceins.com"
+    reply_to = "sales@betterchoiceins.com"
     from_name = f"{agent_name} at Better Choice Insurance" if agent_name else "Better Choice Insurance Group"
 
-    agency_from = os.environ.get("AGENCY_FROM_EMAIL", "service@betterchoiceins.com")
+    agency_from = "sales@betterchoiceins.com"
     data = {
         "from": f"{from_name} <{agency_from}>",
         "to": [to_email],
