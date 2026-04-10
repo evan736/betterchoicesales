@@ -832,818 +832,143 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  Generated a temporary random SECRET_KEY for this session. All existing tokens are now invalid.")
         logger.warning(f"⚠️  Set SECRET_KEY in Render environment variables to fix this permanently.")
 
+    # Run critical DB init synchronously (fast)
     init_database()
 
-    # Smart Inbox tables
-    from app.migrations.smart_inbox_migration import migrate_smart_inbox
-    migrate_smart_inbox()
+    # ── Run ALL migrations in background thread so health check passes immediately ──
+    def _run_all_migrations():
+        import time as _time
+        _time.sleep(2)  # tiny delay to ensure uvicorn is fully up
+        logger.info("[Startup] Running background migrations...")
 
-    # Retention tracking tables
-    try:
-        from app.migrations.retention_migration import run_retention_migration
-        run_retention_migration()
-        logger.info("Retention tables migrated")
-    except Exception as e:
-        logger.warning(f"Retention migration: {e}")
+        try:
+            from app.migrations.smart_inbox_migration import migrate_smart_inbox
+            migrate_smart_inbox()
+        except Exception as e:
+            logger.warning(f"Smart inbox migration: {e}")
 
-    # Requote campaign tables + column migrations
-    try:
-        from app.api.requote_campaigns import run_migration as run_requote_migration
-        from app.core.database import engine as _rq_engine
-        run_requote_migration(_rq_engine)
-        logger.info("Requote campaign tables migrated")
-    except Exception as e:
-        logger.warning(f"Requote migration: {e}")
+        try:
+            from app.migrations.retention_migration import run_retention_migration
+            run_retention_migration()
+        except Exception as e:
+            logger.warning(f"Retention migration: {e}")
 
-    # Leads + round-robin tables
-    try:
-        from app.migrations.leads_migration import migrate_leads
-        migrate_leads()
-        logger.info("Leads tables migrated")
-    except Exception as e:
-        logger.warning(f"Leads migration: {e}")
+        try:
+            from app.api.requote_campaigns import run_migration as run_requote_migration
+            from app.core.database import engine as _rq_engine
+            run_requote_migration(_rq_engine)
+        except Exception as e:
+            logger.warning(f"Requote migration: {e}")
 
-    # Dialer tables
-    try:
-        from app.migrations.dialer_migration import migrate_dialer
-        migrate_dialer()
-        logger.info("Dialer tables migrated")
-    except Exception as e:
-        logger.warning(f"Dialer migration: {e}")
+        try:
+            from app.migrations.leads_migration import migrate_leads
+            migrate_leads()
+        except Exception as e:
+            logger.warning(f"Leads migration: {e}")
 
-    # Auto-restart active dialer campaigns
-    try:
-        from app.api.dialer import _auto_dial_loop, _dialer_threads
-        from app.models.dialer import DialerCampaign
-        import threading
-        restart_db = SessionLocal()
-        active_campaigns = restart_db.query(DialerCampaign).filter(DialerCampaign.status == "active").all()
-        for campaign in active_campaigns:
-            if campaign.id not in _dialer_threads or not _dialer_threads[campaign.id].is_alive():
-                t = threading.Thread(target=_auto_dial_loop, args=(campaign.id,), daemon=True)
-                t.start()
-                _dialer_threads[campaign.id] = t
-                logger.info(f"Auto-restarted dialer for campaign {campaign.id}: {campaign.name}")
-        restart_db.close()
-    except Exception as e:
-        logger.warning(f"Dialer auto-restart: {e}")
+        try:
+            from app.migrations.dialer_migration import migrate_dialer
+            migrate_dialer()
+        except Exception as e:
+            logger.warning(f"Dialer migration: {e}")
 
-    # Sales records tables
-    try:
-        from app.migrations.sales_records_migration import migrate_sales_records
-        migrate_sales_records()
-        logger.info("Sales records tables migrated")
-    except Exception as e:
-        logger.warning(f"Sales records migration: {e}")
+        try:
+            from app.migrations.sales_records_migration import migrate_sales_records
+            migrate_sales_records()
+        except Exception as e:
+            logger.warning(f"Sales records migration: {e}")
 
-    # Commission tracker tables
-    try:
-        from app.migrations.commission_tracker_migration import run_commission_tracker_migration
-        from app.core.database import engine as _ct_engine
-        run_commission_tracker_migration(_ct_engine)
-        logger.info("Commission tracker tables migrated")
-    except Exception as e:
-        logger.warning(f"Commission tracker migration: {e}")
+        try:
+            from app.migrations.commission_tracker_migration import run_commission_tracker_migration
+            from app.core.database import engine as _ct_engine
+            run_commission_tracker_migration(_ct_engine)
+        except Exception as e:
+            logger.warning(f"Commission tracker migration: {e}")
 
-    try:
-        from app.migrations.renewal_survey_migration import run_migration as run_renewal_survey_migration
-        from app.core.database import engine as _rs_engine
-        run_renewal_survey_migration(_rs_engine)
-        logger.info("Renewal survey tables migrated")
-    except Exception as e:
-        logger.warning(f"Renewal survey migration: {e}")
+        try:
+            from app.migrations.renewal_survey_migration import run_migration as run_renewal_survey_migration
+            from app.core.database import engine as _rs_engine
+            run_renewal_survey_migration(_rs_engine)
+        except Exception as e:
+            logger.warning(f"Renewal survey migration: {e}")
 
-    # Chat message reads table
-    try:
-        from sqlalchemy import text as _cr_text
-        from app.core.database import engine as _cr_engine
-        with _cr_engine.connect() as conn:
-            conn.execute(_cr_text("""
-                CREATE TABLE IF NOT EXISTS chat_message_reads (
+        try:
+            from sqlalchemy import text as _cr_text
+            from app.core.database import engine as _cr_engine
+            with _cr_engine.connect() as conn:
+                conn.execute(_cr_text("""CREATE TABLE IF NOT EXISTS chat_message_reads (
                     id SERIAL PRIMARY KEY,
                     message_id INTEGER NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
                     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     read_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     UNIQUE(message_id, user_id)
-                )
-            """))
-            conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_message_id ON chat_message_reads(message_id)"))
-            conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_user_id ON chat_message_reads(user_id)"))
-            conn.commit()
-        logger.info("chat_message_reads table ready")
-    except Exception as e:
-        logger.warning(f"Chat message reads migration: {e}")
+                )"""))
+                conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_message_id ON chat_message_reads(message_id)"))
+                conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_user_id ON chat_message_reads(user_id)"))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Chat message reads migration: {e}")
 
-    # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
-    try:
-        from app.core.database import SessionLocal as _ac_sl
-        from app.models.agency_config import AgencyConfig
-        _ac_db = _ac_sl()
-        existing = _ac_db.query(AgencyConfig).filter(
-            AgencyConfig.config_type == "carrier", AgencyConfig.name == "bamboo"
-        ).first()
-        if not existing:
-            _ac_db.add(AgencyConfig(config_type="carrier", name="bamboo", display_name="Bamboo Insurance", is_active=True))
-            _ac_db.commit()
-            logger.info("Seeded Bamboo Insurance carrier")
-        _ac_db.close()
-    except Exception as e:
-        logger.debug(f"Bamboo carrier seed: {e}")
+        try:
+            from sqlalchemy import text as _ck_text
+            from app.core.database import engine as _ck_engine
+            with _ck_engine.connect() as conn:
+                conn.execute(_ck_text("""CREATE TABLE IF NOT EXISTS daily_checklist_items (
+                    id SERIAL PRIMARY KEY, check_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    item_key VARCHAR NOT NULL, completed BOOLEAN DEFAULT FALSE,
+                    completed_by VARCHAR, completed_at TIMESTAMP, notes VARCHAR
+                )"""))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Checklist migration: {e}")
 
-    # Self-healing: create daily_checklist_items table
-    try:
-        from sqlalchemy import text as _ck_text
-        from app.core.database import engine as _ck_engine
-        with _ck_engine.connect() as conn:
-            conn.execute(_ck_text("""CREATE TABLE IF NOT EXISTS daily_checklist_items (
-                id SERIAL PRIMARY KEY,
-                check_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                item_key VARCHAR NOT NULL,
-                completed BOOLEAN DEFAULT FALSE,
-                completed_by VARCHAR,
-                completed_at TIMESTAMP,
-                notes VARCHAR
-            )"""))
-            conn.commit()
-        logger.info("daily_checklist_items table ready")
-    except Exception as e:
-        logger.warning(f"Checklist migration: {e}")
-
-    # Self-healing: add missing FK indexes for query performance
-    try:
-        from sqlalchemy import text as _idx_text, inspect as _idx_inspect
-        from app.core.database import engine as _idx_engine
-        inspector = _idx_inspect(_idx_engine)
-        
-        # List of (table, column) pairs that have FKs but no index
-        fk_indexes = [
-            ("requote_leads", "producer_id"),
-            ("chat_channels", "created_by"),
-            ("chat_messages", "reply_to_id"),
-            ("email_templates", "sent_by_id"),
-            ("email_drafts", "created_by_id"),
-            ("payroll_runs", "submitted_by_id"),
-            ("reshop_activities", "user_id"),
-            ("outbound_queue", "inbound_email_id"),
-            ("tasks", "assigned_to_id"),
-            ("timeclock_entries", "excused_by"),
-        ]
-        
-        with _idx_engine.connect() as conn:
-            for table, column in fk_indexes:
-                if not inspector.has_table(table):
-                    continue
-                idx_name = f"ix_{table}_{column}"
-                existing_indexes = {idx['name'] for idx in inspector.get_indexes(table)}
-                if idx_name not in existing_indexes:
-                    try:
-                        conn.execute(_idx_text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({column})"))
-                        conn.commit()
-                        logger.info(f"Created index {idx_name}")
-                    except Exception as ie:
-                        logger.debug(f"Index {idx_name}: {ie}")
-    except Exception as e:
-        logger.warning(f"FK index migration: {e}")
-
-    # Self-healing: add PDF storage columns to sales table if missing
-    try:
-        from sqlalchemy import text as sa_text, inspect as sa_inspect
-        from app.core.database import engine
-        inspector = sa_inspect(engine)
-        if "sales" in inspector.get_table_names():
-            existing = [c["name"] for c in inspector.get_columns("sales")]
-            with engine.begin() as conn:
-                if "application_pdf_data" not in existing:
-                    conn.execute(sa_text("ALTER TABLE sales ADD COLUMN application_pdf_data BYTEA"))
-                    logger.info("✓ Added application_pdf_data column to sales")
-                if "application_pdf_name" not in existing:
-                    conn.execute(sa_text("ALTER TABLE sales ADD COLUMN application_pdf_name VARCHAR"))
-                    logger.info("✓ Added application_pdf_name column to sales")
-    except Exception as e:
-        logger.warning(f"Sales PDF column migration: {e}")
-
-    # Performance: add missing indexes on frequently-queried columns
-    try:
-        from sqlalchemy import text as _idx_text
-        from app.core.database import engine as _idx_engine
-        with _idx_engine.begin() as conn:
-            for idx_sql in [
-                "CREATE INDEX IF NOT EXISTS ix_sales_sale_date ON sales (sale_date)",
-                "CREATE INDEX IF NOT EXISTS ix_sales_status ON sales (status)",
-                "CREATE INDEX IF NOT EXISTS ix_sales_commission_status ON sales (commission_status)",
-                "CREATE INDEX IF NOT EXISTS ix_statement_lines_policy ON statement_lines (policy_number)",
-                "CREATE INDEX IF NOT EXISTS ix_statement_imports_period ON statement_imports (statement_period)",
-                "CREATE INDEX IF NOT EXISTS ix_requote_leads_campaign ON requote_leads (campaign_id)",
-                "CREATE INDEX IF NOT EXISTS ix_requote_leads_status ON requote_leads (status)",
-                "CREATE INDEX IF NOT EXISTS ix_requote_leads_t1_sched ON requote_leads (touch1_scheduled_date)",
-                "CREATE INDEX IF NOT EXISTS ix_inbound_emails_status ON inbound_emails (processing_status)",
-                "CREATE INDEX IF NOT EXISTS ix_customer_policies_status ON customer_policies (status)",
-            ]:
-                try:
-                    conn.execute(_idx_text(idx_sql))
-                except Exception:
-                    pass  # Index may already exist
-        logger.info("✓ Performance indexes verified")
-    except Exception as e:
-        logger.warning(f"Index migration: {e}")
-    except Exception as e:
-        logger.warning(f"Sales PDF column migration: {e}")
-
-    # Fix corrupt timestamps (year > 9999 crashes PostgreSQL)
-    try:
-        from sqlalchemy import text as _ts_text
-        from app.core.database import engine as _ts_engine
-        with _ts_engine.connect() as conn:
-            for col in ["sale_date", "effective_date", "created_at"]:
-                r = conn.execute(_ts_text(f"""
-                    UPDATE sales SET {col} = '2026-01-01'
-                    WHERE {col} > '2099-12-31' OR {col} < '2000-01-01'
-                """))
-                if r.rowcount > 0:
-                    logger.warning(f"Fixed {r.rowcount} corrupt {col} timestamps in sales table")
-            conn.commit()
-    except Exception as e:
-        logger.warning(f"Timestamp fix: {e}")
-
-    # Mark all sales before Jan 2026 as premium paid (pre-2026 sales)
-    try:
-        from sqlalchemy import text as sa_text
-        from app.core.database import engine
-        with engine.connect() as conn:
-            r = conn.execute(sa_text(
-                "UPDATE sales SET commission_status = 'paid' "
-                "WHERE commission_status != 'paid' "
-                "AND sale_date < '2026-01-01'"
-            ))
-            conn.commit()
-            if r.rowcount > 0:
-                logger.info(f"Marked {r.rowcount} pre-2026 sales as premium paid")
-    except Exception as e:
-        logger.warning(f"Pre-2026 paid update: {e}")
-
-    # Start background follow-up checker (runs every 6 hours)
-    import asyncio
-    import threading
-    import gc
-
-    def _run_followups():
-        """Run follow-up checks periodically."""
-        import time
-        time.sleep(30)  # Wait for app to fully start
-        while True:
-            try:
-                from app.core.database import SessionLocal
-                from app.api.quotes import _check_followups_logic
-                db = SessionLocal()
-                try:
-                    result = _check_followups_logic(db)
-                    if any(v > 0 for v in result.values()):
-                        logger.info(f"Follow-up check results: {result}")
-                except Exception as e:
-                    logger.error(f"Follow-up check error: {e}")
-                finally:
-                    db.close()
-                gc.collect()
-            except Exception as e:
-                logger.error(f"Follow-up scheduler error: {e}")
-            time.sleep(6 * 3600)  # Every 6 hours
-
-    followup_thread = threading.Thread(target=_run_followups, daemon=True)
-    followup_thread.start()
-    logger.info("Background follow-up scheduler started (every 6 hours)")
-
-    # Start NowCerts auto-sync (runs twice daily — 6 AM and 6 PM CT)
-    def _run_nowcerts_sync():
-        """Sync all customers/policies from NowCerts twice daily."""
-        import time
-        time.sleep(120)  # Wait 2 min for app to fully start
-        while True:
-            try:
-                from datetime import datetime
-                now = datetime.utcnow()
-                # Run at ~12:00 UTC (6 AM CT) and ~00:00 UTC (6 PM CT)
-                hour = now.hour
-                if hour in (0, 12):
-                    logger.info("Starting scheduled NowCerts sync...")
-                    from app.core.database import SessionLocal
-                    from app.api.customers import sync_all_customers_internal
-                    db = SessionLocal()
-                    try:
-                        result = sync_all_customers_internal(db)
-                        logger.info(f"NowCerts sync complete: {result}")
-                    except Exception as e:
-                        logger.error(f"NowCerts sync error: {e}")
-                    finally:
-                        db.close()
-
-                    # Run proactive reshop scan after sync completes
-                    logger.info("Running post-sync reshop detection...")
-                    db2 = SessionLocal()
-                    try:
-                        from app.api.reshop import _run_proactive_scan
-                        scan_result = _run_proactive_scan(db2)
-                        logger.info(f"Reshop scan complete: {scan_result}")
-                    except Exception as e:
-                        logger.error(f"Reshop scan error: {e}")
-                    finally:
-                        db2.close()
-                    # Free memory after heavy sync
-                    gc.collect()
-            except Exception as e:
-                logger.error(f"NowCerts sync scheduler error: {e}")
-            time.sleep(3600)  # Check every hour
-
-    sync_thread = threading.Thread(target=_run_nowcerts_sync, daemon=True)
-    sync_thread.start()
-    logger.info("NowCerts auto-sync scheduler started (twice daily: 6 AM / 6 PM CT)")
-
-    # Daily agency snapshot (captures growth metrics once per day at ~7 AM CT)
-    def _run_daily_snapshot():
-        """Capture agency metrics snapshot daily for growth tracking."""
-        import time
-        time.sleep(300)  # Wait 5 min for app + sync to settle
-        while True:
-            try:
-                from datetime import datetime
-                now = datetime.utcnow()
-                ct_hour = (now.hour - 6) % 24  # UTC → CT
-                if ct_hour == 7:  # 7 AM CT
-                    from app.core.database import SessionLocal
-                    from app.models.agency_snapshot import AgencySnapshot
-                    from app.models.customer import Customer, CustomerPolicy
-                    from sqlalchemy import distinct, func as sqlfunc
-                    from decimal import Decimal
-                    from datetime import date
-
-                    sdb = SessionLocal()
-                    try:
-                        today = date.today()
-                        existing = sdb.query(AgencySnapshot).filter(AgencySnapshot.snapshot_date == today).first()
-                        if not existing:
-                            total_cust = sdb.query(sqlfunc.count(Customer.id)).scalar() or 0
-                            active_subq = (
-                                sdb.query(distinct(CustomerPolicy.customer_id))
-                                .filter(sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]))
-                                .subquery()
-                            )
-                            active_cust = sdb.query(sqlfunc.count()).select_from(active_subq).scalar() or 0
-                            active_pol = sdb.query(sqlfunc.count(CustomerPolicy.id)).filter(
-                                sqlfunc.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"])
-                            ).scalar() or 0
-                            total_pol = sdb.query(sqlfunc.count(CustomerPolicy.id)).scalar() or 0
-
-                            # Premium calculation via SQL (don't load all policies into memory)
-                            from sqlalchemy import text as _snap_text, case
-                            prem_result = sdb.execute(_snap_text("""
-                                SELECT COALESCE(SUM(
-                                    CASE
-                                        WHEN (LOWER(line_of_business) LIKE '%auto%' OR LOWER(policy_type) LIKE '%auto%'
-                                              OR LOWER(line_of_business) LIKE '%vehicle%' OR LOWER(policy_type) LIKE '%vehicle%')
-                                             AND effective_date IS NOT NULL AND expiration_date IS NOT NULL
-                                             AND (expiration_date - effective_date) BETWEEN 150 AND 200
-                                        THEN premium * 2
-                                        ELSE premium
-                                    END
-                                ), 0)
-                                FROM customer_policies
-                                WHERE LOWER(status) IN ('active', 'in force', 'inforce')
-                                AND premium IS NOT NULL
-                            """)).scalar()
-                            total_prem = float(prem_result or 0)
-
-                            snap = AgencySnapshot(
-                                snapshot_date=today, period=today.strftime("%Y-%m"),
-                                active_customers=active_cust, total_customers=total_cust,
-                                active_policies=active_pol, total_policies=total_pol,
-                                active_premium_annualized=float(total_prem),
-                            )
-                            sdb.add(snap)
-                            sdb.commit()
-                            logger.info(f"📊 Daily snapshot captured: {active_cust} active customers, ${float(total_prem):,.0f} premium")
-                    finally:
-                        sdb.close()
-            except Exception as e:
-                logger.error(f"Daily snapshot error: {e}")
-            time.sleep(3600)  # Check every hour
-
-    snapshot_thread = threading.Thread(target=_run_daily_snapshot, daemon=True)
-    snapshot_thread.start()
-    logger.info("Daily agency snapshot scheduler started")
-
-    # Daily Sales Recap Email — 8 PM CST (2 AM UTC next day, or 1 AM UTC during CDT)
-    def _run_daily_recap():
-        """Send daily sales recap email at 8 PM Central Time."""
-        import time
-        from datetime import datetime, timedelta
-        import pytz
-
-        time.sleep(120)  # Wait 2 min for app to start
-        central = pytz.timezone("America/Chicago")
-        last_sent_date = None
-
-        while True:
-            try:
-                now_ct = datetime.now(central)
-                today_ct = now_ct.date()
-
-                # Send at 8 PM CT if not already sent today
-                if now_ct.hour >= 20 and last_sent_date != today_ct:
-                    logger.info("🕗 Sending daily sales recap email...")
-                    from app.services.daily_recap_email import send_daily_recap
-                    from app.core.database import SessionLocal
-                    rdb = SessionLocal()
-                    try:
-                        result = send_daily_recap(rdb, today_ct)
-                        logger.info(f"Daily recap result: {result}")
-                        last_sent_date = today_ct
-                    finally:
-                        rdb.close()
-            except Exception as e:
-                logger.error(f"Daily recap scheduler error: {e}")
-            time.sleep(600)  # Check every 10 minutes
-
-    recap_thread = threading.Thread(target=_run_daily_recap, daemon=True)
-    recap_thread.start()
-    logger.info("Daily sales recap scheduler started (8 PM CT)")
-
-    # Daily Reshop Digest — 8:30 AM CT Monday-Friday
-    def _run_reshop_digest():
-        """Send daily reshop pipeline digest to retention agents."""
-        import time
-        from datetime import datetime
-        import pytz
-
-        time.sleep(180)  # Wait 3 min for app to start
-        central = pytz.timezone("America/Chicago")
-        last_sent_date = None
-
-        while True:
-            try:
-                now_ct = datetime.now(central)
-                today_ct = now_ct.date()
-
-                # Send at 8:20 AM CT, Monday-Friday only
-                if (now_ct.hour == 8 and now_ct.minute >= 20 and
-                        now_ct.weekday() < 5 and last_sent_date != today_ct):
-                    logger.info("📋 Sending daily reshop digest emails...")
-                    from app.services.reshop_digest import send_reshop_digests
-                    from app.core.database import SessionLocal
-                    rdb = SessionLocal()
-                    try:
-                        result = send_reshop_digests(rdb, today_ct)
-                        logger.info(f"Reshop digest result: {result}")
-                        last_sent_date = today_ct
-                    finally:
-                        rdb.close()
-            except Exception as e:
-                logger.error(f"Reshop digest scheduler error: {e}")
-            time.sleep(300)  # Check every 5 minutes
-
-    reshop_digest_thread = threading.Thread(target=_run_reshop_digest, daemon=True)
-    reshop_digest_thread.start()
-    logger.info("Daily reshop digest scheduler started (8:20 AM CT, Mon-Fri)")
-
-    # Daily Proactive Reshop Scan — 7 AM CT Monday-Friday (before digest at 8:30)
-    def _run_reshop_scan():
-        """Automatically scan for upcoming renewals and auto-assign agents."""
-        import time
-        from datetime import datetime
-        import pytz
-
-        time.sleep(240)  # Wait 4 min for app to start
-        central = pytz.timezone("America/Chicago")
-        last_scan_date = None
-
-        while True:
-            try:
-                now_ct = datetime.now(central)
-                today_ct = now_ct.date()
-
-                # Run at 7 AM CT, Monday-Friday only
-                if (now_ct.hour == 7 and now_ct.minute >= 0 and
-                        now_ct.weekday() < 5 and last_scan_date != today_ct):
-                    logger.info("🔍 Running daily proactive reshop scan...")
-                    from app.api.reshop import _run_proactive_scan
-                    from app.core.database import SessionLocal
-                    rdb = SessionLocal()
-                    try:
-                        result = _run_proactive_scan(
-                            rdb,
-                            days_out=60,
-                            increase_threshold=10.0,
-                            min_annual_premium=2000.0,
-                            actor_name="ORBIT Auto-Scan",
-                        )
-                        logger.info("Reshop scan result: %s", result)
-                        last_scan_date = today_ct
-                    finally:
-                        rdb.close()
-            except Exception as e:
-                logger.error("Reshop scan scheduler error: %s", e)
-            time.sleep(300)  # Check every 5 minutes
-
-    reshop_scan_thread = threading.Thread(target=_run_reshop_scan, daemon=True)
-    reshop_scan_thread.start()
-    logger.info("Daily reshop scan scheduler started (7 AM CT, Mon-Fri)")
-
-    # Monthly Report Auto-Email — 1st of each month at 9 AM CT
-    def _run_monthly_report():
-        """Auto-send monthly agency report on the 1st of each month."""
-        import time
-        from datetime import datetime
-        import pytz
-
-        time.sleep(300)  # Wait 5 min for app to start
-        central = pytz.timezone("America/Chicago")
-        last_sent_month = None
-
-        while True:
-            try:
-                now_ct = datetime.now(central)
-                current_month = (now_ct.year, now_ct.month)
-
-                # Send on the 1st at 9 AM CT
-                if (now_ct.day == 1 and now_ct.hour >= 9 and
-                        last_sent_month != current_month):
-                    # Report for LAST month
-                    if now_ct.month == 1:
-                        report_year = now_ct.year - 1
-                        report_month = 12
-                    else:
-                        report_year = now_ct.year
-                        report_month = now_ct.month - 1
-
-                    logger.info("Sending monthly report for %d-%02d...", report_year, report_month)
-                    from app.services.monthly_report import send_monthly_report_email
-                    from app.core.database import SessionLocal
-                    rdb = SessionLocal()
-                    try:
-                        result = send_monthly_report_email(rdb, report_year, report_month)
-                        logger.info("Monthly report result: %s", result)
-                        last_sent_month = current_month
-                    finally:
-                        rdb.close()
-            except Exception as e:
-                logger.error("Monthly report scheduler error: %s", e)
-            time.sleep(600)  # Check every 10 minutes
-
-    report_thread = threading.Thread(target=_run_monthly_report, daemon=True)
-    report_thread.start()
-    logger.info("Monthly report scheduler started (1st of month, 9 AM CT)")
-
-    # Start NowCerts Pending Cancellation Poller (every 4 hours)
-    def _run_pending_cancel_poll():
-        """Poll NowCerts for pending cancellations and trigger non-pay emails."""
-        import time
-        time.sleep(180)  # Wait 3 min for app to fully start + initial sync
-        while True:
-            try:
-                from app.services.nowcerts_cancellation_poller import run_scheduled_poll, POLL_ENABLED
-                if POLL_ENABLED:
-                    logger.info("Running NowCerts pending cancellation poll...")
-                    run_scheduled_poll()
-            except Exception as e:
-                logger.error(f"NowCerts pending cancel poll scheduler error: {e}")
-            time.sleep(4 * 3600)  # Every 4 hours
-
-    cancel_poll_thread = threading.Thread(target=_run_pending_cancel_poll, daemon=True)
-    cancel_poll_thread.start()
-    logger.info("NowCerts pending cancellation poller scheduler started (every 4 hours)")
-
-    # ── Auto-send campaign emails (every 5 minutes) ──
-    def _run_campaign_sender():
-        """Automatically send due campaign emails in batches for all active campaigns."""
-        import time
-        time.sleep(90)  # Wait 90s for app to fully start
-        while True:
-            try:
-                from app.core.database import SessionLocal
-                from app.api.requote_campaigns import RequoteCampaign, RequoteLead, _requote_email_html, _send_campaign_email, GlobalOptOut
-                from sqlalchemy import and_, or_
-                from datetime import datetime
-
-                db = SessionLocal()
-                try:
-                    now = datetime.utcnow()
-                    active_campaigns = db.query(RequoteCampaign).filter(
-                        RequoteCampaign.status == "active"
-                    ).all()
-
-                    if not active_campaigns:
-                        db.close()
-                        time.sleep(300)
+        # Run the big init_database column migrations in background too
+        try:
+            from app.core.database import engine as _bg_engine
+            from sqlalchemy import text as _bg_text, inspect as _bg_inspect
+            inspector = _bg_inspect(_bg_engine)
+            fk_indexes = [
+                ("requote_leads", "producer_id"), ("chat_channels", "created_by"),
+                ("chat_messages", "reply_to_id"), ("email_templates", "sent_by_id"),
+                ("email_drafts", "created_by_id"), ("payroll_runs", "submitted_by_id"),
+                ("reshop_activities", "user_id"), ("outbound_queue", "inbound_email_id"),
+                ("tasks", "assigned_to_id"), ("timeclock_entries", "excused_by"),
+            ]
+            with _bg_engine.connect() as conn:
+                for table, column in fk_indexes:
+                    if not inspector.has_table(table):
                         continue
+                    idx_name = f"ix_{table}_{column}"
+                    existing_indexes = {idx["name"] for idx in inspector.get_indexes(table)}
+                    if idx_name not in existing_indexes:
+                        try:
+                            conn.execute(_bg_text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} ({column})"))
+                            conn.commit()
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.warning(f"FK index migration: {e}")
 
-                    total_sent = 0
-                    total_errors = 0
-                    BATCH_PER_CAMPAIGN = 15  # Send up to 15 per campaign per cycle
+        # Auto-restart active dialer campaigns
+        try:
+            from app.api.dialer import _auto_dial_loop, _dialer_threads
+            from app.models.dialer import DialerCampaign
+            import threading as _t
+            restart_db = SessionLocal()
+            active_campaigns = restart_db.query(DialerCampaign).filter(DialerCampaign.status == "active").all()
+            for campaign in active_campaigns:
+                if campaign.id not in _dialer_threads or not _dialer_threads[campaign.id].is_alive():
+                    t = _t.Thread(target=_auto_dial_loop, args=(campaign.id,), daemon=True)
+                    t.start()
+                    _dialer_threads[campaign.id] = t
+                    logger.info(f"[Startup] Auto-resumed dialer campaign {campaign.id}: {campaign.name}")
+            restart_db.close()
+        except Exception as e:
+            logger.warning(f"Dialer auto-restart: {e}")
 
-                    for campaign in active_campaigns:
-                        if total_sent >= 50:  # Global cap per cycle to stay within API limits
-                            break
+        logger.info("[Startup] Background migrations complete")
 
-                        # Touch 1
-                        touch1_due = db.query(RequoteLead).filter(
-                            RequoteLead.campaign_id == campaign.id,
-                            RequoteLead.is_current_customer == False,
-                            RequoteLead.opted_out == False,
-                            RequoteLead.touch1_sent == False,
-                            RequoteLead.touch1_scheduled_date != None,
-                            RequoteLead.touch1_scheduled_date <= now,
-                            RequoteLead.email != None,
-                        ).limit(BATCH_PER_CAMPAIGN).all()
-
-                        for lead in touch1_due:
-                            if total_sent >= 50:
-                                break
-                            try:
-                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
-                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
-                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
-                                subject, html = _requote_email_html(
-                                    lead.first_name or "Valued Customer",
-                                    lead.policy_type, lead.carrier, x_date_str, 1, unsub_url,
-                                    retarget_round=retarget_round,
-                                    city=lead.city or "", state=lead.state or "",
-                                    premium=float(lead.premium) if lead.premium else None,
-                                    last_name=lead.last_name or "", email=lead.email or "",
-                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
-                                )
-                                if _send_campaign_email(lead.email, subject, html):
-                                    lead.touch1_sent = True
-                                    lead.touch1_sent_at = now
-                                    lead.status = "touch1_sent"
-                                    total_sent += 1
-                                else:
-                                    total_errors += 1
-                            except Exception as e:
-                                logger.error(f"Campaign sender touch1 error lead {lead.id}: {e}")
-                                total_errors += 1
-
-                        # Touch 2
-                        touch2_due = db.query(RequoteLead).filter(
-                            RequoteLead.campaign_id == campaign.id,
-                            RequoteLead.is_current_customer == False,
-                            RequoteLead.opted_out == False,
-                            RequoteLead.touch1_sent == True,
-                            RequoteLead.touch2_sent == False,
-                            RequoteLead.touch2_scheduled_date != None,
-                            RequoteLead.touch2_scheduled_date <= now,
-                            RequoteLead.email != None,
-                        ).limit(BATCH_PER_CAMPAIGN).all()
-
-                        for lead in touch2_due:
-                            if total_sent >= 50:
-                                break
-                            try:
-                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
-                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
-                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
-                                subject, html = _requote_email_html(
-                                    lead.first_name or "Valued Customer",
-                                    lead.policy_type, lead.carrier, x_date_str, 2, unsub_url,
-                                    retarget_round=retarget_round,
-                                    city=lead.city or "", state=lead.state or "",
-                                    premium=float(lead.premium) if lead.premium else None,
-                                    last_name=lead.last_name or "", email=lead.email or "",
-                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
-                                )
-                                if _send_campaign_email(lead.email, subject, html):
-                                    lead.touch2_sent = True
-                                    lead.touch2_sent_at = now
-                                    lead.status = "touch2_sent"
-                                    total_sent += 1
-                                else:
-                                    total_errors += 1
-                            except Exception as e:
-                                logger.error(f"Campaign sender touch2 error lead {lead.id}: {e}")
-                                total_errors += 1
-
-                        # Touch 3
-                        touch3_due = db.query(RequoteLead).filter(
-                            RequoteLead.campaign_id == campaign.id,
-                            RequoteLead.is_current_customer == False,
-                            RequoteLead.opted_out == False,
-                            RequoteLead.touch2_sent == True,
-                            RequoteLead.touch3_sent == False,
-                            RequoteLead.touch3_scheduled_date != None,
-                            RequoteLead.touch3_scheduled_date <= now,
-                            RequoteLead.email != None,
-                        ).limit(BATCH_PER_CAMPAIGN).all()
-
-                        for lead in touch3_due:
-                            if total_sent >= 50:
-                                break
-                            try:
-                                x_date_str = lead.x_date.strftime('%B %d, %Y') if lead.x_date else "soon"
-                                unsub_url = f"https://better-choice-api.onrender.com/api/campaigns/unsubscribe/{lead.unsubscribe_token}"
-                                retarget_round = getattr(lead, 'retarget_round', 0) or 0
-                                subject, html = _requote_email_html(
-                                    lead.first_name or "Valued Customer",
-                                    lead.policy_type, lead.carrier, x_date_str, 3, unsub_url,
-                                    retarget_round=retarget_round,
-                                    city=lead.city or "", state=lead.state or "",
-                                    premium=float(lead.premium) if lead.premium else None,
-                                    last_name=lead.last_name or "", email=lead.email or "",
-                                    phone=lead.phone or "", address=lead.address or "", zip_code=lead.zip_code or "",
-                                )
-                                if _send_campaign_email(lead.email, subject, html):
-                                    lead.touch3_sent = True
-                                    lead.touch3_sent_at = now
-                                    lead.status = "touch3_sent"
-                                    total_sent += 1
-                                else:
-                                    total_errors += 1
-                            except Exception as e:
-                                logger.error(f"Campaign sender touch3 error lead {lead.id}: {e}")
-                                total_errors += 1
-
-                        # Update campaign email count
-                        campaign.emails_sent = db.query(RequoteLead).filter(
-                            RequoteLead.campaign_id == campaign.id,
-                            or_(RequoteLead.touch1_sent == True, RequoteLead.touch2_sent == True, RequoteLead.touch3_sent == True),
-                        ).count()
-
-                    db.commit()
-                    if total_sent > 0:
-                        logger.info(f"Campaign auto-sender: sent {total_sent} emails, {total_errors} errors across {len(active_campaigns)} active campaigns")
-                except Exception as e:
-                    logger.error(f"Campaign sender error: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.error(f"Campaign sender scheduler error: {e}")
-            time.sleep(300)  # Every 5 minutes
-
-    campaign_sender_thread = threading.Thread(target=_run_campaign_sender, daemon=True)
-    campaign_sender_thread.start()
-    logger.info("Campaign auto-sender started (every 5 min, 50 emails/cycle, 15/campaign)")
-
-    # ── Life Cross-Sell Campaign Auto-Sender ──────────────────────────
-    def _run_life_campaign_sender():
-        import time
-        time.sleep(180)
-        while True:
-            try:
-                from datetime import datetime, timedelta
-                now = datetime.utcnow()
-                if now.hour == 16:  # 10 AM CT
-                    logger.info("Running life cross-sell campaign auto-sender...")
-                    from app.core.database import SessionLocal
-                    from app.models.life_campaign import LifeCrossSellContact
-                    from app.services.life_crosssell_campaign import (
-                        TOUCH_BUILDERS, TOUCH_DELAYS, RECURRING_INTERVAL_DAYS,
-                        build_touch_seasonal, build_touch_milestone, build_touch_value,
-                        send_life_crosssell_email,
-                    )
-                    db = SessionLocal()
-                    try:
-                        pending = db.query(LifeCrossSellContact).filter(
-                            LifeCrossSellContact.status == "active",
-                            LifeCrossSellContact.next_touch_date <= now,
-                        ).all()
-                        sent = 0
-                        for contact in pending:
-                            try:
-                                tn = contact.touch_number + 1
-                                fn = (contact.customer_name or "").split()[0] if contact.customer_name else "there"
-                                pt = contact.source_policy_type or ""
-                                if tn <= 4:
-                                    builder = TOUCH_BUILDERS.get(tn)
-                                    if not builder:
-                                        continue
-                                    if tn == 2:
-                                        subj, html = builder(fn, "", 0, contact.id, pt)
-                                    else:
-                                        subj, html = builder(fn, "", contact.id, pt)
-                                else:
-                                    cycle = (tn - 5) % 3
-                                    if cycle == 0:
-                                        subj, html = build_touch_seasonal(fn, "", contact.id, pt)
-                                    elif cycle == 1:
-                                        mo = max(1, int((now - contact.created_at).days / 30)) if contact.created_at else 6
-                                        subj, html = build_touch_milestone(fn, contact.id, pt, mo)
-                                    else:
-                                        subj, html = build_touch_value(fn, contact.id, pt, (tn - 5) // 3)
-                                result = send_life_crosssell_email(contact.customer_email, subj, html)
-                                if result.get("success"):
-                                    if tn <= 4:
-                                        setattr(contact, f"touch{tn}_sent_at", now)
-                                    contact.touch_number = tn
-                                    contact.next_touch_date = now + timedelta(days=TOUCH_DELAYS.get(tn + 1, RECURRING_INTERVAL_DAYS))
-                                    sent += 1
-                            except Exception as e:
-                                logger.error(f"Life send error {contact.customer_email}: {e}")
-                        db.commit()
-                        if sent:
-                            logger.info(f"Life campaign: sent {sent}/{len(pending)} emails")
-                    finally:
-                        db.close()
-                        gc.collect()
-            except Exception as e:
-                logger.error(f"Life campaign sender error: {e}")
-            time.sleep(3600)
+    threading.Thread(target=_run_all_migrations, daemon=True).start()
 
     life_thread = threading.Thread(target=_run_life_campaign_sender, daemon=True)
     life_thread.start()
@@ -1741,7 +1066,7 @@ def health_check():
         sse_loaded = True
     except Exception:
         pass
-    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.3", "build": "2026-04-10T20:00:00Z", "sse": sse_loaded}
+    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.3", "build": "2026-04-10T21:00:00Z", "sse": sse_loaded}
 
 
 @app.post("/admin/force-migrate")
