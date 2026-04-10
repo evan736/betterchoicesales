@@ -68,3 +68,13 @@ class ChatMessage(Base):
     channel = relationship("ChatChannel", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id])
     reply_to = relationship("ChatMessage", remote_side=[id], foreign_keys=[reply_to_id])
+
+
+class ChatMessageRead(Base):
+    """Tracks per-message read receipts for DMs and @mentions."""
+    __tablename__ = "chat_message_reads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    read_at = Column(DateTime(timezone=True), server_default=func.now())

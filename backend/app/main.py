@@ -913,6 +913,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Renewal survey migration: {e}")
 
+    # Chat message reads table
+    try:
+        from sqlalchemy import text as _cr_text
+        from app.core.database import engine as _cr_engine
+        with _cr_engine.connect() as conn:
+            conn.execute(_cr_text("""
+                CREATE TABLE IF NOT EXISTS chat_message_reads (
+                    id SERIAL PRIMARY KEY,
+                    message_id INTEGER NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    read_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    UNIQUE(message_id, user_id)
+                )
+            """))
+            conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_message_id ON chat_message_reads(message_id)"))
+            conn.execute(_cr_text("CREATE INDEX IF NOT EXISTS ix_chat_message_reads_user_id ON chat_message_reads(user_id)"))
+            conn.commit()
+        logger.info("chat_message_reads table ready")
+    except Exception as e:
+        logger.warning(f"Chat message reads migration: {e}")
+
     # Ensure Bamboo carrier exists in AgencyConfig for dropdowns
     try:
         from app.core.database import SessionLocal as _ac_sl
@@ -1720,7 +1741,7 @@ def health_check():
         sse_loaded = True
     except Exception:
         pass
-    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.3", "build": "2026-04-10T19:00:00Z", "sse": sse_loaded}
+    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.3", "build": "2026-04-10T20:00:00Z", "sse": sse_loaded}
 
 
 @app.post("/admin/force-migrate")

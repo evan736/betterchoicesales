@@ -55,6 +55,7 @@ interface Message {
   is_edited: boolean;
   is_deleted: boolean;
   created_at: string;
+  seen_by?: { user_id: number; name: string; read_at: string }[];
 }
 
 interface Channel {
@@ -989,6 +990,13 @@ export default function ChatPanel() {
                       );
                     })()}
 
+                    {/* Per-message timestamp on hover (for grouped messages without header) */}
+                    {!showAvatar && (
+                      <div className="ml-8 hidden group-hover:flex items-center gap-1 mb-0.5">
+                        <span className="text-[9px] text-slate-600">{formatTime(msg.created_at)}</span>
+                      </div>
+                    )}
+
                     {/* Message bubble */}
                     <div className={`ml-8 relative ${isGif ? '' : `rounded-lg px-3 py-1.5 text-sm max-w-[85%] ${
                       isBeacon ? 'bg-amber-500/[0.06] text-slate-200 border border-amber-500/10' :
@@ -1065,6 +1073,23 @@ export default function ChatPanel() {
                         )}
                       </div>
                     </div>
+
+                    {/* Seen by — show under last message in DMs and for mentions */}
+                    {msg.seen_by && msg.seen_by.length > 0 && (
+                      <div className="ml-8 flex items-center gap-1 mt-0.5">
+                        <span className="text-[9px] text-slate-600">Seen by</span>
+                        {msg.seen_by.map(s => (
+                          <div key={s.user_id} title={`${s.name} · ${formatTime(s.read_at)}`}
+                            className="h-3.5 w-3.5 rounded-full flex items-center justify-center text-[6px] font-bold text-white"
+                            style={{ background: initColor(s.name) }}>
+                            {getInitials(s.name)}
+                          </div>
+                        ))}
+                        {msg.seen_by.length === 1 && (
+                          <span className="text-[9px] text-slate-600">{msg.seen_by[0].name.split(' ')[0]}</span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Reactions */}
                     {msg.reactions && Object.keys(msg.reactions).length > 0 && (

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db, SessionLocal
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.chat import ChatChannel, ChatChannelMember, ChatMessage
+from app.models.chat import ChatChannel, ChatChannelMember, ChatMessage, ChatMessageRead
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -24,7 +24,21 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-def _serialize_message(msg: ChatMessage, current_user_id: int = None) -> dict:
+def _serialize_message(msg: ChatMessage, current_user_id: int = None, db=None) -> dict:
+    # Build seen_by list (exclude sender)
+    seen_by = []
+    if db:
+        try:
+            reads = db.query(ChatMessageRead).filter(
+                ChatMessageRead.message_id == msg.id,
+                ChatMessageRead.user_id != msg.sender_id,
+            ).all()
+            for r in reads:
+                u = db.query(User).filter(User.id == r.user_id).first()
+                if u:
+                    seen_by.append({"user_id": u.id, "name": u.full_name, "read_at": r.read_at.isoformat()})
+        except Exception:
+            pass
     return {
         "id": msg.id,
         "channel_id": msg.channel_id,
@@ -43,6 +57,7 @@ def _serialize_message(msg: ChatMessage, current_user_id: int = None) -> dict:
         "is_edited": msg.is_edited,
         "is_deleted": msg.is_deleted,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "seen_by": seen_by,
     }
 
 
@@ -468,7 +483,7 @@ def get_messages(
 
     messages = q.order_by(ChatMessage.id.desc()).limit(limit).all()
     
-    return [_serialize_message(m, current_user.id) for m in reversed(messages)]
+    return [_serialize_message(m, current_user.id, db) for m in reversed(messages)]
 
 
 @router.post("/channels/{channel_id}/messages")
@@ -573,7 +588,7 @@ def send_message(
         from app.api.events import event_bus
         event_bus.publish_sync("chat:message", {
             "channel_id": channel_id,
-            "message": _serialize_message(msg, current_user.id),
+            "message": _serialize_message(msg, current_user.id, db),
         })
     except Exception as e:
         logger.warning(f"SSE chat broadcast failed: {e}")
@@ -586,7 +601,7 @@ def send_message(
     except Exception as e:
         logger.warning(f"BEACON trigger failed: {e}")
 
-    return _serialize_message(msg, current_user.id)
+    return _serialize_message(msg, current_user.id, db)
 
 
 @router.post("/channels/{channel_id}/read")
@@ -595,15 +610,44 @@ def mark_read(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Mark channel as read."""
+    """Mark channel as read + record per-message read receipts for DMs and mentions."""
     member = db.query(ChatChannelMember).filter(
         ChatChannelMember.channel_id == channel_id,
         ChatChannelMember.user_id == current_user.id,
     ).first()
     if not member:
         raise HTTPException(status_code=403, detail="Not a member")
-    
-    member.last_read_at = datetime.utcnow()
+
+    now = datetime.utcnow()
+    last_read = member.last_read_at
+    member.last_read_at = now
+
+    # Record per-message reads for: DM channels + messages that mention this user
+    try:
+        channel = db.query(ChatChannel).filter(ChatChannel.id == channel_id).first()
+        is_dm = channel and channel.channel_type == "dm"
+
+        q = db.query(ChatMessage).filter(
+            ChatMessage.channel_id == channel_id,
+            ChatMessage.sender_id != current_user.id,
+            ChatMessage.is_deleted == False,
+        )
+        if last_read:
+            q = q.filter(ChatMessage.created_at > last_read)
+
+        messages = q.all()
+        for msg in messages:
+            is_mention = current_user.id in (msg.mentions or [])
+            if is_dm or is_mention:
+                exists = db.query(ChatMessageRead).filter(
+                    ChatMessageRead.message_id == msg.id,
+                    ChatMessageRead.user_id == current_user.id,
+                ).first()
+                if not exists:
+                    db.add(ChatMessageRead(message_id=msg.id, user_id=current_user.id))
+    except Exception as e:
+        logger.warning(f"Read receipt error: {e}")
+
     db.commit()
     return {"ok": True}
 
@@ -687,7 +731,7 @@ def edit_message(
     msg.is_edited = True
     db.commit()
 
-    return _serialize_message(msg, current_user.id)
+    return _serialize_message(msg, current_user.id, db)
 
 
 # ── Notifications / Unread ──
@@ -929,4 +973,4 @@ def admin_channel_messages(
 
     messages = q.order_by(ChatMessage.id.desc()).limit(limit).all()
 
-    return [_serialize_message(m) for m in reversed(messages)]
+    return [_serialize_message(m, current_user.id, db) for m in reversed(messages)]
