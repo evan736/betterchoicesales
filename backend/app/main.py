@@ -1331,10 +1331,11 @@ app.include_router(life_crosssell_api.router, prefix="/api")
 # Life cross-sell campaign table
 try:
     from sqlalchemy import inspect as _life_inspect
-    _life_insp = _life_inspect(engine)
+    from app.core.database import engine as _life_engine
+    _life_insp = _life_inspect(_life_engine)
     if "life_crosssell_contacts" not in _life_insp.get_table_names():
         from app.models.life_campaign import LifeCrossSellContact
-        LifeCrossSellContact.__table__.create(engine)
+        LifeCrossSellContact.__table__.create(_life_engine)
         logger.info("Created life_crosssell_contacts table")
 except Exception as e:
     logger.warning(f"Life campaign table check: {e}")
