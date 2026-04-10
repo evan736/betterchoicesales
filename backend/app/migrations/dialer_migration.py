@@ -49,8 +49,9 @@ def migrate_dialer():
                 ), {"phone": num})
             logger.info("Created dialer_phone_numbers table with 5 SA numbers")
 
-        # Add concurrency_cap to campaigns
+        # Add concurrency_cap and session config to campaigns
         _add_col(conn, "dialer_campaigns", "concurrency_cap", "INTEGER", 1)
+        _add_col(conn, "dialer_campaigns", "max_calls_per_session", "INTEGER", 500)
 
         # Add daily call tracking to phone numbers (persists across deploys)
         _add_col(conn, "dialer_phone_numbers", "calls_today", "INTEGER", 0)
