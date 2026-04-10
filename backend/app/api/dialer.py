@@ -69,6 +69,11 @@ def get_ct_now():
         return datetime.utcnow() - timedelta(hours=6)
 
 
+def now_utc():
+    """Always return current UTC time as naive datetime (matches DB storage)."""
+    return datetime.utcnow()
+
+
 def get_time_slot():
     h = get_ct_now().hour
     if h < 12: return "morning"
@@ -846,9 +851,9 @@ def _auto_dial_loop(campaign_id: int):
                 if age > MAX_LEAD_AGE:
                     l.status = "expired"
                     continue
-                if l.next_attempt_after and datetime.now() < l.next_attempt_after:
+                if l.next_attempt_after and now_utc() < l.next_attempt_after:
                     continue
-                if l.last_attempt_at and (datetime.now() - l.last_attempt_at).total_seconds() < 14400:
+                if l.last_attempt_at and (now_utc() - l.last_attempt_at).total_seconds() < 14400:
                     continue
                 due.append((l, age))
 
@@ -929,7 +934,7 @@ def _auto_dial_loop(campaign_id: int):
                         if resp.status_code == 201:
                             call_id = resp.json().get("call_id", "")
                             lead.attempts += 1
-                            lead.last_attempt_at = datetime.now()
+                            lead.last_attempt_at = now_utc()
                             lead.last_time_slot = current_slot
                             lead.status = "dialed"
                             cids = lead.call_ids or []
@@ -1110,10 +1115,10 @@ async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(defaul
             if age > MAX_LEAD_AGE:
                 l.status = "expired"
                 continue
-            if l.next_attempt_after and datetime.now() < l.next_attempt_after:
+            if l.next_attempt_after and now_utc() < l.next_attempt_after:
                 continue
             # Check 4hr minimum gap
-            if l.last_attempt_at and (datetime.now() - l.last_attempt_at).total_seconds() < 14400:
+            if l.last_attempt_at and (now_utc() - l.last_attempt_at).total_seconds() < 14400:
                 continue
             due.append((l, age))
 
@@ -1158,7 +1163,7 @@ async def dial_session(campaign_id: int, max_calls: Optional[int] = Query(defaul
             if resp.status_code == 201:
                 call_id = resp.json().get("call_id", "")
                 lead.attempts += 1
-                lead.last_attempt_at = datetime.now()
+                lead.last_attempt_at = now_utc()
                 lead.last_time_slot = current_slot
                 lead.status = "dialed"
                 cids = lead.call_ids or []
