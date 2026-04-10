@@ -421,7 +421,7 @@ def campaign_stats(campaign_id: int):
             "by_attempts": by_attempts,
             "age_performance": age_performance,
             # Overall metrics
-            "total_dialed": total_dialed,
+            "total_dialed": campaign.total_dialed or total_dialed,
             "total_contacted": total_contacted,
             "total_transferred": total_transferred,
             "total_callbacks": total_callbacks,
@@ -880,7 +880,7 @@ def _auto_dial_loop(campaign_id: int):
                 continue
 
             due.sort(key=lambda x: x[1])
-            session_max = campaign.max_calls_per_session or 75
+            session_max = campaign.max_calls_per_session or 500
             to_dial = due[:session_max]
 
             current_slot = get_time_slot()
