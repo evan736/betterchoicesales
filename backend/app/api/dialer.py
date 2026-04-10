@@ -439,12 +439,21 @@ def campaign_stats(campaign_id: int):
 
 
 @router.get("/campaigns/{campaign_id}/leads")
-def list_leads(campaign_id: int, status: Optional[str] = None, limit: int = 50, offset: int = 0):
+def list_leads(campaign_id: int, status: Optional[str] = None, search: Optional[str] = None, limit: int = 50, offset: int = 0):
     db = SessionLocal()
     try:
+        from sqlalchemy import or_
         q = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id)
         if status:
             q = q.filter(DialerLead.status == status)
+        if search:
+            term = f"%{search.strip()}%"
+            q = q.filter(or_(
+                DialerLead.name.ilike(term),
+                DialerLead.phone.ilike(term),
+                DialerLead.email.ilike(term),
+                DialerLead.address.ilike(term),
+            ))
         q = q.order_by(DialerLead.request_date.desc().nullslast())
         total = q.count()
         leads = q.offset(offset).limit(limit).all()

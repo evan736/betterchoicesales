@@ -51,6 +51,8 @@ export default function DialerPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [leadsTotal, setLeadsTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
+  const [leadSearch, setLeadSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [dialing, setDialing] = useState(false);
   const [dialerRunning, setDialerRunning] = useState(false);
   const [dialerInfo, setDialerInfo] = useState<any>(null);
@@ -78,19 +80,20 @@ export default function DialerPage() {
     } catch (e) { console.error(e); }
   }, [selected]);
 
-  const fetchLeads = useCallback(async () => {
+  const fetchLeads = useCallback(async (append = false) => {
     if (!selected) return;
     try {
-      const params: any = { limit: 100 };
+      const params: any = { limit: 50, offset: append ? leads.length : 0 };
       if (statusFilter) params.status = statusFilter;
+      if (leadSearch) params.search = leadSearch;
       const { data } = await axios.get(`${API}/api/dialer/campaigns/${selected.id}/leads`, { headers: headers(), params });
-      setLeads(data.leads);
+      setLeads(prev => append ? [...prev, ...data.leads] : data.leads);
       setLeadsTotal(data.total);
     } catch (e) { console.error(e); }
-  }, [selected, statusFilter]);
+  }, [selected, statusFilter, leadSearch]);
 
   useEffect(() => { fetchCampaigns(); }, []);
-  useEffect(() => { fetchStats(); fetchLeads(); fetchDialerStatus(); }, [selected, statusFilter]);
+  useEffect(() => { fetchStats(); fetchLeads(); fetchDialerStatus(); }, [selected, statusFilter, leadSearch]);
 
   // Poll dialer status every 30s when running
   useEffect(() => {
@@ -483,6 +486,28 @@ export default function DialerPage() {
             {/* Leads Tab */}
             {tab === 'leads' && (
               <div>
+                {/* Search box */}
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') setLeadSearch(searchInput); }}
+                    placeholder="Search by name, phone, email, address..."
+                    className="flex-1 bg-[#141a2a] border border-slate-700 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  />
+                  <button
+                    onClick={() => setLeadSearch(searchInput)}
+                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 rounded text-sm font-medium"
+                  >Search</button>
+                  {leadSearch && (
+                    <button
+                      onClick={() => { setLeadSearch(''); setSearchInput(''); }}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm text-slate-300"
+                    >Clear</button>
+                  )}
+                </div>
+
                 {/* Status filter */}
                 <div className="flex gap-2 mb-4 flex-wrap">
                   <button onClick={() => setStatusFilter('')}
@@ -554,7 +579,16 @@ export default function DialerPage() {
                     </tbody>
                   </table>
                   {leads.length === 0 && <div className="p-8 text-center text-slate-500">No leads found</div>}
-                  {leadsTotal > 100 && <div className="p-3 text-center text-slate-500 text-xs">Showing 100 of {leadsTotal.toLocaleString()}</div>}
+                  {leads.length < leadsTotal && (
+                    <div className="p-3 text-center">
+                      <button
+                        onClick={() => fetchLeads(true)}
+                        className="px-4 py-1.5 bg-[#1a2035] border border-slate-700 hover:border-cyan-500 rounded text-xs text-slate-400 hover:text-cyan-400"
+                      >
+                        Load more ({leads.length.toLocaleString()} of {leadsTotal.toLocaleString()})
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
