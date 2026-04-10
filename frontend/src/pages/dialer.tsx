@@ -139,7 +139,7 @@ export default function DialerPage() {
       setDialerRunning(false);
       setSelected({ ...selected, status: 'paused' });
       fetchCampaigns();
-      toast.success('Auto-dialer paused');
+      toast.success('Stop signal sent — dialer will halt within 10 seconds');
     } catch (e) { toast.error('Failed to stop'); }
   };
 

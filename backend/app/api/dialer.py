@@ -819,7 +819,16 @@ def _auto_dial_loop(campaign_id: int):
             if not ok:
                 db.close()
                 import time
-                time.sleep(300)
+                # Sleep in short increments so stop signal is detected quickly
+                for _ in range(30):  # 30 x 10s = 5 min max
+                    time.sleep(10)
+                    _db = SessionLocal()
+                    try:
+                        _c = _db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+                        if not _c or _c.status != "active":
+                            return
+                    finally:
+                        _db.close()
                 continue
 
             _reset_daily_counts_if_new_day()
@@ -848,7 +857,16 @@ def _auto_dial_loop(campaign_id: int):
             if not due:
                 db.close()
                 import time
-                time.sleep(300)  # Check again in 5 min
+                # Sleep in short increments so stop signal is detected quickly
+                for _ in range(30):  # 30 x 10s = 5 min max
+                    time.sleep(10)
+                    _db = SessionLocal()
+                    try:
+                        _c = _db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+                        if not _c or _c.status != "active":
+                            return
+                    finally:
+                        _db.close()
                 continue
 
             due.sort(key=lambda x: x[1])
@@ -950,9 +968,17 @@ def _auto_dial_loop(campaign_id: int):
         finally:
             db.close()
 
-        # Wait between sessions — 2 minutes
+        # Wait between sessions — check every 10s so stop signal is caught quickly
         import time
-        time.sleep(120)
+        for _ in range(12):  # 12 x 10s = 2 min
+            time.sleep(10)
+            _db = SessionLocal()
+            try:
+                _c = _db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
+                if not _c or _c.status != "active":
+                    return
+            finally:
+                _db.close()
 
     # Cleanup
     _dialer_threads.pop(campaign_id, None)
