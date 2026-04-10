@@ -971,10 +971,8 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_run_all_migrations, daemon=True).start()
 
-    life_thread = threading.Thread(target=_run_life_campaign_sender, daemon=True)
-    life_thread.start()
-    logger.info("Life cross-sell campaign auto-sender started (daily 10 AM CT)")
-
+    # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
+    logger.info("Life cross-sell campaign send available via API endpoint")
 
     yield
 
