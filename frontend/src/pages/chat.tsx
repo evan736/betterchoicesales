@@ -546,6 +546,17 @@ export default function ChatPage() {
                             )}
                           </div>
                         )}
+                        {/* Seen receipts for DMs and @mentions */}
+                        {isMe && msg.seen_by && msg.seen_by.length > 0 && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-slate-500">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-500">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                            <span>
+                              Seen by {msg.seen_by.map((s: any) => s.name?.split(' ')[0] || 'someone').join(', ')}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

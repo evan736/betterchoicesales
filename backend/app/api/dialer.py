@@ -319,6 +319,7 @@ async def upload_leads(campaign_id: int, file: UploadFile = File(...)):
 def campaign_stats(campaign_id: int):
     db = SessionLocal()
     try:
+        campaign = db.query(DialerCampaign).filter(DialerCampaign.id == campaign_id).first()
         leads = db.query(DialerLead).filter(DialerLead.campaign_id == campaign_id).all()
 
         statuses = {}
@@ -421,7 +422,7 @@ def campaign_stats(campaign_id: int):
             "by_attempts": by_attempts,
             "age_performance": age_performance,
             # Overall metrics
-            "total_dialed": campaign.total_dialed or total_dialed,
+            "total_dialed": getattr(campaign, 'total_dialed', None) or total_dialed,
             "total_contacted": total_contacted,
             "total_transferred": total_transferred,
             "total_callbacks": total_callbacks,
