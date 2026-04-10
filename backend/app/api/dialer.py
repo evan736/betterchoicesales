@@ -28,11 +28,7 @@ def _get_active_call_count() -> int:
             "https://api.retellai.com/v2/list-calls",
             headers=RETELL_HEADERS,
             json={
-                "filter_criteria": [
-                    {"member": "status", "operator": "eq", "value": ["in_progress"]},
-                    {"member": "direction", "operator": "eq", "value": ["outbound"]},
-                ],
-                "sort_order": "descending",
+                "filter_criteria": {"status": "in_progress"},
                 "limit": 50,
             },
             timeout=10,
@@ -44,10 +40,10 @@ def _get_active_call_count() -> int:
             return len(calls.get("calls", calls.get("data", [])))
         else:
             logger.warning(f"[Concurrency] Retell list-calls error: {resp.status_code} {resp.text[:200]}")
-            return 0  # Fail open — don't block dialing if API errors
+            return 0
     except Exception as e:
         logger.warning(f"[Concurrency] Failed to check active calls: {e}")
-        return 0  # Fail open
+        return 0
 
 # 30-day cadence: (day_offset, preferred_time_slot)
 CADENCE = [

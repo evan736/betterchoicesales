@@ -2055,6 +2055,84 @@ async def dialer_post_call_webhook(request: Request):
             call_id, lead_name, lead_status, interest
         )
 
+        # ── Update dialer lead in DB ──────────────────────────────────────
+        if call_id:
+            try:
+                from app.core.database import SessionLocal as _dl_session
+                from app.models.dialer import DialerLead, DialerDNC, DialerCampaign
+                dl_db = _dl_session()
+                try:
+                    lead = dl_db.query(DialerLead).filter(
+                        DialerLead.call_ids.contains([call_id])
+                    ).first()
+
+                    if lead:
+                        answered = duration_sec >= 5
+
+                        if answered and lead_status:
+                            status_map = {
+                                "transferred": "transferred",
+                                "callback_scheduled": "callback_scheduled",
+                                "soft_no": "soft_no",
+                                "hard_no": "hard_no",
+                                "voicemail": "voicemail",
+                                "no_answer": "no_answer",
+                                "wrong_number": "wrong_number",
+                                "do_not_call": "do_not_call",
+                                "interested": "interested",
+                                "already_insured": "already_insured",
+                            }
+                            mapped = status_map.get(lead_status)
+                            if mapped:
+                                lead.status = mapped
+                            else:
+                                lead.status = "soft_no"
+
+                            if interest in ("hot", "warm", "cold", "hostile"):
+                                lead.interest_level = interest
+
+                            # DNC — add to global list and mark all leads for this phone
+                            if lead.status == "do_not_call":
+                                existing = dl_db.query(DialerDNC).filter(DialerDNC.phone == lead.phone).first()
+                                if not existing:
+                                    dl_db.add(DialerDNC(phone=lead.phone, reason="requested_dnc"))
+                                # Mark all leads with this phone as do_not_call
+                                dl_db.query(DialerLead).filter(
+                                    DialerLead.phone == lead.phone,
+                                    DialerLead.status != "do_not_call"
+                                ).update({"status": "do_not_call"})
+
+                            # Update campaign counters
+                            camp = dl_db.query(DialerCampaign).filter(DialerCampaign.id == lead.campaign_id).first()
+                            if camp:
+                                if lead.status == "transferred":
+                                    camp.total_transferred = (camp.total_transferred or 0) + 1
+                                elif lead.status == "callback_scheduled":
+                                    camp.total_callbacks = (camp.total_callbacks or 0) + 1
+
+                        elif not answered:
+                            disc = (disconnection_reason or "").lower()
+                            if "voicemail" in disc or "machine" in disc:
+                                lead.status = "voicemail"
+                            elif "invalid" in disc:
+                                lead.status = "wrong_number"
+                            # else leave as "dialed"
+
+                        if transcript:
+                            lead.notes = (transcript[:1000] + "\n---\n" + (lead.notes or "")).strip()
+
+                        dl_db.commit()
+                        logger.info(f"[Dialer] DB updated: {lead.name} ({lead.phone}) -> {lead.status}")
+                    else:
+                        logger.warning(f"[Dialer] No lead found for call_id={call_id}")
+                except Exception as dl_err:
+                    logger.error(f"[Dialer] Lead update error: {dl_err}")
+                    dl_db.rollback()
+                finally:
+                    dl_db.close()
+            except Exception as dl_import_err:
+                logger.warning(f"[Dialer] Could not update lead: {dl_import_err}")
+
         if event == "call_analyzed":
             status_badges = {
                 "transferred": "🟢 Transferred",
