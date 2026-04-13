@@ -119,6 +119,9 @@ export default function ChatPanel() {
   const prevUnreadRef = useRef<number>(0);
   const prevMentionsRef = useRef<number>(0);
   const activeChannelRef = useRef<Channel | null>(null);
+  const unreadSinceRef = useRef<number | null>(null);  // timestamp when unreads first appeared
+  const mentionSinceRef = useRef<number | null>(null);  // timestamp when mentions first appeared
+  const replayTimerRef = useRef<any>(null);
   const [compact, setCompact] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -143,10 +146,9 @@ export default function ChatPanel() {
   // Initialize notification sounds
   useEffect(() => {
     notifAudio.current = new Audio('/notification.wav');
-    notifAudio.current.volume = 0.5;
-    mentionAudio.current = new Audio('/notification.wav');
+    notifAudio.current.volume = 0.8;
+    mentionAudio.current = new Audio('/mention.wav');
     mentionAudio.current.volume = 1.0;
-    mentionAudio.current.playbackRate = 1.0;
   }, []);
 
   // Load channels + unread on mount
@@ -217,16 +219,15 @@ export default function ChatPanel() {
                                (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
                                (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
             if (isMentioned && msg?.sender_id !== user?.id) {
-              // Play mention sound 3 times rapidly — ALWAYS plays even if muted
+              // Play urgent mention sound — ALWAYS plays even if muted
               try {
                 const playMention = () => {
-                  const a = new Audio('/notification.wav');
+                  const a = new Audio('/mention.wav');
                   a.volume = 1.0;
                   a.play().catch(() => {});
                 };
                 playMention();
-                setTimeout(playMention, 300);
-                setTimeout(playMention, 600);
+                setTimeout(playMention, 800);
               } catch {}
             }
             // Refresh unread counts
@@ -313,22 +314,63 @@ export default function ChatPanel() {
       const res = await chatAPI.unread();
       const newTotal = res.data.total_unread;
       const newMentions = res.data.total_mentions || 0;
+      const now = Date.now();
+
       // Play loud mention ding when new mentions arrive — ALWAYS plays even if muted
       if (newMentions > (prevMentionsRef.current || 0)) {
         try {
           const playMention = () => {
-            const a = new Audio('/notification.wav');
+            const a = new Audio('/mention.wav');
             a.volume = 1.0;
             a.play().catch(() => {});
           };
           playMention();
-          setTimeout(playMention, 300);
-          setTimeout(playMention, 600);
+          setTimeout(playMention, 800);
         } catch {}
+        mentionSinceRef.current = now;
       } else if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
         // Regular notification sound for non-mention messages
         if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
       }
+
+      // Track when unreads/mentions first appeared
+      if (newTotal > 0 && !unreadSinceRef.current) {
+        unreadSinceRef.current = now;
+      } else if (newTotal === 0) {
+        unreadSinceRef.current = null;
+      }
+      if (newMentions > 0 && !mentionSinceRef.current) {
+        mentionSinceRef.current = now;
+      } else if (newMentions === 0) {
+        mentionSinceRef.current = null;
+      }
+
+      // 5-minute unread replay: if messages still unread after 5 min, replay sound
+      const REPLAY_MS = 5 * 60 * 1000;
+      if (mentionSinceRef.current && (now - mentionSinceRef.current) >= REPLAY_MS && newMentions > 0) {
+        // Replay mention sound — ALWAYS plays even if muted
+        try {
+          const playMention = () => {
+            const a = new Audio('/mention.wav');
+            a.volume = 1.0;
+            a.play().catch(() => {});
+          };
+          playMention();
+          setTimeout(playMention, 800);
+        } catch {}
+        mentionSinceRef.current = now; // reset so it replays again in 5 min
+      } else if (unreadSinceRef.current && (now - unreadSinceRef.current) >= REPLAY_MS && newTotal > 0 && newMentions === 0) {
+        // Replay regular notification if sound enabled
+        if (soundEnabledRef.current) {
+          try { 
+            const a = new Audio('/notification.wav');
+            a.volume = 0.8;
+            a.play().catch(() => {}); 
+          } catch {}
+        }
+        unreadSinceRef.current = now; // reset so it replays again in 5 min
+      }
+
       prevUnreadRef.current = newTotal;
       prevMentionsRef.current = newMentions;
       setTotalUnread(newTotal);

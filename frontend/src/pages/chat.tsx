@@ -180,6 +180,23 @@ export default function ChatPage() {
             }
             // Mark as read
             axios.post(`${API}/api/chat/channels/${channelId}/read`, {}, { headers: headers() }).catch(() => {});
+          } else if (msg?.sender_id !== user?.id) {
+            // Message for another channel — play notification
+            const msgContent = (msg?.content || '').toLowerCase();
+            const currentUsername = user?.username?.toLowerCase() || '';
+            const currentName = (user as any)?.full_name?.toLowerCase() || '';
+            const isMentioned = msgContent.includes(`@${currentUsername}`) ||
+                               (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`));
+            if (isMentioned) {
+              // Mention sound — always plays
+              try {
+                const play = () => { const a = new Audio('/mention.wav'); a.volume = 1.0; a.play().catch(() => {}); };
+                play(); setTimeout(play, 800);
+              } catch {}
+            } else {
+              // Regular notification
+              try { const a = new Audio('/notification.wav'); a.volume = 0.8; a.play().catch(() => {}); } catch {}
+            }
           }
 
           // Refresh channel list (unread counts)
