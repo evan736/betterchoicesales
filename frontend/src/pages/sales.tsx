@@ -942,7 +942,9 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       }]);
       setStep('review');
     } catch (err: any) {
-      setExtractError(err.response?.data?.detail || 'Failed to extract PDF data. Please try again or enter manually.');
+      const errMsg = err.response?.data?.detail || 'Failed to extract PDF data. Please try again or enter manually.';
+      setExtractError(errMsg);
+      toast.error(errMsg);
     } finally {
       setExtracting(false);
     }
@@ -1036,6 +1038,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
         const detail = err.response?.data?.detail;
         const errMsg = typeof detail === 'object' ? JSON.stringify(detail) : (detail || 'Failed to save');
         results.push({ success: false, policy: basePn, error: errMsg });
+        toast.error(`Failed to save ${basePn}: ${errMsg}`);
       }
     }
     setSaveResults(results);
