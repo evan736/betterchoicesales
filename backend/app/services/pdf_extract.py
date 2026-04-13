@@ -66,7 +66,7 @@ def truncate_pdf(pdf_bytes: bytes, max_pages: int = 50) -> bytes:
 
 
 async def extract_pdf_data(pdf_bytes: bytes) -> dict:
-    """Send PDF to Claude API for extraction."""
+    """Send PDF to Claude API for extraction with retry + fallback."""
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY not configured. Set it in Render environment variables.")
 
@@ -75,42 +75,70 @@ async def extract_pdf_data(pdf_bytes: bytes) -> dict:
 
     pdf_base64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": settings.ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 2000,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "document",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "application/pdf",
-                                    "data": pdf_base64,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": EXTRACTION_PROMPT,
-                            },
-                        ],
-                    }
-                ],
-            },
-        )
+    headers = {
+        "x-api-key": settings.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
 
-    if response.status_code != 200:
-        error_detail = response.text
-        raise ValueError(f"Claude API error ({response.status_code}): {error_detail}")
+    def _build_body(model: str) -> dict:
+        return {
+            "model": model,
+            "max_tokens": 2000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": pdf_base64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": EXTRACTION_PROMPT,
+                        },
+                    ],
+                }
+            ],
+        }
+
+    # Try Sonnet first, retry once, then fall back to Haiku
+    models_to_try = [
+        "claude-sonnet-4-20250514",
+        "claude-sonnet-4-20250514",  # retry same model once
+        "claude-haiku-4-5-20251001",  # fallback
+    ]
+
+    last_error = None
+    for i, model in enumerate(models_to_try):
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=_build_body(model),
+                )
+
+            if response.status_code == 200:
+                break
+            elif response.status_code == 529:
+                last_error = "Claude API is temporarily overloaded"
+                if i < len(models_to_try) - 1:
+                    import asyncio
+                    await asyncio.sleep(2)  # brief pause before retry
+                    continue
+                raise ValueError(last_error + ". Please try again in a moment.")
+            else:
+                raise ValueError("Claude API error (" + str(response.status_code) + "): " + response.text)
+        except httpx.TimeoutException:
+            last_error = "Claude API timed out"
+            if i < len(models_to_try) - 1:
+                continue
+            raise ValueError(last_error + ". Please try again.")
 
     result = response.json()
 
