@@ -238,6 +238,125 @@ def get_or_create_dm(
     return _serialize_channel(channel, current_user.id, db)
 
 
+@router.post("/channels/group")
+def create_group_channel(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a group chat channel with selected members."""
+    name = (request.get("name") or "").strip()
+    member_ids = request.get("member_ids", [])
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    if not member_ids or len(member_ids) < 1:
+        raise HTTPException(status_code=400, detail="At least one other member is required")
+
+    # Always include the creator
+    all_member_ids = list(set([current_user.id] + [int(mid) for mid in member_ids]))
+
+    # Verify all users exist
+    for uid in all_member_ids:
+        user = db.query(User).filter(User.id == uid).first()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User {uid} not found")
+
+    channel = ChatChannel(channel_type="group", name=name, created_by=current_user.id)
+    db.add(channel)
+    db.flush()
+
+    for uid in all_member_ids:
+        db.add(ChatChannelMember(channel_id=channel.id, user_id=uid))
+
+    db.commit()
+
+    # Post a system message
+    sys_msg = ChatMessage(
+        channel_id=channel.id,
+        sender_id=current_user.id,
+        content=f"{current_user.full_name} created the group \"{name}\"",
+        message_type="system",
+    )
+    db.add(sys_msg)
+    db.commit()
+
+    return _serialize_channel(channel, current_user.id, db)
+
+
+@router.post("/channels/{channel_id}/members")
+def add_group_member(
+    channel_id: int,
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a member to a group channel."""
+    channel = db.query(ChatChannel).filter(ChatChannel.id == channel_id).first()
+    if not channel or channel.channel_type not in ("group",):
+        raise HTTPException(status_code=400, detail="Can only add members to group channels")
+
+    user_id = request.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    existing = db.query(ChatChannelMember).filter(
+        ChatChannelMember.channel_id == channel_id,
+        ChatChannelMember.user_id == user_id,
+    ).first()
+    if existing:
+        return {"ok": True, "message": "Already a member"}
+
+    db.add(ChatChannelMember(channel_id=channel_id, user_id=user_id))
+    sys_msg = ChatMessage(
+        channel_id=channel_id,
+        sender_id=current_user.id,
+        content=f"{current_user.full_name} added {user.full_name} to the group",
+        message_type="system",
+    )
+    db.add(sys_msg)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/channels/{channel_id}/members/{user_id}")
+def remove_group_member(
+    channel_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a member from a group channel (or leave)."""
+    channel = db.query(ChatChannel).filter(ChatChannel.id == channel_id).first()
+    if not channel or channel.channel_type not in ("group",):
+        raise HTTPException(status_code=400, detail="Can only remove members from group channels")
+
+    # Only creator or self can remove
+    if current_user.id != channel.created_by and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Only group creator can remove members")
+
+    member = db.query(ChatChannelMember).filter(
+        ChatChannelMember.channel_id == channel_id,
+        ChatChannelMember.user_id == user_id,
+    ).first()
+    if member:
+        removed_user = db.query(User).filter(User.id == user_id).first()
+        db.delete(member)
+        sys_msg = ChatMessage(
+            channel_id=channel_id,
+            sender_id=current_user.id,
+            content=f"{removed_user.full_name if removed_user else 'Someone'} left the group" if user_id == current_user.id else f"{current_user.full_name} removed {removed_user.full_name if removed_user else 'someone'}",
+            message_type="system",
+        )
+        db.add(sys_msg)
+        db.commit()
+    return {"ok": True}
+
+
 @router.post("/channels/ensure-office")
 def ensure_office_channel(
     current_user: User = Depends(get_current_user),

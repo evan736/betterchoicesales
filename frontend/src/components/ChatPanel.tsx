@@ -98,6 +98,9 @@ export default function ChatPanel() {
   const [totalMentions, setTotalMentions] = useState(0);
   const [unreadMap, setUnreadMap] = useState<Record<number, number>>({});
   const [showNewDM, setShowNewDM] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState<number[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [view, setView] = useState<'channels' | 'chat'>('channels');
   const [chatSearch, setChatSearch] = useState('');
@@ -411,6 +414,28 @@ export default function ChatPanel() {
     }
   };
 
+  const createGroup = async () => {
+    if (!newGroupName.trim() || selectedGroupMembers.length === 0) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/chat/channels/group`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newGroupName.trim(), member_ids: selectedGroupMembers }),
+      });
+      const ch = await res.json();
+      setShowNewGroup(false);
+      setNewGroupName('');
+      setSelectedGroupMembers([]);
+      await loadChannels();
+      setActiveChannel(ch);
+      setView('chat');
+      await loadMessages(ch.id);
+    } catch (e) {
+      console.error('Failed to create group:', e);
+    }
+  };
+
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -708,6 +733,8 @@ export default function ChatPanel() {
                   <Zap size={14} className="text-amber-400" />
                 ) : activeChannel.channel_type === 'office' ? (
                   <Hash size={14} className="text-cyan-400" />
+                ) : activeChannel.channel_type === 'group' ? (
+                  <Users size={14} className="text-emerald-400" />
                 ) : (
                   <Users size={14} className="text-purple-400" />
                 )}
@@ -841,8 +868,78 @@ export default function ChatPanel() {
 
           {/* DM Header */}
           <div className="flex items-center justify-between px-4 py-2 mt-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Group Chats</span>
+            <button onClick={() => { setShowNewGroup(!showNewGroup); setShowNewDM(false); }} className="px-2 py-0.5 text-[10px] font-bold text-emerald-300 bg-emerald-500/15 rounded hover:bg-emerald-500/25 transition-colors">
+              {showNewGroup ? 'Close' : '+ New Group'}
+            </button>
+          </div>
+
+          {/* New Group Creator */}
+          {showNewGroup && (
+            <div className="mx-3 mb-2 bg-white/[0.05] rounded-lg border border-emerald-800/30 p-2">
+              <input
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                placeholder="Group name..."
+                className="w-full bg-white/[0.05] border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-slate-500 mb-2 outline-none focus:border-emerald-500/50"
+                onKeyDown={e => { if (e.key === 'Enter' && newGroupName.trim() && selectedGroupMembers.length > 0) createGroup(); }}
+              />
+              <div className="text-[9px] text-slate-500 px-1 pb-1 mb-1 border-b border-white/[0.05]">Select members:</div>
+              <div className="max-h-32 overflow-y-auto">
+                {chatUsers.filter(u => u.role !== 'system' && u.username !== 'beacon.ai' && u.id !== (user as any)?.id).map(u => (
+                  <label key={u.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/[0.05] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupMembers.includes(u.id)}
+                      onChange={e => {
+                        if (e.target.checked) setSelectedGroupMembers(prev => [...prev, u.id]);
+                        else setSelectedGroupMembers(prev => prev.filter(id => id !== u.id));
+                      }}
+                      className="w-3 h-3 rounded"
+                    />
+                    <div className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ background: initColor(u.full_name) }}>
+                      {getInitials(u.full_name)}
+                    </div>
+                    <span className="text-xs text-slate-300">{u.full_name}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={createGroup}
+                disabled={!newGroupName.trim() || selectedGroupMembers.length === 0}
+                className="w-full mt-2 py-1.5 text-xs font-bold rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+              >
+                Create Group ({selectedGroupMembers.length} members)
+              </button>
+            </div>
+          )}
+
+          {/* Group Channels */}
+          {channels.filter(c => c.channel_type === 'group').map(ch => (
+            <button
+              key={ch.id}
+              onClick={() => openChannel(ch)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors text-left"
+            >
+              <div className="h-8 w-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                <Users size={14} className="text-emerald-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-200 truncate">{ch.name}</div>
+                <div className="text-[10px] text-slate-500">{ch.members?.length} members</div>
+              </div>
+              {(unreadMap[ch.id] || 0) > 0 && (
+                <span className="h-5 min-w-[20px] px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadMap[ch.id]}
+                </span>
+              )}
+            </button>
+          ))}
+
+          {/* DM Header */}
+          <div className="flex items-center justify-between px-4 py-2 mt-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Direct Messages</span>
-            <button onClick={() => setShowNewDM(!showNewDM)} className="px-2 py-0.5 text-[10px] font-bold text-cyan-300 bg-cyan-500/15 rounded hover:bg-cyan-500/25 transition-colors">
+            <button onClick={() => { setShowNewDM(!showNewDM); setShowNewGroup(false); }} className="px-2 py-0.5 text-[10px] font-bold text-cyan-300 bg-cyan-500/15 rounded hover:bg-cyan-500/25 transition-colors">
               {showNewDM ? 'Close' : '+ New DM'}
             </button>
           </div>
