@@ -182,19 +182,20 @@ export default function ChatPage() {
             axios.post(`${API}/api/chat/channels/${channelId}/read`, {}, { headers: headers() }).catch(() => {});
           } else if (msg?.sender_id !== user?.id) {
             // Message for another channel — play notification
+            const isMuted = typeof window !== 'undefined' && localStorage.getItem('orbit-chat-sound') === 'off';
             const msgContent = (msg?.content || '').toLowerCase();
             const currentUsername = user?.username?.toLowerCase() || '';
             const currentName = (user as any)?.full_name?.toLowerCase() || '';
             const isMentioned = msgContent.includes(`@${currentUsername}`) ||
                                (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`));
             if (isMentioned) {
-              // Mention sound — always plays
+              // Mention sound — ALWAYS plays even if muted
               try {
                 const play = () => { const a = new Audio('/mention.wav'); a.volume = 1.0; a.play().catch(() => {}); };
                 play(); setTimeout(play, 800);
               } catch {}
-            } else {
-              // Regular notification
+            } else if (!isMuted) {
+              // Regular notification — respects mute
               try { const a = new Audio('/notification.wav'); a.volume = 0.8; a.play().catch(() => {}); } catch {}
             }
           }
