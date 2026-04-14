@@ -116,8 +116,8 @@ export default function ChatPanel() {
   const pollRef = useRef<any>(null);
   const notifAudio = useRef<HTMLAudioElement | null>(null);
   const mentionAudio = useRef<HTMLAudioElement | null>(null);
-  const prevUnreadRef = useRef<number>(0);
-  const prevMentionsRef = useRef<number>(0);
+  const prevUnreadRef = useRef<number>(-1);  // -1 = not initialized, skip first poll
+  const prevMentionsRef = useRef<number>(-1);
   const activeChannelRef = useRef<Channel | null>(null);
   const unreadSinceRef = useRef<number | null>(null);  // timestamp when unreads first appeared
   const mentionSinceRef = useRef<number | null>(null);  // timestamp when mentions first appeared
@@ -317,7 +317,8 @@ export default function ChatPanel() {
       const now = Date.now();
 
       // Play loud mention ding when new mentions arrive — ALWAYS plays even if muted
-      if (newMentions > (prevMentionsRef.current || 0)) {
+      // Skip on first load (prevMentionsRef === -1) to avoid dinging on page open
+      if (prevMentionsRef.current >= 0 && newMentions > prevMentionsRef.current) {
         try {
           const playMention = () => {
             const a = new Audio('/mention.wav');
@@ -328,7 +329,7 @@ export default function ChatPanel() {
           setTimeout(playMention, 800);
         } catch {}
         mentionSinceRef.current = now;
-      } else if (newTotal > prevUnreadRef.current && prevUnreadRef.current >= 0) {
+      } else if (prevUnreadRef.current >= 0 && newTotal > prevUnreadRef.current) {
         // Regular notification sound for non-mention messages
         if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
       }
