@@ -435,6 +435,9 @@ export default function ChatPanel() {
 
     await loadMessages(ch.id);
     await chatAPI.markRead(ch.id);
+    // Reset replay timers since user is actively reading
+    unreadSinceRef.current = null;
+    mentionSinceRef.current = null;
     // Small delay to ensure server has processed the markRead before we fetch counts
     setTimeout(() => loadUnread(), 300);
   };

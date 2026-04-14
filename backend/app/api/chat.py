@@ -618,9 +618,25 @@ def mark_read(
     if not member:
         raise HTTPException(status_code=403, detail="Not a member")
 
-    now = datetime.utcnow()
     last_read = member.last_read_at
-    member.last_read_at = now
+
+    # Use the latest message timestamp + 1s buffer to guarantee we mark everything read
+    # This avoids timezone mismatches between Python utcnow() and DB server_default=func.now()
+    latest_msg = (
+        db.query(ChatMessage.created_at)
+        .filter(ChatMessage.channel_id == channel_id, ChatMessage.is_deleted == False)
+        .order_by(ChatMessage.created_at.desc())
+        .first()
+    )
+    if latest_msg and latest_msg[0]:
+        from datetime import timedelta
+        # Set last_read_at to latest message time + 1 second
+        latest_ts = latest_msg[0]
+        if hasattr(latest_ts, 'replace'):
+            latest_ts = latest_ts.replace(tzinfo=None)
+        member.last_read_at = latest_ts + timedelta(seconds=1)
+    else:
+        member.last_read_at = datetime.utcnow()
 
     # Record per-message reads for: DM channels + messages that mention this user
     try:
