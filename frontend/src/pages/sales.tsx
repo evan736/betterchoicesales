@@ -920,6 +920,11 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
       let carrier = data.carrier || '';
       const natgenAliases = ['imperial', 'integon', 'encompass', 'nat gen', 'natgen', 'national general insurance', 'ngic', 'imperial fire'];
       if (natgenAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'National General';
+      const steadilyAliases = ['obsidian', 'canopius'];
+      if (steadilyAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'Steadily';
+      // SP3 policy prefix = Steadily
+      const pols = data.policies || [];
+      if (!carrier && pols.some((p: any) => (p.policy_number || '').toUpperCase().startsWith('SP3'))) carrier = 'Steadily';
       setClientInfo({
         client_name: data.client_name || '',
         client_email: data.client_email || '',

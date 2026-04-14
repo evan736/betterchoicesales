@@ -107,13 +107,20 @@ CARRIER_NORMALIZE = {
     "geico texas county mutual insurance company": "GEICO",
     "geico county mutual insurance company": "GEICO",
     "government employees insurance company": "GEICO",
-    # Steadily / Obsidian
+    # Steadily / Obsidian / Canopius
     "steadily": "Steadily",
     "obsidian": "Steadily",
     "obsedian": "Steadily",
     "obsidian insurance": "Steadily",
     "obsedian insurance": "Steadily",
     "obsidian insurance company": "Steadily",
+    "canopius": "Steadily",
+    "canopius us": "Steadily",
+    "canopius us insurance": "Steadily",
+    "canopius us insurance, inc": "Steadily",
+    "canopius us insurance, inc.": "Steadily",
+    "canopius us insurance inc": "Steadily",
+    "canopius insurance": "Steadily",
     # Universal Property
     "universal property": "Universal Property",
     "universal property & casualty insurance company": "Universal Property",
@@ -166,9 +173,12 @@ CARRIER_NORMALIZE = {
 }
 
 
-def _normalize_carrier(carrier: str) -> str:
+def _normalize_carrier(carrier: str, policy_number: str = None) -> str:
     """Normalize carrier name to canonical form."""
     if not carrier:
+        # Check policy number prefix as fallback
+        if policy_number and policy_number.upper().startswith("SP3"):
+            return "Steadily"
         return carrier
     key = carrier.strip().lower()
     # Exact match
@@ -178,6 +188,9 @@ def _normalize_carrier(carrier: str) -> str:
     for pattern, canonical in CARRIER_NORMALIZE.items():
         if pattern in key or key in pattern:
             return canonical
+    # Policy number prefix fallback
+    if policy_number and policy_number.upper().startswith("SP3"):
+        return "Steadily"
     # Return cleaned original
     return carrier.strip()
 
@@ -555,7 +568,7 @@ def create_from_pdf(
         status=determine_status(sale_data.effective_date),
     )
     # Normalize carrier name (e.g. "Obsidian" → "Steadily")
-    sale.carrier = _normalize_carrier(sale.carrier)
+    sale.carrier = _normalize_carrier(sale.carrier, sale.policy_number)
 
     db.add(sale)
     db.commit()
@@ -723,7 +736,7 @@ def create_sale(
         status=determine_status(sale_data.effective_date),
     )
     # Normalize carrier name (e.g. "Obsidian" → "Steadily")
-    sale.carrier = _normalize_carrier(sale.carrier)
+    sale.carrier = _normalize_carrier(sale.carrier, sale.policy_number)
     
     db.add(sale)
     db.commit()
