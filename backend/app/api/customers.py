@@ -622,6 +622,64 @@ def _states_to_abbr(raw: dict) -> dict:
     return result
 
 
+# ── Expiration / Renewal Report ──────────────────────────────────
+
+@router.get("/expiration-report")
+def expiration_report(
+    month: int = None,  # 1-12
+    year: int = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get premium and policy count for policies expiring in a given month/year."""
+    from datetime import datetime
+    if not month or not year:
+        now = datetime.utcnow()
+        month = month or now.month
+        year = year or now.year
+
+    from sqlalchemy import extract
+    policies = (
+        db.query(CustomerPolicy)
+        .filter(
+            func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
+            extract("month", CustomerPolicy.expiration_date) == month,
+            extract("year", CustomerPolicy.expiration_date) == year,
+        )
+        .all()
+    )
+
+    total_premium = 0
+    by_carrier = {}
+    by_agent = {}
+    by_lob = {}
+    count = 0
+
+    for p in policies:
+        prem = float(p.premium or 0)
+        total_premium += prem
+        count += 1
+
+        carrier = (p.carrier or "Unknown").strip()
+        by_carrier[carrier] = by_carrier.get(carrier, 0) + prem
+
+        agent = (p.agent_name or "Unassigned").strip()
+        by_agent[agent] = by_agent.get(agent, 0) + prem
+
+        lob = (p.line_of_business or "Other").strip()
+        by_lob[lob] = by_lob.get(lob, 0) + prem
+
+    return {
+        "month": month,
+        "year": year,
+        "total_policies": count,
+        "total_premium": round(total_premium, 2),
+        "by_carrier": {k: round(v, 2) for k, v in sorted(by_carrier.items(), key=lambda x: -x[1])},
+        "by_agent": {k: round(v, 2) for k, v in sorted(by_agent.items(), key=lambda x: -x[1])},
+        "by_line_of_business": {k: round(v, 2) for k, v in sorted(by_lob.items(), key=lambda x: -x[1])},
+    }
+
+
 # ── Duplicate Detection ──────────────────────────────────────────
 
 @router.get("/duplicates")
