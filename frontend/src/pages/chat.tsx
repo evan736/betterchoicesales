@@ -331,6 +331,7 @@ export default function ChatPage() {
 
   const officeChannels = channels.filter(c => c.channel_type === 'office');
   const beaconChannels = channels.filter(c => c.channel_type === 'beacon');
+  const groupChannels = channels.filter(c => c.channel_type === 'group');
   const dmChannels = channels.filter(c => c.channel_type === 'dm');
 
   return (
@@ -425,6 +426,32 @@ export default function ChatPage() {
                     <span className="flex-1 text-sm font-medium truncate">{ch.name}</span>
                     {ch.unread > 0 && (
                       <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                        {ch.unread}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Group Chats */}
+            {groupChannels.length > 0 && (
+              <div className="p-3">
+                <p className="text-xs text-slate-500 uppercase tracking-wider mb-2 px-2">Group Chats</p>
+                {groupChannels.map(ch => (
+                  <button
+                    key={ch.id}
+                    onClick={() => selectChannel(ch)}
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition text-left mb-0.5 ${
+                      activeChannel?.id === ch.id
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'hover:bg-white/5 text-slate-300'
+                    }`}
+                  >
+                    <Users size={18} className={activeChannel?.id === ch.id ? 'text-emerald-400' : 'text-slate-500'} />
+                    <span className="flex-1 text-sm font-medium truncate">{ch.name}</span>
+                    {ch.unread > 0 && (
+                      <span className="bg-emerald-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
                         {ch.unread}
                       </span>
                     )}
