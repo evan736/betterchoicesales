@@ -4,7 +4,7 @@ import os
 import re
 import uuid
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
@@ -668,7 +668,33 @@ def mark_read(
     return {"ok": True}
 
 
-# ── Reactions ──
+@router.post("/admin/mark-all-read")
+def admin_mark_all_read(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Admin: reset all users' last_read_at to the latest message in each channel."""
+    if current_user.role.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    members = db.query(ChatChannelMember).all()
+    updated = 0
+    for m in members:
+        latest = (
+            db.query(ChatMessage.created_at)
+            .filter(ChatMessage.channel_id == m.channel_id, ChatMessage.is_deleted == False)
+            .order_by(ChatMessage.created_at.desc())
+            .first()
+        )
+        if latest and latest[0]:
+            ts = latest[0]
+            if hasattr(ts, 'replace'):
+                ts = ts.replace(tzinfo=None)
+            m.last_read_at = ts + timedelta(seconds=1)
+            updated += 1
+
+    db.commit()
+    return {"ok": True, "updated": updated}
 
 @router.post("/messages/{message_id}/react")
 def toggle_reaction(
