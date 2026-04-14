@@ -757,10 +757,11 @@ def mark_read(
     else:
         member.last_read_at = datetime.utcnow()
 
-    # Record per-message reads for: DM channels + messages that mention this user
+    # Record per-message reads for: DM channels, group channels, and messages that mention this user
     try:
         channel = db.query(ChatChannel).filter(ChatChannel.id == channel_id).first()
         is_dm = channel and channel.channel_type == "dm"
+        is_group = channel and channel.channel_type == "group"
 
         q = db.query(ChatMessage).filter(
             ChatMessage.channel_id == channel_id,
@@ -773,7 +774,7 @@ def mark_read(
         messages = q.all()
         for msg in messages:
             is_mention = current_user.id in (msg.mentions or [])
-            if is_dm or is_mention:
+            if is_dm or is_group or is_mention:
                 exists = db.query(ChatMessageRead).filter(
                     ChatMessageRead.message_id == msg.id,
                     ChatMessageRead.user_id == current_user.id,
