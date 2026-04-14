@@ -219,16 +219,18 @@ export default function ChatPanel() {
                                (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
                                (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
             if (isMentioned && msg?.sender_id !== user?.id) {
-              // Play urgent mention sound — ALWAYS plays even if muted
-              try {
-                const playMention = () => {
-                  const a = new Audio('/mention.wav');
-                  a.volume = 1.0;
-                  a.play().catch(() => {});
-                };
-                playMention();
-                setTimeout(playMention, 800);
-              } catch {}
+              // Play urgent mention sound — respects mute
+              if (soundEnabledRef.current) {
+                try {
+                  const playMention = () => {
+                    const a = new Audio('/mention.wav');
+                    a.volume = 1.0;
+                    a.play().catch(() => {});
+                  };
+                  playMention();
+                  setTimeout(playMention, 800);
+                } catch {}
+              }
             }
             // Refresh unread counts
             loadUnread();
@@ -317,16 +319,18 @@ export default function ChatPanel() {
 
       // Only play sounds when count genuinely INCREASES (not on first load, not on stale counts)
       if (prevMentionsRef.current >= 0 && newMentions > prevMentionsRef.current) {
-        // Mention sound — ALWAYS plays even if muted
-        try {
-          const playMention = () => {
-            const a = new Audio('/mention.wav');
-            a.volume = 1.0;
-            a.play().catch(() => {});
-          };
-          playMention();
-          setTimeout(playMention, 800);
-        } catch {}
+        // Mention sound — respects mute
+        if (soundEnabledRef.current) {
+          try {
+            const playMention = () => {
+              const a = new Audio('/mention.wav');
+              a.volume = 1.0;
+              a.play().catch(() => {});
+            };
+            playMention();
+            setTimeout(playMention, 800);
+          } catch {}
+        }
       } else if (prevUnreadRef.current >= 0 && newTotal > prevUnreadRef.current) {
         // Regular notification — respects mute
         if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
