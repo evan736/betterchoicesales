@@ -128,7 +128,7 @@ async def send_message(
             )
             data = resp.json()
             
-            if resp.status_code in (200, 201):
+            if resp.status_code in (200, 201, 202):
                 message_handle = data.get("message_handle") or data.get("messageHandle", "")
                 status = data.get("status", "QUEUED")
                 service = data.get("service", "unknown")
