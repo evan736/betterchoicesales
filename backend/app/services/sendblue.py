@@ -1,15 +1,13 @@
-"""Blooio iMessage/SMS service for ORBIT.
+"""Sendblue iMessage/SMS service for ORBIT.
 
 Handles:
-- Outbound message sending via Blooio API (iMessage with RCS/SMS fallback)
+- Outbound message sending via Sendblue API (iMessage with SMS fallback)
 - Inbound message processing from webhooks
 - Customer matching by phone number
 - Message logging to text_messages table
 - Delivery status tracking
 
-Blooio API docs: https://docs.blooio.com
-Base URL: https://backend.blooio.com/v2/api
-Auth: Bearer token
+Sendblue API docs: https://docs.sendblue.com
 """
 import os
 import re
@@ -24,13 +22,14 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────
-BLOOIO_API_KEY = os.getenv("BLOOIO_API_KEY", "")
-BLOOIO_BASE_URL = "https://backend.blooio.com/v2/api"
-BLOOIO_FROM_NUMBER = os.getenv("BLOOIO_FROM_NUMBER", "")
-
-# Backward compat — also check old env var names
-if not BLOOIO_API_KEY:
-    BLOOIO_API_KEY = os.getenv("SENDBLUE_API_KEY", "")
+SENDBLUE_API_KEY = os.getenv("SENDBLUE_API_KEY", "")
+SENDBLUE_API_SECRET = os.getenv("SENDBLUE_API_SECRET", "")
+SENDBLUE_FROM_NUMBER = os.getenv("SENDBLUE_FROM_NUMBER", "")
+SENDBLUE_BASE_URL = "https://api.sendblue.co/api"
+SENDBLUE_STATUS_CALLBACK = os.getenv(
+    "SENDBLUE_STATUS_CALLBACK",
+    "https://better-choice-api.onrender.com/api/sendblue/status-callback"
+)
 
 SENDBLUE_NOTIFY_EMAIL = os.getenv("SENDBLUE_NOTIFY_EMAIL", "evan@betterchoiceins.com")
 
@@ -68,61 +67,75 @@ async def send_message(
     context: Optional[str] = None,
     sent_by: Optional[str] = None,
 ) -> dict:
-    """Send an iMessage/SMS via Blooio."""
+    """Send an iMessage/SMS via Sendblue."""
     to_e164 = normalize_phone(to_number)
     if not to_e164:
         return {"success": False, "error": f"Invalid phone number: {to_number}"}
 
-    if not BLOOIO_API_KEY:
-        return {"success": False, "error": "Blooio API key not configured. Set BLOOIO_API_KEY env var."}
+    send_from = from_number or SENDBLUE_FROM_NUMBER
+    if not send_from:
+        return {"success": False, "error": "No SENDBLUE_FROM_NUMBER configured"}
 
-    body: dict = {}
-    if content:
-        body["text"] = content
-    if media_url:
-        body["attachments"] = [media_url]
+    if not SENDBLUE_API_KEY or not SENDBLUE_API_SECRET:
+        return {"success": False, "error": "Sendblue API credentials not configured"}
 
-    headers = {
-        "Authorization": f"Bearer {BLOOIO_API_KEY}",
-        "Content-Type": "application/json",
+    payload = {
+        "number": to_e164,
+        "from_number": send_from,
+        "content": content[:18996] if content else None,
+        "status_callback": SENDBLUE_STATUS_CALLBACK,
     }
-    send_from = from_number or BLOOIO_FROM_NUMBER
-    if send_from:
-        headers["X-From-Number"] = normalize_phone(send_from)
+    if media_url:
+        payload["media_url"] = media_url
 
-    chat_id = urllib.parse.quote(to_e164, safe='')
+    # Remove None values
+    payload = {k: v for k, v in payload.items() if v is not None}
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"{BLOOIO_BASE_URL}/chats/{chat_id}/messages",
-                json=body,
-                headers=headers,
+                f"{SENDBLUE_BASE_URL}/send-message",
+                json=payload,
+                headers={
+                    "sb-api-key-id": SENDBLUE_API_KEY,
+                    "sb-api-secret-key": SENDBLUE_API_SECRET,
+                    "Content-Type": "application/json",
+                }
             )
             data = resp.json()
 
             if resp.status_code in (200, 201, 202):
-                message_id = data.get("message_id", "")
-                status = data.get("status", "queued")
+                message_handle = data.get("message_handle") or data.get("messageHandle", "")
+                status = data.get("status", "QUEUED")
+                service = data.get("service", "unknown")
 
-                logger.info("Blooio message sent: to=%s id=%s status=%s", to_e164, message_id, status)
+                logger.info(
+                    "Sendblue message sent: to=%s handle=%s status=%s service=%s",
+                    to_e164, message_handle, status, service
+                )
 
                 if db:
                     _log_message(
                         db=db, direction="outbound", phone_number=to_e164,
-                        from_number=send_from or "", content=content, media_url=media_url,
-                        message_handle=message_id, status=status, service="blooio",
+                        from_number=send_from, content=content, media_url=media_url,
+                        message_handle=message_handle, status=status, service=service,
                         customer_id=customer_id, context=context, sent_by=sent_by,
                     )
 
-                return {"success": True, "message_id": message_id, "status": status}
+                return {
+                    "success": True,
+                    "message_handle": message_handle,
+                    "status": status,
+                    "service": service,
+                    "was_downgraded": data.get("was_downgraded"),
+                }
             else:
-                error_msg = data.get("error") or data.get("message") or str(resp.status_code)
-                logger.error("Blooio send failed: %s — %s", resp.status_code, error_msg)
+                error_msg = data.get("error_message") or data.get("message") or str(resp.status_code)
+                logger.error("Sendblue send failed: %s — %s", resp.status_code, error_msg)
                 return {"success": False, "error": error_msg, "status_code": resp.status_code}
 
     except Exception as e:
-        logger.error("Blooio send error: %s", e)
+        logger.error("Sendblue send error: %s", e)
         return {"success": False, "error": str(e)}
 
 
@@ -202,7 +215,7 @@ def _log_message(db, direction, phone_number, content=None, from_number=None,
             {"direction": direction, "phone_number": phone_number,
              "from_number": from_number or "", "content": content or "",
              "media_url": media_url or "", "message_handle": message_handle or "",
-             "status": status or "", "service": service or "blooio",
+             "status": status or "", "service": service or "sendblue",
              "customer_id": customer_id, "context": context or "",
              "sent_by": sent_by or "",
              "raw_payload": str(raw_payload) if raw_payload else None}
