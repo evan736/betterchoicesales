@@ -490,29 +490,31 @@ export default function TextingPage() {
                     />
                   </div>
                 </div>
-                <div className="flex-1" />
-                {/* Compose bar */}
-                <div className="px-4 py-3 border-t border-white/[0.06] bg-[#0a1220]">
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      ref={inputRef}
-                      value={draft}
-                      onChange={e => setDraft(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-                      }}
-                      placeholder="Type a message..."
-                      rows={1}
-                      className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/30 resize-none max-h-32"
-                      style={{ minHeight: '40px' }}
-                    />
-                    <button
-                      onClick={handleSend}
-                      disabled={sending || !draft.trim() || !newNumber.trim()}
-                      className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 disabled:hover:bg-blue-600 transition-colors flex-shrink-0"
-                    >
-                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    </button>
+                {/* Spacer + compose pinned to bottom */}
+                <div className="flex-1 flex flex-col justify-end">
+                  <div className="px-4 py-3 border-t border-white/[0.06] bg-[#0a1220]">
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        ref={inputRef}
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+                        }}
+                        placeholder="Type a message..."
+                        rows={2}
+                        className="flex-1 bg-white/[0.06] border border-white/[0.1] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/40 resize-none"
+                        style={{ minHeight: '52px' }}
+                      />
+                      <button
+                        onClick={handleSend}
+                        disabled={sending || !draft.trim() || !newNumber.trim()}
+                        className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 disabled:hover:bg-blue-600 transition-colors flex-shrink-0"
+                      >
+                        {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-1.5 px-1">Enter to send · Shift+Enter for new line</p>
                   </div>
                 </div>
               </>
