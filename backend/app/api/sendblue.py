@@ -114,10 +114,10 @@ def run_sendblue_migration(engine=None):
 
 @router.post("/inbound")
 async def inbound_webhook(request: Request, db: Session = Depends(get_db)):
-    """Receive inbound messages from Sendblue.
+    """Receive inbound messages from Blooio.
     
-    Sendblue POSTs JSON with: content, from_number, to_number, number,
-    message_handle, date_sent, media_url, service, etc.
+    Blooio webhook POSTs JSON with: event, message_id, external_id, text,
+    status, protocol, timestamp, sender, attachments, etc.
     
     We: log it, match to customer, notify team.
     """
@@ -126,58 +126,74 @@ async def inbound_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         return {"status": "error", "message": "Invalid JSON"}
     
-    from_number = payload.get("from_number", "") or payload.get("number", "")
-    content = payload.get("content", "")
-    media_url = payload.get("media_url", "")
-    message_handle = payload.get("message_handle", "")
-    service = payload.get("service", "")
-    to_number = payload.get("to_number", "") or payload.get("sendblue_number", "")
+    event = payload.get("event", "")
     
-    logger.info(
-        "Inbound text from %s: %s (service=%s)", 
-        from_number, content[:100], service
-    )
+    # Handle inbound messages
+    if event in ("message.received", ""):
+        from_number = payload.get("sender", "") or payload.get("external_id", "") or payload.get("from_number", "") or payload.get("number", "")
+        content = payload.get("text", "") or payload.get("content", "")
+        message_id = payload.get("message_id", "") or payload.get("message_handle", "")
+        protocol = payload.get("protocol", "") or payload.get("service", "")
+        to_number = payload.get("internal_id", "") or payload.get("to_number", "")
+        
+        # Handle attachments
+        attachments = payload.get("attachments") or []
+        media_url = ""
+        if attachments:
+            if isinstance(attachments[0], dict):
+                media_url = attachments[0].get("url", "")
+            elif isinstance(attachments[0], str):
+                media_url = attachments[0]
+        
+        logger.info("Inbound text from %s: %s (protocol=%s)", from_number, content[:100], protocol)
+        
+        # Match to customer
+        customer_match = match_customer_by_phone(db, from_number)
+        customer_id = customer_match.get("customer_id") if customer_match else None
+        customer_name = customer_match.get("name", "Unknown") if customer_match else "Unknown"
+        
+        # Log to DB
+        msg_id = _log_message(
+            db=db, direction="inbound", phone_number=from_number,
+            from_number=from_number, content=content, media_url=media_url,
+            message_handle=message_id, status="RECEIVED", service=protocol or "blooio",
+            customer_id=customer_id, context="inbound_webhook", raw_payload=payload,
+        )
+        
+        # Send email notification to Evan
+        _send_inbound_notification(
+            from_number=from_number, content=content,
+            customer_name=customer_name, customer_match=customer_match,
+            media_url=media_url, service=protocol or "blooio",
+        )
+        
+        # Post to office chat
+        _post_to_office_chat(db=db, from_number=from_number, content=content, customer_name=customer_name)
+        
+        return {"status": "ok", "message_id": msg_id, "customer_match": customer_name}
     
-    # Match to customer
-    customer_match = match_customer_by_phone(db, from_number)
-    customer_id = customer_match.get("customer_id") if customer_match else None
-    customer_name = customer_match.get("name", "Unknown") if customer_match else "Unknown"
+    # Handle status updates (delivered, read, failed)
+    elif event in ("message.sent", "message.delivered", "message.failed", "message.read"):
+        message_id = payload.get("message_id", "")
+        status = payload.get("status", "")
+        error_code = payload.get("error_code")
+        protocol = payload.get("protocol")
+        
+        if message_id and status:
+            update_message_status(
+                db=db, message_handle=message_id, status=status.upper(),
+                error_code=str(error_code) if error_code else None,
+                service=protocol,
+            )
+        
+        if event == "message.failed":
+            logger.error("Blooio delivery failed: id=%s error=%s", message_id, payload.get("error_message", ""))
+        
+        return {"status": "ok"}
     
-    # Log to DB
-    msg_id = _log_message(
-        db=db,
-        direction="inbound",
-        phone_number=from_number,
-        from_number=from_number,
-        content=content,
-        media_url=media_url,
-        message_handle=message_handle,
-        status="RECEIVED",
-        service=service,
-        customer_id=customer_id,
-        context="inbound_webhook",
-        raw_payload=payload,
-    )
-    
-    # Send email notification to Evan
-    _send_inbound_notification(
-        from_number=from_number,
-        content=content,
-        customer_name=customer_name,
-        customer_match=customer_match,
-        media_url=media_url,
-        service=service,
-    )
-    
-    # Post to office chat if available
-    _post_to_office_chat(
-        db=db,
-        from_number=from_number,
-        content=content,
-        customer_name=customer_name,
-    )
-    
-    return {"status": "ok", "message_id": msg_id, "customer_match": customer_name}
+    # Unknown event — log and accept
+    logger.info("Blooio webhook event: %s", event)
+    return {"status": "ok"}
 
 
 # ── 2. STATUS CALLBACK ─────────────────────────────────────────────
@@ -526,14 +542,14 @@ async def test_send(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    from_number = os.getenv("SENDBLUE_FROM_NUMBER", "")
-    if not from_number:
-        return {"success": False, "error": "SENDBLUE_FROM_NUMBER not set. Set it in Render env vars."}
+    api_key = os.getenv("BLOOIO_API_KEY", "")
+    if not api_key:
+        return {"success": False, "error": "BLOOIO_API_KEY not set. Set it in Render env vars."}
     
-    # Send to Evan's number (first contact)
+    # Send to BCI office
     result = await send_message(
-        to_number="+18479085665",  # BCI office
-        content="✅ ORBIT Sendblue test — integration is working!",
+        to_number="+18479085665",
+        content="✅ ORBIT Blooio test — iMessage integration is working!",
         db=db,
         context="test",
         sent_by="system",
@@ -683,16 +699,14 @@ def _post_to_office_chat(
 
 @router.get("/health")
 def sendblue_health():
-    """Check Sendblue configuration."""
-    from_number = os.getenv("SENDBLUE_FROM_NUMBER", "")
-    api_key = os.getenv("SENDBLUE_API_KEY", "")
-    api_secret = os.getenv("SENDBLUE_API_SECRET", "")
+    """Check Blooio configuration."""
+    api_key = os.getenv("BLOOIO_API_KEY", "")
+    from_number = os.getenv("BLOOIO_FROM_NUMBER", "")
     
     return {
-        "status": "ok" if (api_key and api_secret) else "missing_credentials",
-        "from_number": from_number or "NOT SET",
+        "status": "ok" if api_key else "missing_credentials",
+        "provider": "blooio",
+        "from_number": from_number or "auto (shared)",
         "api_key_set": bool(api_key),
-        "api_secret_set": bool(api_secret),
         "inbound_webhook": "https://better-choice-api.onrender.com/api/sendblue/inbound",
-        "status_callback": "https://better-choice-api.onrender.com/api/sendblue/status-callback",
     }
