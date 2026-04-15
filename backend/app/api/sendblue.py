@@ -106,6 +106,22 @@ def run_sendblue_migration(engine=None):
             """))
             conn.commit()
             logger.info("text_messages table ready")
+        
+        # Voice notes table
+        with eng.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS voice_notes (
+                    id SERIAL PRIMARY KEY,
+                    note_id VARCHAR(20) NOT NULL UNIQUE,
+                    caf_data BYTEA NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_voice_notes_note_id ON voice_notes(note_id)
+            """))
+            conn.commit()
+            logger.info("voice_notes table ready")
     except Exception as e:
         logger.warning(f"Sendblue migration: {e}")
 
@@ -537,6 +553,137 @@ def mark_message_read(
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ── 11. VOICE NOTE ─────────────────────────────────────────────────
+
+from fastapi import UploadFile, File, Form
+
+@router.post("/voice-note")
+async def send_voice_note(
+    to_number: str = Form(...),
+    audio: UploadFile = File(...),
+    customer_id: Optional[int] = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Record and send a voice memo via iMessage.
+    
+    Accepts any audio format (webm, mp3, wav, m4a, ogg) — converts to .caf
+    via ffmpeg, stores in DB, serves via public URL for Sendblue to fetch.
+    
+    Sendblue delivers .caf files as native iMessage voice notes (inline playable).
+    """
+    import subprocess
+    import tempfile
+    import uuid
+    import base64
+    
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+    
+    # Determine input format from filename or content type
+    ext = "webm"
+    if audio.filename:
+        ext = audio.filename.rsplit(".", 1)[-1].lower() if "." in audio.filename else "webm"
+    elif audio.content_type:
+        ct_map = {"audio/webm": "webm", "audio/mp3": "mp3", "audio/mpeg": "mp3",
+                  "audio/wav": "wav", "audio/x-wav": "wav", "audio/mp4": "m4a",
+                  "audio/ogg": "ogg", "audio/x-m4a": "m4a"}
+        ext = ct_map.get(audio.content_type, "webm")
+    
+    # Convert to .caf using ffmpeg
+    note_id = str(uuid.uuid4())[:12]
+    
+    with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as inp:
+        inp.write(audio_bytes)
+        inp_path = inp.name
+    
+    out_path = f"/tmp/{note_id}.caf"
+    
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-i", inp_path, "-acodec", "opus", "-b:a", "24k", "-y", out_path],
+            capture_output=True, timeout=30
+        )
+        if result.returncode != 0:
+            logger.error("ffmpeg conversion failed: %s", result.stderr.decode()[:500])
+            raise HTTPException(status_code=500, detail="Audio conversion failed")
+        
+        with open(out_path, "rb") as f:
+            caf_bytes = f.read()
+        
+    finally:
+        import os as _os
+        try: _os.unlink(inp_path)
+        except: pass
+        try: _os.unlink(out_path)
+        except: pass
+    
+    # Store .caf in database as BYTEA so it survives Render deploys
+    try:
+        caf_b64 = base64.b64encode(caf_bytes).decode()
+        db.execute(
+            text("""
+                INSERT INTO voice_notes (id, note_id, caf_data, created_at)
+                VALUES (DEFAULT, :note_id, decode(:caf_b64, 'base64'), NOW())
+            """),
+            {"note_id": note_id, "caf_b64": caf_b64}
+        )
+        db.commit()
+    except Exception as e:
+        logger.error("Failed to store voice note: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to store voice note")
+    
+    # Public URL that Sendblue will fetch
+    caf_url = f"https://better-choice-api.onrender.com/api/sendblue/voice-note/{note_id}.caf"
+    
+    # Send via Sendblue as media_url
+    result = await send_message(
+        to_number=to_number,
+        content="",
+        media_url=caf_url,
+        db=db,
+        customer_id=customer_id,
+        context="voice_note",
+        sent_by=current_user.full_name or current_user.username,
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Send failed"))
+    
+    return {**result, "voice_note_url": caf_url}
+
+
+@router.get("/voice-note/{note_id}.caf")
+def serve_voice_note(note_id: str, db: Session = Depends(get_db)):
+    """Serve a .caf voice note file — public endpoint for Sendblue to fetch."""
+    from fastapi.responses import Response
+    
+    try:
+        row = db.execute(
+            text("SELECT caf_data FROM voice_notes WHERE note_id = :note_id"),
+            {"note_id": note_id}
+        ).fetchone()
+        
+        if not row or not row[0]:
+            raise HTTPException(status_code=404, detail="Voice note not found")
+        
+        return Response(
+            content=bytes(row[0]),
+            media_type="audio/x-caf",
+            headers={
+                "Content-Disposition": f"inline; filename={note_id}.caf",
+                "Cache-Control": "public, max-age=86400",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to serve voice note: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to serve voice note")
 
 
 # ── HELPERS ─────────────────────────────────────────────────────────

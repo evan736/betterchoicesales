@@ -6,7 +6,7 @@ import {
   MessageCircle, Send, Search, Phone, User, Clock, CheckCircle,
   AlertCircle, ChevronLeft, RefreshCw, Smartphone, Monitor,
   ArrowDown, Zap, BarChart2, XCircle, Eye, EyeOff, Wifi, WifiOff,
-  Plus, Loader2, MessageSquare, Settings, ChevronDown
+  Plus, Loader2, MessageSquare, Settings, ChevronDown, Mic, Square as StopSquare
 } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../components/ui/Toast';
@@ -121,6 +121,10 @@ export default function TextingPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Admin gate
   const isAdmin = user?.role?.toLowerCase() === 'admin';
@@ -197,6 +201,65 @@ export default function TextingPage() {
       setSending(false);
     }
   };
+
+  // ── Voice recording ────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      const chunks: BlobPart[] = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        await sendVoiceNote(blob);
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch (e) {
+      toast.error('Microphone access denied');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setRecording(false);
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+  };
+
+  const sendVoiceNote = async (blob: Blob) => {
+    const phone = showNewMessage ? newNumber : selectedPhone;
+    if (!phone) { toast.error('No recipient selected'); return; }
+    setSending(true);
+    try {
+      const formData = new FormData();
+      formData.append('audio', blob, 'voice-note.webm');
+      formData.append('to_number', phone);
+      if (showNewMessage) {
+        setShowNewMessage(false);
+        setNewNumber('');
+        setSelectedPhone(phone);
+      }
+      await axios.post(`${API}/api/sendblue/voice-note`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (selectedPhone) await fetchThread(selectedPhone);
+      else await fetchThread(phone);
+      await fetchConversations();
+      toast.success('Voice note sent');
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to send voice note');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const formatRecordingTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   // ── Effects ────────────────────────────────────────────────────
   useEffect(() => {
@@ -429,7 +492,7 @@ export default function TextingPage() {
                               )}
                               <p className={`text-[11px] truncate ${conv.unread_count > 0 ? 'text-slate-200 font-medium' : 'text-slate-500'}`}>
                                 {!isInbound && <span className="text-slate-600">You: </span>}
-                                {conv.last_message.content || (conv.last_message.media_url ? '📎 Attachment' : '...')}
+                                {conv.last_message.content || (conv.last_message.media_url ? '🎤 Voice Note' : '...')}
                               </p>
                             </div>
                           </div>
@@ -609,10 +672,31 @@ export default function TextingPage() {
                                   </p>
                                   {/* Media */}
                                   {msg.media_url && (
-                                    <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
-                                      className="mt-1 inline-flex items-center gap-1 text-[11px] underline opacity-80 hover:opacity-100">
-                                      📎 Attachment
-                                    </a>
+                                    msg.media_url.endsWith('.caf') || msg.context === 'voice_note' ? (
+                                      <div className="mt-1 flex items-center gap-2 py-1">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                          isOutbound ? 'bg-white/20' : 'bg-blue-500/20'
+                                        }`}>
+                                          <Mic size={14} className={isOutbound ? 'text-white' : 'text-blue-400'} />
+                                        </div>
+                                        <div className="flex-1">
+                                          <div className="flex gap-0.5">
+                                            {[...Array(20)].map((_, i) => (
+                                              <div key={i} className={`w-1 rounded-full ${isOutbound ? 'bg-white/40' : 'bg-blue-400/40'}`}
+                                                style={{ height: `${4 + Math.random() * 12}px` }} />
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <span className={`text-[10px] ${isOutbound ? 'text-white/60' : 'text-slate-500'}`}>
+                                          Voice Note
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                                        className="mt-1 inline-flex items-center gap-1 text-[11px] underline opacity-80 hover:opacity-100">
+                                        📎 Attachment
+                                      </a>
+                                    )
                                   )}
                                 </div>
                                 {/* Meta row */}
@@ -654,41 +738,70 @@ export default function TextingPage() {
 
                 {/* Compose bar */}
                 <div className="px-4 py-3 border-t border-white/[0.06] bg-[#0a1220]">
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      ref={inputRef}
-                      value={draft}
-                      onChange={e => {
-                        setDraft(e.target.value);
-                        // Auto-resize
-                        const el = e.target;
-                        el.style.height = 'auto';
-                        el.style.height = Math.min(el.scrollHeight, 128) + 'px';
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-                      }}
-                      placeholder="iMessage"
-                      rows={1}
-                      className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/30 resize-none"
-                      style={{ minHeight: '40px', maxHeight: '128px' }}
-                    />
-                    <button
-                      onClick={handleSend}
-                      disabled={sending || !draft.trim()}
-                      className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 disabled:hover:bg-blue-600 transition-colors flex-shrink-0"
-                    >
-                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between mt-1.5 px-1">
-                    <span className="text-[10px] text-slate-700">
-                      Shift+Enter for new line
-                    </span>
-                    <span className="text-[10px] text-slate-700">
-                      {draft.length > 0 ? `${draft.length} / 18,996` : ''}
-                    </span>
-                  </div>
+                  {recording ? (
+                    /* Recording state */
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-1 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                        <span className="text-[13px] text-red-400 font-medium">Recording</span>
+                        <span className="text-[13px] text-red-300 font-mono">{formatRecordingTime(recordingTime)}</span>
+                      </div>
+                      <button
+                        onClick={stopRecording}
+                        disabled={sending}
+                        className="p-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white transition-colors flex-shrink-0"
+                        title="Stop & send"
+                      >
+                        {sending ? <Loader2 size={16} className="animate-spin" /> : <StopSquare size={16} />}
+                      </button>
+                    </div>
+                  ) : (
+                    /* Normal compose state */
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        ref={inputRef}
+                        value={draft}
+                        onChange={e => {
+                          setDraft(e.target.value);
+                          const el = e.target;
+                          el.style.height = 'auto';
+                          el.style.height = Math.min(el.scrollHeight, 128) + 'px';
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+                        }}
+                        placeholder="iMessage"
+                        rows={1}
+                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/30 resize-none"
+                        style={{ minHeight: '40px', maxHeight: '128px' }}
+                      />
+                      <button
+                        onClick={startRecording}
+                        disabled={sending}
+                        className="p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors flex-shrink-0"
+                        title="Record voice note"
+                      >
+                        <Mic size={16} />
+                      </button>
+                      <button
+                        onClick={handleSend}
+                        disabled={sending || !draft.trim()}
+                        className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 disabled:hover:bg-blue-600 transition-colors flex-shrink-0"
+                      >
+                        {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      </button>
+                    </div>
+                  )}
+                  {!recording && (
+                    <div className="flex items-center justify-between mt-1.5 px-1">
+                      <span className="text-[10px] text-slate-700">
+                        Shift+Enter for new line
+                      </span>
+                      <span className="text-[10px] text-slate-700">
+                        {draft.length > 0 ? `${draft.length} / 18,996` : ''}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </>
             )}

@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     libjpeg-dev \
     zlib1g-dev \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker cache
