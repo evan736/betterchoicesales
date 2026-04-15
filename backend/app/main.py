@@ -868,6 +868,17 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Leads migration: {e}")
 
         try:
+            from app.core.database import engine as _qj_engine
+            from sqlalchemy import inspect as _qj_inspect
+            _qj_insp = _qj_inspect(_qj_engine)
+            if "quote_jobs" not in _qj_insp.get_table_names():
+                from app.models.quote_job import QuoteJob
+                QuoteJob.__table__.create(_qj_engine)
+                logger.info("Created quote_jobs table")
+        except Exception as e:
+            logger.warning(f"Quote jobs migration: {e}")
+
+        try:
             from app.migrations.dialer_migration import migrate_dialer
             migrate_dialer()
         except Exception as e:
@@ -1402,6 +1413,9 @@ app.include_router(commission_tracker_api.router)
 
 from app.api import renewal_survey as renewal_survey_api
 app.include_router(renewal_survey_api.router)
+
+from app.api import quote_jobs as quote_jobs_api
+app.include_router(quote_jobs_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──
