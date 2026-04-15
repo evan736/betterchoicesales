@@ -225,14 +225,6 @@ def match_customer_by_phone(db: Session, phone: str) -> Optional[dict]:
     
     # Try customers table first
     customer = db.query(Customer).filter(
-        db.query(Customer).filter(
-            (Customer.phone.ilike(f"%{digits_10}%")) |
-            (Customer.mobile_phone.ilike(f"%{digits_10}%"))
-        ).exists()
-    ).first()
-    
-    # Simpler approach — just query directly
-    customer = db.query(Customer).filter(
         (Customer.phone.ilike(f"%{digits_10}%")) |
         (Customer.mobile_phone.ilike(f"%{digits_10}%"))
     ).first()
@@ -240,7 +232,7 @@ def match_customer_by_phone(db: Session, phone: str) -> Optional[dict]:
     if customer:
         return {
             "customer_id": customer.id,
-            "name": customer.name or "",
+            "name": customer.full_name or "",
             "email": customer.email or "",
             "phone": customer.phone or customer.mobile_phone or "",
             "source": "customers",
