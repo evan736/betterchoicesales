@@ -517,6 +517,197 @@ class NowCertsClient:
             logger.error("NowCerts get policies failed: %s", e)
             return []
 
+    def get_policy_vehicles(self, policy_database_ids: list[str]) -> list[dict]:
+        """Get vehicles for given policy database IDs via POST /api/Policy/PolicyVehicles."""
+        if not policy_database_ids:
+            return []
+        try:
+            data = self._post("/api/Policy/PolicyVehicles", {
+                "policyDataBaseId": policy_database_ids
+            })
+            vehicles = data if isinstance(data, list) else data.get("data", data.get("vehicles", []))
+            if not isinstance(vehicles, list):
+                vehicles = []
+            return [
+                {
+                    "database_id": v.get("databaseId", ""),
+                    "year": v.get("year", ""),
+                    "make": v.get("make", ""),
+                    "model": v.get("model", ""),
+                    "vin": v.get("vin", v.get("vinNumber", "")),
+                    "body_type": v.get("bodyType", ""),
+                    "use": v.get("use", v.get("vehicleUse", "")),
+                    "garaging_zip": v.get("garagingZipCode", v.get("garagingZip", "")),
+                    "garaging_address": v.get("garagingAddress", ""),
+                    "garaging_city": v.get("garagingCity", ""),
+                    "garaging_state": v.get("garagingState", ""),
+                    "annual_mileage": v.get("annualMileage", v.get("estimatedAnnualMileage", "")),
+                    "ownership": v.get("ownership", ""),
+                    "policy_database_id": v.get("policyDatabaseId", ""),
+                    "comprehensive_deductible": v.get("comprehensiveDeductible", v.get("compDed", "")),
+                    "collision_deductible": v.get("collisionDeductible", v.get("collDed", "")),
+                    "liability_limit": v.get("liabilityLimit", ""),
+                    "_raw": v,
+                }
+                for v in vehicles
+            ]
+        except Exception as e:
+            logger.error("NowCerts get policy vehicles failed: %s", e)
+            return []
+
+    def get_policy_coverages(self, policy_database_ids: list[str]) -> list[dict]:
+        """Get coverages for given policy database IDs via POST /api/Policy/PolicyCoverages."""
+        if not policy_database_ids:
+            return []
+        try:
+            data = self._post("/api/Policy/PolicyCoverages", {
+                "policyDataBaseId": policy_database_ids
+            })
+            coverages = data if isinstance(data, list) else data.get("data", data.get("coverages", []))
+            if not isinstance(coverages, list):
+                coverages = []
+            return [
+                {
+                    "database_id": c.get("databaseId", ""),
+                    "coverage_code": c.get("coverageCode", c.get("code", "")),
+                    "coverage_name": c.get("coverageName", c.get("description", "")),
+                    "limit": c.get("limit", c.get("limitAmount", "")),
+                    "deductible": c.get("deductible", c.get("deductibleAmount", "")),
+                    "premium": c.get("premium", c.get("writtenPremium", "")),
+                    "policy_database_id": c.get("policyDatabaseId", ""),
+                    "_raw": c,
+                }
+                for c in coverages
+            ]
+        except Exception as e:
+            logger.error("NowCerts get policy coverages failed: %s", e)
+            return []
+
+    def get_policy_properties(self, policy_database_ids: list[str]) -> list[dict]:
+        """Get property/dwelling info for given policy database IDs."""
+        if not policy_database_ids:
+            return []
+        try:
+            # Try PolicyProperties endpoint
+            data = self._post("/api/Policy/PolicyProperties", {
+                "policyDataBaseId": policy_database_ids
+            })
+            properties = data if isinstance(data, list) else data.get("data", data.get("properties", []))
+            if not isinstance(properties, list):
+                properties = []
+            return [
+                {
+                    "database_id": p.get("databaseId", ""),
+                    "location_number": p.get("locationNumber", ""),
+                    "address": p.get("address", p.get("locationAddress", "")),
+                    "city": p.get("city", ""),
+                    "state": p.get("state", ""),
+                    "zip_code": p.get("zipCode", p.get("zip", "")),
+                    "year_built": p.get("yearBuilt", ""),
+                    "square_footage": p.get("squareFootage", p.get("sqFt", "")),
+                    "construction_type": p.get("constructionType", p.get("construction", "")),
+                    "roof_type": p.get("roofType", p.get("roofMaterial", "")),
+                    "roof_year": p.get("roofYear", p.get("yearRoofReplaced", "")),
+                    "stories": p.get("stories", p.get("numberOfStories", "")),
+                    "dwelling_coverage": p.get("dwellingCoverage", p.get("coverageA", "")),
+                    "other_structures": p.get("otherStructures", p.get("coverageB", "")),
+                    "personal_property": p.get("personalProperty", p.get("coverageC", "")),
+                    "liability": p.get("liability", p.get("coverageE", "")),
+                    "deductible": p.get("deductible", ""),
+                    "protection_class": p.get("protectionClass", ""),
+                    "heating_type": p.get("heatingType", ""),
+                    "wiring_type": p.get("wiringType", ""),
+                    "plumbing_type": p.get("plumbingType", ""),
+                    "foundation_type": p.get("foundationType", ""),
+                    "policy_database_id": p.get("policyDatabaseId", ""),
+                    "_raw": p,
+                }
+                for p in properties
+            ]
+        except Exception as e:
+            logger.error("NowCerts get policy properties failed: %s", e)
+            return []
+
+    def enrich_for_quoting(self, insured_database_id: str, policy_number: str = None) -> dict:
+        """Pull all data needed for automated quoting: insured info, policies, vehicles, drivers, properties, coverages.
+        
+        Returns a comprehensive dict that the RPA bot can use to fill carrier quote forms.
+        """
+        result = {
+            "insured": None,
+            "policies": [],
+            "drivers": [],
+            "vehicles": [],
+            "properties": [],
+            "coverages": [],
+            "contacts": [],
+        }
+
+        try:
+            # Get insured details
+            insured = self.get_insured(insured_database_id)
+            if insured:
+                result["insured"] = insured
+
+            # Get policies
+            policies = self.get_insured_policies(insured_database_id)
+            if policies:
+                result["policies"] = policies
+
+                # Get policy database IDs for detail lookups
+                policy_db_ids = []
+                for p in policies:
+                    pid = p.get("databaseId") or p.get("database_id") or p.get("databaseID")
+                    if pid:
+                        # If policy_number specified, only enrich that one
+                        if policy_number:
+                            pnum = p.get("number") or p.get("policy_number") or p.get("policyNumber") or ""
+                            if policy_number.lower() not in pnum.lower():
+                                continue
+                        policy_db_ids.append(str(pid))
+
+                if policy_db_ids:
+                    # Drivers
+                    try:
+                        result["drivers"] = self.get_policy_drivers(policy_db_ids)
+                    except Exception as e:
+                        logger.warning(f"Enrich drivers failed: {e}")
+
+                    # Vehicles
+                    try:
+                        result["vehicles"] = self.get_policy_vehicles(policy_db_ids)
+                    except Exception as e:
+                        logger.warning(f"Enrich vehicles failed: {e}")
+
+                    # Properties
+                    try:
+                        result["properties"] = self.get_policy_properties(policy_db_ids)
+                    except Exception as e:
+                        logger.warning(f"Enrich properties failed: {e}")
+
+                    # Coverages
+                    try:
+                        result["coverages"] = self.get_policy_coverages(policy_db_ids)
+                    except Exception as e:
+                        logger.warning(f"Enrich coverages failed: {e}")
+
+            # Contacts (drivers/household members)
+            try:
+                result["contacts"] = self.get_insured_contacts([insured_database_id])
+            except Exception as e:
+                logger.warning(f"Enrich contacts failed: {e}")
+
+            logger.info(
+                f"NowCerts enrichment for {insured_database_id}: "
+                f"{len(result['policies'])} policies, {len(result['drivers'])} drivers, "
+                f"{len(result['vehicles'])} vehicles, {len(result['properties'])} properties, "
+                f"{len(result['coverages'])} coverages"
+            )
+        except Exception as e:
+            logger.error(f"NowCerts enrichment failed: {e}")
+
+        return result
+
     def search_by_policy_number(self, policy_number: str) -> list[dict]:
         """Search NowCerts for an insured by policy number.
         

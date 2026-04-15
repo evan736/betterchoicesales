@@ -332,3 +332,172 @@ def bot_fail_job(
     job.completed_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
+
+
+# ── Enrichment from NowCerts ──
+
+@router.post("/{job_id}/enrich")
+def enrich_quote_job(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enrich a quote job with full policy data from NowCerts.
+    
+    Pulls vehicles, drivers, properties, coverages from NowCerts
+    and attaches to the job's policy_data field.
+    """
+    job = db.query(QuoteJob).filter(QuoteJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        client = get_nowcerts_client()
+        if not client.is_configured:
+            raise HTTPException(status_code=503, detail="NowCerts not configured")
+
+        # Find the insured in NowCerts by name or policy number
+        insured_id = None
+
+        # Try by policy number first
+        if job.current_policy_number:
+            results = client.search_by_policy_number(job.current_policy_number)
+            if results:
+                insured_id = results[0].get("database_id")
+
+        # Fallback: search by name
+        if not insured_id and job.customer_name:
+            results = client.search_insureds(job.customer_name, limit=5)
+            if results:
+                # Try to match by name
+                for r in results:
+                    rname = (r.get("commercial_name") or f"{r.get('first_name','')} {r.get('last_name','')}").lower().strip()
+                    if job.customer_name.lower().strip() in rname or rname in job.customer_name.lower().strip():
+                        insured_id = r.get("database_id")
+                        break
+                if not insured_id:
+                    insured_id = results[0].get("database_id")
+
+        if not insured_id:
+            raise HTTPException(status_code=404, detail="Customer not found in NowCerts")
+
+        # Pull full enrichment
+        enrichment = client.enrich_for_quoting(insured_id, job.current_policy_number)
+
+        # Update job with enriched data
+        job.policy_data = enrichment
+
+        # Also fill in any missing customer fields from NowCerts
+        insured = enrichment.get("insured", {})
+        if insured:
+            if not job.customer_email:
+                job.customer_email = insured.get("email")
+            if not job.customer_phone:
+                job.customer_phone = insured.get("phone_number") or insured.get("cell_phone")
+            if not job.customer_dob:
+                contacts = enrichment.get("contacts", [])
+                primary = next((c for c in contacts if c.get("primary_contact")), contacts[0] if contacts else None)
+                if primary and primary.get("birthday"):
+                    job.customer_dob = str(primary["birthday"])
+            if not job.address:
+                job.address = insured.get("address_line_1")
+                job.city = insured.get("city")
+                job.state = insured.get("state")
+                job.zip_code = insured.get("zip_code")
+
+        db.commit()
+
+        return {
+            "ok": True,
+            "insured_id": insured_id,
+            "vehicles": len(enrichment.get("vehicles", [])),
+            "drivers": len(enrichment.get("drivers", [])),
+            "properties": len(enrichment.get("properties", [])),
+            "coverages": len(enrichment.get("coverages", [])),
+            "contacts": len(enrichment.get("contacts", [])),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Quote job enrichment failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/from-reshop/{reshop_id}")
+def create_from_reshop(
+    reshop_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a quote job from a reshop record, auto-enriching from NowCerts."""
+    from app.models.retention import ReshopRecord
+
+    reshop = db.query(ReshopRecord).filter(ReshopRecord.id == reshop_id).first()
+    if not reshop:
+        raise HTTPException(status_code=404, detail="Reshop not found")
+
+    # Determine line of business
+    policy_type = (reshop.policy_type or "").lower()
+    if any(t in policy_type for t in ["auto", "vehicle", "car"]):
+        lob = "auto"
+    elif any(t in policy_type for t in ["home", "house", "dwelling", "condo", "landlord", "renters"]):
+        lob = "home"
+    else:
+        lob = "home"  # default
+
+    current_carrier = (reshop.carrier or "").strip()
+
+    # Select target carriers
+    if lob == "auto":
+        targets = [c for c in AUTO_CARRIERS if c.lower() != current_carrier.lower()][:3]
+    else:
+        targets = [c for c in HOME_CARRIERS if c.lower() != current_carrier.lower()][:3]
+
+    job = QuoteJob(
+        reshop_id=reshop_id,
+        customer_name=reshop.customer_name or "",
+        line_of_business=lob,
+        current_carrier=current_carrier,
+        current_policy_number=reshop.policy_number,
+        current_premium=reshop.current_premium,
+        effective_date=reshop.expiration_date,
+        target_carriers=targets,
+        status="pending",
+        results=[],
+        producer_id=reshop.producer_id,
+        created_by=current_user.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Auto-enrich from NowCerts
+    try:
+        from app.services.nowcerts import get_nowcerts_client
+        client = get_nowcerts_client()
+        if client.is_configured and job.current_policy_number:
+            results = client.search_by_policy_number(job.current_policy_number)
+            if results:
+                insured_id = results[0].get("database_id")
+                if insured_id:
+                    enrichment = client.enrich_for_quoting(insured_id, job.current_policy_number)
+                    job.policy_data = enrichment
+                    insured = enrichment.get("insured", {})
+                    if insured:
+                        if not job.customer_email:
+                            job.customer_email = insured.get("email")
+                        if not job.customer_phone:
+                            job.customer_phone = insured.get("phone_number") or insured.get("cell_phone")
+                        if not job.address:
+                            job.address = insured.get("address_line_1")
+                            job.city = insured.get("city")
+                            job.state = insured.get("state")
+                            job.zip_code = insured.get("zip_code")
+                    db.commit()
+                    logger.info(f"Auto-enriched quote job #{job.id} from NowCerts")
+    except Exception as e:
+        logger.warning(f"Auto-enrichment failed for job #{job.id}: {e}")
+
+    return _job_to_dict(job)
