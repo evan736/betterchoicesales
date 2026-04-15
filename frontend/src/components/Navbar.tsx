@@ -9,7 +9,7 @@ import axios from 'axios';
 import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock, DollarSign,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
-  Inbox, MessageCircle, Zap, BookOpen, Bug, Search, UserPlus, Phone,
+  Inbox, MessageCircle, Zap, BookOpen, Bug, Search, UserPlus, Phone, Smartphone,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -241,6 +241,7 @@ const Navbar: React.FC = () => {
       label: 'Operations',
       items: [
         { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: canSeeInbox, badge: inboxBadge },
+        { href: '/texting', label: 'Texting', icon: <Smartphone size={16} />, show: isAdmin },
         { href: '/beacon-kb', label: 'BEACON Knowledge', icon: <BookOpen size={16} />, show: isAdmin },
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
