@@ -988,6 +988,44 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_run_all_migrations, daemon=True).start()
 
+    # ── Daily reshop digest scheduler (8:20 AM CT, Mon-Fri) ─────────
+    def _reshop_digest_scheduler():
+        import time as _time
+        from datetime import date as _date
+        _time.sleep(30)  # Wait for migrations to finish
+        logger.info("Reshop digest scheduler started (8:20 AM CT, Mon-Fri)")
+        _last_sent_date = None
+
+        while True:
+            try:
+                from zoneinfo import ZoneInfo
+                now_ct = datetime.now(ZoneInfo("America/Chicago"))
+                today_ct = now_ct.date()
+
+                # Send at 8:20 AM CT, Monday-Friday only
+                if (now_ct.hour == 8 and now_ct.minute >= 20 and now_ct.minute < 35 and
+                        now_ct.weekday() < 5 and _last_sent_date != today_ct):
+                    logger.info("Sending daily reshop digest...")
+                    try:
+                        from app.core.database import SessionLocal
+                        from app.services.reshop_digest import send_reshop_digests
+                        _db = SessionLocal()
+                        try:
+                            result = send_reshop_digests(_db, today_ct)
+                            logger.info("Reshop digest result: %s", result)
+                        finally:
+                            _db.close()
+                        _last_sent_date = today_ct
+                    except Exception as de:
+                        logger.error("Reshop digest send error: %s", de)
+                        _last_sent_date = today_ct  # Don't retry today
+            except Exception as e:
+                logger.error("Reshop digest scheduler error: %s", e)
+
+            _time.sleep(60)  # Check every minute
+
+    threading.Thread(target=_reshop_digest_scheduler, daemon=True).start()
+
     # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
     logger.info("Life cross-sell campaign send available via API endpoint")
 
