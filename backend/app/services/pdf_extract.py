@@ -36,8 +36,12 @@ IMPORTANT RULES FOR ITEM COUNTING:
 - If a bundled application has home + auto with 2 cars, that's 3 items total (1 home + 2 auto)
 - Life/Health = 1 item per policy
 
-IMPORTANT:
-- Extract the ANNUAL premium amount, not monthly
+IMPORTANT RULES FOR PREMIUM:
+- Extract the TERM premium — the amount the customer actually pays for this policy period
+- For 6-month auto policies (like Progressive), use the 6-MONTH premium, NOT double it
+- For annual policies, use the annual premium
+- If the document shows both a per-term and annualized amount, use the PER-TERM amount
+- Do NOT annualize 6-month premiums — report exactly what the dec page shows as the total policy premium
 - If you see multiple policies in one document, list each separately in the policies array
 - policy_type must be one of the exact enum values listed above
 - If you can't determine a field, use null
