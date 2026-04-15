@@ -1,0 +1,393 @@
+"""Sendblue iMessage/SMS service for ORBIT.
+
+Handles:
+- Outbound message sending via Sendblue API (iMessage with SMS fallback)
+- Inbound message processing from webhooks
+- Customer matching by phone number
+- Message logging to text_messages table
+- Delivery status tracking
+
+Sendblue API docs: https://docs.sendblue.com
+"""
+import os
+import re
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+# ── Config ──────────────────────────────────────────────────────────
+SENDBLUE_API_KEY = os.getenv("SENDBLUE_API_KEY", "")
+SENDBLUE_API_SECRET = os.getenv("SENDBLUE_API_SECRET", "")
+SENDBLUE_FROM_NUMBER = os.getenv("SENDBLUE_FROM_NUMBER", "")
+SENDBLUE_BASE_URL = "https://api.sendblue.co/api"
+SENDBLUE_STATUS_CALLBACK = os.getenv(
+    "SENDBLUE_STATUS_CALLBACK",
+    "https://better-choice-api.onrender.com/api/sendblue/status-callback"
+)
+SENDBLUE_INBOUND_WEBHOOK = os.getenv(
+    "SENDBLUE_INBOUND_WEBHOOK",
+    "https://better-choice-api.onrender.com/api/sendblue/inbound"
+)
+
+# Notification targets
+SENDBLUE_NOTIFY_EMAIL = os.getenv("SENDBLUE_NOTIFY_EMAIL", "evan@betterchoiceins.com")
+
+
+# ── Phone normalization ─────────────────────────────────────────────
+
+def normalize_phone(phone: str) -> str:
+    """Normalize any phone string to E.164 format (+1XXXXXXXXXX).
+    
+    Handles: (847) 908-5665, 847-908-5665, 8479085665, +18479085665, 18479085665
+    Returns empty string if invalid.
+    """
+    if not phone:
+        return ""
+    digits = re.sub(r'\D', '', phone)
+    if len(digits) == 10:
+        digits = "1" + digits
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    # Already has country code
+    if len(digits) > 10:
+        return f"+{digits}"
+    return ""
+
+
+def phones_match(phone_a: str, phone_b: str) -> bool:
+    """Compare two phone numbers after normalization."""
+    return normalize_phone(phone_a) == normalize_phone(phone_b) and normalize_phone(phone_a) != ""
+
+
+# ── Send message ────────────────────────────────────────────────────
+
+async def send_message(
+    to_number: str,
+    content: str,
+    media_url: Optional[str] = None,
+    from_number: Optional[str] = None,
+    db: Optional[Session] = None,
+    customer_id: Optional[int] = None,
+    context: Optional[str] = None,
+    sent_by: Optional[str] = None,
+) -> dict:
+    """Send an iMessage/SMS via Sendblue.
+    
+    Args:
+        to_number: Recipient phone (any format, will be normalized)
+        content: Message text (max 18996 chars)
+        media_url: Optional CDN URL for image/file attachment
+        from_number: Override SENDBLUE_FROM_NUMBER
+        db: SQLAlchemy session (to log message)
+        customer_id: Link to customer record
+        context: What triggered this (e.g. "welcome_text", "requote_campaign", "manual")
+        sent_by: Name/email of sender
+        
+    Returns:
+        {"success": True, "message_handle": "...", "status": "QUEUED"} or
+        {"success": False, "error": "..."}
+    """
+    to_e164 = normalize_phone(to_number)
+    if not to_e164:
+        return {"success": False, "error": f"Invalid phone number: {to_number}"}
+    
+    send_from = from_number or SENDBLUE_FROM_NUMBER
+    if not send_from:
+        return {"success": False, "error": "No SENDBLUE_FROM_NUMBER configured"}
+    
+    if not SENDBLUE_API_KEY or not SENDBLUE_API_SECRET:
+        return {"success": False, "error": "Sendblue API credentials not configured"}
+    
+    payload = {
+        "number": to_e164,
+        "from_number": send_from,
+        "content": content[:18996] if content else None,
+        "status_callback": SENDBLUE_STATUS_CALLBACK,
+    }
+    if media_url:
+        payload["media_url"] = media_url
+    
+    # Remove None values
+    payload = {k: v for k, v in payload.items() if v is not None}
+    
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{SENDBLUE_BASE_URL}/send-message",
+                json=payload,
+                headers={
+                    "sb-api-key-id": SENDBLUE_API_KEY,
+                    "sb-api-secret-key": SENDBLUE_API_SECRET,
+                    "Content-Type": "application/json",
+                }
+            )
+            data = resp.json()
+            
+            if resp.status_code in (200, 201):
+                message_handle = data.get("message_handle") or data.get("messageHandle", "")
+                status = data.get("status", "QUEUED")
+                service = data.get("service", "unknown")
+                
+                logger.info(
+                    "Sendblue message sent: to=%s handle=%s status=%s service=%s",
+                    to_e164, message_handle, status, service
+                )
+                
+                # Log to DB
+                if db:
+                    _log_message(
+                        db=db,
+                        direction="outbound",
+                        phone_number=to_e164,
+                        from_number=send_from,
+                        content=content,
+                        media_url=media_url,
+                        message_handle=message_handle,
+                        status=status,
+                        service=service,
+                        customer_id=customer_id,
+                        context=context,
+                        sent_by=sent_by,
+                    )
+                
+                return {
+                    "success": True,
+                    "message_handle": message_handle,
+                    "status": status,
+                    "service": service,
+                    "was_downgraded": data.get("was_downgraded"),
+                }
+            else:
+                error_msg = data.get("error_message") or data.get("message") or str(resp.status_code)
+                logger.error("Sendblue send failed: %s — %s", resp.status_code, error_msg)
+                return {"success": False, "error": error_msg, "status_code": resp.status_code}
+                
+    except Exception as e:
+        logger.error("Sendblue send error: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+# ── Bulk send ───────────────────────────────────────────────────────
+
+async def send_bulk(
+    messages: list[dict],
+    db: Optional[Session] = None,
+    context: Optional[str] = None,
+) -> dict:
+    """Send multiple messages. Each dict needs: to_number, content. Optional: media_url, customer_id.
+    
+    Returns: {"sent": N, "failed": N, "results": [...]}
+    """
+    results = []
+    sent = 0
+    failed = 0
+    
+    for msg in messages:
+        result = await send_message(
+            to_number=msg["to_number"],
+            content=msg["content"],
+            media_url=msg.get("media_url"),
+            db=db,
+            customer_id=msg.get("customer_id"),
+            context=context,
+            sent_by=msg.get("sent_by"),
+        )
+        results.append(result)
+        if result.get("success"):
+            sent += 1
+        else:
+            failed += 1
+    
+    return {"sent": sent, "failed": failed, "results": results}
+
+
+# ── Customer matching ───────────────────────────────────────────────
+
+def match_customer_by_phone(db: Session, phone: str) -> Optional[dict]:
+    """Find a customer by phone number. Checks customers table + sales table.
+    
+    Returns: {"customer_id": int, "name": str, "email": str, "source": "customers"|"sales"} or None
+    """
+    from app.models.customer import Customer
+    from app.models.sale import Sale
+    
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    
+    # Strip the +1 for LIKE matching (DB may store as 8479085665, (847) 908-5665, etc.)
+    digits_10 = normalized[-10:]  # last 10 digits
+    
+    # Try customers table first
+    customer = db.query(Customer).filter(
+        db.query(Customer).filter(
+            (Customer.phone.ilike(f"%{digits_10}%")) |
+            (Customer.mobile_phone.ilike(f"%{digits_10}%"))
+        ).exists()
+    ).first()
+    
+    # Simpler approach — just query directly
+    customer = db.query(Customer).filter(
+        (Customer.phone.ilike(f"%{digits_10}%")) |
+        (Customer.mobile_phone.ilike(f"%{digits_10}%"))
+    ).first()
+    
+    if customer:
+        return {
+            "customer_id": customer.id,
+            "name": customer.name or "",
+            "email": customer.email or "",
+            "phone": customer.phone or customer.mobile_phone or "",
+            "source": "customers",
+        }
+    
+    # Try sales table
+    sale = db.query(Sale).filter(
+        Sale.client_phone.ilike(f"%{digits_10}%")
+    ).order_by(Sale.created_at.desc()).first()
+    
+    if sale:
+        return {
+            "customer_id": None,
+            "name": sale.client_name or "",
+            "email": sale.client_email or "",
+            "phone": sale.client_phone or "",
+            "sale_id": sale.id,
+            "source": "sales",
+        }
+    
+    return None
+
+
+# ── Message logging ─────────────────────────────────────────────────
+
+def _log_message(
+    db: Session,
+    direction: str,
+    phone_number: str,
+    content: Optional[str] = None,
+    from_number: Optional[str] = None,
+    media_url: Optional[str] = None,
+    message_handle: Optional[str] = None,
+    status: Optional[str] = None,
+    service: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    context: Optional[str] = None,
+    sent_by: Optional[str] = None,
+    raw_payload: Optional[dict] = None,
+) -> Optional[int]:
+    """Log a text message to the text_messages table. Returns message ID or None."""
+    try:
+        from sqlalchemy import text
+        
+        result = db.execute(
+            text("""
+                INSERT INTO text_messages 
+                (direction, phone_number, from_number, content, media_url, 
+                 message_handle, status, service, customer_id, context, sent_by,
+                 raw_payload, created_at, updated_at)
+                VALUES 
+                (:direction, :phone_number, :from_number, :content, :media_url,
+                 :message_handle, :status, :service, :customer_id, :context, :sent_by,
+                 :raw_payload, NOW(), NOW())
+                RETURNING id
+            """),
+            {
+                "direction": direction,
+                "phone_number": phone_number,
+                "from_number": from_number or "",
+                "content": content or "",
+                "media_url": media_url or "",
+                "message_handle": message_handle or "",
+                "status": status or "",
+                "service": service or "",
+                "customer_id": customer_id,
+                "context": context or "",
+                "sent_by": sent_by or "",
+                "raw_payload": str(raw_payload) if raw_payload else None,
+            }
+        )
+        db.commit()
+        row = result.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.error("Failed to log text message: %s", e)
+        db.rollback()
+        return None
+
+
+def update_message_status(db: Session, message_handle: str, status: str, 
+                          error_code: Optional[str] = None, 
+                          was_downgraded: Optional[bool] = None,
+                          service: Optional[str] = None):
+    """Update a message's delivery status from webhook callback."""
+    try:
+        from sqlalchemy import text
+        
+        updates = ["status = :status", "updated_at = NOW()"]
+        params = {"message_handle": message_handle, "status": status}
+        
+        if error_code:
+            updates.append("error_code = :error_code")
+            params["error_code"] = error_code
+        if was_downgraded is not None:
+            updates.append("was_downgraded = :was_downgraded")
+            params["was_downgraded"] = was_downgraded
+        if service:
+            updates.append("service = :service")
+            params["service"] = service
+        
+        db.execute(
+            text(f"UPDATE text_messages SET {', '.join(updates)} WHERE message_handle = :message_handle"),
+            params
+        )
+        db.commit()
+        logger.info("Updated message %s status to %s", message_handle, status)
+    except Exception as e:
+        logger.error("Failed to update message status: %s", e)
+        db.rollback()
+
+
+# ── Conversation history ────────────────────────────────────────────
+
+def get_conversation(db: Session, phone: str, limit: int = 50) -> list[dict]:
+    """Get message thread for a phone number, ordered by time."""
+    from sqlalchemy import text
+    
+    digits_10 = normalize_phone(phone)[-10:] if normalize_phone(phone) else ""
+    if not digits_10:
+        return []
+    
+    try:
+        rows = db.execute(
+            text("""
+                SELECT id, direction, phone_number, from_number, content, media_url,
+                       message_handle, status, service, customer_id, context, sent_by,
+                       was_downgraded, error_code, created_at
+                FROM text_messages
+                WHERE phone_number LIKE :pattern
+                ORDER BY created_at DESC
+                LIMIT :limit
+            """),
+            {"pattern": f"%{digits_10}%", "limit": limit}
+        ).fetchall()
+        
+        return [
+            {
+                "id": r[0], "direction": r[1], "phone_number": r[2], 
+                "from_number": r[3], "content": r[4], "media_url": r[5],
+                "message_handle": r[6], "status": r[7], "service": r[8],
+                "customer_id": r[9], "context": r[10], "sent_by": r[11],
+                "was_downgraded": r[12], "error_code": r[13],
+                "created_at": r[14].isoformat() if r[14] else None,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error("Failed to get conversation: %s", e)
+        return []
