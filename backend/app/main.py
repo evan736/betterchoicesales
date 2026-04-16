@@ -1026,6 +1026,31 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_reshop_digest_scheduler, daemon=True).start()
 
+    # ── Quote follow-up scheduler (hourly) ─────────────────────────
+    def _quote_followup_scheduler():
+        import time as _time
+        _time.sleep(60)  # Wait for migrations
+        logger.info("Quote follow-up scheduler started (runs every 60 min)")
+        while True:
+            try:
+                from app.core.database import SessionLocal
+                from app.api.quotes import _check_followups_logic
+                _db = SessionLocal()
+                try:
+                    result = _check_followups_logic(_db)
+                    sent_total = (result.get("day3", 0) + result.get("day7", 0) +
+                                  result.get("day14", 0) + result.get("day90", 0) +
+                                  result.get("retarget", 0))
+                    if sent_total > 0:
+                        logger.info("Quote follow-ups sent: %s", result)
+                finally:
+                    _db.close()
+            except Exception as e:
+                logger.error("Quote follow-up scheduler error: %s", e)
+            _time.sleep(3600)  # Every hour
+
+    threading.Thread(target=_quote_followup_scheduler, daemon=True).start()
+
     # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
     logger.info("Life cross-sell campaign send available via API endpoint")
 
