@@ -1920,20 +1920,15 @@ def list_leads(
 
 # ── Send Drip Emails ──────────────────────────────────────────────
 
-@router.post("/{campaign_id}/send-due")
-async def send_due_emails(
-    campaign_id: int,
-    batch_size: int = Query(20, ge=1, le=100, description="Max emails to send per call"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Send emails that are due today for a campaign. Processes in batches to avoid timeout."""
-    if current_user.role.lower() not in ("admin", "manager", "owner"):
-        raise HTTPException(status_code=403, detail="Manager/admin only")
-
+def _send_due_emails_logic(campaign_id: int, batch_size: int, db: Session) -> dict:
+    """Core send-due logic — no auth, callable by scheduler or endpoint.
+    
+    Sends up to batch_size emails each for Touch 1, 2, and 3 that are due for a campaign.
+    Skips opted-out, current customers, and leads that just got a touch in this same run.
+    """
     campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
     if not campaign or campaign.status != "active":
-        raise HTTPException(status_code=400, detail="Campaign not found or not active")
+        return {"sent": 0, "errors": 0, "remaining": 0, "skipped_reason": "campaign_not_active"}
 
     now = datetime.utcnow()
     sent_count = 0
@@ -1978,11 +1973,9 @@ async def send_due_emails(
         else:
             errors += 1
 
-    # Commit touch 1 before processing touch 2
     db.commit()
 
-    # Touch 2: due today or overdue, touch1 already sent, touch2 not yet sent
-    # EXCLUDE leads that just got touch 1 in this run — they need to wait
+    # Touch 2
     touch2_due = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.is_current_customer == False,
@@ -2020,11 +2013,9 @@ async def send_due_emails(
         else:
             errors += 1
 
-    # Commit touch 2 before processing touch 3
     db.commit()
 
-    # Touch 3: due today or overdue, touch2 already sent, touch3 not yet sent
-    # EXCLUDE leads that got touch 1 or 2 in this run
+    # Touch 3
     touch3_due = db.query(RequoteLead).filter(
         RequoteLead.campaign_id == campaign_id,
         RequoteLead.is_current_customer == False,
@@ -2085,9 +2076,42 @@ async def send_due_emails(
         "sent": sent_count,
         "errors": errors,
         "remaining": remaining,
-        "batch_size": batch_size,
-        "message": f"Sent {sent_count} emails ({len(touch1_due)} touch 1, {len(touch2_due)} touch 2, {len(touch3_due)} touch 3). {f'{errors} failed.' if errors else ''}{f' {remaining} more due — click Send again.' if remaining > 0 else ' All caught up!'}",
+        "touch1_sent": len(touch1_due),
+        "touch2_sent": len(touch2_due),
+        "touch3_sent": len(touch3_due),
     }
+
+
+@router.post("/{campaign_id}/send-due")
+async def send_due_emails(
+    campaign_id: int,
+    batch_size: int = Query(20, ge=1, le=100, description="Max emails to send per call"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send emails that are due today for a campaign. Processes in batches to avoid timeout."""
+    if current_user.role.lower() not in ("admin", "manager", "owner"):
+        raise HTTPException(status_code=403, detail="Manager/admin only")
+
+    campaign = db.query(RequoteCampaign).filter(RequoteCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=400, detail="Campaign not found")
+    if campaign.status != "active":
+        raise HTTPException(status_code=400, detail="Campaign not active")
+
+    result = _send_due_emails_logic(campaign_id, batch_size, db)
+
+    err_text = f"{result['errors']} failed. " if result['errors'] else ""
+    remain_text = f" {result['remaining']} more due — click Send again." if result['remaining'] > 0 else " All caught up!"
+    msg = f"Sent {result['sent']} emails ({result.get('touch1_sent',0)} touch 1, {result.get('touch2_sent',0)} touch 2, {result.get('touch3_sent',0)} touch 3). {err_text}{remain_text}"
+
+    return {
+        **result,
+        "batch_size": batch_size,
+        "message": msg,
+    }
+
+
 
 
 # ── Unsubscribe ───────────────────────────────────────────────────

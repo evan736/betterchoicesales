@@ -1051,6 +1051,43 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_quote_followup_scheduler, daemon=True).start()
 
+    # ── Requote campaign auto-sender (every 15 min) ────────────────
+    def _requote_campaign_scheduler():
+        import time as _time
+        _time.sleep(90)  # Wait for migrations + other schedulers to start
+        logger.info("Requote campaign auto-sender started (runs every 15 min)")
+        while True:
+            try:
+                from app.core.database import SessionLocal
+                from app.api.requote_campaigns import _send_due_emails_logic, RequoteCampaign
+                _db = SessionLocal()
+                try:
+                    # Get all active campaigns
+                    active_campaigns = _db.query(RequoteCampaign).filter(
+                        RequoteCampaign.status == "active"
+                    ).all()
+                    total_sent = 0
+                    for campaign in active_campaigns:
+                        try:
+                            # Batch of 50 per campaign per run — keeps sends paced
+                            result = _send_due_emails_logic(campaign.id, 50, _db)
+                            if result.get("sent", 0) > 0:
+                                logger.info("Campaign %s: sent %d emails (%d remaining)", 
+                                            campaign.id, result["sent"], result.get("remaining", 0))
+                                total_sent += result["sent"]
+                        except Exception as ce:
+                            logger.error("Campaign %s send error: %s", campaign.id, ce)
+                    if total_sent > 0:
+                        logger.info("Requote auto-sender total this cycle: %d emails across %d campaigns",
+                                    total_sent, len(active_campaigns))
+                finally:
+                    _db.close()
+            except Exception as e:
+                logger.error("Requote campaign scheduler error: %s", e)
+            _time.sleep(900)  # Every 15 minutes
+
+    threading.Thread(target=_requote_campaign_scheduler, daemon=True).start()
+
     # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
     logger.info("Life cross-sell campaign send available via API endpoint")
 
