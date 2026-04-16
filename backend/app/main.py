@@ -1114,13 +1114,8 @@ async def safety_middleware(request, call_next):
 
 @app.get("/health")
 def health_check():
-    sse_loaded = False
-    try:
-        from app.api.events import event_bus
-        sse_loaded = True
-    except Exception:
-        pass
-    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.4", "build": "2026-04-14T09:00:00Z", "sse": sse_loaded}
+    """Trivial health check — must respond in <5s always. No imports, no DB, no work."""
+    return {"status": "healthy", "service": "better-choice-insurance-api", "version": "1.0.5"}
 
 
 @app.post("/admin/force-migrate")
