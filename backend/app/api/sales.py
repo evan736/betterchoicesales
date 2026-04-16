@@ -1566,3 +1566,98 @@ async def get_signature_status(
     except Exception as e:
         return {"status": sale.signature_status, "error": str(e)}
 
+
+@router.post("/{sale_id}/remind-signature")
+async def remind_signature_endpoint(
+    sale_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Push BoldSign to resend the existing signature request email.
+
+    Unlike /send-for-signature (which creates a fresh document and
+    requires re-placing signature fields), this endpoint just asks
+    BoldSign to re-notify the signer on the SAME document that was
+    already prepared and sent. No PDF re-upload, no new prepare page.
+
+    Preconditions:
+    - Sale must have a signature_request_id from a prior send.
+    - BoldSign document must still be in a pending state (sent/in-progress).
+
+    BoldSign rate limit: only one manual reminder per document per day.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    sale = db.query(Sale).filter(Sale.id == sale_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+
+    if current_user.role == "producer" and sale.producer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if not sale.signature_request_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No existing signature request to remind — use Send for Signature first.",
+        )
+
+    if not sale.client_email:
+        raise HTTPException(status_code=400, detail="Client email is missing")
+
+    # If the doc is already completed/declined/revoked, a reminder won't help.
+    # The /send-for-signature path should be used for those cases.
+    if sale.signature_status in ("completed", "declined"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot remind — document is {sale.signature_status}. "
+                   f"Use Send for Signature to start a new request.",
+        )
+
+    try:
+        from app.services.esign import remind_document
+
+        message = (
+            f"Hi {sale.client_name or 'there'}, "
+            f"just a quick reminder to sign your {sale.carrier or 'insurance'} "
+            f"application when you have a moment. Thanks!"
+        )
+
+        result = await remind_document(
+            document_id=sale.signature_request_id,
+            receiver_emails=[sale.client_email],
+            message=message,
+        )
+
+        # Bump status back to "sent" if it was lingering as "draft" for some reason
+        if sale.signature_status == "draft":
+            sale.signature_status = "sent"
+            db.commit()
+
+        logger.info(
+            "BoldSign reminder sent: sale_id=%s doc_id=%s signer=%s",
+            sale_id, sale.signature_request_id, sale.client_email,
+        )
+
+        return {
+            "success": True,
+            "message": "Reminder sent to signer",
+            "document_id": sale.signature_request_id,
+            "signer_email": sale.client_email,
+        }
+
+    except ValueError as e:
+        # BoldSign returns 400 for "already reminded today" — surface to user.
+        err = str(e)
+        logger.warning("BoldSign reminder failed: %s", err)
+        # Detect "once per day" style errors and give a friendly message
+        if "400" in err and ("reminder" in err.lower() or "already" in err.lower() or "day" in err.lower()):
+            raise HTTPException(
+                status_code=429,
+                detail="BoldSign only allows one reminder per document per day. Try again tomorrow.",
+            )
+        raise HTTPException(status_code=400, detail=err)
+    except Exception as e:
+        logger.error("BoldSign reminder error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Reminder failed: {str(e)}")
+

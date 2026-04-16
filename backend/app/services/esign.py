@@ -165,3 +165,61 @@ async def get_document_status(document_id: str) -> dict:
 
     result = response.json()
     return {"status": result.get("status", "unknown"), "raw": result}
+
+
+async def remind_document(
+    document_id: str,
+    receiver_emails: list[str] | None = None,
+    message: str | None = None,
+) -> dict:
+    """Send a reminder to pending signers on an existing BoldSign document.
+
+    This re-triggers the signing-request email without creating a new
+    document or re-uploading the PDF — BoldSign keeps the same document
+    ID and all fields the agent already placed.
+
+    Limitation: BoldSign allows at most ONE manual reminder per document
+    per day. Subsequent calls the same day return HTTP 400.
+
+    Args:
+        document_id: The BoldSign documentId (stored in Sale.signature_request_id).
+        receiver_emails: Optional list of signer emails to remind. If None,
+            BoldSign reminds all pending signers on the document.
+        message: Optional custom message to include in the reminder email.
+
+    Returns:
+        {"success": True, "message": "..."} on success.
+        Raises ValueError on API error (caller should surface to user).
+    """
+    if not settings.BOLDSIGN_API_KEY:
+        raise ValueError("BOLDSIGN_API_KEY not configured")
+    if not document_id:
+        raise ValueError("document_id is required")
+
+    params: list[tuple[str, str]] = [("documentId", document_id)]
+    if receiver_emails:
+        for email in receiver_emails:
+            if email:
+                params.append(("receiverEmails", email))
+
+    body = {"message": message} if message else {}
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            "https://api.boldsign.com/v1/document/remind",
+            params=params,
+            json=body,
+            headers={
+                "accept": "*/*",
+                "X-API-KEY": settings.BOLDSIGN_API_KEY,
+                "Content-Type": "application/json",
+            },
+        )
+
+    if response.status_code in (200, 201, 204):
+        return {"success": True, "message": "Reminder sent"}
+
+    # BoldSign returns 400 for "already reminded today" and similar caller errors.
+    # Surface the error text so the UI can show it.
+    err_text = response.text[:500] if response.text else f"HTTP {response.status_code}"
+    raise ValueError(f"BoldSign reminder failed ({response.status_code}): {err_text}")

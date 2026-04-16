@@ -540,6 +540,30 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
     }
   };
 
+  const handleRemindSignature = async () => {
+    if (!confirm(`Send a reminder to ${currentEmail} to sign the existing document?\n\n(BoldSign allows one reminder per document per day.)`)) return;
+    setSendingSig(true);
+    try {
+      await salesAPI.remindSignature(sale.id);
+      toast.success(`Reminder sent to ${currentEmail}`);
+      onUpdate();
+    } catch (error: any) {
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail;
+      if (status === 429) {
+        toast.info(detail || 'Already reminded today — try again tomorrow.');
+      } else if (status === 400 && typeof detail === 'string' && detail.toLowerCase().includes('no existing')) {
+        // Fall back to fresh send if there's somehow no existing doc
+        toast.info('No existing signature request found — starting a new one.');
+        await handleSendForSignature();
+      } else {
+        toast.error(detail || 'Failed to send reminder');
+      }
+    } finally {
+      setSendingSig(false);
+    }
+  };
+
   const handleSendForSignature = async () => {
     if (!currentEmail) {
       toast.info('Client email is required to send for signature');
@@ -725,15 +749,16 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
           )}
         </div>
         <div className="ml-4 flex flex-col gap-2">
-          {/* Send for Signature */}
+          {/* Send / Resend for Signature */}
           {currentEmail && sigStatus !== 'completed' && (
             <button
-              onClick={handleSendForSignature}
+              onClick={sigStatus === 'sent' ? handleRemindSignature : handleSendForSignature}
               disabled={sendingSig}
+              title={sigStatus === 'sent' ? 'Push BoldSign to resend the reminder email for the existing signature request' : 'Upload PDF and place signature fields'}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-all text-sm font-semibold"
             >
               <FileText size={16} />
-              <span>{sendingSig ? 'Uploading...' : (sigStatus === 'sent' || sigStatus === 'draft' ? 'Resend for Signature' : 'Send for Signature')}</span>
+              <span>{sendingSig ? 'Working...' : (sigStatus === 'sent' ? 'Remind Signer' : sigStatus === 'draft' ? 'Resend for Signature' : 'Send for Signature')}</span>
             </button>
           )}
           {/* Upload / Re-upload PDF */}
