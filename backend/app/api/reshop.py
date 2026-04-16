@@ -1145,6 +1145,44 @@ def update_reshop(
     return _reshop_to_dict(reshop)
 
 
+@router.delete("/{reshop_id}")
+def delete_reshop(
+    reshop_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a single reshop and its activity log.
+
+    Retention specialists, managers, and admins can delete.
+    Returns {status, deleted_id, customer_name}.
+    """
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to delete reshops")
+
+    reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
+    if not reshop:
+        raise HTTPException(status_code=404, detail="Reshop not found")
+
+    customer_name = reshop.customer_name
+    # Clear child activities first (no FK cascade configured)
+    db.query(ReshopActivity).filter(ReshopActivity.reshop_id == reshop_id).delete(synchronize_session=False)
+    db.delete(reshop)
+    db.commit()
+
+    # Broadcast live update so other open tabs refresh
+    try:
+        from app.api.events import event_bus
+        event_bus.publish_sync("reshop:deleted", {
+            "id": reshop_id,
+            "customer_name": customer_name,
+            "user": current_user.full_name or current_user.username,
+        })
+    except Exception:
+        pass
+
+    return {"status": "ok", "deleted_id": reshop_id, "customer_name": customer_name}
+
+
 @router.post("/{reshop_id}/note")
 def add_reshop_note(
     reshop_id: int,

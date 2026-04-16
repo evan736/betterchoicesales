@@ -7,7 +7,7 @@ import {
   Plus, Search, Loader2, ChevronDown, ChevronRight, X, User, Phone, Mail, FileText,
   DollarSign, Calendar, AlertTriangle, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw,
   ArrowRight, Shield, Target, TrendingUp, TrendingDown, Zap, MessageSquare,
-  Send, Eye, Filter, BarChart2, Users,
+  Send, Eye, Filter, BarChart2, Users, Trash2,
 } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 
@@ -151,6 +151,21 @@ export default function ReshopPage() {
       toast.error(e.response?.data?.detail || 'Failed to update');
     }
     setSaving(false);
+  };
+
+  const handleDelete = async (reshopId: number, customerName: string) => {
+    if (!confirm(`Delete reshop for ${customerName}? This cannot be undone.`)) return;
+    try {
+      await reshopAPI.remove(reshopId);
+      toast.success(`Deleted reshop for ${customerName}`);
+      if (selectedReshop?.id === reshopId) {
+        setSelectedReshop(null);
+        setDetailData(null);
+      }
+      loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to delete');
+    }
   };
 
   const handleAddNote = async (reshopId: number) => {
@@ -359,6 +374,7 @@ export default function ReshopPage() {
                         reshop={r}
                         onOpen={() => openDetail(r)}
                         onMove={(s: string) => handleStageMove(r.id, s)}
+                        onDelete={() => handleDelete(r.id, r.customer_name)}
                         stages={STAGES}
                         canManage={isManager}
                       />
@@ -385,6 +401,7 @@ export default function ReshopPage() {
           onClose={() => { setSelectedReshop(null); setDetailData(null); }}
           onUpdate={(d: any) => handleUpdate(selectedReshop.id, d)}
           onMove={(s: string) => handleStageMove(selectedReshop.id, s)}
+          onDelete={() => handleDelete(selectedReshop.id, detailData?.customer_name || selectedReshop.customer_name || 'this customer')}
           noteText={noteText}
           setNoteText={setNoteText}
           onAddNote={() => handleAddNote(selectedReshop.id)}
@@ -430,8 +447,9 @@ const StatPill: React.FC<{ label: string; value: any; icon: React.ReactNode; col
 // ── Reshop Card ──────────────────────────────────────────────────
 const ReshopCard: React.FC<{
   reshop: any; onOpen: () => void; onMove: (s: string) => void;
+  onDelete: () => void;
   stages: any[]; canManage: boolean;
-}> = ({ reshop, onOpen, onMove, stages, canManage }) => {
+}> = ({ reshop, onOpen, onMove, onDelete, stages, canManage }) => {
   const r = reshop;
   const daysUntilExp = r.expiration_date
     ? Math.ceil((new Date(r.expiration_date).getTime() - Date.now()) / 86400000)
@@ -541,6 +559,14 @@ const ReshopCard: React.FC<{
           >
             <CheckCircle2 size={10} /> Rewrote / Renewed
           </button>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            title="Delete reshop"
+            aria-label="Delete reshop"
+            className="flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded py-1 px-1.5 transition-colors"
+          >
+            <Trash2 size={10} />
+          </button>
         </div>
       )}
     </div>
@@ -551,9 +577,10 @@ const ReshopCard: React.FC<{
 const DetailDrawer: React.FC<{
   data: any; loading: boolean; onClose: () => void;
   onUpdate: (d: any) => void; onMove: (s: string) => void;
+  onDelete: () => void;
   noteText: string; setNoteText: (t: string) => void; onAddNote: () => void;
   teamMembers: any[]; isManager: boolean; saving: boolean;
-}> = ({ data, loading, onClose, onUpdate, onMove, noteText, setNoteText, onAddNote, teamMembers, isManager, saving }) => {
+}> = ({ data, loading, onClose, onUpdate, onMove, onDelete, noteText, setNoteText, onAddNote, teamMembers, isManager, saving }) => {
   const r = data?.reshop;
   const activities = data?.activities || [];
 
@@ -573,9 +600,21 @@ const DetailDrawer: React.FC<{
             <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-4 z-10">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-slate-900">{r.customer_name}</h2>
-                <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-1">
+                  {isManager && (
+                    <button
+                      onClick={onDelete}
+                      title="Delete reshop"
+                      aria-label="Delete reshop"
+                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${

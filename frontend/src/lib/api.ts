@@ -170,6 +170,7 @@ export const reshopAPI = {
   get: (id: number) => api.get(`/api/reshops/${id}`),
   create: (data: any) => api.post('/api/reshops', data),
   update: (id: number, data: any) => api.patch(`/api/reshops/${id}`, data),
+  remove: (id: number) => api.delete(`/api/reshops/${id}`),
   addNote: (id: number, text: string) => api.post(`/api/reshops/${id}/note`, { text }),
   moveStage: (id: number, stage: string) => api.post(`/api/reshops/${id}/move`, null, { params: { stage } }),
   fromCustomer: (customerId: number, params?: { policy_id?: number; source?: string; reason?: string; notes?: string }) =>
