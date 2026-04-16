@@ -1139,30 +1139,37 @@ def _check_followups_logic(db: Session) -> dict:
             followup_day = 14
             flag_field = "followup_14day_sent"
 
-        elif days_since >= 30 and not getattr(latest, 'retarget_30_sent', False):
-            followup_day = 30
-            flag_field = "entered_remarket"
-
-        elif days_since >= 60 and latest.entered_remarket and not getattr(latest, 'retarget_60_sent', False):
-            followup_day = 60
-            flag_field = None  # No dedicated flag for 60
-
-        elif days_since >= 90 and latest.entered_remarket and not getattr(latest, 'retarget_90_sent', False):
-            followup_day = 90
-            flag_field = None
-
-        elif days_since >= 180 and latest.entered_remarket:
-            # Long-term remarket: first touch at 6 months, then every 90 days
-            last_sent = getattr(latest, 'last_remarket_sent_at', None)
+        elif days_since >= 30:
+            # Remarket pipeline: at most one email every 30 days, tracked by
+            # last_remarket_sent_at + remarket_touch_count (both real columns).
+            # Touch 1 = Day 30, Touch 2 = Day 60, Touch 3 = Day 90, Touch 4 = Day 180,
+            # Touch 5+ = quarterly thereafter.
+            last_remarket = getattr(latest, 'last_remarket_sent_at', None)
             touch_count = getattr(latest, 'remarket_touch_count', 0) or 0
 
-            if touch_count == 0:
-                followup_day = 180
-            elif last_sent:
-                last_sent_dt = last_sent.replace(tzinfo=None) if last_sent.tzinfo else last_sent
-                days_since_last = (now - last_sent_dt).days
-                if days_since_last >= 90:
-                    followup_day = "remarket_quarterly"
+            # Minimum 30-day gap between any two remarket emails
+            gap_ok = True
+            if last_remarket:
+                last_dt = last_remarket.replace(tzinfo=None) if last_remarket.tzinfo else last_remarket
+                days_since_last = (now - last_dt).days
+                gap_ok = days_since_last >= 30
+
+            if gap_ok:
+                if touch_count == 0 and days_since >= 30:
+                    followup_day = 30
+                elif touch_count == 1 and days_since >= 60:
+                    followup_day = 60
+                elif touch_count == 2 and days_since >= 90:
+                    followup_day = 90
+                elif touch_count == 3 and days_since >= 180:
+                    followup_day = 180
+                elif touch_count >= 4 and days_since >= 180:
+                    # 4th+ touch: quarterly (30-day gap already enforced above,
+                    # but we want 90-day cadence at this stage)
+                    if last_remarket:
+                        last_dt = last_remarket.replace(tzinfo=None) if last_remarket.tzinfo else last_remarket
+                        if (now - last_dt).days >= 90:
+                            followup_day = "remarket_quarterly"
 
         # Send the follow-up email — only set flags on SUCCESS
         if followup_day and latest.prospect_email:
@@ -1206,19 +1213,16 @@ def _check_followups_logic(db: Session) -> dict:
                 elif followup_day == 14:
                     latest.followup_14day_sent = True
                     results["day14"] += 1
-                elif followup_day == 30:
+                elif followup_day in (30, 60, 90, 180):
+                    # Unified remarket bookkeeping — bump touch count + timestamp
+                    # so the next scheduler tick correctly skips this quote.
                     latest.status = "remarket"
                     latest.entered_remarket = True
-                    latest.remarket_start_date = now
-                    results["retarget"] = results.get("retarget", 0) + 1
-                elif followup_day == 60:
-                    results["retarget"] = results.get("retarget", 0) + 1
-                elif followup_day == 90:
-                    results["retarget"] = results.get("retarget", 0) + 1
-                elif followup_day == 180:
+                    if not latest.remarket_start_date:
+                        latest.remarket_start_date = now
                     latest.last_remarket_sent_at = now
-                    latest.remarket_touch_count = 1
-                    results["remarket_longterm"] = results.get("remarket_longterm", 0) + 1
+                    latest.remarket_touch_count = (getattr(latest, 'remarket_touch_count', 0) or 0) + 1
+                    results["retarget"] = results.get("retarget", 0) + 1
                 elif followup_day == "remarket_quarterly":
                     latest.last_remarket_sent_at = now
                     latest.remarket_touch_count = (getattr(latest, 'remarket_touch_count', 0) or 0) + 1
