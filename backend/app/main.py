@@ -991,7 +991,7 @@ async def lifespan(app: FastAPI):
     # ── Daily reshop digest scheduler (8:20 AM CT, Mon-Fri) ─────────
     def _reshop_digest_scheduler():
         import time as _time
-        from datetime import date as _date
+        from datetime import datetime as _datetime
         _time.sleep(30)  # Wait for migrations to finish
         logger.info("Reshop digest scheduler started (8:20 AM CT, Mon-Fri)")
         _last_sent_date = None
@@ -999,7 +999,7 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 from zoneinfo import ZoneInfo
-                now_ct = datetime.now(ZoneInfo("America/Chicago"))
+                now_ct = _datetime.now(ZoneInfo("America/Chicago"))
                 today_ct = now_ct.date()
 
                 # Send at 8:20 AM CT, Monday-Friday only

@@ -124,6 +124,7 @@ def _get_business_hours_info() -> dict:
 
 import requests
 from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
