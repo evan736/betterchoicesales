@@ -1647,11 +1647,23 @@ async def remind_signature_endpoint(
         }
 
     except ValueError as e:
-        # BoldSign returns 400 for "already reminded today" — surface to user.
+        # BoldSign returns 403 for "manual reminders limit reached" (also sometimes 400).
+        # Surface a friendly rate-limit message to the user.
         err = str(e)
+        err_lower = err.lower()
         logger.warning("BoldSign reminder failed: %s", err)
-        # Detect "once per day" style errors and give a friendly message
-        if "400" in err and ("reminder" in err.lower() or "already" in err.lower() or "day" in err.lower()):
+        # Detect the daily-limit response regardless of whether BoldSign tagged it 400 or 403.
+        is_rate_limit = (
+            ("403" in err or "400" in err)
+            and (
+                "reminder" in err_lower
+                or "reminders limit" in err_lower
+                or "already" in err_lower
+                or "today" in err_lower
+                or "per day" in err_lower
+            )
+        )
+        if is_rate_limit:
             raise HTTPException(
                 status_code=429,
                 detail="BoldSign only allows one reminder per document per day. Try again tomorrow.",
