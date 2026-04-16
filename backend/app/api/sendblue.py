@@ -28,7 +28,7 @@ from sqlalchemy import text
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.services.sendblue import (
+from app.services.texting import (
     send_message,
     send_bulk,
     match_customer_by_phone,
@@ -36,6 +36,7 @@ from app.services.sendblue import (
     _log_message,
     update_message_status,
     get_conversation,
+    current_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,160 @@ async def status_callback(request: Request, db: Session = Depends(get_db)):
             pass
     
     return {"status": "ok"}
+
+
+# ── 2b. LOOPMESSAGE WEBHOOK (unified inbound + status) ─────────────
+
+@router.post("/loopmessage/webhook")
+async def loopmessage_webhook(request: Request, db: Session = Depends(get_db)):
+    """Unified webhook for LoopMessage events.
+
+    LoopMessage fires one URL for everything and keys events by `alert_type`:
+      - message_inbound    → new inbound iMessage from contact
+      - message_sent       → our outbound was delivered
+      - message_failed     → our outbound failed
+      - message_reaction   → tapback (heart, thumbs up, etc.)
+      - message_timeout    → send timed out
+
+    Set this URL in the LoopMessage dashboard:
+      https://better-choice-api.onrender.com/api/sendblue/loopmessage/webhook
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "error", "message": "Invalid JSON"}
+
+    alert_type = payload.get("alert_type", "")
+    logger.info("LoopMessage webhook: alert_type=%s", alert_type)
+
+    # Inbound message from a contact
+    if alert_type == "message_inbound":
+        from app.services.loopmessage import parse_inbound_webhook
+        parsed = parse_inbound_webhook(payload)
+        from_number = parsed["from_number"]
+        content = parsed["content"]
+        media_url = parsed["media_url"]
+        message_handle = parsed["message_handle"]
+
+        customer_match = match_customer_by_phone(db, from_number)
+        customer_id = customer_match.get("customer_id") if customer_match else None
+        customer_name = customer_match.get("name", "Unknown") if customer_match else "Unknown"
+
+        msg_id = _log_message(
+            db=db, direction="inbound", phone_number=from_number,
+            from_number=from_number, content=content, media_url=media_url,
+            message_handle=message_handle, status="RECEIVED", service="loopmessage",
+            customer_id=customer_id, context="inbound_webhook", raw_payload=payload,
+        )
+
+        _send_inbound_notification(
+            from_number=from_number, content=content,
+            customer_name=customer_name, customer_match=customer_match,
+            media_url=media_url, service="loopmessage",
+        )
+        _post_to_office_chat(
+            db=db, from_number=from_number, content=content, customer_name=customer_name
+        )
+        return {"status": "ok", "message_id": msg_id, "customer_match": customer_name}
+
+    # Delivery status updates
+    if alert_type in ("message_sent", "message_failed", "message_timeout"):
+        message_handle = payload.get("message_id", "") or payload.get("message_handle", "")
+        status_map = {
+            "message_sent": "DELIVERED",
+            "message_failed": "ERROR",
+            "message_timeout": "ERROR",
+        }
+        status = status_map[alert_type]
+        error_code = payload.get("code") or payload.get("error_code")
+        error_msg = payload.get("message") or payload.get("error_message", "")
+
+        if message_handle:
+            update_message_status(
+                db=db, message_handle=message_handle, status=status,
+                error_code=str(error_code) if error_code else None,
+                service="loopmessage",
+            )
+        if status == "ERROR" and error_msg:
+            try:
+                db.execute(
+                    text("UPDATE text_messages SET error_message = :msg WHERE message_handle = :handle"),
+                    {"msg": error_msg, "handle": message_handle}
+                )
+                db.commit()
+            except Exception:
+                pass
+        return {"status": "ok"}
+
+    # Reactions / other — log raw for visibility, no-op
+    return {"status": "ok", "alert_type": alert_type}
+
+
+# ── 2c. PROVIDER STATUS (diagnostic) ───────────────────────────────
+
+@router.get("/provider")
+def get_provider_status(current_user: User = Depends(get_current_user)):
+    """Report the active texting provider and credentials-present status.
+
+    Used by the texting page for a connection badge + by Evan for debugging.
+    Does NOT test-send — run /test for that.
+    """
+    provider = current_provider()
+    status: dict = {"provider": provider}
+    if provider == "sendblue":
+        status["configured"] = bool(
+            os.getenv("SENDBLUE_API_KEY") and os.getenv("SENDBLUE_API_SECRET")
+        )
+        status["from_number"] = os.getenv("SENDBLUE_FROM_NUMBER", "")
+    elif provider == "loopmessage":
+        status["configured"] = bool(
+            os.getenv("LOOPMESSAGE_API_KEY") and os.getenv("LOOPMESSAGE_SENDER_ID")
+        )
+        status["from_number"] = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
+        status["sender_id"] = os.getenv("LOOPMESSAGE_SENDER_ID", "")
+    return status
+
+
+# ── 2d. LOOPMESSAGE LIVE CHECK (admin only — hits LoopMessage API) ─
+
+@router.post("/loopmessage/check")
+async def loopmessage_live_check(current_user: User = Depends(get_current_user)):
+    """Hit LoopMessage with a sandbox send to verify sender activation.
+
+    Returns the raw API response so Evan can see if sender 240 is cleared.
+    Does NOT require TEXTING_PROVIDER to be set — useful for pre-flight.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    import httpx
+    api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
+    sender = os.getenv("LOOPMESSAGE_SENDER_ID", "")
+    if not api_key or not sender:
+        return {
+            "success": False,
+            "error": "LOOPMESSAGE_API_KEY / LOOPMESSAGE_SENDER_ID not set in Render env vars",
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://a.loopmessage.com/api/v1/message/send/",
+                json={
+                    "contact": "sandbox@imessage.im",
+                    "text": "ORBIT sandbox activation check",
+                    "sender": sender,
+                },
+                headers={"Authorization": api_key, "Content-Type": "application/json"},
+            )
+            data = resp.json() if resp.content else {}
+            return {
+                "http_status": resp.status_code,
+                "api_response": data,
+                "activated": bool(data.get("success")) and data.get("code") != 240,
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ── 3. SEND MESSAGE (Authenticated) ────────────────────────────────
@@ -808,11 +963,27 @@ def _post_to_office_chat(
 
 @router.get("/health")
 def sendblue_health():
-    """Check Sendblue configuration."""
+    """Check texting provider configuration."""
+    provider = current_provider()
+
+    if provider == "loopmessage":
+        api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
+        sender_id = os.getenv("LOOPMESSAGE_SENDER_ID", "")
+        from_number = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
+        return {
+            "status": "ok" if (api_key and sender_id) else "missing_credentials",
+            "provider": "loopmessage",
+            "from_number": from_number or "NOT SET",
+            "api_key_set": bool(api_key),
+            "sender_id_set": bool(sender_id),
+            "inbound_webhook": "https://better-choice-api.onrender.com/api/sendblue/loopmessage/webhook",
+        }
+
+    # Default: Sendblue
     from_number = os.getenv("SENDBLUE_FROM_NUMBER", "")
     api_key = os.getenv("SENDBLUE_API_KEY", "")
     api_secret = os.getenv("SENDBLUE_API_SECRET", "")
-    
+
     return {
         "status": "ok" if (api_key and api_secret) else "missing_credentials",
         "provider": "sendblue",
