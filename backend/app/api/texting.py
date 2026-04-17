@@ -60,6 +60,28 @@ INBOUND_NOTIFY_EMAIL = os.getenv(
 )
 
 
+# ── Twilio error code → human description ──────────────────────────
+# Twilio's status callback often sends only the numeric code. This table
+# turns those into something readable in the Texting UI and audit logs.
+_TWILIO_ERROR_DESCRIPTIONS = {
+    "30003": "Recipient handset unreachable (off, out of coverage, or rejecting)",
+    "30004": "Recipient has blocked us or opted out (STOP)",
+    "30005": "Recipient number invalid or not active",
+    "30006": "Recipient is a landline or otherwise can't receive SMS",
+    "30007": "Carrier filtered the message (content flagged as spam)",
+    "30008": "Unknown carrier error",
+    "30034": "A2P 10DLC: our number isn't on the approved campaign. Attach +16305267478 in Twilio Console → Messaging → Services → Senders.",
+    "30035": "A2P 10DLC campaign still being configured by Twilio. Wait up to 24h after approval.",
+    "30036": "A2P 10DLC: validity period expired before delivery",
+    "21211": "Invalid 'To' phone number",
+    "21408": "Permission to send SMS to this region not enabled on our Twilio account",
+    "21610": "Recipient sent STOP and is opted out. They must text START to +16305267478 first.",
+    "21612": "Carrier can't deliver to this number",
+    "21614": "'To' number is not a mobile number",
+    "21617": "Message body exceeds 1600 characters",
+}
+
+
 # ── Pydantic models ────────────────────────────────────────────────
 
 class SendMessageRequest(BaseModel):
@@ -238,15 +260,23 @@ async def twilio_status_callback(request: Request, db: Session = Depends(get_db)
     except Exception as e:
         logger.error("Twilio status update failed: %s", e)
 
-    if new_status == "ERROR" and error_msg:
-        try:
-            db.execute(
-                text("UPDATE text_messages SET error_message = :msg WHERE message_handle = :handle"),
-                {"msg": error_msg, "handle": message_handle}
+    if new_status == "ERROR":
+        # Twilio's StatusCallback includes ErrorCode but often not ErrorMessage.
+        # Fall back to our known-code table so the DB row is still useful.
+        if not error_msg and error_code:
+            error_msg = _TWILIO_ERROR_DESCRIPTIONS.get(
+                str(error_code),
+                f"Twilio error {error_code}",
             )
-            db.commit()
-        except Exception:
-            pass
+        if error_msg:
+            try:
+                db.execute(
+                    text("UPDATE text_messages SET error_message = :msg WHERE message_handle = :handle"),
+                    {"msg": error_msg, "handle": message_handle}
+                )
+                db.commit()
+            except Exception:
+                pass
 
     return {"status": "ok", "new_status": new_status}
 

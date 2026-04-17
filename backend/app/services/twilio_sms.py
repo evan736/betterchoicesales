@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 import httpx
+from sqlalchemy import text as sqlalchemy_text
 from sqlalchemy.orm import Session
 
 from app.services.loopmessage import (
@@ -110,18 +111,73 @@ async def send_message(
                 }
             else:
                 error_code = data.get("code")
-                error_msg = (
+                twilio_msg = (
                     data.get("message")
                     or data.get("error_message")
                     or f"HTTP {resp.status_code}"
                 )
+
+                # Friendlier surface messages for the common A2P 10DLC errors so
+                # Evan / producers see an actionable toast instead of raw Twilio prose.
+                friendly_msg = twilio_msg
+                if str(error_code) == "30034":
+                    friendly_msg = (
+                        "A2P 10DLC: our number isn't linked to the approved campaign's "
+                        "Messaging Service. Attach +16305267478 in Twilio Console → "
+                        "Messaging → Services → Senders."
+                    )
+                elif str(error_code) == "30035":
+                    friendly_msg = (
+                        "A2P 10DLC campaign is still being configured by Twilio. "
+                        "Wait up to 24 hours after approval and try again."
+                    )
+                elif str(error_code) == "21610":
+                    friendly_msg = (
+                        "Recipient replied STOP and is opted out. They must text "
+                        "START to +16305267478 before we can message them again."
+                    )
+
                 logger.error(
                     "Twilio SMS send failed: http=%s code=%s msg=%s",
-                    resp.status_code, error_code, error_msg,
+                    resp.status_code, error_code, twilio_msg,
                 )
+
+                # Persist the failure so Evan can audit it after the fact, not
+                # just chase it through Render logs. The row makes the error
+                # visible in the /api/texting/messages endpoint.
+                if db:
+                    try:
+                        _log_message(
+                            db=db,
+                            direction="outbound",
+                            phone_number=to_e164,
+                            from_number=form_data["From"],
+                            content=content,
+                            media_url=media_url,
+                            message_handle="",
+                            status="ERROR",
+                            service="twilio",
+                            customer_id=customer_id,
+                            context=context,
+                            sent_by=sent_by,
+                        )
+                        db.execute(
+                            sqlalchemy_text(
+                                "UPDATE text_messages SET error_code = :code, error_message = :msg "
+                                "WHERE id = (SELECT id FROM text_messages "
+                                "WHERE phone_number = :phone AND status = 'ERROR' AND message_handle = '' "
+                                "ORDER BY id DESC LIMIT 1)"
+                            ),
+                            {"code": str(error_code) if error_code else None,
+                             "msg": twilio_msg, "phone": to_e164},
+                        )
+                        db.commit()
+                    except Exception as log_err:
+                        logger.error("Failed to persist Twilio error row: %s", log_err)
+
                 return {
                     "success": False,
-                    "error": error_msg,
+                    "error": friendly_msg,
                     "error_code": error_code,
                     "status_code": resp.status_code,
                 }
