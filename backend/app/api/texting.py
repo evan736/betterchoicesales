@@ -232,7 +232,6 @@ def get_provider_status(current_user: User = Depends(get_current_user)):
         "provider": "loopmessage",
         "configured": bool(
             os.getenv("LOOPMESSAGE_API_KEY")
-            and os.getenv("LOOPMESSAGE_SECRET_KEY")
             and os.getenv("LOOPMESSAGE_SENDER_ID")
         ),
         "from_number": os.getenv("LOOPMESSAGE_FROM_NUMBER", ""),
@@ -249,17 +248,15 @@ async def loopmessage_live_check(current_user: User = Depends(get_current_user))
     Returns the raw API response so Evan can see if error code 240
     (sender not activated) has cleared.
     """
-    if current_user.role != "admin":
+    if (current_user.role or "").lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
     import httpx
     api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
-    secret_key = os.getenv("LOOPMESSAGE_SECRET_KEY", "")
     sender = os.getenv("LOOPMESSAGE_SENDER_ID", "")
     missing = [
         name for name, val in [
             ("LOOPMESSAGE_API_KEY", api_key),
-            ("LOOPMESSAGE_SECRET_KEY", secret_key),
             ("LOOPMESSAGE_SENDER_ID", sender),
         ] if not val
     ]
@@ -269,15 +266,14 @@ async def loopmessage_live_check(current_user: User = Depends(get_current_user))
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                "https://server.loopmessage.com/api/v1/message/send/",
+                "https://a.loopmessage.com/api/v1/message/send/",
                 json={
-                    "recipient": "sandbox@imessage.im",
+                    "contact": "sandbox@imessage.im",
                     "text": "ORBIT sandbox activation check",
-                    "sender_name": sender,
+                    "sender": sender,
                 },
                 headers={
                     "Authorization": api_key,
-                    "Loop-Secret-Key": secret_key,
                     "Content-Type": "application/json",
                 },
             )
@@ -735,15 +731,13 @@ def serve_voice_note(note_id: str, db: Session = Depends(get_db)):
 def texting_health():
     """Check LoopMessage configuration. Public (no auth) for uptime checks."""
     api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
-    secret_key = os.getenv("LOOPMESSAGE_SECRET_KEY", "")
     sender_id = os.getenv("LOOPMESSAGE_SENDER_ID", "")
     from_number = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
     return {
-        "status": "ok" if (api_key and secret_key and sender_id) else "missing_credentials",
+        "status": "ok" if (api_key and sender_id) else "missing_credentials",
         "provider": "loopmessage",
         "from_number": from_number or "NOT SET",
         "api_key_set": bool(api_key),
-        "secret_key_set": bool(secret_key),
         "sender_id_set": bool(sender_id),
         "webhook": "https://better-choice-api.onrender.com/api/texting/webhook",
     }

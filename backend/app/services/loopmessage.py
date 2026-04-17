@@ -4,14 +4,17 @@ Drop-in replacement for sendblue.py — exposes the same async send_message()
 signature and returns the same result dict shape so the API layer can switch
 providers via a single env var (TEXTING_PROVIDER).
 
-LoopMessage API:
-- Host: https://server.loopmessage.com
-- Auth: TWO headers required — `Authorization` (auth key) and
-  `Loop-Secret-Key` (secret key). Missing either = code 125 or 130.
+LoopMessage API (current, docs.loopmessage.com):
+- Host: https://a.loopmessage.com
+- Auth: single `Authorization` header with the API key.
 - Send endpoint: POST /api/v1/message/send/
-- Body: recipient (E.164 or email), text, sender_name (UUID),
+- Body: contact (E.164 or email), text, sender (UUID),
   attachments (array of URLs), optional status_callback.
-- Docs: https://docs-legacy.loopmessage.com/imessage-conversation-api/send-message
+- Docs: https://docs.loopmessage.com/
+
+Note: The legacy endpoint at server.loopmessage.com uses different
+field names (recipient / sender_name) and requires a Loop-Secret-Key
+header. We target the current API.
 
 Webhook payload shape (inbound + status) uses `alert_type` to discriminate
 event kinds. Status callback URL must be able to parse LoopMessage-shaped
@@ -30,10 +33,9 @@ logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────
 LOOPMESSAGE_API_KEY = os.getenv("LOOPMESSAGE_API_KEY", "")
-LOOPMESSAGE_SECRET_KEY = os.getenv("LOOPMESSAGE_SECRET_KEY", "")
 LOOPMESSAGE_SENDER_ID = os.getenv("LOOPMESSAGE_SENDER_ID", "")
 LOOPMESSAGE_FROM_NUMBER = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
-LOOPMESSAGE_BASE_URL = "https://server.loopmessage.com"
+LOOPMESSAGE_BASE_URL = "https://a.loopmessage.com"
 LOOPMESSAGE_STATUS_CALLBACK = os.getenv(
     "LOOPMESSAGE_STATUS_CALLBACK",
     "https://better-choice-api.onrender.com/api/texting/webhook"
@@ -83,15 +85,13 @@ async def send_message(
 
     if not LOOPMESSAGE_API_KEY:
         return {"success": False, "error": "LOOPMESSAGE_API_KEY not configured"}
-    if not LOOPMESSAGE_SECRET_KEY:
-        return {"success": False, "error": "LOOPMESSAGE_SECRET_KEY not configured"}
     if not LOOPMESSAGE_SENDER_ID:
         return {"success": False, "error": "LOOPMESSAGE_SENDER_ID not configured"}
 
     payload: dict = {
-        "recipient": to_e164,
+        "contact": to_e164,
         "text": content or "",
-        "sender_name": LOOPMESSAGE_SENDER_ID,
+        "sender": LOOPMESSAGE_SENDER_ID,
         "status_callback": LOOPMESSAGE_STATUS_CALLBACK,
     }
     if media_url:
@@ -105,7 +105,6 @@ async def send_message(
                 json=payload,
                 headers={
                     "Authorization": LOOPMESSAGE_API_KEY,
-                    "Loop-Secret-Key": LOOPMESSAGE_SECRET_KEY,
                     "Content-Type": "application/json",
                 },
             )
@@ -183,7 +182,7 @@ _LOOPMESSAGE_ERROR_HINTS = {
     110: "Missing credentials in request",
     120: "One or more required parameters missing",
     125: "Authorization key invalid or missing (LOOPMESSAGE_API_KEY)",
-    130: "Secret key invalid or missing (LOOPMESSAGE_SECRET_KEY)",
+    130: "Secret key error (current API does not use a secret key; may indicate API version mismatch)",
     140: "No text in request",
     150: "No recipient in request",
     160: "Invalid recipient",
