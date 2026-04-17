@@ -879,10 +879,10 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Quote jobs migration: {e}")
 
         try:
-            from app.api.sendblue import run_sendblue_migration
-            run_sendblue_migration()
+            from app.api.texting import run_texting_migration
+            run_texting_migration()
         except Exception as e:
-            logger.warning(f"Sendblue migration: {e}")
+            logger.warning(f"Texting migration: {e}")
 
         try:
             from app.migrations.dialer_migration import migrate_dialer
@@ -1518,8 +1518,8 @@ app.include_router(renewal_survey_api.router)
 from app.api import quote_jobs as quote_jobs_api
 app.include_router(quote_jobs_api.router)
 
-from app.api import sendblue as sendblue_api
-app.include_router(sendblue_api.router)
+from app.api import texting as texting_api
+app.include_router(texting_api.router)
 
 
 # ── Public bind confirmation endpoint (no auth — customer-facing) ──

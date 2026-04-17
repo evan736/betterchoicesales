@@ -37,7 +37,7 @@ interface Conversation {
   total_messages: number;
 }
 
-interface SendblueStats {
+interface TextingStats {
   total_messages: number; total_sent: number; total_received: number;
   today: number; this_week: number; unread: number;
   delivered: number; failed: number;
@@ -108,7 +108,7 @@ export default function TextingPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [messages, setMessages] = useState<TextMessage[]>([]);
-  const [stats, setStats] = useState<SendblueStats | null>(null);
+  const [stats, setStats] = useState<TextingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -132,7 +132,7 @@ export default function TextingPage() {
   // ── Fetch conversations ────────────────────────────────────────
   const fetchConversations = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/api/sendblue/conversations?limit=100`);
+      const { data } = await axios.get(`${API}/api/texting/conversations?limit=100`);
       setConversations(data.conversations || []);
     } catch (e) {
       console.error('Failed to load conversations:', e);
@@ -145,7 +145,7 @@ export default function TextingPage() {
   const fetchThread = useCallback(async (phone: string) => {
     setMessagesLoading(true);
     try {
-      const { data } = await axios.get(`${API}/api/sendblue/conversation/${encodeURIComponent(phone)}?limit=100`);
+      const { data } = await axios.get(`${API}/api/texting/conversation/${encodeURIComponent(phone)}?limit=100`);
       setMessages(data.messages || []);
       setCustomerInfo(data.customer || null);
       // Update unread count in conversation list
@@ -163,7 +163,7 @@ export default function TextingPage() {
   // ── Fetch stats ────────────────────────────────────────────────
   const fetchStats = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/api/sendblue/stats`);
+      const { data } = await axios.get(`${API}/api/texting/stats`);
       setStats(data);
     } catch (e) {
       console.error('Failed to load stats:', e);
@@ -176,7 +176,7 @@ export default function TextingPage() {
     if (!phone || !draft.trim()) return;
     setSending(true);
     try {
-      await axios.post(`${API}/api/sendblue/send`, {
+      await axios.post(`${API}/api/texting/send`, {
         to_number: phone,
         content: draft.trim(),
         context: 'manual',
@@ -245,7 +245,7 @@ export default function TextingPage() {
         setNewNumber('');
         setSelectedPhone(phone);
       }
-      await axios.post(`${API}/api/sendblue/voice-note`, formData, {
+      await axios.post(`${API}/api/texting/voice-note`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       if (selectedPhone) await fetchThread(selectedPhone);
@@ -591,7 +591,7 @@ export default function TextingPage() {
                     <MessageCircle size={32} className="text-blue-400/60" />
                   </div>
                   <h3 className="text-lg font-semibold text-slate-300 mb-1">ORBIT Texting</h3>
-                  <p className="text-sm text-slate-500 mb-4">iMessage & SMS powered by Sendblue</p>
+                  <p className="text-sm text-slate-500 mb-4">iMessage powered by LoopMessage</p>
                   <button
                     onClick={() => setShowNewMessage(true)}
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-[13px] font-medium rounded-lg transition-colors"

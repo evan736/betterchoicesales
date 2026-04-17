@@ -4,15 +4,19 @@ Drop-in replacement for sendblue.py — exposes the same async send_message()
 signature and returns the same result dict shape so the API layer can switch
 providers via a single env var (TEXTING_PROVIDER).
 
-LoopMessage NEW API (not legacy server.loopmessage.com):
-- Host: https://a.loopmessage.com
-- Auth: single `Authorization` header (no Loop-Secret-Key)
+LoopMessage API:
+- Host: https://server.loopmessage.com
+- Auth: TWO headers required — `Authorization` (auth key) and
+  `Loop-Secret-Key` (secret key). Missing either = code 125 or 130.
 - Send endpoint: POST /api/v1/message/send/
-- Params: contact (E.164), text, sender (UUID), attachments (list of URLs)
-- Docs: https://docs.loopmessage.com
+- Body: recipient (E.164 or email), text, sender_name (UUID),
+  attachments (array of URLs), optional status_callback.
+- Docs: https://docs-legacy.loopmessage.com/imessage-conversation-api/send-message
 
-Webhook payload shape (inbound + status) documented at:
-https://docs.loopmessage.com/imessage-conversation-api/webhooks
+Webhook payload shape (inbound + status) uses `alert_type` to discriminate
+event kinds. Status callback URL must be able to parse LoopMessage-shaped
+payloads, so we point it at the unified LoopMessage webhook endpoint rather
+than the Sendblue status-callback route (which reads Sendblue field names).
 """
 import os
 import re
@@ -26,12 +30,13 @@ logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────
 LOOPMESSAGE_API_KEY = os.getenv("LOOPMESSAGE_API_KEY", "")
+LOOPMESSAGE_SECRET_KEY = os.getenv("LOOPMESSAGE_SECRET_KEY", "")
 LOOPMESSAGE_SENDER_ID = os.getenv("LOOPMESSAGE_SENDER_ID", "")
 LOOPMESSAGE_FROM_NUMBER = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
-LOOPMESSAGE_BASE_URL = "https://a.loopmessage.com"
+LOOPMESSAGE_BASE_URL = "https://server.loopmessage.com"
 LOOPMESSAGE_STATUS_CALLBACK = os.getenv(
     "LOOPMESSAGE_STATUS_CALLBACK",
-    "https://better-choice-api.onrender.com/api/sendblue/status-callback"
+    "https://better-choice-api.onrender.com/api/texting/webhook"
 )
 
 
@@ -78,17 +83,19 @@ async def send_message(
 
     if not LOOPMESSAGE_API_KEY:
         return {"success": False, "error": "LOOPMESSAGE_API_KEY not configured"}
+    if not LOOPMESSAGE_SECRET_KEY:
+        return {"success": False, "error": "LOOPMESSAGE_SECRET_KEY not configured"}
     if not LOOPMESSAGE_SENDER_ID:
         return {"success": False, "error": "LOOPMESSAGE_SENDER_ID not configured"}
 
     payload: dict = {
-        "contact": to_e164,
+        "recipient": to_e164,
         "text": content or "",
-        "sender": LOOPMESSAGE_SENDER_ID,
+        "sender_name": LOOPMESSAGE_SENDER_ID,
         "status_callback": LOOPMESSAGE_STATUS_CALLBACK,
     }
     if media_url:
-        # LoopMessage accepts attachments as a list of URLs
+        # LoopMessage accepts attachments as an array of URLs (max 3).
         payload["attachments"] = [media_url]
 
     try:
@@ -98,6 +105,7 @@ async def send_message(
                 json=payload,
                 headers={
                     "Authorization": LOOPMESSAGE_API_KEY,
+                    "Loop-Secret-Key": LOOPMESSAGE_SECRET_KEY,
                     "Content-Type": "application/json",
                 },
             )
@@ -106,7 +114,7 @@ async def send_message(
             except Exception:
                 data = {}
 
-            if resp.status_code in (200, 201, 202) and data.get("success"):
+            if resp.status_code == 200 and data.get("success"):
                 # LoopMessage returns message_id (UUID); normalize to message_handle
                 message_handle = (
                     data.get("message_id")
@@ -114,12 +122,13 @@ async def send_message(
                     or data.get("message_handle")
                     or ""
                 )
-                # LoopMessage is iMessage-native; treat accepted as QUEUED
-                status = data.get("status") or "QUEUED"
+                # LoopMessage accepted = queued for delivery. Final state
+                # arrives via webhook (message_sent / message_failed).
+                status = "QUEUED"
 
                 logger.info(
-                    "LoopMessage sent: to=%s handle=%s status=%s",
-                    to_e164, message_handle, status
+                    "LoopMessage sent: to=%s handle=%s",
+                    to_e164, message_handle
                 )
 
                 if db:
@@ -140,15 +149,19 @@ async def send_message(
                     "was_downgraded": False,  # LoopMessage is iMessage-only
                 }
             else:
+                # Failure paths: 400/402/5xx, or 200 with success=false.
+                # The `message` field from LoopMessage is informational-only
+                # per their docs — map their `code` to a human-readable hint.
+                error_code = data.get("code")
                 error_msg = (
                     data.get("message")
                     or data.get("error_message")
                     or data.get("error")
+                    or _loopmessage_error_hint(error_code)
                     or f"HTTP {resp.status_code}"
                 )
-                error_code = data.get("code")
                 logger.error(
-                    "LoopMessage send failed: %s code=%s — %s",
+                    "LoopMessage send failed: http=%s code=%s msg=%s",
                     resp.status_code, error_code, error_msg
                 )
                 return {
@@ -161,6 +174,49 @@ async def send_message(
     except Exception as e:
         logger.error("LoopMessage send error: %s", e)
         return {"success": False, "error": str(e)}
+
+
+# ── Error code → human hint ────────────────────────────────────────
+
+_LOOPMESSAGE_ERROR_HINTS = {
+    100: "Bad request",
+    110: "Missing credentials in request",
+    120: "One or more required parameters missing",
+    125: "Authorization key invalid or missing (LOOPMESSAGE_API_KEY)",
+    130: "Secret key invalid or missing (LOOPMESSAGE_SECRET_KEY)",
+    140: "No text in request",
+    150: "No recipient in request",
+    160: "Invalid recipient",
+    170: "Invalid recipient email",
+    180: "Invalid recipient phone number",
+    190: "Phone number is not mobile",
+    210: "Sender name not specified",
+    220: "Invalid sender name",
+    230: "Internal error using the sender name",
+    240: "Sender name not activated or unpaid",
+    270: "Recipient has blocked messages",
+    300: "Dedicated sender name required for this message type",
+    330: "Rate-limited — too many messages to dormant recipients (Apple suspension risk)",
+    400: "No credits remaining on LoopMessage balance",
+    500: "LoopMessage account suspended",
+    510: "LoopMessage account blocked",
+    530: "LoopMessage account suspended due to debt",
+    540: "No active purchased sender name",
+    545: "Sender name suspended by Apple",
+    550: "Recipient must be added as sandbox contact (or sender not upgraded)",
+    560: "Recipient must initiate the conversation first",
+    570: "API method deprecated",
+}
+
+
+def _loopmessage_error_hint(code) -> Optional[str]:
+    """Return a human-readable description for a LoopMessage error code."""
+    if code is None:
+        return None
+    try:
+        return _LOOPMESSAGE_ERROR_HINTS.get(int(code))
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Bulk send ───────────────────────────────────────────────────────
@@ -315,7 +371,7 @@ def parse_inbound_webhook(payload: dict) -> dict:
       from_number / passthrough: varies
       attachments: list of URLs
 
-    We return a dict keyed the way app.api.sendblue.inbound_webhook reads it.
+    We return a dict keyed the way app.api.texting's webhook handler reads it.
     """
     alert_type = payload.get("alert_type", "")
     return {
