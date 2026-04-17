@@ -5,7 +5,7 @@ from sqlalchemy import extract as sql_extract, func
 from pathlib import Path
 import shutil
 from datetime import datetime, date, timedelta
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.sale import Sale, SaleStatus
@@ -1531,40 +1531,143 @@ async def send_for_signature_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to create signature request: {str(e)}")
 
 
+# In-process cache for BoldSign status checks.
+# Keyed by signature_request_id → (unix_ts, status_string).
+# Prevents mass-polling (e.g., sales page rendering 25+ cards on mount) from
+# fanning out parallel BoldSign API calls and exhausting the DB pool.
+# Terminal states cached longer since they can't change.
+import time as _time
+_SIG_STATUS_CACHE: dict[str, tuple[float, str]] = {}
+_SIG_STATUS_TTL_ACTIVE = 30.0   # seconds — for "sent"/"draft"
+_SIG_STATUS_TTL_TERMINAL = 3600.0  # seconds — for "completed"/"declined"
+
+
+def _sig_cache_ttl_for(status: str) -> float:
+    return _SIG_STATUS_TTL_TERMINAL if status in ("completed", "declined") else _SIG_STATUS_TTL_ACTIVE
+
+
 @router.get("/{sale_id}/signature-status")
 async def get_signature_status(
     sale_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Check the status of a signature request."""
+    """Check the status of a signature request.
+
+    CRITICAL: Releases the DB connection BEFORE calling BoldSign so that a
+    slow/hung external API call cannot hold a pooled DB connection. Previously,
+    a burst of ~25 parallel calls from the sales page on mount could drain the
+    entire pool (8 + 15 overflow = 23) and 502 the whole service.
+    """
+    # --- Phase 1: quick DB read, then release the connection --------------
     sale = db.query(Sale).filter(Sale.id == sale_id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
 
-    if not sale.signature_request_id:
+    signature_request_id = sale.signature_request_id
+    current_status = sale.signature_status
+
+    if not signature_request_id:
         return {"status": "not_sent", "message": "No signature request sent yet"}
 
+    # Short-circuit on terminal states — no need to hit BoldSign ever again
+    if current_status in ("completed", "declined"):
+        return {
+            "status": current_status,
+            "document_id": signature_request_id,
+            "cached": True,
+        }
+
+    # Check in-process cache before reaching out to BoldSign
+    cached = _SIG_STATUS_CACHE.get(signature_request_id)
+    if cached:
+        ts, cached_status = cached
+        if (_time.time() - ts) < _sig_cache_ttl_for(cached_status):
+            return {
+                "status": cached_status,
+                "document_id": signature_request_id,
+                "cached": True,
+            }
+
+    # Release the DB session before the external call. FastAPI's Depends()
+    # will still call db.close() at the end of the request, but closing early
+    # returns the connection to the pool NOW so BoldSign latency doesn't block
+    # every other endpoint in the service.
+    db.close()
+
+    # --- Phase 2: external BoldSign call without holding a DB connection --
     try:
         from app.services.esign import get_document_status
-        doc_status = await get_document_status(sale.signature_request_id)
-
+        doc_status = await get_document_status(signature_request_id)
         bs_status = doc_status.get("status", "").lower()
-        if bs_status in ("completed", "signed"):
-            sale.signature_status = "completed"
-        elif bs_status in ("declined", "revoked", "expired"):
-            sale.signature_status = "declined"
-        elif bs_status in ("inprogress", "sent", "pending"):
-            sale.signature_status = "sent"
-        db.commit()
-
-        return {
-            "status": sale.signature_status,
-            "boldsign_status": bs_status,
-            "document_id": sale.signature_request_id,
-        }
     except Exception as e:
-        return {"status": sale.signature_status, "error": str(e)}
+        logger.warning(f"BoldSign status check failed for sale {sale_id}: {e}")
+        return {"status": current_status, "error": str(e)}
+
+    if bs_status in ("completed", "signed"):
+        new_status = "completed"
+    elif bs_status in ("declined", "revoked", "expired"):
+        new_status = "declined"
+    elif bs_status in ("inprogress", "sent", "pending"):
+        new_status = "sent"
+    else:
+        new_status = current_status
+
+    # Cache before we try to write — even if the DB write fails we've still
+    # served a fresh answer to this caller and nearby callers won't re-poll.
+    _SIG_STATUS_CACHE[signature_request_id] = (_time.time(), new_status)
+
+    # --- Phase 3: short-lived write session, only if status actually changed
+    if new_status != current_status:
+        write_db = SessionLocal()
+        try:
+            sale_row = write_db.query(Sale).filter(Sale.id == sale_id).first()
+            if sale_row is not None:
+                sale_row.signature_status = new_status
+                write_db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist signature status for sale {sale_id}: {e}")
+            write_db.rollback()
+        finally:
+            write_db.close()
+
+    return {
+        "status": new_status,
+        "boldsign_status": bs_status,
+        "document_id": signature_request_id,
+    }
+
+
+@router.post("/signature-statuses")
+async def get_signature_statuses_batch(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Batch signature-status read — DB only, no BoldSign calls.
+
+    The sales page uses this on mount to hydrate status badges for many sale
+    cards in a single round-trip. For the live freshness check, the per-card
+    UI can still call GET /{sale_id}/signature-status (which goes to BoldSign,
+    but is cached + pool-safe).
+
+    Body: {"ids": [1, 2, 3, ...]}  (max 200 ids per call)
+    Returns: {"statuses": {"1": "sent", "2": "completed", ...}}
+    """
+    ids = payload.get("ids") or []
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids must be a list")
+    # Cap batch size so a runaway client can't pull the whole sales table
+    ids = [int(i) for i in ids if isinstance(i, (int, str)) and str(i).isdigit()][:200]
+    if not ids:
+        return {"statuses": {}}
+
+    rows = (
+        db.query(Sale.id, Sale.signature_status)
+        .filter(Sale.id.in_(ids))
+        .all()
+    )
+    return {"statuses": {str(sid): (status or "not_sent") for sid, status in rows}}
 
 
 @router.post("/{sale_id}/remind-signature")

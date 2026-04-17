@@ -52,6 +52,8 @@ export const salesAPI = {
     return api.post(`/api/sales/${id}/send-for-signature`, {}, { timeout: 120000 });
   },
   signatureStatus: (id: number) => api.get(`/api/sales/${id}/signature-status`),
+  signatureStatusBatch: (ids: number[]) =>
+    api.post(`/api/sales/signature-statuses`, { ids }),
   remindSignature: (id: number) => api.post(`/api/sales/${id}/remind-signature`, {}, { timeout: 30000 }),
   importCSV: (file: File) => {
     const formData = new FormData();

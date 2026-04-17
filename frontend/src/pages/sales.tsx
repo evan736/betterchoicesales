@@ -475,17 +475,12 @@ const SaleListItem: React.FC<{ sale: any; onUpdate: () => void; isPrivileged?: b
   const [currentEmail, setCurrentEmail] = useState(sale.client_email || '');
   const [uploadingPdf, setUploadingPdf] = useState(false);
 
-  // Auto-check BoldSign status on mount if signature is in draft or sent state
-  useEffect(() => {
-    if ((sale.signature_status === 'draft' || sale.signature_status === 'sent') && sale.id) {
-      salesAPI.signatureStatus(sale.id).then((res: any) => {
-        if (res.data?.status && res.data.status !== sigStatus) {
-          setSigStatus(res.data.status);
-          if (res.data.status === 'completed') onUpdate();
-        }
-      }).catch(() => { /* silent — manual Check Status still available */ });
-    }
-  }, [sale.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Per-card auto-poll removed: it was firing one BoldSign-touching request
+  // per card on mount, which on a page with 25+ active-signature cards would
+  // drain the backend DB pool (8 + 15 overflow = 23). Initial status now
+  // comes from the parent's batch hydration (DB-only) and stays fresh enough
+  // for the badge. Users can still hit "Check Status" for a live BoldSign
+  // check at any time.
 
   const handleUploadPdf = () => {
     const input = document.createElement('input');
