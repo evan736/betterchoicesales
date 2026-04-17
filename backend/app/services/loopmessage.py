@@ -6,8 +6,8 @@ providers via a single env var (TEXTING_PROVIDER).
 
 LoopMessage API:
 - Host: https://server.loopmessage.com
-- Auth: single `Authorization` header with the API key (LoopMessage
-  issues only one credential per account; no separate secret key).
+- Auth: TWO headers required — `Authorization` (auth key) and
+  `Loop-Secret-Key` (secret key). Missing either = code 125 or 130.
 - Send endpoint: POST /api/v1/message/send/
 - Body: recipient (E.164 or email), text, sender_name (UUID),
   attachments (array of URLs), optional status_callback.
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────────
 LOOPMESSAGE_API_KEY = os.getenv("LOOPMESSAGE_API_KEY", "")
+LOOPMESSAGE_SECRET_KEY = os.getenv("LOOPMESSAGE_SECRET_KEY", "")
 LOOPMESSAGE_SENDER_ID = os.getenv("LOOPMESSAGE_SENDER_ID", "")
 LOOPMESSAGE_FROM_NUMBER = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
 LOOPMESSAGE_BASE_URL = "https://server.loopmessage.com"
@@ -82,6 +83,8 @@ async def send_message(
 
     if not LOOPMESSAGE_API_KEY:
         return {"success": False, "error": "LOOPMESSAGE_API_KEY not configured"}
+    if not LOOPMESSAGE_SECRET_KEY:
+        return {"success": False, "error": "LOOPMESSAGE_SECRET_KEY not configured"}
     if not LOOPMESSAGE_SENDER_ID:
         return {"success": False, "error": "LOOPMESSAGE_SENDER_ID not configured"}
 
@@ -102,6 +105,7 @@ async def send_message(
                 json=payload,
                 headers={
                     "Authorization": LOOPMESSAGE_API_KEY,
+                    "Loop-Secret-Key": LOOPMESSAGE_SECRET_KEY,
                     "Content-Type": "application/json",
                 },
             )
@@ -179,7 +183,7 @@ _LOOPMESSAGE_ERROR_HINTS = {
     110: "Missing credentials in request",
     120: "One or more required parameters missing",
     125: "Authorization key invalid or missing (LOOPMESSAGE_API_KEY)",
-    130: "Secret key invalid or missing (LoopMessage no longer requires this for your account)",
+    130: "Secret key invalid or missing (LOOPMESSAGE_SECRET_KEY)",
     140: "No text in request",
     150: "No recipient in request",
     160: "Invalid recipient",
