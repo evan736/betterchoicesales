@@ -37,6 +37,52 @@ TWILIO_API_URL = (
     if TWILIO_ACCOUNT_SID else ""
 )
 
+# 10DLC compliance: the first outbound message to any recipient must carry
+# opt-out language. ~26 chars so there's plenty of room in a single segment.
+OPTOUT_FOOTER = "\n\nReply STOP to opt out."
+
+
+def _apply_optout_footer_if_first_contact(
+    db: Optional[Session], to_e164: str, content: str
+) -> str:
+    """Return content with opt-out footer appended if this is the first
+    outbound message to this recipient.
+
+    - No db → fail safe: append footer (compliance-first default).
+    - Content already mentions STOP/opt out → don't duplicate.
+    - Already sent to this number before → skip.
+    """
+    if not content:
+        content = ""
+
+    # Caller already included opt-out language — don't duplicate.
+    lowered = content.lower()
+    if "reply stop" in lowered or "stop to opt" in lowered or "text stop" in lowered:
+        return content
+
+    # Without a db session we can't check prior history; append footer to
+    # stay compliant rather than risk an unmarked first-contact message.
+    if db is None:
+        return content + OPTOUT_FOOTER
+
+    try:
+        row = db.execute(
+            sqlalchemy_text(
+                "SELECT 1 FROM text_messages "
+                "WHERE phone_number = :phone AND direction = 'outbound' "
+                "LIMIT 1"
+            ),
+            {"phone": to_e164},
+        ).fetchone()
+        already_texted = row is not None
+    except Exception as e:
+        logger.warning("opt-out footer history check failed for %s: %s — appending footer", to_e164, e)
+        return content + OPTOUT_FOOTER
+
+    if already_texted:
+        return content
+    return content + OPTOUT_FOOTER
+
 
 async def send_message(
     to_number: str,
@@ -59,10 +105,18 @@ async def send_message(
     if not TWILIO_SMS_NUMBER:
         return {"success": False, "error": "TWILIO_SMS_NUMBER not configured"}
 
+    # A2P 10DLC compliance: first message to any recipient must include opt-out
+    # language. After at least one prior outbound to the same number, no need
+    # to repeat. Skip if the caller explicitly already put STOP/opt-out wording
+    # in their content (avoid duplication).
+    body_text = _apply_optout_footer_if_first_contact(
+        db=db, to_e164=to_e164, content=content or "",
+    )
+
     form_data: dict = {
         "From": from_number or TWILIO_SMS_NUMBER,
         "To": to_e164,
-        "Body": (content or "")[:1600],
+        "Body": body_text[:1600],
         "StatusCallback": TWILIO_STATUS_CALLBACK,
     }
     if media_url:
@@ -93,7 +147,7 @@ async def send_message(
                         direction="outbound",
                         phone_number=to_e164,
                         from_number=form_data["From"],
-                        content=content,
+                        content=body_text,
                         media_url=media_url,
                         message_handle=message_handle,
                         status=status,
@@ -152,7 +206,7 @@ async def send_message(
                             direction="outbound",
                             phone_number=to_e164,
                             from_number=form_data["From"],
-                            content=content,
+                            content=body_text,
                             media_url=media_url,
                             message_handle="",
                             status="ERROR",
