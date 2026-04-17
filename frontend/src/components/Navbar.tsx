@@ -129,6 +129,7 @@ const Navbar: React.FC = () => {
   const [reshopBadge, setReshopBadge] = useState(0);
   const [inboxBadge, setInboxBadge] = useState(0);
   const [chatBadge, setChatBadge] = useState(0);
+  const [textingBadge, setTextingBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -163,11 +164,22 @@ const Navbar: React.FC = () => {
         );
         setChatBadge(r.data.total_unread || 0);
       } catch {}
+      // Texting unread count (admins only — matches link visibility)
+      if (isAdmin) {
+        try {
+          const token = localStorage.getItem('token');
+          const r = await axios.get(
+            `${API_BASE}/api/texting/unread-count`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          setTextingBadge(r.data.unread || 0);
+        } catch {}
+      }
     };
     load();
     const interval = setInterval(load, 30000);
     return () => clearInterval(interval);
-  }, [user, isManager]);
+  }, [user, isManager, isAdmin]);
 
   // SSE for live badge updates
   useEffect(() => {
@@ -241,7 +253,7 @@ const Navbar: React.FC = () => {
       label: 'Operations',
       items: [
         { href: '/smart-inbox', label: 'Smart Inbox', icon: <Mail size={16} />, show: canSeeInbox, badge: inboxBadge },
-        { href: '/texting', label: 'Texting', icon: <Smartphone size={16} />, show: isAdmin },
+        { href: '/texting', label: 'Texting', icon: <Smartphone size={16} />, show: isAdmin, badge: textingBadge },
         { href: '/beacon-kb', label: 'BEACON Knowledge', icon: <BookOpen size={16} />, show: isAdmin },
         { href: '/chat', label: 'Team Chat', icon: <MessageCircle size={16} />, show: true, badge: chatBadge },
         { href: '/commissions', label: 'Commissions', icon: <TrendingUp size={16} />, show: true },
