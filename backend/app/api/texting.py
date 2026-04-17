@@ -1,10 +1,11 @@
-"""Texting API — iMessage integration via LoopMessage.
+"""Texting API — SMS integration via Twilio.
 
-All routes live under /api/texting/*. This module replaces the former
-/api/sendblue/* routes 1:1 — the provider is now LoopMessage, full stop.
+All routes live under /api/texting/*. Provider is Twilio (phase 1 of the
+LoopMessage → Twilio migration).
 
 Endpoints:
-- POST /api/texting/webhook             — Unified LoopMessage webhook (inbound + status)
+- POST /api/texting/webhook             — Twilio inbound SMS webhook (form-encoded)
+- POST /api/texting/status-callback     — Twilio delivery status callback (form-encoded)
 - POST /api/texting/send                — Send a message (authenticated)
 - POST /api/texting/send-bulk           — Bulk send (admin/manager only)
 - GET  /api/texting/conversations       — List recent conversations
@@ -13,21 +14,22 @@ Endpoints:
 - GET  /api/texting/stats               — Dashboard stats
 - GET  /api/texting/provider            — Provider diagnostic info
 - GET  /api/texting/health              — Config check
-- POST /api/texting/check               — Live LoopMessage sandbox test (admin)
+- POST /api/texting/check               — Live Twilio credential check (admin)
 - POST /api/texting/test                — Send a test message to the office (admin)
 - POST /api/texting/messages/{id}/read  — Mark a single message as read
 - POST /api/texting/voice-note          — Record + send voice memo
 - GET  /api/texting/voice-note/{id}.caf — Public voice note serve URL
 
-Webhook setup in the LoopMessage dashboard:
-  All event types → https://better-choice-api.onrender.com/api/texting/webhook
+Twilio Console setup (on +16305267478):
+  A MESSAGE COMES IN → https://better-choice-api.onrender.com/api/texting/webhook
+  The /status-callback URL is attached per-send automatically — no Console wiring needed.
 """
 import os
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -43,8 +45,9 @@ from app.services.texting import (
     _log_message,
     update_message_status,
     get_conversation,
+    parse_inbound_webhook,
+    parse_status_callback,
 )
-from app.services.loopmessage import parse_inbound_webhook
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/texting", tags=["texting"])
@@ -137,127 +140,156 @@ def run_texting_migration(engine=None):
         logger.warning(f"Texting migration: {e}")
 
 
-# ── 1. LOOPMESSAGE UNIFIED WEBHOOK (inbound + status) ──────────────
+# ── 1. TWILIO INBOUND WEBHOOK ──────────────────────────────────────
 
 @router.post("/webhook")
-async def loopmessage_webhook(request: Request, db: Session = Depends(get_db)):
-    """Unified webhook for LoopMessage events.
+async def twilio_inbound_webhook(request: Request, db: Session = Depends(get_db)):
+    """Twilio inbound SMS webhook.
 
-    LoopMessage fires one URL for everything and keys events by `alert_type`:
-      - message_inbound  → new inbound iMessage from contact
-      - message_sent     → our outbound was delivered
-      - message_failed   → our outbound failed
-      - message_reaction → tapback (heart, thumbs up, etc.)
-      - message_timeout  → send timed out
+    Twilio POSTs form-encoded data (not JSON) when a customer texts our number.
+    We log the inbound message, match the customer, fire the notification email
+    and office-chat @mention, then return an empty TwiML response so Twilio
+    doesn't auto-reply on our behalf.
 
-    Set this URL in the LoopMessage dashboard for all event types:
-      https://better-choice-api.onrender.com/api/texting/webhook
+    Set this URL in the Twilio Console for +16305267478:
+      A MESSAGE COMES IN → https://better-choice-api.onrender.com/api/texting/webhook
     """
+    TWIML_EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
     try:
-        payload = await request.json()
-    except Exception:
-        return {"status": "error", "message": "Invalid JSON"}
+        form = await request.form()
+        payload = {k: (v if isinstance(v, str) else "") for k, v in form.items()}
+    except Exception as e:
+        logger.error("Twilio webhook form parse failed: %s", e)
+        return Response(content=TWIML_EMPTY, media_type="application/xml")
 
-    alert_type = payload.get("alert_type", "")
-    logger.info("LoopMessage webhook: alert_type=%s", alert_type)
+    parsed = parse_inbound_webhook(payload)
+    from_number = parsed["from_number"]
+    content = parsed["content"]
+    media_url = parsed["media_url"]
+    message_handle = parsed["message_handle"]
 
-    # Inbound message from a contact
-    if alert_type == "message_inbound":
-        parsed = parse_inbound_webhook(payload)
-        from_number = parsed["from_number"]
-        content = parsed["content"]
-        media_url = parsed["media_url"]
-        message_handle = parsed["message_handle"]
+    logger.info("Twilio inbound: from=%s sid=%s body_len=%d",
+                from_number, message_handle, len(content or ""))
 
-        customer_match = match_customer_by_phone(db, from_number)
-        customer_id = customer_match.get("customer_id") if customer_match else None
-        customer_name = customer_match.get("name", "Unknown") if customer_match else "Unknown"
+    customer_match = match_customer_by_phone(db, from_number)
+    customer_id = customer_match.get("customer_id") if customer_match else None
+    customer_name = customer_match.get("name", "Unknown") if customer_match else "Unknown"
 
-        msg_id = _log_message(
+    try:
+        _log_message(
             db=db, direction="inbound", phone_number=from_number,
             from_number=from_number, content=content, media_url=media_url,
-            message_handle=message_handle, status="RECEIVED", service="loopmessage",
+            message_handle=message_handle, status="RECEIVED", service="twilio",
             customer_id=customer_id, context="inbound_webhook", raw_payload=payload,
         )
+    except Exception as e:
+        logger.error("Twilio inbound log failed: %s", e)
 
+    try:
         _send_inbound_notification(
             from_number=from_number, content=content,
             customer_name=customer_name, customer_match=customer_match,
             media_url=media_url,
         )
+    except Exception as e:
+        logger.error("Inbound notification email failed: %s", e)
+
+    try:
         _post_to_office_chat(
             db=db, from_number=from_number, content=content, customer_name=customer_name
         )
-        return {"status": "ok", "message_id": msg_id, "customer_match": customer_name}
+    except Exception as e:
+        logger.error("Inbound office-chat post failed: %s", e)
 
-    # Delivery status updates
-    if alert_type in ("message_sent", "message_failed", "message_timeout"):
-        message_handle = payload.get("message_id", "") or payload.get("message_handle", "")
-        status_map = {
-            "message_sent": "DELIVERED",
-            "message_failed": "ERROR",
-            "message_timeout": "ERROR",
-        }
-        new_status = status_map[alert_type]
-        error_code = payload.get("code") or payload.get("error_code")
-        error_msg = payload.get("message") or payload.get("error_message", "")
+    return Response(content=TWIML_EMPTY, media_type="application/xml")
 
-        if message_handle:
-            update_message_status(
-                db=db, message_handle=message_handle, status=new_status,
-                error_code=str(error_code) if error_code else None,
-                service="loopmessage",
+
+@router.post("/status-callback")
+async def twilio_status_callback(request: Request, db: Session = Depends(get_db)):
+    """Twilio delivery status callback (form-encoded).
+
+    Attached per-send via the StatusCallback field in twilio_sms.send_message,
+    so no Twilio Console wiring is needed. Maps Twilio's lowercase statuses
+    (queued/sent/delivered/failed/undelivered) to our normalized uppercase set.
+    """
+    try:
+        form = await request.form()
+        payload = {k: (v if isinstance(v, str) else "") for k, v in form.items()}
+    except Exception as e:
+        logger.error("Twilio status callback form parse failed: %s", e)
+        return {"status": "error", "message": "Invalid form data"}
+
+    parsed = parse_status_callback(payload)
+    message_handle = parsed["message_handle"]
+    new_status = parsed["status"]
+    error_code = parsed["error_code"]
+    error_msg = parsed["error_message"]
+
+    if not message_handle:
+        return {"status": "ok", "note": "no message_handle"}
+
+    try:
+        update_message_status(
+            db=db, message_handle=message_handle, status=new_status,
+            error_code=str(error_code) if error_code else None,
+            service="twilio",
+        )
+    except Exception as e:
+        logger.error("Twilio status update failed: %s", e)
+
+    if new_status == "ERROR" and error_msg:
+        try:
+            db.execute(
+                text("UPDATE text_messages SET error_message = :msg WHERE message_handle = :handle"),
+                {"msg": error_msg, "handle": message_handle}
             )
-        if new_status == "ERROR" and error_msg:
-            try:
-                db.execute(
-                    text("UPDATE text_messages SET error_message = :msg WHERE message_handle = :handle"),
-                    {"msg": error_msg, "handle": message_handle}
-                )
-                db.commit()
-            except Exception:
-                pass
-        return {"status": "ok"}
+            db.commit()
+        except Exception:
+            pass
 
-    # Reactions / other — log raw for visibility, no-op
-    return {"status": "ok", "alert_type": alert_type}
+    return {"status": "ok", "new_status": new_status}
 
 
 # ── 2. PROVIDER STATUS (diagnostic) ────────────────────────────────
 
 @router.get("/provider")
 def get_provider_status(current_user: User = Depends(get_current_user)):
-    """Report LoopMessage configuration status (credentials present)."""
+    """Report Twilio SMS configuration status (credentials present)."""
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
     return {
-        "provider": "loopmessage",
+        "provider": "twilio",
         "configured": bool(
-            os.getenv("LOOPMESSAGE_API_KEY")
-            and os.getenv("LOOPMESSAGE_SENDER_ID")
+            account_sid
+            and os.getenv("TWILIO_AUTH_TOKEN")
+            and os.getenv("TWILIO_SMS_NUMBER")
         ),
-        "from_number": os.getenv("LOOPMESSAGE_FROM_NUMBER", ""),
-        "sender_id": os.getenv("LOOPMESSAGE_SENDER_ID", ""),
+        "from_number": os.getenv("TWILIO_SMS_NUMBER", ""),
+        "account_sid": (account_sid[:6] + "…" + account_sid[-4:]) if account_sid else "",
     }
 
 
-# ── 3. LIVE LOOPMESSAGE SANDBOX CHECK (admin) ──────────────────────
+# ── 3. LIVE TWILIO CREDENTIAL CHECK (admin) ────────────────────────
 
 @router.post("/check")
-async def loopmessage_live_check(current_user: User = Depends(get_current_user)):
-    """Hit LoopMessage with a sandbox send to verify sender activation.
+async def twilio_live_check(current_user: User = Depends(get_current_user)):
+    """Hit Twilio's Account API to verify credentials without sending an SMS.
 
-    Returns the raw API response so Evan can see if error code 240
-    (sender not activated) has cleared.
+    Returns the raw API response so Evan can see if the creds are valid
+    and the account is active.
     """
     if (current_user.role or "").lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
     import httpx
-    api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
-    sender = os.getenv("LOOPMESSAGE_SENDER_ID", "")
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    from_number = os.getenv("TWILIO_SMS_NUMBER", "")
     missing = [
         name for name, val in [
-            ("LOOPMESSAGE_API_KEY", api_key),
-            ("LOOPMESSAGE_SENDER_ID", sender),
+            ("TWILIO_ACCOUNT_SID", account_sid),
+            ("TWILIO_AUTH_TOKEN", auth_token),
+            ("TWILIO_SMS_NUMBER", from_number),
         ] if not val
     ]
     if missing:
@@ -265,23 +297,23 @@ async def loopmessage_live_check(current_user: User = Depends(get_current_user))
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://a.loopmessage.com/api/v1/message/send/",
-                json={
-                    "contact": "sandbox@imessage.im",
-                    "text": "ORBIT sandbox activation check",
-                    "sender": sender,
-                },
-                headers={
-                    "Authorization": api_key,
-                    "Content-Type": "application/json",
-                },
+            resp = await client.get(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}.json",
+                auth=(account_sid, auth_token),
             )
             data = resp.json() if resp.content else {}
+            account_status = (data.get("status") or "").lower()
             return {
                 "http_status": resp.status_code,
-                "api_response": data,
-                "activated": bool(data.get("success")) and data.get("code") != 240,
+                "api_response": {
+                    "friendly_name": data.get("friendly_name"),
+                    "status": data.get("status"),
+                    "type": data.get("type"),
+                    "sid": data.get("sid"),
+                },
+                "credentials_valid": resp.status_code == 200,
+                "account_active": account_status == "active",
+                "from_number": from_number,
             }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -295,7 +327,7 @@ async def send_text(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Send an iMessage to a phone number."""
+    """Send an SMS to a phone number via Twilio."""
     result = await send_message(
         to_number=req.to_number,
         content=req.content,
@@ -543,11 +575,13 @@ def texting_stats(
         stats["failed"] = row[0] if row else 0
 
         row = db.execute(
+            text("SELECT COUNT(*) FROM text_messages WHERE service = 'twilio' OR service ILIKE '%sms%'")
+        ).fetchone()
+        stats["sms_count"] = row[0] if row else 0
+        row = db.execute(
             text("SELECT COUNT(*) FROM text_messages WHERE service ILIKE '%imessage%' OR service = 'loopmessage'")
         ).fetchone()
         stats["imessage_count"] = row[0] if row else 0
-        row = db.execute(text("SELECT COUNT(*) FROM text_messages WHERE service ILIKE '%sms%'")).fetchone()
-        stats["sms_count"] = row[0] if row else 0
 
         ctx_rows = db.execute(text("""
             SELECT context, COUNT(*) FROM text_messages
@@ -569,13 +603,13 @@ async def test_send(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Send a test message to the office to confirm LoopMessage integration."""
+    """Send a test message to the office to confirm Twilio SMS integration."""
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
     result = await send_message(
         to_number="+18479085665",
-        content="✅ ORBIT LoopMessage test — iMessage integration is working!",
+        content="✅ ORBIT Twilio SMS test — texting integration is working!",
         db=db,
         context="test",
         sent_by="system",
@@ -729,17 +763,21 @@ def serve_voice_note(note_id: str, db: Session = Depends(get_db)):
 
 @router.get("/health")
 def texting_health():
-    """Check LoopMessage configuration. Public (no auth) for uptime checks."""
-    api_key = os.getenv("LOOPMESSAGE_API_KEY", "")
-    sender_id = os.getenv("LOOPMESSAGE_SENDER_ID", "")
-    from_number = os.getenv("LOOPMESSAGE_FROM_NUMBER", "")
+    """Check Twilio SMS configuration. Public (no auth) for uptime checks."""
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    from_number = os.getenv("TWILIO_SMS_NUMBER", "")
     return {
-        "status": "ok" if (api_key and sender_id) else "missing_credentials",
-        "provider": "loopmessage",
+        "status": "ok" if (account_sid and auth_token and from_number) else "missing_credentials",
+        "provider": "twilio",
         "from_number": from_number or "NOT SET",
-        "api_key_set": bool(api_key),
-        "sender_id_set": bool(sender_id),
+        "account_sid_set": bool(account_sid),
+        "auth_token_set": bool(auth_token),
         "webhook": "https://better-choice-api.onrender.com/api/texting/webhook",
+        "status_callback": os.getenv(
+            "TWILIO_STATUS_CALLBACK",
+            "https://better-choice-api.onrender.com/api/texting/status-callback",
+        ),
     }
 
 
@@ -780,7 +818,6 @@ def _send_inbound_notification(
     <div style="max-width:500px;margin:0 auto;background:#1a2744;border-radius:12px;overflow:hidden;border:1px solid rgba(56,189,248,0.2);">
         <div style="background:linear-gradient(135deg,#0ea5e9,#2563eb);padding:16px 20px;">
             <h2 style="margin:0;color:white;font-size:16px;">💬 Inbound Text Message</h2>
-            <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:12px;">via LoopMessage</p>
         </div>
         <div style="padding:20px;">
             <table style="width:100%;border-collapse:collapse;">
