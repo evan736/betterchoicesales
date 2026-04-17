@@ -626,6 +626,30 @@ def texting_stats(
         return {"error": str(e)}
 
 
+@router.get("/unread-count")
+def texting_unread_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight unread-count endpoint for the Navbar badge.
+
+    Uses the team-shared per-message `read` flag on text_messages. When any
+    producer opens a conversation, all inbound messages on that thread are
+    marked read for everyone — matching how the team already works the
+    shared inbox.
+
+    Cheap single COUNT(*); safe to poll every 30s.
+    """
+    try:
+        row = db.execute(
+            text("SELECT COUNT(*) FROM text_messages WHERE direction='inbound' AND read=FALSE")
+        ).fetchone()
+        return {"unread": row[0] if row else 0}
+    except Exception as e:
+        logger.error("unread-count failed: %s", e)
+        return {"unread": 0, "error": str(e)}
+
+
 # ── 10. TEST SEND (admin) ──────────────────────────────────────────
 
 @router.post("/test")
