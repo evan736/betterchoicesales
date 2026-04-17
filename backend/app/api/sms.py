@@ -76,24 +76,34 @@ def send_sms(to: str, body: str) -> dict:
 
 @router.post("/inbound")
 async def inbound_sms(request: Request):
-    """Auto-reply to any inbound SMS with a 'not monitored' message.
+    """DEPRECATED safety-net for the old inbound SMS webhook.
 
-    Twilio expects a TwiML response.
+    Real inbound SMS now routes to /api/texting/webhook (Twilio → Texting UI).
+    This endpoint remains only as a fallback in case the Twilio Console webhook
+    for +16305267478 hasn't been flipped yet. It no longer sends the old
+    'not monitored' auto-reply — that was the whole point of dropping LoopMessage
+    and going two-way on Twilio.
+
+    If this endpoint is being hit, the Twilio Console webhook is misconfigured:
+      Messaging → A MESSAGE COMES IN  should be
+      https://better-choice-api.onrender.com/api/texting/webhook
     """
     try:
         form = await request.form()
         from_number = form.get("From", "")
         body = form.get("Body", "")
-        logger.info("Inbound SMS from %s: %s", from_number, body[:100])
-    except Exception:
-        pass
+        logger.warning(
+            "[sms.py /inbound] DEPRECATED webhook hit — from=%s body=%s. "
+            "Flip Twilio Console webhook to /api/texting/webhook.",
+            from_number, body[:100]
+        )
+    except Exception as e:
+        logger.warning("[sms.py /inbound] DEPRECATED webhook hit, form parse failed: %s", e)
 
-    # Return TwiML auto-reply
-    twiml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>This number is not monitored for text messages. For assistance, please call Better Choice Insurance Group at (847) 908-5665.</Message>
-</Response>"""
-
+    # Empty TwiML — no auto-reply. Twilio gets a valid empty response; the
+    # sender gets nothing back; we've logged the hit so Evan can fix the
+    # Twilio Console wiring.
+    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
     return Response(content=twiml, media_type="application/xml")
 
 
