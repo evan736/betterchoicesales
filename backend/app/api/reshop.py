@@ -1561,7 +1561,9 @@ def create_reshop_from_customer(
     db: Session = Depends(get_db),
 ):
     """Quick-create a reshop from the customer card. Pulls customer + policy info automatically."""
-    if not _can_access(current_user):
+    # Producers can submit referrals from the customer card but cannot view the pipeline.
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
