@@ -147,8 +147,9 @@ export default function ChatPanel() {
   useEffect(() => {
     notifAudio.current = new Audio('/notification.wav');
     notifAudio.current.volume = 0.8;
-    mentionAudio.current = new Audio('/mention.wav');
-    mentionAudio.current.volume = 1.0;
+    // mentionAudio removed — mention now plays a double-chirp of the same
+    // notification.wav at normal volume; the old /mention.wav was a loud
+    // scream that ignored mute. See SSE handler below.
   }, []);
 
   // Load channels + unread on mount
@@ -219,16 +220,20 @@ export default function ChatPanel() {
                                (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
                                (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
             if (isMentioned && msg?.sender_id !== user?.id) {
-              // Play urgent mention sound — ALWAYS plays even if muted
-              try {
-                const playMention = () => {
-                  const a = new Audio('/mention.wav');
-                  a.volume = 1.0;
-                  a.play().catch(() => {});
-                };
-                playMention();
-                setTimeout(playMention, 800);
-              } catch {}
+              // Mention sound: two soft chirps of the notification wav.
+              // Respects mute. Previously used /mention.wav at full volume
+              // and ignored mute — jarring scream.
+              if (soundEnabledRef.current) {
+                try {
+                  const playChirp = () => {
+                    const a = new Audio('/notification.wav');
+                    a.volume = 0.8;
+                    a.play().catch(() => {});
+                  };
+                  playChirp();
+                  setTimeout(playChirp, 400);
+                } catch {}
+              }
             }
             // Refresh unread counts
             loadUnread();
@@ -317,16 +322,19 @@ export default function ChatPanel() {
 
       // Only play sounds when count genuinely INCREASES (not on first load, not on stale counts)
       if (prevMentionsRef.current >= 0 && newMentions > prevMentionsRef.current) {
-        // Mention sound — ALWAYS plays even if muted
-        try {
-          const playMention = () => {
-            const a = new Audio('/mention.wav');
-            a.volume = 1.0;
-            a.play().catch(() => {});
-          };
-          playMention();
-          setTimeout(playMention, 800);
-        } catch {}
+        // Mention: two soft chirps of the notification wav, respects mute.
+        // Previously a full-volume scream that ignored mute.
+        if (soundEnabledRef.current) {
+          try {
+            const playChirp = () => {
+              const a = new Audio('/notification.wav');
+              a.volume = 0.8;
+              a.play().catch(() => {});
+            };
+            playChirp();
+            setTimeout(playChirp, 400);
+          } catch {}
+        }
       } else if (prevUnreadRef.current >= 0 && newTotal > prevUnreadRef.current) {
         // Regular notification — respects mute
         if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
