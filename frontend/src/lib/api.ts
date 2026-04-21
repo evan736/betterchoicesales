@@ -63,6 +63,7 @@ export const salesAPI = {
       timeout: 180000,
     });
   },
+  natgenPromoProgress: () => api.get('/api/sales/natgen-promo-progress'),
 };
 
 // Commissions API

@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { salesAPI, surveyAPI, adminAPI } from '../lib/api';
-import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown, Search } from 'lucide-react';
+import { Plus, FileText, Upload, X, Check, Trash2, FileUp, Loader2, AlertCircle, Edit3, Calendar, ChevronDown, Search, Trophy, Target } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 
 // ── Date range helpers ──────────────────────────────────────────────
@@ -49,6 +49,204 @@ function getMonthPresets(): { value: string; label: string; from: string; to: st
   }
   return presets;
 }
+
+// ── NatGen Summer Promo Tracker ─────────────────────────────────────
+// Lightweight progress tracker pinned to the top of the Sales page during the
+// NatGen promo (April 20 - September 30, 2026). Shows the office total vs.
+// the 250-policy team goal plus per-producer progress. Polls every 60s and
+// refreshes whenever the SSE 'sales:new' event fires.
+
+const PROMO_END_DATE = new Date('2026-09-30T23:59:59');
+
+function daysRemaining(): number {
+  const now = new Date();
+  const diff = PROMO_END_DATE.getTime() - now.getTime();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
+
+interface PromoData {
+  window: { start: string; end: string };
+  team_goal: number;
+  team_current: number;
+  team_pct: number;
+  team_hit_goal: boolean;
+  producers: Array<{
+    id: number;
+    name: string;
+    username: string;
+    goal: number;
+    current: number;
+    pct: number;
+    hit_goal: boolean;
+  }>;
+}
+
+const ProgressBar: React.FC<{ pct: number; hit: boolean; height?: string }> = ({ pct, hit, height = 'h-2.5' }) => {
+  // Clamp to 100 for visual; actual pct may exceed
+  const visualPct = Math.min(pct, 100);
+  return (
+    <div className={`w-full bg-slate-200 rounded-full ${height} overflow-hidden`}>
+      <div
+        className={`${height} rounded-full transition-all duration-500 ${
+          hit
+            ? 'bg-gradient-to-r from-emerald-400 to-emerald-600'
+            : pct >= 75
+            ? 'bg-gradient-to-r from-amber-400 to-amber-500'
+            : 'bg-gradient-to-r from-blue-400 to-blue-600'
+        }`}
+        style={{ width: `${visualPct}%` }}
+      />
+    </div>
+  );
+};
+
+const NatGenPromoTracker: React.FC = () => {
+  const [data, setData] = useState<PromoData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await salesAPI.natgenPromoProgress();
+      setData(res.data);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Failed to load promo progress');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 60000); // poll every minute
+    return () => clearInterval(interval);
+  }, [load]);
+
+  // Also refresh on the shared SSE event the main sales list listens to
+  useEffect(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${baseUrl}/api/events/stream`);
+      es.addEventListener('sales:new', () => load());
+      es.addEventListener('sales:updated', () => load());
+      es.onerror = () => es?.close();
+    } catch {}
+    return () => es?.close();
+  }, [load]);
+
+  if (loading && !data) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+        <div className="flex items-center text-slate-500 text-sm">
+          <Loader2 size={14} className="animate-spin mr-2" />
+          Loading NatGen promo tracker...
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    // Silent-ish failure — don't break the page if the tracker is down
+    return null;
+  }
+
+  const daysLeft = daysRemaining();
+
+  return (
+    <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-xl shadow-lg border border-blue-900 p-5 mb-6 text-white relative overflow-hidden">
+      {/* Decorative accent */}
+      <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+      <div className="relative">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg shadow-lg">
+              <Trophy size={20} className="text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-lg text-white">NatGen Summer Promo</h2>
+              <p className="text-xs text-blue-200">
+                April 20 – September 30 · {daysLeft} day{daysLeft === 1 ? '' : 's'} remaining
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-blue-200 hover:text-white transition-colors text-xs font-semibold px-2 py-1 rounded hover:bg-white/10"
+          >
+            {collapsed ? 'Show details' : 'Hide details'}
+          </button>
+        </div>
+
+        {/* Team progress — always visible */}
+        <div className="mb-4">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <div className="flex items-center space-x-2">
+              <Target size={14} className="text-cyan-400" />
+              <span className="text-sm font-semibold text-white">Office Goal</span>
+              {data.team_hit_goal && (
+                <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-semibold">
+                  ✓ Goal Hit!
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-blue-100">
+              <span className="text-xl font-bold text-white">{data.team_current}</span>
+              <span className="text-blue-200"> / {data.team_goal} policies</span>
+              <span className="ml-2 text-cyan-300 font-semibold">({data.team_pct}%)</span>
+            </div>
+          </div>
+          <ProgressBar pct={data.team_pct} hit={data.team_hit_goal} height="h-3" />
+        </div>
+
+        {/* Per-producer leaderboard */}
+        {!collapsed && (
+          <div className="space-y-2.5 pt-3 border-t border-white/10">
+            {data.producers.map((p, idx) => (
+              <div key={p.id} className="flex items-center space-x-3">
+                <div className="w-6 flex-shrink-0 text-center">
+                  <span className={`text-xs font-bold ${
+                    idx === 0 ? 'text-amber-400' :
+                    idx === 1 ? 'text-slate-300' :
+                    idx === 2 ? 'text-orange-400' :
+                    'text-blue-300'
+                  }`}>
+                    {idx + 1}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-sm font-medium text-white truncate">
+                      {p.name}
+                      {p.hit_goal && (
+                        <span className="ml-2 text-xs px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded font-semibold">
+                          ✓ Goal
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs text-blue-100 flex-shrink-0 ml-2">
+                      <span className="font-bold text-white">{p.current}</span>
+                      <span className="text-blue-300"> / {p.goal}</span>
+                    </span>
+                  </div>
+                  <ProgressBar pct={p.pct} hit={p.hit_goal} />
+                </div>
+              </div>
+            ))}
+            <div className="pt-2 text-xs text-blue-300/80 italic">
+              Only NatGen policies sold AND effective within the promo window count. Live — updates as sales are added.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 export default function Sales() {
   const { user, loading } = useAuth();
@@ -221,6 +419,9 @@ export default function Sales() {
             </p>
           </div>
         )}
+
+        {/* NatGen Summer Promo Tracker */}
+        <NatGenPromoTracker />
 
         {/* Date Filter Bar */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-6">

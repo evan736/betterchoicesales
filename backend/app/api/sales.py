@@ -1179,11 +1179,115 @@ def debug_sale_counts(
     
     total = db.query(func.count(Sale.id)).scalar()
     null_dates = db.query(func.count(Sale.id)).filter(Sale.sale_date.is_(None)).scalar()
-    
     return {
         "total_sales": total,
         "null_sale_dates": null_dates,
         "by_month": [{"year": r.y, "month": r.m, "count": r.cnt, "premium": float(r.premium or 0)} for r in results],
+    }
+
+
+
+# ── NatGen Summer Promo tracker ────────────────────────────────────────
+# Promo window: April 20, 2026 through September 30, 2026.
+# Team goal: 250 NatGen policies. Individual goals:
+#   Joseph Rivera, Giulian Baez: 75 each
+#   Salma Marquez, Michelle Robles: 50 each
+# Only NatGen policies sold AND effective within the promo window count.
+# Returns per-producer progress plus team aggregate. Available to any
+# logged-in user so producers can see their own progress on the sales page.
+NATGEN_PROMO_WINDOW_START = "2026-04-20"
+NATGEN_PROMO_WINDOW_END = "2026-09-30"
+NATGEN_PROMO_TEAM_GOAL = 250
+NATGEN_PROMO_PRODUCER_GOALS = {
+    # (username prefix, full_name match) → goal
+    "joseph.rivera": 75,
+    "giulian.baez": 75,
+    "salma.marquez": 50,
+    "michelle.robles": 50,
+}
+
+
+@router.get("/natgen-promo-progress")
+def natgen_promo_progress(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Progress tracker for the NatGen Summer Promo.
+
+    Counts NatGen policies where BOTH sale_date AND effective_date fall inside
+    the promo window (April 20 - September 30, 2026). Returns individual
+    progress for the four promo participants plus the team total.
+
+    Visible to all authenticated users. Role-based visibility of *other
+    producers' numbers* is handled on the frontend so every team member can
+    see the leaderboard.
+    """
+    from sqlalchemy import func
+
+    window_start = datetime.strptime(NATGEN_PROMO_WINDOW_START, "%Y-%m-%d")
+    window_end = datetime.strptime(NATGEN_PROMO_WINDOW_END, "%Y-%m-%d") + timedelta(days=1)  # inclusive
+
+    # Load the promo participants up front
+    participants = (
+        db.query(User)
+        .filter(func.lower(User.username).in_(list(NATGEN_PROMO_PRODUCER_GOALS.keys())))
+        .all()
+    )
+
+    # Base filter: NatGen, in window on BOTH sale_date and effective_date
+    base_query = (
+        db.query(Sale.producer_id, func.count(Sale.id))
+        .filter(Sale.carrier == "National General")
+        .filter(Sale.sale_date >= window_start)
+        .filter(Sale.sale_date < window_end)
+        .filter(Sale.effective_date >= window_start)
+        .filter(Sale.effective_date < window_end)
+        .group_by(Sale.producer_id)
+    )
+    counts_by_producer = {pid: cnt for pid, cnt in base_query.all()}
+
+    producers_out = []
+    for p in participants:
+        goal = NATGEN_PROMO_PRODUCER_GOALS.get((p.username or "").lower(), 0)
+        current = counts_by_producer.get(p.id, 0)
+        pct = round((current / goal) * 100, 1) if goal > 0 else 0
+        producers_out.append({
+            "id": p.id,
+            "name": p.full_name or p.username,
+            "username": p.username,
+            "goal": goal,
+            "current": current,
+            "pct": min(pct, 100.0),
+            "hit_goal": current >= goal,
+        })
+
+    # Sort by current descending so the leaderboard ranks by production
+    producers_out.sort(key=lambda x: (-x["current"], x["name"]))
+
+    # Team total includes ALL NatGen sales in window, not just the 4 promo participants —
+    # because if Evan or anyone else writes one, it still contributes to the office goal.
+    # Per Evan's latest instruction the team goal is 250 total NatGen policies.
+    team_total_query = (
+        db.query(func.count(Sale.id))
+        .filter(Sale.carrier == "National General")
+        .filter(Sale.sale_date >= window_start)
+        .filter(Sale.sale_date < window_end)
+        .filter(Sale.effective_date >= window_start)
+        .filter(Sale.effective_date < window_end)
+    )
+    team_current = team_total_query.scalar() or 0
+    team_pct = round((team_current / NATGEN_PROMO_TEAM_GOAL) * 100, 1) if NATGEN_PROMO_TEAM_GOAL else 0
+
+    return {
+        "window": {
+            "start": NATGEN_PROMO_WINDOW_START,
+            "end": NATGEN_PROMO_WINDOW_END,
+        },
+        "team_goal": NATGEN_PROMO_TEAM_GOAL,
+        "team_current": team_current,
+        "team_pct": min(team_pct, 100.0),
+        "team_hit_goal": team_current >= NATGEN_PROMO_TEAM_GOAL,
+        "producers": producers_out,
     }
 
 
