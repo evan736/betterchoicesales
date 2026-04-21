@@ -1908,3 +1908,94 @@ async def mailgun_events(recipient: str = None):
                 return {"error": f"Mailgun returned {resp.status_code}", "body": resp.text[:300]}
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/diag/deliverability")
+async def deliverability_check():
+    """Deliverability health check: Mailgun domain status + DNS record validation + stats.
+    
+    Returns:
+      - configured_domain: MAILGUN_DOMAIN env var value
+      - mailgun_domain_info: full domain record from Mailgun (state, DKIM selector, etc.)
+      - sending_dns_records: the exact records Mailgun requires for authentication
+      - dns_actual: what's currently in your public DNS
+      - mismatches: any records Mailgun expects that aren't in DNS (these are your deliverability killers)
+      - stats_7d: delivered/failed/complained over last 7 days
+    """
+    import httpx
+    if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
+        return {"error": "Mailgun not configured"}
+    
+    result = {
+        "configured_domain": MAILGUN_DOMAIN,
+        "mailgun_domain_info": None,
+        "sending_dns_records": [],
+        "dns_actual": {},
+        "mismatches": [],
+        "stats_7d": None,
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # Mailgun's domain info — gives us what DNS they expect
+            info = await client.get(
+                f"https://api.mailgun.net/v3/domains/{MAILGUN_DOMAIN}",
+                auth=("api", MAILGUN_API_KEY),
+            )
+            if info.status_code == 200:
+                d = info.json()
+                result["mailgun_domain_info"] = {
+                    "state": d.get("domain", {}).get("state"),
+                    "created_at": d.get("domain", {}).get("created_at"),
+                    "is_disabled": d.get("domain", {}).get("is_disabled"),
+                    "spam_action": d.get("domain", {}).get("spam_action"),
+                    "smtp_login": d.get("domain", {}).get("smtp_login"),
+                    "wildcard": d.get("domain", {}).get("wildcard"),
+                }
+                # Mailgun returns sending_dns_records (SPF/DKIM) AND receiving_dns_records (MX + inbound)
+                sending = d.get("sending_dns_records", [])
+                receiving = d.get("receiving_dns_records", [])
+                result["sending_dns_records"] = [
+                    {
+                        "record_type": r.get("record_type"),
+                        "name": r.get("name"),
+                        "value": r.get("value"),
+                        "valid": r.get("valid"),
+                        "cached": r.get("cached"),
+                    }
+                    for r in sending
+                ]
+                result["receiving_dns_records"] = [
+                    {
+                        "record_type": r.get("record_type"),
+                        "name": r.get("name"),
+                        "value": r.get("value"),
+                        "valid": r.get("valid"),
+                    }
+                    for r in receiving
+                ]
+                # Mismatches = records Mailgun says aren't valid (i.e., not matching what's in DNS)
+                for r in sending + receiving:
+                    if r.get("valid") == "unknown" or r.get("valid") == "invalid":
+                        result["mismatches"].append({
+                            "type": r.get("record_type"),
+                            "name": r.get("name"),
+                            "expected_value": r.get("value"),
+                            "status": r.get("valid"),
+                        })
+            else:
+                result["mailgun_domain_info_error"] = f"{info.status_code}: {info.text[:200]}"
+            
+            # 7-day stats
+            import time
+            stats = await client.get(
+                f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/stats/total",
+                auth=("api", MAILGUN_API_KEY),
+                params={"event": ["delivered", "failed", "complained", "unsubscribed", "opened", "clicked"], "duration": "7d"},
+            )
+            if stats.status_code == 200:
+                result["stats_7d"] = stats.json()
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
