@@ -30,6 +30,7 @@ class UserInDB(UserBase):
     commission_tier: int
     is_active: bool
     is_superuser: bool
+    must_change_password: bool = False
     created_at: datetime
     updated_at: Optional[datetime]
 

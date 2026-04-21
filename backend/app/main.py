@@ -222,6 +222,15 @@ def init_database():
                 EXCEPTION WHEN others THEN NULL;
                 END $$;
             """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='must_change_password') THEN
+                        ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+                    END IF;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
             conn.commit()
             conn.execute(text("""
                 DO $$
@@ -1368,6 +1377,15 @@ def force_migrate():
         results.append("OK: Added users.commission_rate_override")
     except Exception as e:
         results.append(f"SKIP users.commission_rate_override: {str(e)[:80]}")
+
+    # Ensure must_change_password column on users
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.commit()
+        results.append("OK: Added users.must_change_password")
+    except Exception as e:
+        results.append(f"SKIP users.must_change_password: {str(e)[:80]}")
 
     # Ensure is_renewal_term column on statement_lines
     try:

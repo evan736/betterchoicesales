@@ -107,13 +107,42 @@ const EmployeesTab = () => {
   };
 
   const handleCreate = async () => {
+    // Client-side validation — match backend min_length=8 and required fields
+    const missing: string[] = [];
+    if (!form.full_name.trim()) missing.push('Full name');
+    if (!form.email.trim()) missing.push('Email');
+    if (!form.username.trim()) missing.push('Username');
+    if (!form.password) missing.push('Password');
+    if (missing.length) {
+      toast.error(`Missing required fields: ${missing.join(', ')}`);
+      return;
+    }
+    if (form.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
     try {
-      await adminAPI.createEmployee(form);
+      const res = await adminAPI.createEmployee(form);
+      const emailStatus = res.data?.welcome_email;
+      if (emailStatus?.attempted && emailStatus?.success) {
+        toast.success(`${form.full_name} added — welcome email sent`);
+      } else if (emailStatus?.attempted && !emailStatus?.success) {
+        toast.success(`${form.full_name} added — but welcome email failed to send (${emailStatus?.error || 'unknown'}). You can resend from the admin panel.`);
+      } else {
+        toast.success(`${form.full_name} added successfully`);
+      }
       setShowCreate(false);
       setForm({ email: '', username: '', full_name: '', password: '', role: 'producer', producer_code: '', commission_tier: 1 });
       load();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to create employee');
+      // Surface the real reason rather than a generic message.
+      // 422 validation errors come back as an array of {loc, msg}
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        toast.error(detail.map((d: any) => d.msg || JSON.stringify(d)).join('; '));
+      } else {
+        toast.error(detail || 'Failed to create employee');
+      }
     }
   };
 
@@ -177,7 +206,7 @@ const EmployeesTab = () => {
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             <input placeholder="Username *" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })}
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm" />
-            <input placeholder="Password *" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}
+            <input placeholder="Password * (8+ chars)" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
               className="border border-slate-300 rounded-lg px-3 py-2 text-sm">

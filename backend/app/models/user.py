@@ -29,6 +29,10 @@ class User(Base):
     producer_code = Column(String, unique=True, nullable=True, index=True)
     commission_tier = Column(Integer, default=1)  # Default tier
     commission_rate_override = Column(Numeric(5, 4), nullable=True)  # Flat rate override (e.g. 0.03 = 3%), bypasses tier
+
+    # Force password change on next login (set true for newly-created employees
+    # who received a temporary password via welcome email)
+    must_change_password = Column(Boolean, default=False, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

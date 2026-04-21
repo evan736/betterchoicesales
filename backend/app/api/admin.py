@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from app.core.database import get_db
@@ -29,10 +29,11 @@ class CreateEmployeeRequest(BaseModel):
     email: str
     username: str
     full_name: str
-    password: str
+    password: str = Field(..., min_length=8)
     role: str = "producer"
     producer_code: Optional[str] = None
     commission_tier: int = 1
+    send_welcome_email: bool = True
 
 class UpdateEmployeeRequest(BaseModel):
     email: Optional[str] = None
@@ -101,33 +102,71 @@ def create_employee(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a new employee."""
+    """Create a new employee.
+
+    Sets must_change_password=True on the new account so the user is forced
+    to set their own password on first login. Sends a BCI-branded welcome
+    email with the temporary password unless send_welcome_email=False.
+    """
     require_admin(current_user)
 
+    # Basic trim/normalize
+    email = (data.email or "").strip().lower()
+    username = (data.username or "").strip().lower()
+    full_name = (data.full_name or "").strip()
+
+    if not email or not username or not full_name:
+        raise HTTPException(status_code=400, detail="Name, email, and username are required")
+
     # Check for duplicates
-    if db.query(User).filter(User.email == data.email).first():
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
-    if db.query(User).filter(User.username == data.username).first():
+    if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
     if data.producer_code and db.query(User).filter(User.producer_code == data.producer_code).first():
         raise HTTPException(status_code=400, detail="Producer code already exists")
 
     user = User(
-        email=data.email,
-        username=data.username,
-        full_name=data.full_name,
+        email=email,
+        username=username,
+        full_name=full_name,
         hashed_password=get_password_hash(data.password),
         role=data.role,
         producer_code=data.producer_code,
         commission_tier=data.commission_tier,
         is_active=True,
+        must_change_password=True,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
     logger.info(f"Admin {current_user.username} created employee {user.username}")
-    return {"success": True, "id": user.id, "username": user.username}
+
+    # Send welcome email with temp credentials (non-fatal if it fails —
+    # the account exists either way and admin can resend / reset later).
+    email_result = {"attempted": False}
+    if data.send_welcome_email:
+        try:
+            from app.services.employee_welcome_email import send_employee_welcome_email
+            email_result = send_employee_welcome_email(
+                to_email=user.email,
+                full_name=user.full_name,
+                username=user.username,
+                temp_password=data.password,
+                role=user.role,
+            )
+            email_result["attempted"] = True
+        except Exception as e:
+            logger.error(f"Employee welcome email threw for {user.username}: {e}")
+            email_result = {"attempted": True, "success": False, "error": str(e)}
+
+    return {
+        "success": True,
+        "id": user.id,
+        "username": user.username,
+        "welcome_email": email_result,
+    }
 
 
 @router.put("/employees/{user_id}")

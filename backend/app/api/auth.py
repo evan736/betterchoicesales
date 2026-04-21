@@ -165,3 +165,42 @@ def forgot_password(request_data: dict, db: Session = Depends(get_db)):
         logger.error("Failed to send password reset email: %s", e)
     
     return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+# ── Change password (self-service) ────────────────────────────────────
+
+from pydantic import BaseModel, Field as PydField
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = PydField(..., min_length=8)
+
+
+@router.post("/change-password")
+def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Allow a logged-in user to change their own password.
+
+    Used by:
+      - Users freshly created by Admin (must_change_password=True) on first login
+      - Any user choosing to change their password from their account menu
+
+    Verifies the current password, writes the new hash, and clears the
+    must_change_password flag so the UI stops forcing the redirect.
+    """
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if data.current_password == data.new_password:
+        raise HTTPException(status_code=400, detail="New password must differ from current password")
+
+    current_user.hashed_password = get_password_hash(data.new_password)
+    current_user.must_change_password = False
+    db.commit()
+
+    logger.info(f"User {current_user.username} changed their password")
+    return {"success": True, "message": "Password updated"}

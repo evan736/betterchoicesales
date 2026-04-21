@@ -90,8 +90,21 @@ function AppLayout({ Component, pageProps }: { Component: any; pageProps: any })
     pathname.startsWith('/survey') ||
     pathname.startsWith('/renewal-survey') ||
     pathname.startsWith('/login') ||
-    pathname.startsWith('/esign')
+    pathname.startsWith('/esign') ||
+    pathname.startsWith('/change-password')
   );
+
+  // Force users with must_change_password=true onto the change-password page.
+  // Ignore if they're already there, or on a public page. Runs after every
+  // render so it traps navigation attempts.
+  React.useEffect(() => {
+    if (!user) return;
+    if (!user.must_change_password) return;
+    if (typeof window === 'undefined') return;
+    if (window.location.pathname.startsWith('/change-password')) return;
+    if (isPublicPage) return;
+    window.location.href = '/change-password';
+  }, [user, pathname, isPublicPage]);
 
   if (!user || isPublicPage) {
     return <Component {...pageProps} />;
