@@ -1191,7 +1191,7 @@ def debug_sale_counts(
 # Promo window: April 20, 2026 through September 30, 2026.
 # Team goal: 250 NatGen policies. Individual goals:
 #   Joseph Rivera, Giulian Baez: 75 each
-#   Salma Marquez, Michelle Robles: 50 each
+#   Salma Marquez, Michelle Robles, April Wilson: 50 each
 # Only NatGen policies sold AND effective within the promo window count.
 # Returns per-producer progress plus team aggregate. Available to any
 # logged-in user so producers can see their own progress on the sales page.
@@ -1204,6 +1204,7 @@ NATGEN_PROMO_PRODUCER_GOALS = {
     "giulian.baez": 75,
     "salma.marquez": 50,
     "michelle.robles": 50,
+    "april.wilson": 50,
 }
 
 
