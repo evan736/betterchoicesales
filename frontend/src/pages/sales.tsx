@@ -74,9 +74,9 @@ interface PromoData {
     id: number;
     name: string;
     username: string;
-    goal: number;
+    goal: number | null;
     current: number;
-    pct: number;
+    pct: number | null;
     hit_goal: boolean;
   }>;
 }
@@ -222,18 +222,29 @@ const NatGenPromoTracker: React.FC = () => {
                   <div className="flex items-baseline justify-between mb-1">
                     <span className="text-sm font-medium text-white truncate">
                       {p.name}
-                      {p.hit_goal && (
+                      {p.hit_goal && p.goal != null && (
                         <span className="ml-2 text-xs px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded font-semibold">
                           ✓ Goal
+                        </span>
+                      )}
+                      {p.goal == null && (
+                        <span className="ml-2 text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-200 rounded font-medium">
+                          Tracking only
                         </span>
                       )}
                     </span>
                     <span className="text-xs text-blue-100 flex-shrink-0 ml-2">
                       <span className="font-bold text-white">{p.current}</span>
-                      <span className="text-blue-300"> / {p.goal}</span>
+                      {p.goal != null && (
+                        <span className="text-blue-300"> / {p.goal}</span>
+                      )}
                     </span>
                   </div>
-                  <ProgressBar pct={p.pct} hit={p.hit_goal} />
+                  {p.goal != null && p.pct != null ? (
+                    <ProgressBar pct={p.pct} hit={p.hit_goal} />
+                  ) : (
+                    <div className="h-2.5" />
+                  )}
                 </div>
               </div>
             ))}

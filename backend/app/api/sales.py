@@ -1192,6 +1192,7 @@ def debug_sale_counts(
 # Team goal: 250 NatGen policies. Individual goals:
 #   Joseph Rivera, Giulian Baez: 75 each
 #   Salma Marquez, Michelle Robles, April Wilson: 50 each
+#   Evan Larson: tracked but no personal goal (leaderboard visibility only)
 # Only NatGen policies sold AND effective within the promo window count.
 # Returns per-producer progress plus team aggregate. Available to any
 # logged-in user so producers can see their own progress on the sales page.
@@ -1199,12 +1200,13 @@ NATGEN_PROMO_WINDOW_START = "2026-04-20"
 NATGEN_PROMO_WINDOW_END = "2026-09-30"
 NATGEN_PROMO_TEAM_GOAL = 250
 NATGEN_PROMO_PRODUCER_GOALS = {
-    # (username prefix, full_name match) → goal
+    # username → goal (None = tracked in leaderboard but no personal target)
     "joseph.rivera": 75,
     "giulian.baez": 75,
     "salma.marquez": 50,
     "michelle.robles": 50,
     "april.wilson": 50,
+    "evan.larson": None,
 }
 
 
@@ -1249,17 +1251,19 @@ def natgen_promo_progress(
 
     producers_out = []
     for p in participants:
+        # goal of None means "in leaderboard but no personal target"
         goal = NATGEN_PROMO_PRODUCER_GOALS.get((p.username or "").lower(), 0)
         current = counts_by_producer.get(p.id, 0)
-        pct = round((current / goal) * 100, 1) if goal > 0 else 0
+        has_goal = goal is not None and goal > 0
+        pct = round((current / goal) * 100, 1) if has_goal else None
         producers_out.append({
             "id": p.id,
             "name": p.full_name or p.username,
             "username": p.username,
-            "goal": goal,
+            "goal": goal,  # int or None
             "current": current,
-            "pct": min(pct, 100.0),
-            "hit_goal": current >= goal,
+            "pct": min(pct, 100.0) if pct is not None else None,
+            "hit_goal": (current >= goal) if has_goal else False,
         })
 
     # Sort by current descending so the leaderboard ranks by production
