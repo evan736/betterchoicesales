@@ -54,7 +54,7 @@ RETENTION_NOTIFY_EMAILS = [
 # has a reshop assigned to Salma, all future reshops for that customer
 # also go to Salma (no split accounts).
 
-RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles"]  # Usernames for rotation
+RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles", "april.wilson"]  # Usernames for rotation
 
 def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_name: str = "") -> Optional[int]:
     """Get the next agent ID in the round-robin rotation.
