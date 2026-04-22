@@ -10,6 +10,7 @@ import {
   LogOut, TrendingUp, FileText, Upload, BarChart2, Clock, DollarSign,
   Palette, Check, Menu, X, ChevronDown, Settings, Shield, Users, Mail, Target,
   Inbox, MessageCircle, Zap, BookOpen, Bug, Search, UserPlus, Phone, Smartphone,
+  KeyRound,
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
@@ -126,12 +127,14 @@ const Navbar: React.FC = () => {
   const router = useRouter();
   const [showMenu, setShowMenu] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [reshopBadge, setReshopBadge] = useState(0);
   const [inboxBadge, setInboxBadge] = useState(0);
   const [chatBadge, setChatBadge] = useState(0);
   const [textingBadge, setTextingBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
@@ -220,13 +223,14 @@ const Navbar: React.FC = () => {
     const handle = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setShowThemePicker(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) setShowUserMenu(false);
     };
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, []);
 
   // Close menu on route change
-  useEffect(() => { setShowMenu(false); }, [router.asPath]);
+  useEffect(() => { setShowMenu(false); setShowUserMenu(false); }, [router.asPath]);
 
   // Nav items grouped into sections
   const navSections = [
@@ -435,19 +439,44 @@ const Navbar: React.FC = () => {
               {/* Notifications */}
               <NotificationCenter />
 
-              {/* User */}
-              <div className="hidden sm:flex items-center space-x-1.5 pl-1.5 border-l nav-divider ml-1">
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-slate-900 leading-tight">{user.full_name}</p>
-                  <p className="text-xs text-brand-600 capitalize leading-tight">{user.role}</p>
-                </div>
+              {/* User — dropdown menu with Change Password + Logout */}
+              <div className="hidden sm:flex items-center pl-1.5 border-l nav-divider ml-1 relative" ref={userMenuRef}>
                 <button
-                  onClick={logout}
-                  className="p-1.5 rounded-lg hover:bg-brand-50 text-slate-500 hover:text-red-500 transition-colors"
-                  title="Logout"
+                  onClick={() => setShowUserMenu(v => !v)}
+                  className="flex items-center space-x-1.5 p-1 rounded-lg hover:bg-brand-50 transition-colors"
+                  title="Account menu"
                 >
-                  <LogOut size={18} />
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-slate-900 leading-tight">{user.full_name}</p>
+                    <p className="text-xs text-brand-600 capitalize leading-tight">{user.role}</p>
+                  </div>
+                  <ChevronDown size={14} className={`text-slate-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
                 </button>
+                {showUserMenu && (
+                  <div className="absolute right-0 top-full mt-1.5 w-56 rounded-xl shadow-xl border z-[100] overflow-hidden theme-picker-dropdown">
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        router.push('/change-password');
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-4 py-2.5 hover:bg-brand-50 text-slate-700 text-sm transition-colors text-left"
+                    >
+                      <KeyRound size={16} className="text-slate-500" />
+                      <span>Change Password</span>
+                    </button>
+                    <div className="border-t nav-divider" />
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        logout();
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-4 py-2.5 hover:bg-red-50 text-slate-700 hover:text-red-600 text-sm transition-colors text-left"
+                    >
+                      <LogOut size={16} />
+                      <span>Logout</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Mobile logout only */}
