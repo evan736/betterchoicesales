@@ -53,17 +53,37 @@ RETENTION_NOTIFY_EMAILS = [
 # IMPORTANT: Assigns per-customer, not per-policy. If a customer already
 # has a reshop assigned to Salma, all future reshops for that customer
 # also go to Salma (no split accounts).
+#
+# ROTATION STRATEGY: Target-share weighted round-robin.
+# Each agent has a configured target share of NEW assignments (must sum to 1.0).
+# We count how many reshops were auto-assigned to each agent *since the rotation
+# started* (assignments_counter below), and assign the next one to whichever
+# agent is most under their target share. This gives each agent a predictable
+# fraction of new leads regardless of their current open-lead count, so a new
+# agent like April ramps up smoothly without getting flooded to force balance.
+#
+# Changing the target shares only affects NEW assignments. Existing balance
+# resolves naturally as old leads close.
 
 RESHOP_AUTO_ASSIGN_AGENTS = ["salma.marquez", "michelle.robles", "april.wilson"]  # Usernames for rotation
 
+# Target share of NEW assignments per agent (must sum to ~1.0). Equal 1/3 split.
+RESHOP_AGENT_TARGET_SHARES = {
+    "salma.marquez": 1.0 / 3.0,
+    "michelle.robles": 1.0 / 3.0,
+    "april.wilson": 1.0 / 3.0,
+}
+
+
 def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_name: str = "") -> Optional[int]:
-    """Get the next agent ID in the round-robin rotation.
-    
+    """Get the next agent ID in the target-share weighted rotation.
+
     Customer-aware: if this customer already has an active reshop assigned
     to someone, return that same agent (don't split accounts).
-    
-    Uses DB-based counting instead of in-memory counter so it survives restarts.
-    Assigns to whichever agent currently has fewer active reshops (by customer count).
+
+    Uses a DB-persisted counter of *auto-assignments per agent* since start
+    of rotation (stored in a simple AppSetting-style key-value table or the
+    reshop activity log) to determine who's most under their target share.
     """
 
     # Check if this customer already has a reshop assigned to someone
@@ -88,7 +108,7 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
             logger.info(f"Round-robin: customer '{customer_name}' already assigned to agent {existing_by_name.assigned_to} by name — keeping same agent")
             return existing_by_name.assigned_to
 
-    # New customer — assign to agent with fewer active reshops (load-balanced)
+    # New customer — weighted round-robin based on target share of NEW assignments.
     agents = db.query(User).filter(
         User.username.in_(RESHOP_AUTO_ASSIGN_AGENTS),
         User.is_active == True,
@@ -98,21 +118,47 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
         logger.warning("Round-robin: no active agents found for auto-assignment")
         return None
 
-    # Count active reshops per agent
-    agent_loads = []
+    # Count how many reshops each agent has received via AUTO-ASSIGN since
+    # the rotation started. We detect auto-assigns via ReshopActivity rows
+    # with action='auto_assigned' — anything older predates the activity log
+    # and counts as "historical" (not in the denominator).
+    auto_assign_counts = {}
     for agent in agents:
-        count = db.query(Reshop).filter(
+        n = db.query(ReshopActivity).join(
+            Reshop, ReshopActivity.reshop_id == Reshop.id
+        ).filter(
             Reshop.assigned_to == agent.id,
-            Reshop.stage.in_(ACTIVE_STAGES),
+            ReshopActivity.action == "auto_assigned",
         ).count()
-        agent_loads.append((agent, count))
+        auto_assign_counts[agent.id] = n
 
-    # Sort by count ascending (fewest reshops first)
-    agent_loads.sort(key=lambda x: x[1])
-    chosen = agent_loads[0][0]
+    total_auto_assigns = sum(auto_assign_counts.values())
 
-    logger.info("Round-robin reshop assignment: %s (%d active) for customer '%s'", chosen.full_name, agent_loads[0][1], customer_name)
-    return chosen.id
+    # Compute each agent's share deficit: target_share - actual_share.
+    # If nobody has been auto-assigned yet (total=0), every agent has equal
+    # deficit, so picking the one with the lowest ID gives stable first-run
+    # behavior. Otherwise, highest deficit wins (= most under target).
+    best_agent = None
+    best_deficit = -999.0
+    for agent in agents:
+        target = RESHOP_AGENT_TARGET_SHARES.get((agent.username or "").lower(), 0.0)
+        actual = (auto_assign_counts[agent.id] / total_auto_assigns) if total_auto_assigns > 0 else 0.0
+        deficit = target - actual
+        if deficit > best_deficit:
+            best_deficit = deficit
+            best_agent = agent
+
+    if not best_agent:
+        return None
+
+    logger.info(
+        "Round-robin (weighted): %s chosen. Counts so far: %s. Target shares: %s. For customer '%s'",
+        best_agent.full_name,
+        {a.full_name: auto_assign_counts[a.id] for a in agents},
+        {(a.username or ""): RESHOP_AGENT_TARGET_SHARES.get((a.username or "").lower(), 0.0) for a in agents},
+        customer_name,
+    )
+    return best_agent.id
 
 def _detect_cross_sell(db: Session, customer_id: int, customer_name: str = "") -> list[dict]:
     """Check if a customer is missing common lines of business — cross-sell opportunities."""
@@ -854,18 +900,24 @@ def create_reshop(
     # Auto-assign: retention specialists (Salma/Michelle) assign to themselves.
     # Producers and admins go through round-robin.
     retention_usernames = [u.lower() for u in RESHOP_AUTO_ASSIGN_AGENTS]
+    was_auto_assigned = False
     if current_user.username and current_user.username.lower() in retention_usernames:
         reshop.assigned_to = current_user.id
     else:
         auto_agent_id = _get_next_round_robin_agent(db, customer_id=data.customer_id, customer_name=data.customer_name or "")
         if auto_agent_id:
             reshop.assigned_to = auto_agent_id
+            was_auto_assigned = True
 
     db.add(reshop)
     db.flush()
 
     _log_activity(db, reshop.id, current_user, "created",
                   f"Reshop created via {source or 'manual entry'}" + (f" — referred by {current_user.full_name}" if is_producer else ""))
+    if was_auto_assigned:
+        # Track auto-assignments for the weighted round-robin counter
+        _log_activity(db, reshop.id, current_user, "auto_assigned",
+                      f"Weighted round-robin → user_id={reshop.assigned_to}")
 
     db.commit()
     db.refresh(reshop)
@@ -1516,6 +1568,14 @@ def _run_proactive_scan(
             detail=source_detail,
         )
         db.add(activity)
+        if auto_agent_id:
+            # Track auto-assignment for weighted round-robin counter
+            db.add(ReshopActivity(
+                reshop_id=reshop.id,
+                user_name=actor_name,
+                action="auto_assigned",
+                detail=f"Weighted round-robin → user_id={auto_agent_id}",
+            ))
         created += 1
         existing_policy_nums.add(pnum)
 
@@ -1581,10 +1641,13 @@ def create_reshop_from_customer(
     # assign to themselves — don't round-robin to the other agent.
     # Producers and admins still go through round-robin.
     retention_usernames = [u.lower() for u in RESHOP_AUTO_ASSIGN_AGENTS]
+    was_auto_assigned = False
     if current_user.username and current_user.username.lower() in retention_usernames:
         auto_agent_id = current_user.id
     else:
         auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
+        if auto_agent_id:
+            was_auto_assigned = True
 
     reshop = Reshop(
         customer_id=customer.id,
@@ -1609,6 +1672,9 @@ def create_reshop_from_customer(
 
     _log_activity(db, reshop.id, current_user, "created",
                   f"Created from customer card by {current_user.full_name or current_user.username}")
+    if was_auto_assigned:
+        _log_activity(db, reshop.id, current_user, "auto_assigned",
+                      f"Weighted round-robin → user_id={auto_agent_id}")
     db.commit()
     db.refresh(reshop)
 
