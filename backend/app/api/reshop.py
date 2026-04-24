@@ -1473,8 +1473,18 @@ class ReshopAttemptLog(BaseModel):
     send_email: bool = True  # Allow skipping email if customer has no email on file
 
 
-def _send_reshop_attempt_email(reshop: Reshop, answered: bool, attempt_number: int) -> tuple[bool, str]:
-    """Send the branded attempt email. Returns (success, message_id_or_error)."""
+def _send_reshop_attempt_email(
+    reshop: Reshop,
+    answered: bool,
+    attempt_number: int,
+    agent: Optional[User] = None,
+) -> tuple[bool, str]:
+    """Send the branded attempt email. Returns (success, message_id_or_error).
+
+    If `agent` is provided, the email is personalized — signed off by that
+    agent, and Reply-To is set to the agent's email so replies route
+    directly to them. Falls back to generic agency signoff if no agent given.
+    """
     from app.services.welcome_email import BCI_NAVY, BCI_CYAN
     mg_key = os.environ.get("MAILGUN_API_KEY") or settings.MAILGUN_API_KEY
     mg_domain = os.environ.get("MAILGUN_DOMAIN") or settings.MAILGUN_DOMAIN
@@ -1483,42 +1493,84 @@ def _send_reshop_attempt_email(reshop: Reshop, answered: bool, attempt_number: i
     if not reshop.customer_email:
         return False, "No customer email on file"
 
+    # Build signoff + Reply-To based on agent. If agent has no email on file
+    # we still personalize the signoff but fall back to the shared mailbox
+    # for replies so nothing gets lost.
+    agent_first = None
+    agent_full = None
+    agent_email = None
+    agent_title = "Better Choice Insurance Group"
+    if agent:
+        agent_full = (agent.full_name or "").strip() or None
+        agent_first = agent_full.split()[0] if agent_full else None
+        agent_email = (agent.email or "").strip() or None
+
+    customer_first = reshop.customer_name.split()[0] if reshop.customer_name else "there"
+
     # Pick the right copy
     if answered:
         subject = "Thank you for speaking with us — Better Choice Insurance"
         headline = "Thank You"
-        body = (
-            f"Hi {reshop.customer_name.split()[0] if reshop.customer_name else 'there'},"
+        body_opening = (
+            "Thank you for taking the time to speak with me today about your policy. "
+            "I appreciate the opportunity to review your coverage and look forward to "
+            "finding the right solution for you."
             "<br><br>"
+            "If you have any follow-up questions, don't hesitate to reply directly to "
+            "this email — I'm here to help."
+        ) if agent_first else (
             "Thank you for taking the time to speak with us today about your policy. "
             "We appreciate the opportunity to review your coverage and look forward to "
             "finding the right solution for you."
             "<br><br>"
             "If you have any follow-up questions, don't hesitate to reach out — we're "
             "here to help."
-            "<br><br>"
-            "Best regards,"
-            "<br>"
-            "Better Choice Insurance Group"
         )
     else:
         subject = "We tried reaching you about your policy renewal"
         headline = "We Tried to Reach You"
-        body = (
-            f"Hi {reshop.customer_name.split()[0] if reshop.customer_name else 'there'},"
+        body_opening = (
+            "I tried reaching out to you today regarding your upcoming policy renewal, "
+            "but wasn't able to connect. I'd love the chance to review your current "
+            "coverage and make sure you're still getting the best rate and protection."
             "<br><br>"
-            "We tried reaching out to you today regarding your upcoming policy renewal, but weren't able to connect. "
-            "We'd love the chance to review your current coverage and make sure you're still getting "
-            "the best rate and protection."
+            "Please give me a call back at your earliest convenience — "
+            "<strong>847-908-5665</strong> — or reply to this email and I'll reach "
+            "out at a time that works for you."
+        ) if agent_first else (
+            "We tried reaching out to you today regarding your upcoming policy renewal, "
+            "but weren't able to connect. We'd love the chance to review your current "
+            "coverage and make sure you're still getting the best rate and protection."
             "<br><br>"
             "Please give us a call back at your earliest convenience — "
-            "<strong>847-908-5665</strong> — or reply to this email and we'll reach out at a "
-            "time that works for you."
-            "<br><br>"
-            "Best regards,"
-            "<br>"
-            "Better Choice Insurance Group"
+            "<strong>847-908-5665</strong> — or reply to this email and we'll reach "
+            "out at a time that works for you."
         )
+
+    # Signoff — personalized if we have an agent, generic otherwise
+    if agent_first:
+        signoff_name = agent_full or agent_first
+        signoff = (
+            f"{signoff_name}<br>"
+            f"<span style=\"color:#64748b;font-size:14px;\">"
+            f"Better Choice Insurance Group<br>"
+            f"847-908-5665"
+            f"</span>"
+        )
+        opening = f"Hi {customer_first},"
+    else:
+        signoff = "Better Choice Insurance Group"
+        opening = f"Hi {customer_first},"
+
+    body = (
+        f"{opening}"
+        "<br><br>"
+        f"{body_opening}"
+        "<br><br>"
+        "Best regards,"
+        "<br>"
+        f"{signoff}"
+    )
 
     html = f"""
     <!DOCTYPE html>
@@ -1526,14 +1578,14 @@ def _send_reshop_attempt_email(reshop: Reshop, answered: bool, attempt_number: i
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f5f5;padding:30px 0;">
         <tr><td align="center">
           <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.08);">
-            <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:white;">
-              <div style="font-size:12px;letter-spacing:2px;opacity:.85;">BETTER CHOICE INSURANCE GROUP</div>
-              <div style="font-size:26px;font-weight:700;margin-top:8px;">{headline}</div>
+            <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:#ffffff;">
+              <div style="font-size:14px;letter-spacing:2px;font-weight:700;color:#ffffff;">BETTER CHOICE INSURANCE GROUP</div>
+              <div style="font-size:26px;font-weight:700;margin-top:10px;color:#ffffff;">{headline}</div>
             </td></tr>
             <tr><td style="padding:32px;color:#1a1a1a;line-height:1.6;font-size:15px;">
               {body}
             </td></tr>
-            <tr><td style="background:#f8f8f8;padding:18px 32px;border-top:1px solid #e5e5e5;color:#666;font-size:12px;">
+            <tr><td style="background:#f8f8f8;padding:18px 32px;border-top:1px solid #e5e7eb;color:#666;font-size:12px;">
               Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
               847-908-5665 · service@betterchoiceins.com
             </td></tr>
@@ -1543,18 +1595,34 @@ def _send_reshop_attempt_email(reshop: Reshop, answered: bool, attempt_number: i
     </body></html>
     """
 
+    # From-address presents the agent's name to the customer's inbox (so they
+    # see "Michelle Robles" in their mail app, not "Better Choice Insurance"),
+    # but the address itself stays on our authenticated Mailgun domain so SPF/
+    # DKIM/DMARC continue to pass. Reply-To is where replies actually route:
+    # the agent's personal email if we have it, service@ otherwise.
+    if agent_full and agent_email:
+        from_header = f"{agent_full} <service@{mg_domain}>"
+        reply_to = agent_email
+    elif agent_full:
+        from_header = f"{agent_full} <service@{mg_domain}>"
+        reply_to = "service@betterchoiceins.com"
+    else:
+        from_header = f"Better Choice Insurance <service@{mg_domain}>"
+        reply_to = "service@betterchoiceins.com"
+
     try:
         resp = http_requests.post(
             f"https://api.mailgun.net/v3/{mg_domain}/messages",
             auth=("api", mg_key),
             data={
-                "from": f"Better Choice Insurance <service@{mg_domain}>",
+                "from": from_header,
                 "to": reshop.customer_email,
                 "subject": subject,
                 "html": html,
-                "h:Reply-To": "service@betterchoiceins.com",
+                "h:Reply-To": reply_to,
                 "h:X-Reshop-Id": str(reshop.id),
                 "h:X-Attempt-Number": str(attempt_number),
+                "h:X-Agent-Id": str(agent.id) if agent else "",
             },
             timeout=20,
         )
@@ -1613,7 +1681,7 @@ def log_reshop_attempt(
 
     email_result = {"sent": False, "reason": None}
     if data.send_email and reshop.customer_email:
-        sent, info = _send_reshop_attempt_email(reshop, data.answered, data.attempt_number)
+        sent, info = _send_reshop_attempt_email(reshop, data.answered, data.attempt_number, agent=current_user)
         email_result = {"sent": sent, "message_id": info if sent else None, "error": None if sent else info}
 
     _log_activity(
