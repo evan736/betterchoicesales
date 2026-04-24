@@ -868,7 +868,7 @@ def reshop_outcome_report(
     by_agent = {}
     for r in rows:
         aid = r.assigned_to or 0
-        name = r.assignee_name or "Unassigned"
+        name = (r.assignee.full_name if r.assignee else None) or "Unassigned"
         key = (aid, name)
         if key not in by_agent:
             by_agent[key] = {
@@ -897,7 +897,7 @@ def reshop_outcome_report(
             "carrier": r.carrier,
             "policy_number": r.policy_number,
             "line_of_business": r.line_of_business,
-            "assignee_name": r.assignee_name,
+            "assignee_name": (r.assignee.full_name if r.assignee else None),
             "stage": r.stage,
             "current_premium": float(r.current_premium) if r.current_premium else None,
             "renewal_premium": float(r.renewal_premium) if r.renewal_premium else None,
