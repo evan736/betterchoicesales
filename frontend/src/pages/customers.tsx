@@ -190,20 +190,24 @@ const IdCardEmailModal: React.FC<{
               <ul className="space-y-0.5 ml-3 list-disc">
                 <li>Branded intro from Better Choice Insurance</li>
                 <li>PDF attachment you uploaded</li>
-                {(appInfo.has_ios || appInfo.has_android) ? (
-                  <li>
-                    Download links for the {appInfo.name} mobile app
-                    {appInfo.has_ios && appInfo.has_android ? ' (iOS + Android)' : appInfo.has_ios ? ' (iOS only)' : ' (Android only)'}
-                  </li>
+                {appInfo.has_app ? (
+                  <li>Download link for the <strong>{appInfo.app_name || appInfo.name + ' mobile app'}</strong></li>
+                ) : appInfo.has_online_portal ? (
+                  <li>Link to the {appInfo.name} online portal{appInfo.service_phone ? ` + customer service number (${appInfo.service_phone})` : ''}</li>
                 ) : appInfo.service_phone ? (
                   <li>{appInfo.name} customer service number ({appInfo.service_phone})</li>
                 ) : null}
               </ul>
+              {appInfo.resolved_key && appInfo.resolved_key !== (policy.carrier || '').toLowerCase().replace(/[ -]/g, '_') && (
+                <div className="mt-1.5 text-[10px] text-slate-400">
+                  Carrier "{policy.carrier}" matched to <span className="font-mono">{appInfo.resolved_key}</span> via alias
+                </div>
+              )}
             </div>
           )}
           {appInfo && !appInfo.found && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
-              No app info configured for "{policy.carrier}" — email will still send with ID card, just without the app section.
+              No carrier info configured for "{policy.carrier}" — email will still send with the ID card, just without the carrier app/portal section.
             </div>
           )}
 
