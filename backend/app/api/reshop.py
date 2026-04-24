@@ -1419,6 +1419,37 @@ def log_reshop_attempt(
         ("Customer answered — thank-you email sent" if data.answered else "No answer — follow-up email sent") +
         ("" if email_result.get("sent") else f" (email NOT sent: {email_result.get('error') or 'no email on file'})"),
     )
+
+    # Push a summary note to the customer's NowCerts profile so any agent
+    # looking at the customer later sees the outreach history (not just
+    # inside the reshop card).
+    nc_noted = False
+    try:
+        if reshop.policy_number:
+            from app.services.nowcerts_notes import push_nowcerts_note
+            outcome = "Customer answered" if data.answered else "No answer"
+            email_status = (
+                "Thank-you email sent" if (data.answered and email_result.get("sent"))
+                else "Follow-up email sent" if (not data.answered and email_result.get("sent"))
+                else f"Email not sent ({email_result.get('error') or 'no email on file'})"
+            )
+            note_text = (
+                f"Reshop outreach attempt #{data.attempt_number} of 3\n"
+                f"Outcome: {outcome}\n"
+                f"Agent: {current_user.full_name or current_user.username}\n"
+                f"Timestamp: {now.strftime('%Y-%m-%d %H:%M UTC')}\n"
+                f"Email: {email_status}\n"
+                f"Policy: {reshop.policy_number or '?'}  Carrier: {reshop.carrier or '?'}\n"
+                f"Source: ORBIT Reshop Pipeline"
+            )
+            subject = (
+                f"☎️ Reshop attempt #{data.attempt_number} — "
+                f"{'Answered' if data.answered else 'No answer'}"
+            )
+            nc_noted = push_nowcerts_note(db, reshop.policy_number, note_text, subject=subject)
+    except Exception as e:
+        logger.warning("NowCerts note push failed for reshop %s: %s", reshop.id, e)
+
     db.commit()
     db.refresh(reshop)
     return {
@@ -1426,6 +1457,7 @@ def log_reshop_attempt(
         "attempt_number": data.attempt_number,
         "answered": data.answered,
         "email": email_result,
+        "nowcerts_noted": nc_noted,
         "reshop": _reshop_to_dict(reshop),
     }
 
