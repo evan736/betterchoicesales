@@ -85,10 +85,23 @@ def list_claim_map_customers(
             "policy_number": p.policy_number,
             "carrier": p.carrier,
             "line_of_business": p.line_of_business,
+            "policy_type": p.policy_type,
             "status": p.status,
         })
-        if p.line_of_business:
-            by_customer[c.id]["lob_set"].add(p.line_of_business.lower())
+        # Detect LOB from line_of_business OR policy_type OR inference
+        lob_source = (p.line_of_business or "").strip().lower()
+        if not lob_source:
+            lob_source = (p.policy_type or "").strip().lower()
+        # Further inference from common patterns if still empty
+        if not lob_source:
+            pn = (p.policy_number or "").lower()
+            carrier = (p.carrier or "").lower()
+            if "ho" in pn or "dwelling" in pn or "universal p" in carrier or "openly" in carrier or "hippo" in carrier or "steadily" in carrier or "bamboo" in carrier:
+                lob_source = "home"
+            elif any(c in pn for c in ("auto", "pa ")) or "geico" in carrier or "progressive" in carrier or "national general" in carrier or "nat gen" in carrier or "bristol west" in carrier or "gainsco" in carrier or "clearcover" in carrier or "next" in carrier:
+                lob_source = "auto"
+        if lob_source:
+            by_customer[c.id]["lob_set"].add(lob_source)
 
     # Pull matching geocodes in one query
     hashes = []
@@ -113,11 +126,12 @@ def list_claim_map_customers(
         lobs = sorted(c.pop("lob_set"))
         # Primary LOB for pin color: commercial > home > auto > other
         primary_lob = "other"
-        if "commercial" in lobs:
+        joined = " ".join(lobs)
+        if any(x in joined for x in ("commercial", "bop", "gl", "workers", "wc ", "liability", "cpp")):
             primary_lob = "commercial"
-        elif any(l in lobs for l in ("home", "homeowners", "ho3", "ho6", "dwelling")):
+        elif any(x in joined for x in ("home", "homeowners", "ho3", "ho6", "dwelling", "dp1", "dp3", "renter")):
             primary_lob = "home"
-        elif any(l in lobs for l in ("auto", "auto_6m", "auto_12m", "pauto", "auto_policy")):
+        elif any(x in joined for x in ("auto", "pauto", "personal auto")):
             primary_lob = "auto"
         c["primary_lob"] = primary_lob
         c["lines_of_business"] = lobs
