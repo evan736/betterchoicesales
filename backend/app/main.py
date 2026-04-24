@@ -282,6 +282,24 @@ def init_database():
                 EXCEPTION WHEN others THEN NULL;
                 END $$;
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS geocode_cache (
+                    id SERIAL PRIMARY KEY,
+                    address_hash VARCHAR(64) UNIQUE NOT NULL,
+                    address_full VARCHAR NOT NULL,
+                    lat DOUBLE PRECISION,
+                    lng DOUBLE PRECISION,
+                    provider VARCHAR,
+                    failed BOOLEAN DEFAULT FALSE,
+                    failure_reason VARCHAR,
+                    raw_response TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_geocode_cache_address_hash ON geocode_cache (address_hash);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_geocode_cache_failed ON geocode_cache (failed);"))
+            conn.commit()
             conn.commit()
             conn.execute(text("""
                 DO $$
@@ -1488,6 +1506,31 @@ def force_migrate():
     except Exception as e:
         results.append(f"SKIP survey_responses.source: {str(e)[:80]}")
 
+    # geocode_cache — for the /claim-map feature
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("""
+                CREATE TABLE IF NOT EXISTS geocode_cache (
+                    id SERIAL PRIMARY KEY,
+                    address_hash VARCHAR(64) UNIQUE NOT NULL,
+                    address_full VARCHAR NOT NULL,
+                    lat DOUBLE PRECISION,
+                    lng DOUBLE PRECISION,
+                    provider VARCHAR,
+                    failed BOOLEAN DEFAULT FALSE,
+                    failure_reason VARCHAR,
+                    raw_response TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+            conn.execute(sa_text("CREATE INDEX IF NOT EXISTS ix_geocode_cache_address_hash ON geocode_cache (address_hash);"))
+            conn.execute(sa_text("CREATE INDEX IF NOT EXISTS ix_geocode_cache_failed ON geocode_cache (failed);"))
+            conn.commit()
+        results.append("OK: geocode_cache table ready")
+    except Exception as e:
+        results.append(f"SKIP geocode_cache: {str(e)[:80]}")
+
     # Add file_data BYTEA column to chat_messages for persistent file storage
     try:
         with engine.connect() as conn:
@@ -1544,6 +1587,9 @@ app.include_router(sms_api.router)
 app.include_router(cancellation_api.router)
 app.include_router(nowcerts_poll_api.router)
 app.include_router(inspection_api.router)
+
+from app.api import claim_map as claim_map_api
+app.include_router(claim_map_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")
