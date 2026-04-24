@@ -112,3 +112,68 @@
     radial-gradient(circle at 20% 50%, rgba(14, 165, 233, 0.03) 0%, transparent 50%),
     radial-gradient(circle at 80% 80%, rgba(14, 165, 233, 0.03) 0%, transparent 50%);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RESHOP KANBAN — explicit card styles
+   Using dedicated classes (not Tailwind bg-*) so the Mission Control dark
+   theme can theme them cleanly without fighting utility inversions.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Light theme defaults */
+.reshop-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  transition: all .15s ease;
+}
+.reshop-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,.08); }
+
+.reshop-card__name { color: #0f172a; font-size: .875rem; font-weight: 700; }
+.reshop-card__subtitle { color: #475569; font-size: .75rem; font-weight: 500; }
+.reshop-card__meta { color: #1e293b; font-size: .75rem; }
+.reshop-card__meta-muted { color: #64748b; font-size: .75rem; font-weight: 500; }
+.reshop-card__premium { color: #0f172a; font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.reshop-card__premium-hike { color: #dc2626; font-size: .75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Urgent border */
+.reshop-card--urgent { border-left: 3px solid #ef4444; }
+
+/* Non-renewal variant — strong amber bg */
+.reshop-card--nonrenewal {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+}
+
+/* Force-resolve variant — strong red bg for the whole card */
+.reshop-card--force {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  cursor: default;
+}
+
+/* Column header */
+.reshop-col-header {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.reshop-col-header__label { color: #334155; font-size: .875rem; font-weight: 600; }
+.reshop-col-header__count {
+  margin-left: auto;
+  font-size: .75rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}

@@ -1412,64 +1412,74 @@ body.mission-control .start-quote-btn:hover {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   RESHOP KANBAN CARDS — dark-theme overrides
-   Reshop cards are marked with data-reshop-card (default|nonrenewal|force)
-   and column headers with data-reshop-col-header. The Tailwind classes give
-   them a white/light-tinted background that gets inverted to dark by the
-   general bg-white override upstream; that inversion leaves slate-800/900
-   text unreadable. These rules restore contrast inside that dark background.
+   RESHOP KANBAN — Mission Control dark-theme variants
+   Uses dedicated classes (not bg-*) so theming is explicit and reliable.
+   Goal: readable at a glance, distinguishable card types, no washout.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Default (non-renewal/non-force) cards — dark bg inherited from bg-white
-   override, text must flip to light */
-body.mission-control [data-reshop-card="default"] .text-slate-900 {
-  color: var(--mc-text-primary) !important;
+/* Base card — dark translucent panel with subtle border glow */
+body.mission-control .reshop-card {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35) !important;
 }
-body.mission-control [data-reshop-card="default"] .text-slate-800,
-body.mission-control [data-reshop-card="default"] .text-slate-700 {
-  color: var(--mc-text-primary) !important;
-}
-body.mission-control [data-reshop-card="default"] .text-slate-600 {
-  color: var(--mc-text-secondary) !important;
-}
-body.mission-control [data-reshop-card="default"] .text-slate-500,
-body.mission-control [data-reshop-card="default"] .text-slate-400 {
-  color: var(--mc-text-tertiary) !important;
+body.mission-control .reshop-card:hover {
+  background: rgba(30, 41, 59, 0.95) !important;
+  border-color: rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45), 0 0 0 1px rgba(56,189,248,.15) !important;
 }
 
-/* Non-renewal cards keep their amber-50 background (bg-amber-50 is NOT in
-   the bg-white override list) — text stays dark-on-amber which reads fine.
-   No special rule needed. */
+body.mission-control .reshop-card__name { color: #f8fafc !important; }
+body.mission-control .reshop-card__subtitle { color: #cbd5e1 !important; }
+body.mission-control .reshop-card__meta { color: #e2e8f0 !important; }
+body.mission-control .reshop-card__meta-muted { color: #94a3b8 !important; }
+body.mission-control .reshop-card__premium { color: #f1f5f9 !important; }
+body.mission-control .reshop-card__premium-hike { color: #f87171 !important; }
 
-/* Force-resolve (overdue) cards — red-50 bg, text stays dark. BUT the
-   identity strip above the banner needs explicit high-contrast text. */
-body.mission-control [data-reshop-card="force"] .text-slate-900 {
-  color: #0f172a !important;   /* keep it dark against the red-50 bg */
-}
-body.mission-control [data-reshop-card="force"] .text-slate-600 {
-  color: #334155 !important;
-}
-
-/* Column headers — bg-white flipped dark, icon + label + count need light text */
-body.mission-control [data-reshop-col-header="true"] {
-  border-color: var(--mc-border) !important;
-}
-body.mission-control [data-reshop-col-header="true"] .text-slate-700 {
-  color: var(--mc-text-primary) !important;
-}
-body.mission-control [data-reshop-col-header="true"] .bg-slate-100 {
-  background-color: rgba(255,255,255,0.08) !important;
-}
-body.mission-control [data-reshop-col-header="true"] .text-slate-600 {
-  color: var(--mc-text-secondary) !important;
+/* Urgent border stays red */
+body.mission-control .reshop-card--urgent {
+  border-left: 3px solid #ef4444 !important;
 }
 
-/* Small color chips like "1d left" and "Quote: $X" keep their bg but need
-   text recalibration since the inner bg stays tinted */
-body.mission-control [data-reshop-card="default"] .bg-red-100,
-body.mission-control [data-reshop-card="default"] .bg-amber-100,
-body.mission-control [data-reshop-card="default"] .bg-emerald-100 {
-  /* These bg-*-100 classes are NOT in the global override, so they're still
-     tinted. The default dark text on tinted-light bg reads fine. Just
-     make sure we don't accidentally force light text here. */
+/* Non-renewal — amber-tinted dark panel with strong amber accent */
+body.mission-control .reshop-card--nonrenewal {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0%, rgba(30, 41, 59, 0.9) 100%) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  border-left: 4px solid #f59e0b !important;
+}
+body.mission-control .reshop-card--nonrenewal:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(30, 41, 59, 0.95) 100%) !important;
+}
+/* Within non-renewal cards, names/text stay the standard light colors
+   — not restated since the base rules above already cover them */
+
+/* Force resolve — strong red panel; identity strip + banner inside */
+body.mission-control .reshop-card--force {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.22) 0%, rgba(30, 41, 59, 0.9) 100%) !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  border-left: 4px solid #dc2626 !important;
+}
+
+/* Column header */
+body.mission-control .reshop-col-header {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3) !important;
+}
+body.mission-control .reshop-col-header__label { color: #f1f5f9 !important; }
+body.mission-control .reshop-col-header__count {
+  background: rgba(148, 163, 184, 0.15) !important;
+  color: #cbd5e1 !important;
+}
+
+/* Empty attempt circles inside reshop cards — bg-white would invert
+   and look weird; make them transparent-with-border for dark theme */
+body.mission-control .reshop-card button.bg-white.border {
+  background: transparent !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+body.mission-control .reshop-card button.bg-white.border:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.6) !important;
+  color: rgba(56, 189, 248, 0.9) !important;
 }

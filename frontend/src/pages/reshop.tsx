@@ -390,10 +390,10 @@ export default function ReshopPage() {
                   }}
                 >
                   {/* Column header — single clean row with subtle count badge */}
-                  <div className={`flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg bg-white border border-slate-200 shadow-sm`} data-reshop-col-header="true">
+                  <div className="reshop-col-header mb-3">
                     <span className={`text-${stage.color}-500 flex-shrink-0`}>{stage.icon}</span>
-                    <span className="text-sm font-semibold text-slate-700">{stage.label}</span>
-                    <span className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">
+                    <span className="reshop-col-header__label">{stage.label}</span>
+                    <span className="reshop-col-header__count">
                       {items.length}
                     </span>
                   </div>
@@ -588,25 +588,22 @@ const ReshopCard: React.FC<{
       onDragEnd={(e) => {
         (e.currentTarget as HTMLElement).style.opacity = '1';
       }}
-      className={`border rounded-lg px-3 py-2.5 transition-all group shadow-sm ${
+      className={`reshop-card group transition-all ${
         forceResolve
-          ? 'bg-red-50 border-l-[4px] border-l-red-600 border-t border-r border-b border-red-200 cursor-default'
-          : canManage ? 'cursor-grab active:cursor-grabbing cursor-pointer hover:shadow-md' : 'cursor-pointer hover:shadow-md'
-      } ${
-        !forceResolve && isNonRenewal
-          ? 'bg-amber-50 border-l-[4px] border-l-amber-500 border-t border-r border-b border-amber-200'
-          : !forceResolve && isUrgent
-            ? 'bg-white border-l-[3px] border-l-red-500 border-t border-r border-b border-slate-200'
-            : !forceResolve
-              ? 'bg-white border-slate-200'
+          ? 'reshop-card--force'
+          : isNonRenewal
+            ? 'reshop-card--nonrenewal'
+            : isUrgent
+              ? 'reshop-card--urgent'
               : ''
-      }`}
-      data-reshop-card={forceResolve ? 'force' : isNonRenewal ? 'nonrenewal' : 'default'}
+      } ${
+        !forceResolve && canManage ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${!forceResolve ? 'cursor-pointer' : ''}`}
     >
       {/* Customer identity strip — ALWAYS visible, even in force-resolve state.
           Agents need to know WHO they're deciding on. */}
       {forceResolve && (
-        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-red-200">
+        <div className="flex items-center gap-2 mb-2 pb-2" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.3)' }}>
           {r.assignee_name && (
             <div
               title={r.assignee_name}
@@ -621,9 +618,9 @@ const ReshopCard: React.FC<{
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-slate-900 truncate">{r.customer_name}</div>
+            <div className="reshop-card__name truncate">{r.customer_name}</div>
             {(r.carrier || r.current_premium) && (
-              <div className="text-xs text-slate-600 truncate font-medium">
+              <div className="reshop-card__subtitle truncate">
                 {r.carrier}
                 {r.carrier && r.current_premium ? ' · ' : ''}
                 {r.current_premium && `$${Number(r.current_premium).toLocaleString()}`}
@@ -683,7 +680,7 @@ const ReshopCard: React.FC<{
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <div className="text-sm font-bold text-slate-900 truncate">{r.customer_name}</div>
+                <div className="reshop-card__name truncate">{r.customer_name}</div>
                 {isNonRenewal && (
                   <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white tracking-wide">
                     NON-RENEWAL
@@ -695,7 +692,7 @@ const ReshopCard: React.FC<{
                 />
               </div>
               {r.carrier && (
-                <div className="text-xs text-slate-600 truncate mt-0.5 font-medium">
+                <div className="reshop-card__subtitle truncate mt-0.5">
                   {r.carrier}{r.line_of_business ? ` · ${r.line_of_business}` : ''}
                 </div>
               )}
@@ -703,14 +700,14 @@ const ReshopCard: React.FC<{
           </div>
 
           {/* Meta row: premium, exp date, quote — single unified line */}
-          <div className="flex items-center gap-2 text-xs text-slate-700 mt-2">
+          <div className="flex items-center gap-2 mt-2">
             {r.current_premium && (
-              <span className="font-semibold tabular-nums text-slate-800">
+              <span className="reshop-card__premium">
                 ${Number(r.current_premium).toLocaleString()}
               </span>
             )}
             {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
-              <span className="font-bold text-red-600 tabular-nums">
+              <span className="reshop-card__premium-hike">
                 → ${Number(r.renewal_premium).toLocaleString()}
                 <span className="text-[10px] ml-0.5">
                   +{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%
@@ -718,7 +715,7 @@ const ReshopCard: React.FC<{
               </span>
             )}
             {r.expiration_date && (
-              <span className="flex items-center gap-0.5 text-slate-600 font-medium">
+              <span className="reshop-card__meta-muted flex items-center gap-0.5">
                 <Calendar size={10} />
                 {new Date(r.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
