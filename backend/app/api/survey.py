@@ -4,12 +4,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.sale import Sale
+from app.models.customer import Customer
 from app.models.survey import SurveyResponse
 from app.services.welcome_email import send_welcome_email, build_welcome_email_html
 
@@ -87,6 +89,180 @@ def get_survey_info(
         "policy_number": sale.policy_number,
         "already_submitted": db.query(SurveyResponse).filter(SurveyResponse.sale_id == sale_id).first() is not None,
     }
+
+
+# ── Customer-id variants (for ID card emails and other touchpoints that
+#    aren't tied to a specific sale). Same flow: 4-5 stars -> Google review,
+#    1-3 stars -> feedback form that emails Evan.
+@router.post("/submit-by-customer")
+def submit_survey_by_customer(
+    customer_id: int,
+    rating: int,
+    source: str = "id_card",
+    feedback: Optional[str] = None,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — submit a survey rating keyed by customer (no sale_id)."""
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # Prevent double-submission for the same customer+source within a short window
+    # (use "most recent for this source" as dedupe — customer could rate multiple
+    # touchpoints over time; we only dedupe same-source ratings)
+    existing = (
+        db.query(SurveyResponse)
+        .filter(SurveyResponse.customer_id == customer_id)
+        .filter(SurveyResponse.source == source)
+        .order_by(SurveyResponse.created_at.desc())
+        .first()
+    )
+    if existing:
+        is_positive = existing.rating >= 4
+        return {
+            "success": True,
+            "already_submitted": True,
+            "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
+            "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+            "show_feedback_form": existing.rating <= 3,
+        }
+
+    ip = request.client.host if request and request.client else None
+    is_positive = rating >= 4
+
+    response = SurveyResponse(
+        customer_id=customer_id,
+        sale_id=None,
+        source=source,
+        rating=rating,
+        feedback=feedback,
+        redirected_to_google=(is_positive and bool(settings.GOOGLE_REVIEW_URL)),
+        ip_address=ip,
+    )
+    db.add(response)
+    db.commit()
+
+    logger.info(f"Survey submitted by customer: customer_id={customer_id}, source={source}, rating={rating}")
+
+    return {
+        "success": True,
+        "rating": rating,
+        "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
+        "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+        "show_feedback_form": rating <= 3,
+    }
+
+
+@router.get("/info-by-customer/{customer_id}")
+def get_survey_info_by_customer(
+    customer_id: int,
+    source: str = "id_card",
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — get customer info for survey page."""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    full_name = customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip() or "Customer"
+    first = full_name.split()[0] if full_name else "Customer"
+
+    existing = (
+        db.query(SurveyResponse)
+        .filter(SurveyResponse.customer_id == customer_id)
+        .filter(SurveyResponse.source == source)
+        .order_by(SurveyResponse.created_at.desc())
+        .first()
+    )
+
+    return {
+        "client_name": first,
+        "producer_name": "Your Agent",
+        "carrier": "",
+        "policy_number": None,
+        "already_submitted": existing is not None,
+    }
+
+
+class CustomerFeedbackRequest(BaseModel):
+    customer_id: int
+    name: Optional[str] = ''
+    email: Optional[str] = ''
+    message: str
+    rating: Optional[int] = None
+    source: Optional[str] = 'id_card'
+
+
+@router.post("/feedback-by-customer")
+def submit_feedback_by_customer(
+    data: CustomerFeedbackRequest,
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — detailed feedback from customer-based surveys.
+    Appends the message to the survey record and emails Evan."""
+    customer = db.query(Customer).filter(Customer.id == data.customer_id).first()
+
+    existing = (
+        db.query(SurveyResponse)
+        .filter(SurveyResponse.customer_id == data.customer_id)
+        .filter(SurveyResponse.source == (data.source or 'id_card'))
+        .order_by(SurveyResponse.created_at.desc())
+        .first()
+    )
+    if existing and data.message:
+        detail_prefix = '\n\n--- Detailed Feedback ---\n' if existing.feedback else ''
+        existing.feedback = (existing.feedback or '') + detail_prefix + data.message
+        db.commit()
+
+    try:
+        import requests as http_requests
+        if settings.MAILGUN_API_KEY and settings.MAILGUN_DOMAIN:
+            client_name = (customer.full_name if customer else None) or data.name or 'Unknown'
+            source_label = {'id_card': 'ID Card Email'}.get(data.source or 'id_card', data.source or 'Survey')
+
+            email_html = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #dc2626; color: white; padding: 20px; border-radius: 12px 12px 0 0;">
+                    <h2 style="margin: 0;">⚠️ Low Rating Feedback Received</h2>
+                    <p style="margin: 4px 0 0 0; opacity: .9; font-size: 13px;">Source: {source_label}</p>
+                </div>
+                <div style="background: #fff; padding: 24px; border: 1px solid #e5e7eb; border-radius: 0 0 12px 12px;">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+                        <tr><td style="padding: 8px 0; color: #6b7280; width: 100px;">Customer:</td><td style="padding: 8px 0; font-weight: 600;">{client_name}</td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Email:</td><td style="padding: 8px 0;"><a href="mailto:{data.email}">{data.email or 'Not provided'}</a></td></tr>
+                        <tr><td style="padding: 8px 0; color: #6b7280;">Rating:</td><td style="padding: 8px 0; font-size: 20px;">{'⭐' * (data.rating or 0)} ({data.rating}/5)</td></tr>
+                    </table>
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-top: 12px;">
+                        <p style="color: #991b1b; font-weight: 600; margin: 0 0 8px 0;">Customer Feedback:</p>
+                        <p style="color: #1f2937; margin: 0; white-space: pre-wrap;">{data.message}</p>
+                    </div>
+                    {f'<p style="margin-top: 16px;"><a href="mailto:{data.email}?subject=Re: Your Better Choice Insurance Experience&body=Hi {data.name}," style="background: #2563eb; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Reply to Customer</a></p>' if data.email else ''}
+                </div>
+            </div>
+            """
+
+            http_requests.post(
+                f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+                auth=("api", settings.MAILGUN_API_KEY),
+                data={
+                    "from": f"{settings.MAILGUN_FROM_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+                    "to": "evan@betterchoiceins.com",
+                    "subject": f"⚠️ Low Rating ({data.rating} star) - {client_name} - {source_label}",
+                    "html": email_html,
+                },
+                timeout=15,
+            )
+            logger.info(f"Customer feedback notification sent for customer_id={data.customer_id}")
+    except Exception as e:
+        logger.error(f"Failed to send customer feedback notification: {e}")
+
+    logger.info(f"Customer feedback received: customer_id={data.customer_id}, source={data.source}, rating={data.rating}")
+    return {"success": True}
 
 
 # ── Admin endpoints ──────────────────────────────────────────────────

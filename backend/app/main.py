@@ -254,6 +254,35 @@ def init_database():
                     END $$;
                 """))
             conn.commit()
+            # survey_responses: make sale_id nullable, add customer_id + source
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    ALTER TABLE survey_responses ALTER COLUMN sale_id DROP NOT NULL;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='survey_responses' AND column_name='customer_id') THEN
+                        ALTER TABLE survey_responses ADD COLUMN customer_id INTEGER REFERENCES customers(id);
+                        CREATE INDEX IF NOT EXISTS ix_survey_responses_customer_id ON survey_responses (customer_id);
+                    END IF;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='survey_responses' AND column_name='source') THEN
+                        ALTER TABLE survey_responses ADD COLUMN source VARCHAR;
+                        CREATE INDEX IF NOT EXISTS ix_survey_responses_source ON survey_responses (source);
+                    END IF;
+                EXCEPTION WHEN others THEN NULL;
+                END $$;
+            """))
+            conn.commit()
             conn.execute(text("""
                 DO $$
                 BEGIN
@@ -1435,6 +1464,29 @@ def force_migrate():
             results.append(f"OK: Added reshops.{colname}")
         except Exception as e:
             results.append(f"SKIP reshops.{colname}: {str(e)[:80]}")
+
+    # survey_responses: make sale_id nullable, add customer_id + source
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE survey_responses ALTER COLUMN sale_id DROP NOT NULL"))
+            conn.commit()
+        results.append("OK: survey_responses.sale_id now nullable")
+    except Exception as e:
+        results.append(f"SKIP survey_responses.sale_id nullable: {str(e)[:80]}")
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE survey_responses ADD COLUMN customer_id INTEGER REFERENCES customers(id)"))
+            conn.commit()
+        results.append("OK: Added survey_responses.customer_id")
+    except Exception as e:
+        results.append(f"SKIP survey_responses.customer_id: {str(e)[:80]}")
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("ALTER TABLE survey_responses ADD COLUMN source VARCHAR"))
+            conn.commit()
+        results.append("OK: Added survey_responses.source")
+    except Exception as e:
+        results.append(f"SKIP survey_responses.source: {str(e)[:80]}")
 
     # Add file_data BYTEA column to chat_messages for persistent file storage
     try:

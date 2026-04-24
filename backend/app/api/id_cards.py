@@ -44,7 +44,7 @@ def _resolve_carrier(carrier: str) -> Optional[dict]:
 
 
 def _build_idcard_html(customer_name: str, carrier_info: Optional[dict], original_carrier: str,
-                       line_of_business: str) -> str:
+                       line_of_business: str, customer_id: Optional[int] = None) -> str:
     """Build the branded ID card email body. Falls back gracefully if carrier not known."""
     first_name = (customer_name or "there").split()[0] if customer_name else "there"
     lob_label = (line_of_business or "policy").replace("_", " ").title()
@@ -105,14 +105,39 @@ def _build_idcard_html(customer_name: str, carrier_info: Optional[dict], origina
             </td></tr>
             '''
 
+    # 5-star rating section — 4-5 stars redirect to Google, 1-3 open feedback form
+    # Only rendered if we have a customer_id to key the survey on
+    if customer_id:
+        app_url = os.environ.get("APP_URL", "https://better-choice-web.onrender.com")
+        survey_base = f"{app_url}/survey/customer/{customer_id}?source=id_card"
+        star_links = ""
+        for n in range(1, 6):
+            star_links += (
+                f'<a href="{survey_base}&rating={n}" '
+                f'style="text-decoration:none;font-size:32px;padding:0 4px;">&#11088;</a>'
+            )
+        stars_section = f'''
+        <tr><td style="padding:24px 32px;background:#ffffff;border-top:1px solid #e5e7eb;text-align:center;">
+          <div style="font-size:15px;font-weight:600;color:{BCI_NAVY};margin-bottom:8px;">
+            How are we doing?
+          </div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:12px;">
+            We'd love a quick rating of your experience with Better Choice.
+          </div>
+          <div style="margin:0 auto;">{star_links}</div>
+        </td></tr>
+        '''
+    else:
+        stars_section = ""
+
     return f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f5f5;padding:30px 0;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.08);">
-        <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:white;">
-          <div style="font-size:12px;letter-spacing:2px;opacity:.85;">BETTER CHOICE INSURANCE GROUP</div>
-          <div style="font-size:26px;font-weight:700;margin-top:8px;">Your ID Card</div>
+        <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:#ffffff;">
+          <div style="font-size:14px;letter-spacing:2px;font-weight:700;color:#ffffff;">BETTER CHOICE INSURANCE GROUP</div>
+          <div style="font-size:26px;font-weight:700;margin-top:10px;color:#ffffff;">Your ID Card</div>
         </td></tr>
         <tr><td style="padding:32px;color:#1a1a1a;line-height:1.6;font-size:15px;">
           Hi {first_name},<br><br>
@@ -125,6 +150,7 @@ def _build_idcard_html(customer_name: str, carrier_info: Optional[dict], origina
           &mdash; The Better Choice Team
         </td></tr>
         {app_section}
+        {stars_section}
         <tr><td style="background:#f8f8f8;padding:18px 32px;border-top:1px solid #e5e7eb;color:#666;font-size:12px;">
           Better Choice Insurance Group &middot; 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
           847-908-5665 &middot; service@betterchoiceins.com
@@ -168,7 +194,7 @@ async def send_id_card_email(
 
     carrier_info = _resolve_carrier(carrier)
     customer_name = customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip()
-    html = _build_idcard_html(customer_name, carrier_info, carrier, line_of_business or "")
+    html = _build_idcard_html(customer_name, carrier_info, carrier, line_of_business or "", customer_id=customer_id)
     carrier_display = (carrier_info or {}).get("display_name") or carrier
     subject = f"Your {carrier_display} ID Card — Better Choice Insurance"
 
