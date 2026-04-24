@@ -73,6 +73,14 @@ export default function ReshopPage() {
   const [attemptTarget, setAttemptTarget] = useState<{ reshop: any; attemptNumber: number } | null>(null);
   const [attemptSaving, setAttemptSaving] = useState(false);
 
+  // Pipeline / Report view toggle
+  const [viewMode, setViewMode] = useState<'pipeline' | 'report'>('pipeline');
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportPreset, setReportPreset] = useState<'this_month' | 'last_month' | 'ytd' | 'custom'>('this_month');
+  const [reportStart, setReportStart] = useState<string>('');
+  const [reportEnd, setReportEnd] = useState<string>('');
+
   const isManager = user?.role === 'admin' || user?.role === 'retention_specialist' || user?.role === 'manager';
   const isProducer = user?.role === 'producer';
 
@@ -216,6 +224,50 @@ export default function ReshopPage() {
     setDetectingProactive(false);
   };
 
+  // Compute ISO date strings for a given preset
+  const computePresetRange = (preset: string): [string, string] => {
+    const now = new Date();
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    if (preset === 'last_month') {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0);
+      return [iso(first), iso(last)];
+    }
+    if (preset === 'ytd') {
+      return [iso(new Date(now.getFullYear(), 0, 1)), iso(now)];
+    }
+    // this_month default
+    return [iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(now)];
+  };
+
+  const loadReport = useCallback(async (preset?: string, customStart?: string, customEnd?: string) => {
+    setReportLoading(true);
+    try {
+      let startStr = customStart;
+      let endStr = customEnd;
+      if (preset && preset !== 'custom') {
+        const [s, e] = computePresetRange(preset);
+        startStr = s;
+        endStr = e;
+        setReportStart(s);
+        setReportEnd(e);
+      }
+      const r = await reshopAPI.outcomeReport(startStr, endStr);
+      setReportData(r.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to load report');
+    }
+    setReportLoading(false);
+  }, []);
+
+  // Load the report the first time the user switches to the tab
+  useEffect(() => {
+    if (viewMode === 'report' && !reportData) {
+      loadReport('this_month');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
+
   // Group reshops by stage
   const byStage: Record<string, any[]> = {};
   for (const s of [...STAGES, ...CLOSED_STAGES]) byStage[s.key] = [];
@@ -306,6 +358,31 @@ export default function ReshopPage() {
           </div>
         </div>
 
+        {/* View toggle: Pipeline / Report */}
+        <div className="flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-lg mb-5 w-fit">
+          <button
+            onClick={() => setViewMode('pipeline')}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+              viewMode === 'pipeline'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Pipeline
+          </button>
+          <button
+            onClick={() => setViewMode('report')}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+              viewMode === 'report'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Report
+          </button>
+        </div>
+
+        {viewMode === 'pipeline' && (<>
         {/* Stats Bar */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -427,6 +504,27 @@ export default function ReshopPage() {
 
           </div>
         )}
+        </>)}
+
+        {viewMode === 'report' && (
+          <ReshopOutcomeReport
+            data={reportData}
+            loading={reportLoading}
+            preset={reportPreset}
+            startDate={reportStart}
+            endDate={reportEnd}
+            onPresetChange={(p: any) => {
+              setReportPreset(p);
+              if (p !== 'custom') loadReport(p);
+            }}
+            onCustomDateChange={(s: string, e: string) => {
+              setReportStart(s);
+              setReportEnd(e);
+              if (s && e) loadReport('custom', s, e);
+            }}
+            onRefresh={() => loadReport(reportPreset, reportStart, reportEnd)}
+          />
+        )}
       </div>
 
       {/* Detail Drawer */}
@@ -520,6 +618,210 @@ export default function ReshopPage() {
     </div>
   );
 }
+
+// ── Outcome Report ───────────────────────────────────────────────
+const ReshopOutcomeReport: React.FC<{
+  data: any;
+  loading: boolean;
+  preset: string;
+  startDate: string;
+  endDate: string;
+  onPresetChange: (p: string) => void;
+  onCustomDateChange: (s: string, e: string) => void;
+  onRefresh: () => void;
+}> = ({ data, loading, preset, startDate, endDate, onPresetChange, onCustomDateChange, onRefresh }) => {
+  const PRESETS = [
+    { key: 'this_month', label: 'This Month' },
+    { key: 'last_month', label: 'Last Month' },
+    { key: 'ytd', label: 'Year to Date' },
+    { key: 'custom', label: 'Custom Range' },
+  ];
+
+  const fmtDate = (iso?: string) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch { return iso; }
+  };
+
+  const fmtMoney = (n?: number | null) => {
+    if (n === null || n === undefined) return '—';
+    return `$${Math.round(n).toLocaleString()}`;
+  };
+
+  const s = data?.summary;
+  const agents = data?.by_agent || [];
+  const details = data?.details || [];
+
+  return (
+    <div className="space-y-5">
+      {/* Range controls */}
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          {PRESETS.map(p => (
+            <button
+              key={p.key}
+              onClick={() => onPresetChange(p.key)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                preset === p.key
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          {preset === 'custom' && (
+            <div className="flex items-center gap-2 ml-2">
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => onCustomDateChange(e.target.value, endDate)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded"
+                style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
+              />
+              <span className="text-xs text-slate-500">→</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => onCustomDateChange(startDate, e.target.value)}
+                className="px-2 py-1 text-xs border border-slate-300 rounded"
+                style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
+              />
+            </div>
+          )}
+          <button
+            onClick={onRefresh}
+            className="ml-auto p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100"
+            title="Refresh"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+        {data?.window && (
+          <div className="text-xs text-slate-500 mt-2.5">
+            Showing outcomes from <strong className="text-slate-700">{fmtDate(data.window.start_date)}</strong> through <strong className="text-slate-700">{fmtDate(data.window.end_date)}</strong>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-slate-400">Loading report...</div>
+      ) : !data ? (
+        <div className="text-center py-12 text-slate-400">No data yet. Pick a range above.</div>
+      ) : (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Rewrote</div>
+              <div className="text-3xl font-bold text-emerald-600 mt-1 tabular-nums">{s.rewrote}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">policies saved</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Lost</div>
+              <div className="text-3xl font-bold text-red-500 mt-1 tabular-nums">{s.lost}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">policies not saved</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Win Rate</div>
+              <div className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">{s.win_rate}%</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{s.total_resolved} resolved</div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Savings</div>
+              <div className="text-3xl font-bold text-emerald-600 mt-1 tabular-nums">{fmtMoney(s.total_savings)}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">premium retained</div>
+            </div>
+          </div>
+
+          {/* Per-agent breakdown */}
+          {agents.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-900">By Agent</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Agent</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Rewrote</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Lost</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Total</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Win Rate</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Savings</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {agents.map((a: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5 font-medium text-slate-800">{a.agent_name}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-emerald-600 font-semibold">{a.rewrote}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-red-500 font-semibold">{a.lost}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{a.total}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{a.win_rate}%</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-emerald-700 font-medium">{fmtMoney(a.savings)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Detail list */}
+          {details.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Detail ({details.length})</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Resolved</th>
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Customer</th>
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Carrier</th>
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Agent</th>
+                      <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Outcome</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Premium</th>
+                      <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wide">Savings</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {details.map((d: any) => (
+                      <tr key={d.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-xs text-slate-500 tabular-nums">{fmtDate(d.completed_at)}</td>
+                        <td className="px-4 py-2 font-medium text-slate-800">{d.customer_name || '—'}</td>
+                        <td className="px-4 py-2 text-slate-600">
+                          {d.carrier || '—'}
+                          {d.policy_number && <span className="text-slate-400 text-xs ml-1">#{d.policy_number}</span>}
+                        </td>
+                        <td className="px-4 py-2 text-slate-600">{d.assignee_name || '—'}</td>
+                        <td className="px-4 py-2">
+                          {d.stage === 'lost' ? (
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">Lost</span>
+                          ) : (
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">Rewrote</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-slate-700">{fmtMoney(d.current_premium)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-emerald-700 font-medium">
+                          {d.stage !== 'lost' ? fmtMoney(d.premium_savings) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 // ── Stat Pill ────────────────────────────────────────────────────
 const StatPill: React.FC<{ label: string; value: any; icon: React.ReactNode; color: string }> = ({ label, value, icon, color }) => (

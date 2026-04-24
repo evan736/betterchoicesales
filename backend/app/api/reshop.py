@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import or_, func, desc, case
+from sqlalchemy import or_, and_, func, desc, case
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -697,7 +697,21 @@ def list_reshops(
     if stage:
         query = query.filter(Reshop.stage == stage)
     elif not show_closed:
-        query = query.filter(Reshop.stage.in_(ACTIVE_STAGES))
+        # Active-stage cards + recently-closed (within 24h) cards so agents see
+        # the card briefly after they mark it Renewed/Lost, giving a chance to
+        # undo a mistake. After 24h, closed cards auto-archive out of the
+        # pipeline view. All closed cards remain queryable via the outcome
+        # report and with show_closed=true.
+        recent_threshold = datetime.utcnow() - timedelta(hours=24)
+        query = query.filter(
+            or_(
+                Reshop.stage.in_(ACTIVE_STAGES),
+                and_(
+                    Reshop.stage.in_(CLOSED_STAGES),
+                    Reshop.stage_updated_at >= recent_threshold,
+                ),
+            )
+        )
 
     if assigned_to:
         query = query.filter(Reshop.assigned_to == assigned_to)
@@ -789,6 +803,126 @@ def reshop_stats(
         "savings_this_month": float(savings),
         "urgent_count": urgent_count,
         "expiring_soon": expiring_soon,
+    }
+
+
+@router.get("/outcome-report")
+def reshop_outcome_report(
+    start_date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (inclusive)"),
+    end_date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD (inclusive)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Outcome report — all reshops resolved (Rewrote or Lost) in the given window.
+
+    Used by the Report tab on the Reshop page to pull historical outcomes for
+    any date range. Defaults to the current month if no dates given.
+    """
+    is_producer = current_user.role.lower() == "producer"
+    if not _can_access(current_user) and not is_producer:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Parse dates; default to current calendar month
+    now = datetime.utcnow()
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date (use YYYY-MM-DD)")
+    else:
+        start_dt = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, microsecond=999999)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date (use YYYY-MM-DD)")
+    else:
+        end_dt = now
+
+    # Scope query same as list endpoint
+    is_admin_or_manager = current_user.role.lower() in ("admin", "manager")
+    is_elevated = current_user.username == "andrey.dayson"
+
+    base_query = db.query(Reshop).filter(
+        Reshop.stage.in_(CLOSED_STAGES),
+        Reshop.completed_at >= start_dt,
+        Reshop.completed_at <= end_dt,
+    )
+    if is_producer:
+        base_query = base_query.filter(Reshop.referred_by == current_user.full_name)
+    elif not is_admin_or_manager and not is_elevated:
+        base_query = base_query.filter(Reshop.assigned_to == current_user.id)
+
+    rows = base_query.order_by(desc(Reshop.completed_at)).all()
+
+    # Summary counts
+    bound_rows = [r for r in rows if r.stage in ("bound", "renewed")]
+    lost_rows = [r for r in rows if r.stage == "lost"]
+    total_resolved = len(bound_rows) + len(lost_rows)
+    win_rate = round(len(bound_rows) / max(total_resolved, 1) * 100, 1)
+
+    # Savings sum (only on bound/renewed)
+    total_savings = sum(float(r.premium_savings or 0) for r in bound_rows)
+
+    # Per-agent breakdown
+    by_agent = {}
+    for r in rows:
+        aid = r.assigned_to or 0
+        name = r.assignee_name or "Unassigned"
+        key = (aid, name)
+        if key not in by_agent:
+            by_agent[key] = {
+                "agent_id": aid or None,
+                "agent_name": name,
+                "rewrote": 0,
+                "lost": 0,
+                "savings": 0.0,
+            }
+        if r.stage in ("bound", "renewed"):
+            by_agent[key]["rewrote"] += 1
+            by_agent[key]["savings"] += float(r.premium_savings or 0)
+        elif r.stage == "lost":
+            by_agent[key]["lost"] += 1
+    agents_list = sorted(by_agent.values(), key=lambda x: -(x["rewrote"] + x["lost"]))
+    for a in agents_list:
+        total = a["rewrote"] + a["lost"]
+        a["total"] = total
+        a["win_rate"] = round(a["rewrote"] / max(total, 1) * 100, 1)
+
+    # Detail list — minimal fields for display
+    details = [
+        {
+            "id": r.id,
+            "customer_name": r.customer_name,
+            "carrier": r.carrier,
+            "policy_number": r.policy_number,
+            "line_of_business": r.line_of_business,
+            "assignee_name": r.assignee_name,
+            "stage": r.stage,
+            "current_premium": float(r.current_premium) if r.current_premium else None,
+            "renewal_premium": float(r.renewal_premium) if r.renewal_premium else None,
+            "quoted_premium": float(r.quoted_premium) if r.quoted_premium else None,
+            "premium_savings": float(r.premium_savings) if r.premium_savings else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "source": r.source,
+        }
+        for r in rows
+    ]
+
+    return {
+        "window": {
+            "start_date": start_dt.date().isoformat(),
+            "end_date": end_dt.date().isoformat(),
+        },
+        "summary": {
+            "total_resolved": total_resolved,
+            "rewrote": len(bound_rows),
+            "lost": len(lost_rows),
+            "win_rate": win_rate,
+            "total_savings": round(total_savings, 2),
+        },
+        "by_agent": agents_list,
+        "details": details,
     }
 
 

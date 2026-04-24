@@ -187,6 +187,8 @@ export const reshopAPI = {
     api.post(`/api/reshops/${id}/attempt`, { attempt_number: attemptNumber, answered }),
   clearAttempt: (id: number, attemptNumber: number) =>
     api.delete(`/api/reshops/${id}/attempt/${attemptNumber}`),
+  outcomeReport: (startDate?: string, endDate?: string) =>
+    api.get('/api/reshops/outcome-report', { params: { start_date: startDate, end_date: endDate } }),
 };
 
 // Survey / Welcome Email API
