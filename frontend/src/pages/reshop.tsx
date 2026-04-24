@@ -279,7 +279,6 @@ export default function ReshopPage() {
               <Target size={24} className="text-blue-600" />
               Reshop Pipeline
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">Track customer reshop requests from intake to resolution</p>
           </div>
           <div className="flex items-center gap-3">
             {isManager && (
@@ -309,11 +308,14 @@ export default function ReshopPage() {
 
         {/* Stats Bar */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <StatPill label="Active" value={stats.total_active} icon={<Target size={14} />} color="blue" />
-            <StatPill label="Rewrote This Month" value={stats.bound_this_month} icon={<CheckCircle2 size={14} />} color="emerald" />
-            <StatPill label="Lost This Month" value={stats.lost_this_month} icon={<XCircle size={14} />} color="red" />
-            <StatPill label="Win Rate" value={`${stats.win_rate}%`} icon={<TrendingUp size={14} />} color="green" />
+            <StatPill
+              label="This Month"
+              value={`${stats.bound_this_month}W / ${stats.lost_this_month}L · ${stats.win_rate}%`}
+              icon={<TrendingUp size={14} />}
+              color="emerald"
+            />
             <StatPill label="Savings" value={`$${(stats.savings_this_month || 0).toLocaleString()}`} icon={<DollarSign size={14} />} color="emerald" />
             <StatPill label="Urgent / Expiring Soon" value={`${stats.urgent_count} / ${stats.expiring_soon}`} icon={<AlertTriangle size={14} />} color="amber" />
           </div>
@@ -355,25 +357,25 @@ export default function ReshopPage() {
 
         {/* Kanban Board */}
         {loading ? (
-          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
             {STAGES.map(s => (
-              <div key={s.key} className="flex-shrink-0" style={{ width: 260 }}>
-                <div className="rounded-lg p-2 mb-2 h-8 bg-slate-200 animate-pulse" />
+              <div key={s.key} className="flex-shrink-0" style={{ width: 280 }}>
+                <div className="rounded-lg p-2 mb-2 h-9 bg-slate-200 animate-pulse" />
                 {[1,2,3].map(i => (
-                  <div key={i} className="rounded-xl mb-2 p-4 bg-slate-200 animate-pulse" style={{ height: 110 }} />
+                  <div key={i} className="rounded-lg mb-2 p-4 bg-slate-200 animate-pulse" style={{ height: 100 }} />
                 ))}
               </div>
             ))}
           </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
             {STAGES.map(stage => {
               const items = filteredByStage(stage.key);
               const isDragOver = dragOverStage === stage.key;
               return (
                 <div
                   key={stage.key}
-                  className={`flex-shrink-0 w-[220px] transition-all ${isDragOver ? 'scale-[1.02]' : ''}`}
+                  className={`flex-shrink-0 w-[280px] transition-all ${isDragOver ? 'scale-[1.01]' : ''}`}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
@@ -387,14 +389,20 @@ export default function ReshopPage() {
                     if (reshopId) handleStageMove(reshopId, stage.key);
                   }}
                 >
-                  <div className={`flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-${stage.color}-50 border border-${stage.color}-200`}>
-                    <span className={`text-${stage.color}-600`}>{stage.icon}</span>
+                  {/* Column header — single clean row with subtle count badge */}
+                  <div className={`flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg bg-white border border-slate-200 shadow-sm`}>
+                    <span className={`text-${stage.color}-500 flex-shrink-0`}>{stage.icon}</span>
                     <span className="text-sm font-semibold text-slate-700">{stage.label}</span>
-                    <span className={`ml-auto text-xs font-bold px-1.5 py-0.5 rounded-full bg-${stage.color}-100 text-${stage.color}-700`}>
+                    <span className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">
                       {items.length}
                     </span>
                   </div>
-                  <div className={`space-y-2 min-h-[60px] rounded-lg transition-all ${isDragOver ? 'bg-blue-50 border-2 border-dashed border-blue-300 p-2' : ''}`}>
+                  {/* Column body — subtle wash so cards visually sit in the column */}
+                  <div className={`space-y-2 min-h-[100px] p-2 rounded-lg transition-all ${
+                    isDragOver
+                      ? 'bg-blue-50 border-2 border-dashed border-blue-300'
+                      : 'bg-slate-100/60 border border-slate-100'
+                  }`}>
                     {items.map(r => (
                       <ReshopCard
                         key={r.id}
@@ -408,8 +416,8 @@ export default function ReshopPage() {
                       />
                     ))}
                     {items.length === 0 && (
-                      <div className="text-xs text-slate-400 text-center py-6 border border-dashed border-slate-200 rounded-lg">
-                        No items
+                      <div className="text-[11px] text-slate-400 text-center py-4 italic">
+                        —
                       </div>
                     )}
                   </div>
@@ -624,136 +632,148 @@ const ReshopCard: React.FC<{
           </div>
         </div>
       )}
-      <div className="flex items-start justify-between mb-1.5">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <div className="text-sm font-semibold text-slate-800 truncate">{r.customer_name}</div>
-            {isNonRenewal && (
-              <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white tracking-wider">
-                NON-RENEWAL
+      {/* Card body — hides when the forced-decision banner is active */}
+      {!forceResolve && (
+        <>
+          {/* Top row: small assignee chip + customer name + non-renewal pill + priority dot */}
+          <div className="flex items-start gap-2 mb-1">
+            {r.assignee_name && (
+              <div
+                title={r.assignee_name}
+                className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
+                  r.assignee_name.includes('Salma') ? 'bg-purple-500' :
+                  r.assignee_name.includes('Michelle') ? 'bg-cyan-500' :
+                  r.assignee_name.includes('April') ? 'bg-amber-500' :
+                  'bg-slate-400'
+                }`}
+              >
+                {r.assignee_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <div className="text-sm font-semibold text-slate-800 truncate">{r.customer_name}</div>
+                {isNonRenewal && (
+                  <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white tracking-wide">
+                    NON-RENEWAL
+                  </span>
+                )}
+                <div
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_COLORS[r.priority] || 'bg-slate-300'}`}
+                  title={`Priority: ${r.priority}`}
+                />
+              </div>
+              {r.carrier && (
+                <div className="text-xs text-slate-500 truncate mt-0.5">
+                  {r.carrier}{r.line_of_business ? ` · ${r.line_of_business}` : ''}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Meta row: premium, exp date, quote — single unified line */}
+          <div className="flex items-center gap-2 text-xs text-slate-600 mt-2">
+            {r.current_premium && (
+              <span className="font-semibold tabular-nums">
+                ${Number(r.current_premium).toLocaleString()}
+              </span>
+            )}
+            {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
+              <span className="font-bold text-red-600 tabular-nums">
+                → ${Number(r.renewal_premium).toLocaleString()}
+                <span className="text-[10px] ml-0.5">
+                  +{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%
+                </span>
+              </span>
+            )}
+            {r.expiration_date && (
+              <span className="flex items-center gap-0.5 text-slate-500">
+                <Calendar size={10} />
+                {new Date(r.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
             )}
           </div>
-          {r.carrier && (
-            <div className="text-xs text-slate-500 truncate">{r.carrier} — {r.line_of_business || 'Policy'}</div>
+
+          {/* Status badges row — only show when there's something meaningful */}
+          {(isExpiringSoon || r.quoted_premium) && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+              {isExpiringSoon && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                  daysUntilExp !== null && daysUntilExp <= 7 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {daysUntilExp}d left
+                </span>
+              )}
+              {r.quoted_premium && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 tabular-nums">
+                  Quote: ${Number(r.quoted_premium).toLocaleString()}
+                </span>
+              )}
+            </div>
           )}
-        </div>
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${PRIORITY_COLORS[r.priority] || 'bg-slate-300'}`} title={r.priority} />
-      </div>
 
-      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1.5">
-        {r.current_premium && (
-          <span className="flex items-center gap-0.5">
-            <DollarSign size={10} />{Number(r.current_premium).toLocaleString()}
-          </span>
-        )}
-        {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
-          <span className="flex items-center gap-0.5 font-bold text-red-600">
-            → ${Number(r.renewal_premium).toLocaleString()}
-            <span className="text-[10px]">
-              (+{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%)
-            </span>
-          </span>
-        )}
-        {!r.renewal_premium && r.policy_number && <span className="truncate max-w-[80px]">#{r.policy_number}</span>}
-      </div>
+          {/* 3-attempt tracker — no label, just 3 circles */}
+          <div className="flex items-center gap-1.5 mt-2">
+            {[1, 2, 3].map(n => {
+              const at = r[`attempt_${n}_at`];
+              const answered = r[`attempt_${n}_answered`];
+              const prevFilled = n === 1 || r[`attempt_${n-1}_at`];
+              const isClickable = canManage && !at && prevFilled;
+              const title = at
+                ? `Attempt ${n} — ${answered ? 'Customer answered' : 'No answer'} at ${new Date(at).toLocaleString()}`
+                : !prevFilled
+                  ? `Log attempt ${n - 1} first`
+                  : `Log attempt ${n}`;
+              return (
+                <button
+                  key={n}
+                  onClick={e => { e.stopPropagation(); if (isClickable) onAttempt(n); }}
+                  disabled={!isClickable}
+                  title={title}
+                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold transition-all ${
+                    at
+                      ? answered
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-slate-400 text-white'
+                      : isClickable
+                        ? 'bg-white border border-slate-300 text-slate-400 hover:border-blue-500 hover:text-blue-600'
+                        : 'bg-transparent border border-dashed border-slate-300 text-slate-300 cursor-not-allowed'
+                  }`}
+                >
+                  {at ? (answered ? '✓' : '✗') : n}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* Renewal date + urgency badges */}
-      <div className="flex items-center gap-2 flex-wrap mb-1">
-        {r.expiration_date && (
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-            daysUntilExp !== null && daysUntilExp <= 7 ? 'bg-red-100 text-red-700' :
-            daysUntilExp !== null && daysUntilExp <= 14 ? 'bg-amber-100 text-amber-700' :
-            'bg-slate-100 text-slate-600'
-          }`}>
-            📅 {new Date(r.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-        )}
-        {isExpiringSoon && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
-            {daysUntilExp}d left
-          </span>
-        )}
-        {r.quoted_premium && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
-            Quote: ${Number(r.quoted_premium).toLocaleString()}
-          </span>
-        )}
-      </div>
-
-      {r.assignee_name && (
-        <div className={`-mx-3 -mb-2.5 px-3 py-1.5 rounded-b-lg mt-1.5 ${
-          r.assignee_name.includes('Salma') ? 'bg-purple-500' :
-          r.assignee_name.includes('Michelle') ? 'bg-cyan-500' :
-          'bg-amber-500'
-        }`}>
-          <span className="text-[11px] font-bold text-white tracking-wide">
-            {r.assignee_name.split(' ')[0].toUpperCase()}
-          </span>
-        </div>
-      )}
-
-      {/* 3-attempt outreach tracker */}
-      <div className={`mt-2 flex items-center gap-1.5 ${forceResolve ? 'opacity-40 pointer-events-none' : ''}`}>
-        <span className="text-[10px] font-medium text-slate-500">Attempts:</span>
-        {[1, 2, 3].map(n => {
-          const at = r[`attempt_${n}_at`];
-          const answered = r[`attempt_${n}_answered`];
-          const prevFilled = n === 1 || r[`attempt_${n-1}_at`];
-          const isClickable = canManage && !at && prevFilled && !forceResolve;
-          const title = at
-            ? `Attempt ${n} — ${answered ? 'Customer answered' : 'No answer'} at ${new Date(at).toLocaleString()}`
-            : !prevFilled
-              ? `Log attempt ${n - 1} first`
-              : `Log attempt ${n}`;
-          return (
-            <button
-              key={n}
-              onClick={e => { e.stopPropagation(); if (isClickable) onAttempt(n); }}
-              disabled={!isClickable}
-              title={title}
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all border ${
-                at
-                  ? answered
-                    ? 'bg-emerald-500 border-emerald-600 text-white'
-                    : 'bg-slate-400 border-slate-500 text-white'
-                  : isClickable
-                    ? 'bg-white border-slate-300 text-slate-400 hover:border-blue-500 hover:text-blue-600 cursor-pointer'
-                    : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
-              }`}
-            >
-              {at ? (answered ? '✓' : '✗') : n}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Quick action buttons */}
-      {canManage && !forceResolve && (
-        <div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {nextStage && (
-            <button
-              onClick={e => { e.stopPropagation(); onMove(nextStage.key); }}
-              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded py-1 transition-colors"
-            >
-              <ArrowRight size={10} /> {nextStage.label}
-            </button>
+          {/* Quick actions — only visible on hover */}
+          {canManage && (
+            <div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {nextStage && (
+                <button
+                  onClick={e => { e.stopPropagation(); onMove(nextStage.key); }}
+                  className="flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded py-1 transition-colors"
+                >
+                  <ArrowRight size={10} /> {nextStage.label}
+                </button>
+              )}
+              <button
+                onClick={e => { e.stopPropagation(); onMove('bound'); }}
+                className="flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded py-1 transition-colors"
+              >
+                <CheckCircle2 size={10} /> Rewrote
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); onDelete(); }}
+                title="Delete reshop"
+                aria-label="Delete reshop"
+                className="flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded py-1 px-1.5 transition-colors"
+              >
+                <Trash2 size={10} />
+              </button>
+            </div>
           )}
-          <button
-            onClick={e => { e.stopPropagation(); onMove('bound'); }}
-            className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400 hover:text-green-600 hover:bg-green-50 rounded py-1 transition-colors"
-          >
-            <CheckCircle2 size={10} /> Rewrote / Renewed
-          </button>
-          <button
-            onClick={e => { e.stopPropagation(); onDelete(); }}
-            title="Delete reshop"
-            aria-label="Delete reshop"
-            className="flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded py-1 px-1.5 transition-colors"
-          >
-            <Trash2 size={10} />
-          </button>
-        </div>
+        </>
       )}
     </div>
   );
