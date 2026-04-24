@@ -619,11 +619,13 @@ const ReshopCard: React.FC<{
           )}
           <div className="flex-1 min-w-0">
             <div className="reshop-card__name truncate">{r.customer_name}</div>
-            {(r.carrier || r.policy_number) && (
+            {(r.carrier || r.line_of_business || r.policy_number) && (
               <div className="reshop-card__subtitle truncate">
-                {r.carrier}
-                {r.carrier && r.policy_number ? ' · ' : ''}
-                {r.policy_number && `#${r.policy_number}`}
+                {[
+                  r.carrier,
+                  r.line_of_business,
+                  r.policy_number ? `#${r.policy_number}` : null,
+                ].filter(Boolean).join(' · ')}
               </div>
             )}
             {(r.current_premium || r.renewal_premium) && (
@@ -708,11 +710,13 @@ const ReshopCard: React.FC<{
                   title={`Priority: ${r.priority}`}
                 />
               </div>
-              {(r.carrier || r.policy_number) && (
+              {(r.carrier || r.line_of_business || r.policy_number) && (
                 <div className="reshop-card__subtitle truncate mt-0.5">
-                  {r.carrier}
-                  {r.carrier && r.policy_number ? ' · ' : ''}
-                  {r.policy_number && `#${r.policy_number}`}
+                  {[
+                    r.carrier,
+                    r.line_of_business,
+                    r.policy_number ? `#${r.policy_number}` : null,
+                  ].filter(Boolean).join(' · ')}
                 </div>
               )}
             </div>
