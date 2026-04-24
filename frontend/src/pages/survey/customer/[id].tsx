@@ -112,7 +112,7 @@ const CustomerSurveyPage = () => {
         `Rating: ${selectedRating} out of 5 stars\n\n` +
         `Feedback:\n${feedbackMessage}\n`
       );
-      window.open(`mailto:evan@betterchoiceins.com?subject=${subject}&body=${body}`, '_self');
+      window.open(`mailto:service@betterchoiceins.com?subject=${subject}&body=${body}`, '_self');
     }
     setPhase('feedback_sent');
   };

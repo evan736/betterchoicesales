@@ -125,7 +125,7 @@ const SurveyPage = () => {
         `Rating: ${selectedRating} out of 5 stars\n\n` +
         `Feedback:\n${feedbackMessage}\n`
       );
-      window.open(`mailto:evan@betterchoiceins.com?subject=${subject}&body=${body}`, '_self');
+      window.open(`mailto:service@betterchoiceins.com?subject=${subject}&body=${body}`, '_self');
     }
 
     setPhase('feedback_sent');
@@ -246,12 +246,6 @@ const SurveyPage = () => {
 
           <div className="mt-6 pt-4 border-t border-slate-100 text-center">
             <p className="text-xs text-slate-400">
-              You can also reach us directly at{' '}
-              <a href="mailto:evan@betterchoiceins.com" className="text-blue-600 hover:underline">
-                evan@betterchoiceins.com
-              </a>
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
               Policy: {info?.policy_number} • {info?.carrier?.replace('_', ' ')}
             </p>
           </div>
