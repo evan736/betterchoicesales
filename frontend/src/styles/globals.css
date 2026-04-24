@@ -134,8 +134,8 @@
 .reshop-card__subtitle { color: #475569; font-size: .75rem; font-weight: 500; }
 .reshop-card__meta { color: #1e293b; font-size: .75rem; }
 .reshop-card__meta-muted { color: #64748b; font-size: .75rem; font-weight: 500; }
-.reshop-card__premium { color: #0f172a; font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.reshop-card__premium-hike { color: #dc2626; font-size: .75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.reshop-card__premium { color: #0f172a; font-size: .8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.reshop-card__premium-hike { color: #dc2626; font-size: .8125rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* Urgent border */
 .reshop-card--urgent { border-left: 3px solid #ef4444; }

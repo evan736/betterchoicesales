@@ -619,11 +619,28 @@ const ReshopCard: React.FC<{
           )}
           <div className="flex-1 min-w-0">
             <div className="reshop-card__name truncate">{r.customer_name}</div>
-            {(r.carrier || r.current_premium) && (
+            {(r.carrier || r.policy_number) && (
               <div className="reshop-card__subtitle truncate">
                 {r.carrier}
-                {r.carrier && r.current_premium ? ' · ' : ''}
-                {r.current_premium && `$${Number(r.current_premium).toLocaleString()}`}
+                {r.carrier && r.policy_number ? ' · ' : ''}
+                {r.policy_number && `#${r.policy_number}`}
+              </div>
+            )}
+            {(r.current_premium || r.renewal_premium) && (
+              <div className="flex items-center gap-1.5 mt-1">
+                {r.current_premium && (
+                  <span className="reshop-card__premium">
+                    ${Number(r.current_premium).toLocaleString()}
+                  </span>
+                )}
+                {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
+                  <span className="reshop-card__premium-hike">
+                    → ${Number(r.renewal_premium).toLocaleString()}
+                    <span className="text-[10px] ml-0.5">
+                      +{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%
+                    </span>
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -691,16 +708,18 @@ const ReshopCard: React.FC<{
                   title={`Priority: ${r.priority}`}
                 />
               </div>
-              {r.carrier && (
+              {(r.carrier || r.policy_number) && (
                 <div className="reshop-card__subtitle truncate mt-0.5">
-                  {r.carrier}{r.line_of_business ? ` · ${r.line_of_business}` : ''}
+                  {r.carrier}
+                  {r.carrier && r.policy_number ? ' · ' : ''}
+                  {r.policy_number && `#${r.policy_number}`}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Meta row: premium, exp date, quote — single unified line */}
-          <div className="flex items-center gap-2 mt-2">
+          {/* Meta row: current premium, premium change (if applicable), exp date */}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             {r.current_premium && (
               <span className="reshop-card__premium">
                 ${Number(r.current_premium).toLocaleString()}
@@ -709,7 +728,7 @@ const ReshopCard: React.FC<{
             {r.renewal_premium && r.current_premium && Number(r.renewal_premium) > Number(r.current_premium) && (
               <span className="reshop-card__premium-hike">
                 → ${Number(r.renewal_premium).toLocaleString()}
-                <span className="text-[10px] ml-0.5">
+                <span className="text-[10px] ml-0.5 font-black">
                   +{Math.round(((Number(r.renewal_premium) - Number(r.current_premium)) / Number(r.current_premium)) * 100)}%
                 </span>
               </span>
