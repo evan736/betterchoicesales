@@ -1,4 +1,3 @@
-// trigger deploy 1777049379
 // Claim Map — disaster response tool for drawing damage polygons over the book
 // and exporting a call list for affected households.
 //
@@ -14,7 +13,7 @@ import { useRouter } from 'next/router';
 import Navbar from '../components/Navbar';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
-import { toast } from 'react-toastify';
+import { toast } from '../components/ui/Toast';
 import { MapPin, Download, RefreshCw, AlertTriangle, Search, X, Zap } from 'lucide-react';
 
 // LOB → pin color
