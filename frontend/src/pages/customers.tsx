@@ -179,6 +179,7 @@ const IdCardEmailModal: React.FC<{
               value={recipient}
               onChange={e => setRecipient(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
               placeholder="customer@example.com"
             />
           </div>
