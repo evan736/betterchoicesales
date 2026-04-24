@@ -177,7 +177,17 @@ async def send_id_card_email(
             f"https://api.mailgun.net/v3/{mg_domain}/messages",
             auth=("api", mg_key),
             data={
-                "from": "Better Choice Insurance <service@betterchoiceins.com>",
+                # IMPORTANT: Sending from mg.betterchoiceins.com (the verified
+                # Mailgun subdomain) is required for SPF + DKIM alignment and
+                # deliverability. Once the ROOT domain betterchoiceins.com is
+                # also verified in Mailgun (separate task — requires adding
+                # DKIM CNAMEs + merging SPF on Cloudflare, leaving MX alone),
+                # this can switch to "service@betterchoiceins.com" cleanly.
+                # Reply-To is already service@betterchoiceins.com so replies
+                # do route to the team's Gmail inbox. This was a deliberate
+                # revert (see commit history) to avoid customer emails going
+                # to spam during the DNS propagation window.
+                "from": f"Better Choice Insurance <service@{mg_domain}>",
                 "to": recipient_email,
                 "bcc": "service@betterchoiceins.com",
                 "subject": subject,
