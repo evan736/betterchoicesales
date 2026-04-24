@@ -75,16 +75,27 @@ RESHOP_AGENT_TARGET_SHARES = {
 }
 
 
-def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_name: str = "") -> Optional[int]:
+def _get_next_round_robin_agent(
+    db: Session,
+    customer_id: int = None,
+    customer_name: str = "",
+    skip_usernames: Optional[list] = None,
+) -> Optional[int]:
     """Get the next agent ID in the target-share weighted rotation.
 
     Customer-aware: if this customer already has an active reshop assigned
-    to someone, return that same agent (don't split accounts).
+    to someone, return that same agent (don't split accounts) — UNLESS that
+    agent is in skip_usernames, in which case we fall through to rotation.
 
     Uses a DB-persisted counter of *auto-assignments per agent* since start
     of rotation (stored in a simple AppSetting-style key-value table or the
     reshop activity log) to determine who's most under their target share.
+
+    skip_usernames: optional list of lowercase usernames to exclude from
+    rotation (e.g., when someone is on vacation and can't work a time-
+    sensitive reshop in time).
     """
+    skip = set((u or "").lower() for u in (skip_usernames or []))
 
     # Check if this customer already has a reshop assigned to someone
     if customer_id:
@@ -94,8 +105,13 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
             Reshop.stage.in_(ACTIVE_STAGES),
         ).first()
         if existing and existing.assigned_to:
-            logger.info(f"Round-robin: customer {customer_name or customer_id} already assigned to agent {existing.assigned_to} — keeping same agent")
-            return existing.assigned_to
+            # Check that the existing assignee isn't in the skip list
+            existing_agent = db.query(User).filter(User.id == existing.assigned_to).first()
+            if existing_agent and (existing_agent.username or "").lower() not in skip:
+                logger.info(f"Round-robin: customer {customer_name or customer_id} already assigned to agent {existing.assigned_to} — keeping same agent")
+                return existing.assigned_to
+            # Existing agent is on the skip list — fall through and reassign
+            logger.info(f"Round-robin: customer {customer_name or customer_id} existing agent {existing.assigned_to} is in skip list — reassigning")
 
     # Also check by customer name (in case customer_id differs across policies)
     if customer_name:
@@ -105,8 +121,10 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
             Reshop.stage.in_(ACTIVE_STAGES),
         ).first()
         if existing_by_name and existing_by_name.assigned_to:
-            logger.info(f"Round-robin: customer '{customer_name}' already assigned to agent {existing_by_name.assigned_to} by name — keeping same agent")
-            return existing_by_name.assigned_to
+            existing_agent = db.query(User).filter(User.id == existing_by_name.assigned_to).first()
+            if existing_agent and (existing_agent.username or "").lower() not in skip:
+                logger.info(f"Round-robin: customer '{customer_name}' already assigned to agent {existing_by_name.assigned_to} by name — keeping same agent")
+                return existing_by_name.assigned_to
 
     # New customer — weighted round-robin based on target share of NEW assignments.
     agents = db.query(User).filter(
@@ -114,8 +132,12 @@ def _get_next_round_robin_agent(db: Session, customer_id: int = None, customer_n
         User.is_active == True,
     ).all()
 
+    # Filter out skipped agents
+    if skip:
+        agents = [a for a in agents if (a.username or "").lower() not in skip]
+
     if not agents:
-        logger.warning("Round-robin: no active agents found for auto-assignment")
+        logger.warning("Round-robin: no active agents found for auto-assignment (after skip filter)")
         return None
 
     # Count how many reshops each agent has received via AUTO-ASSIGN since
@@ -1196,10 +1218,13 @@ def list_commercial_accounts(
 
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
-    days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
+    days_out: int = Query(60, description="Look for renewals with effective dates within N days of start"),
+    start_date: Optional[str] = Query(None, description="Earliest renewal effective date (YYYY-MM-DD). Defaults to now - 7 days."),
     increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag (unless account is high-value)"),
     min_annual_premium: float = Query(1000.0, description="Floor: never flag accounts with annualized premium below this"),
     high_value_annual_premium: float = Query(4000.0, description="Ceiling: always flag accounts at or above this annualized premium, regardless of % change"),
+    skip_agent_usernames: Optional[str] = Query(None, description="Comma-separated usernames to exclude from auto-assignment during this scan (e.g., 'salma.marquez' if OOO)"),
+    skip_agent_for_effective_dates_through: Optional[str] = Query(None, description="Only apply the skip list to reshops with effective_date on or before this date (YYYY-MM-DD). After that date, the skipped agents are back in rotation."),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1208,18 +1233,47 @@ def detect_proactive_reshops(
     Rules:
       - Skip any account with annualized premium below `min_annual_premium` (default $1,000)
       - Flag any account with annualized premium at or above `high_value_annual_premium`
-        (default $4,000) regardless of premium change — high-value accounts always get
-        a retention conversation at renewal
+        (default $4,000) regardless of premium change
       - For accounts between the floor and ceiling, flag only if annualized premium
         increase is at or above `increase_threshold` (default 10%)
+
+    Time-aware agent skip:
+      - Pass `skip_agent_usernames=salma.marquez,joseph.rivera` to exclude those
+        agents from auto-assignment during the scan.
+      - Optionally pair with `skip_agent_for_effective_dates_through=2026-05-17`
+        to limit the skip to renewals with effective dates on or before that date
+        (useful for OOO windows: later renewals can still go to the agent since
+        they'll be back by the time the reshop needs to be worked).
 
     Premium is annualized based on actual term length (6-month terms multiplied by 2).
     """
     if not _can_manage(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
+
+    parsed_start_date = None
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date — use YYYY-MM-DD")
+
+    parsed_skip_through = None
+    if skip_agent_for_effective_dates_through:
+        try:
+            parsed_skip_through = datetime.fromisoformat(skip_agent_for_effective_dates_through).replace(hour=23, minute=59, second=59, microsecond=999999)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid skip_agent_for_effective_dates_through — use YYYY-MM-DD")
+
+    skip_list = []
+    if skip_agent_usernames:
+        skip_list = [u.strip().lower() for u in skip_agent_usernames.split(",") if u.strip()]
+
     return _run_proactive_scan(
         db, days_out, increase_threshold, min_annual_premium,
         high_value_annual_premium, current_user.full_name or current_user.username,
+        start_date_override=parsed_start_date,
+        skip_agent_usernames=skip_list,
+        skip_agent_cutoff_date=parsed_skip_through,
     )
 
 
@@ -1710,6 +1764,9 @@ def _run_proactive_scan(
     min_annual_premium: float = 1000.0,
     high_value_annual_premium: float = 4000.0,
     actor_name: str = "system",
+    start_date_override: Optional[datetime] = None,
+    skip_agent_usernames: Optional[list] = None,
+    skip_agent_cutoff_date: Optional[datetime] = None,
 ):
     """Core reshop detection logic — callable from scheduler or endpoint.
 
@@ -1719,19 +1776,29 @@ def _run_proactive_scan(
          (high-value accounts always get a touch at renewal, even if flat/dropping)
       3. Otherwise, include only if renewal increase % >= increase_threshold
 
+    start_date_override: if set, ignore `now - 7 days` default and start the
+    effective-date window here instead (useful for scanning future months).
+
+    skip_agent_usernames: agents to exclude from auto-assignment during this
+    scan (e.g., OOO). If skip_agent_cutoff_date is also set, the skip only
+    applies to reshops whose renewal effective_date is on or before that
+    date — later reshops route to normal rotation (since the agent will be
+    back by the time the work needs doing).
+
     Scans for upcoming renewal terms by matching "Renewing" + "Active" policy
-    terms (NowCerts sometimes stores renewal terms as Active). Annualizes both
-    current and renewal premium based on actual term length (6-month terms * 2).
+    terms. Annualizes both current and renewal premium based on actual term
+    length (6-month terms * 2).
     """
     now = datetime.utcnow()
-    cutoff = now + timedelta(days=days_out)
+    scan_start = start_date_override or (now - timedelta(days=7))
+    cutoff = scan_start + timedelta(days=days_out)
 
     # Pass 1: Find policies with status "Renewing" (standard NowCerts sync)
     renewing = (
         db.query(CustomerPolicy)
         .filter(
             func.lower(CustomerPolicy.status).in_(["renewing"]),
-            CustomerPolicy.effective_date >= now - timedelta(days=7),
+            CustomerPolicy.effective_date >= scan_start,
             CustomerPolicy.effective_date <= cutoff,
         )
         .all()
@@ -1748,7 +1815,7 @@ def _run_proactive_scan(
         db.query(CustomerPolicy)
         .filter(
             func.lower(CustomerPolicy.status).in_(["active", "in force", "inforce"]),
-            CustomerPolicy.effective_date >= now - timedelta(days=7),
+            CustomerPolicy.effective_date >= scan_start,
             CustomerPolicy.effective_date <= cutoff,
         )
         .all()
@@ -1957,8 +2024,23 @@ def _run_proactive_scan(
             )
             reason_label = "renewal_increase"
 
-        # Auto-assign via round-robin (if enabled)
-        auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
+        # Auto-assign via round-robin. If there's an active skip list, only
+        # apply it to reshops whose renewal effective date falls on or before
+        # the cutoff — otherwise normal rotation (the skipped agent will be
+        # back in time to work these).
+        apply_skip = False
+        if skip_agent_usernames:
+            if skip_agent_cutoff_date is None:
+                # No cutoff given → skip applies to all reshops in this scan
+                apply_skip = True
+            elif renewal.effective_date and renewal.effective_date <= skip_agent_cutoff_date:
+                apply_skip = True
+        auto_agent_id = _get_next_round_robin_agent(
+            db,
+            customer_id=customer.id,
+            customer_name=customer.full_name or "",
+            skip_usernames=(skip_agent_usernames if apply_skip else None),
+        )
 
         reshop = Reshop(
             customer_id=customer.id,
@@ -2024,10 +2106,14 @@ def _run_proactive_scan(
         "skipped_below_premium_threshold": skipped_below_threshold,
         "skipped_below_increase_threshold": skipped_no_increase,
         "criteria": {
+            "scan_window_start": scan_start.date().isoformat(),
+            "scan_window_end": cutoff.date().isoformat(),
             "days_out": days_out,
             "min_annual_premium": min_annual_premium,
             "high_value_annual_premium": high_value_annual_premium,
             "increase_threshold_pct": increase_threshold,
+            "skip_agent_usernames": skip_agent_usernames or [],
+            "skip_agent_cutoff_date": skip_agent_cutoff_date.date().isoformat() if skip_agent_cutoff_date else None,
         },
     }
 
