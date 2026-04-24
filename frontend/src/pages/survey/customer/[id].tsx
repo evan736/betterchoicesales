@@ -139,18 +139,19 @@ const CustomerSurveyPage = () => {
 
   if (phase === 'redirecting') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
-          <div className="text-5xl mb-4">🌟</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
+          <img src="/carrier-logos/bci_logo_color.png" alt="Better Choice Insurance Group" className="h-10 w-auto mx-auto mb-5" />
+          <div className="text-5xl mb-3">🌟</div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you so much!</h1>
-          <p className="text-slate-600 mb-4">
-            We&apos;re thrilled you had a great experience with Better Choice Insurance!
+          <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+            We&apos;re thrilled you had a great experience with Better Choice Insurance.
           </p>
-          <p className="text-green-700 font-semibold mb-4">
+          <p className="text-sm text-emerald-700 font-semibold mb-4">
             Redirecting you to leave a Google review...
           </p>
-          <div className="animate-spin w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto mb-6"></div>
-          <a href={GOOGLE_REVIEW_URL} className="text-sm text-green-600 hover:underline">
+          <div className="animate-spin w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-5"></div>
+          <a href={GOOGLE_REVIEW_URL} className="text-xs text-emerald-600 hover:underline font-medium">
             Click here if not redirected automatically
           </a>
         </div>
@@ -160,53 +161,56 @@ const CustomerSurveyPage = () => {
 
   if (phase === 'feedback_form') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4 py-8">
+        <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 max-w-lg w-full">
           <div className="text-center mb-6">
-            <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-14 w-auto mx-auto mb-4" />
-            <div className="text-4xl mb-3">💬</div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">We want to make it right</h1>
-            <p className="text-slate-600">
-              We&apos;re sorry your experience wasn&apos;t 100% satisfactory.
-              Please share more details so we can address your concerns directly.
+            <img src="/carrier-logos/bci_logo_color.png" alt="Better Choice Insurance Group" className="h-12 w-auto mx-auto mb-5" />
+            <h1 className="text-2xl font-bold text-slate-900 mb-2 leading-tight">
+              We want to make it right
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              We&apos;re sorry your experience wasn&apos;t what you hoped for. Tell us what happened and we&apos;ll follow up personally.
             </p>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Your Name</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase tracking-wide">Name</label>
               <input type="text" value={feedbackName} onChange={(e) => setFeedbackName(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors"
+                style={{ color: '#0f172a' }}
                 placeholder="Your full name" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Your Email</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase tracking-wide">Email</label>
               <input type="email" value={feedbackEmail} onChange={(e) => setFeedbackEmail(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                placeholder="So we can follow up with you" />
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors"
+                style={{ color: '#0f172a' }}
+                placeholder="So we can reach back out" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase tracking-wide">
                 What could we have done better?
               </label>
               <textarea value={feedbackMessage} onChange={(e) => setFeedbackMessage(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors resize-none"
+                style={{ color: '#0f172a' }}
                 rows={5}
-                placeholder="Please tell us about your experience — we take every response seriously and will follow up personally." />
+                placeholder="We take every response seriously — please be as specific as you can." />
             </div>
             <button onClick={handleSendFeedback} disabled={!feedbackMessage.trim() || sendingFeedback}
-              className={`w-full font-semibold py-3.5 rounded-xl text-lg transition-all shadow-lg ${
+              className={`w-full font-semibold py-3 rounded-lg text-sm transition-all ${
                 feedbackMessage.trim() && !sendingFeedback
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  ? 'bg-slate-900 text-white hover:bg-slate-800 shadow-md'
+                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
               }`}>
-              {sendingFeedback ? 'Sending...' : '✉️ Send Feedback'}
+              {sendingFeedback ? 'Sending...' : 'Send Feedback'}
             </button>
           </div>
           <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400">
-              You can also reach us directly at{' '}
-              <a href="mailto:evan@betterchoiceins.com" className="text-blue-600 hover:underline">
-                evan@betterchoiceins.com
+            <p className="text-xs text-slate-500">
+              Or reach us directly at{' '}
+              <a href="mailto:service@betterchoiceins.com" className="text-blue-600 hover:underline font-medium">
+                service@betterchoiceins.com
               </a>
             </p>
           </div>
@@ -218,13 +222,18 @@ const CustomerSurveyPage = () => {
   if (phase === 'feedback_sent') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
-          <div className="text-5xl mb-4">✅</div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You for Your Feedback</h1>
-          <p className="text-slate-600 mb-4">
-            We take your concerns seriously and will reach out to you personally to make things right.
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
+          <img src="/carrier-logos/bci_logo_color.png" alt="Better Choice Insurance Group" className="h-10 w-auto mx-auto mb-5" />
+          <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you for your feedback</h1>
+          <p className="text-sm text-slate-600 leading-relaxed mb-4">
+            We take your concerns seriously and someone from our team will reach out to you personally to make things right.
           </p>
-          <p className="text-sm text-slate-500">— The Better Choice Insurance Team</p>
+          <p className="text-xs text-slate-500">— The Better Choice Insurance Team</p>
         </div>
       </div>
     );
@@ -232,13 +241,14 @@ const CustomerSurveyPage = () => {
 
   if (phase === 'thankyou') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
         <GoogleAnalytics />
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-md w-full">
-          <div className="text-5xl mb-4">🙏</div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank You!</h1>
-          <p className="text-slate-600">
-            Your feedback helps us improve. We appreciate you choosing Better Choice Insurance Group!
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
+          <img src="/carrier-logos/bci_logo_color.png" alt="Better Choice Insurance Group" className="h-10 w-auto mx-auto mb-5" />
+          <div className="text-5xl mb-3">🙏</div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you!</h1>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Your feedback helps us improve. We appreciate you choosing Better Choice Insurance Group.
           </p>
         </div>
       </div>
@@ -246,39 +256,40 @@ const CustomerSurveyPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg p-8 max-w-lg w-full">
-        <div className="text-center mb-8">
-          <img src="/logo-bci.png" alt="Better Choice Insurance Group" className="h-14 w-auto mx-auto mb-4" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4 py-8">
+      <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 max-w-lg w-full">
+        <div className="text-center mb-6">
+          <img src="/carrier-logos/bci_logo_color.png" alt="Better Choice Insurance Group" className="h-12 w-auto mx-auto mb-5" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">How are we doing?</h1>
-          <p className="text-slate-500">
-            Thanks for choosing Better Choice Insurance, {info?.client_name}!
+          <p className="text-sm text-slate-600">
+            Thanks for choosing Better Choice{info?.client_name && info.client_name !== 'Customer' ? `, ${info.client_name}` : ''}!
           </p>
         </div>
-        <div className="flex justify-center space-x-3 mb-8">
+        <div className="flex justify-center space-x-2 sm:space-x-3 mb-6">
           {[1, 2, 3, 4, 5].map((star) => (
             <button key={star} onClick={() => setSelectedRating(star)}
-              className={`text-5xl transition-all duration-200 hover:scale-125 ${
-                selectedRating && star <= selectedRating ? 'drop-shadow-lg scale-110' : 'opacity-30 grayscale'
+              className={`text-4xl sm:text-5xl transition-all duration-200 hover:scale-125 ${
+                selectedRating && star <= selectedRating ? 'drop-shadow-md scale-110' : 'opacity-30 grayscale'
               }`}>
               ⭐
             </button>
           ))}
         </div>
         {selectedRating && selectedRating <= 3 && (
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              We&apos;d love to know how we can improve:
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase tracking-wide">
+              How can we improve?
             </label>
             <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)}
-              className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-slate-50 focus:bg-white transition-colors resize-none"
+              style={{ color: '#0f172a' }}
               rows={3} placeholder="Optional — your feedback helps us get better" />
           </div>
         )}
         {selectedRating && (
           <button onClick={() => handleSubmit()}
-            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold py-3.5 rounded-xl text-lg hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg">
-            {selectedRating >= 4 ? '🌟 Submit & Share the Love!' : 'Submit Feedback'}
+            className="w-full bg-slate-900 text-white font-semibold py-3 rounded-lg text-sm hover:bg-slate-800 transition-all shadow-md">
+            {selectedRating >= 4 ? 'Submit & Share a Review' : 'Submit Feedback'}
           </button>
         )}
       </div>
