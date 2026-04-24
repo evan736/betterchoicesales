@@ -206,14 +206,6 @@ const CustomerSurveyPage = () => {
               {sendingFeedback ? 'Sending...' : 'Send Feedback'}
             </button>
           </div>
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-500">
-              Or reach us directly at{' '}
-              <a href="mailto:service@betterchoiceins.com" className="text-blue-600 hover:underline font-medium">
-                service@betterchoiceins.com
-              </a>
-            </p>
-          </div>
         </div>
       </div>
     );
