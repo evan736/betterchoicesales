@@ -177,7 +177,7 @@ async def send_id_card_email(
             f"https://api.mailgun.net/v3/{mg_domain}/messages",
             auth=("api", mg_key),
             data={
-                "from": f"Better Choice Insurance <service@{mg_domain}>",
+                "from": "Better Choice Insurance <service@betterchoiceins.com>",
                 "to": recipient_email,
                 "bcc": "service@betterchoiceins.com",
                 "subject": subject,
