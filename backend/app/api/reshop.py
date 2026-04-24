@@ -2053,7 +2053,10 @@ def _run_proactive_scan(
             current_premium=active_pol.premium,
             assigned_to=auto_agent_id,
             renewal_premium=renewal.premium,
-            premium_change_pct=round(c["change_pct"], 1),
+            # Cap at 999.9 to fit NUMERIC(5,2) column — real-world outliers
+            # (e.g., $50 → $2000 premium corrections) can produce 4000%+ which
+            # would overflow. The actual % is still in source_detail text.
+            premium_change_pct=min(999.9, max(-999.9, round(c["change_pct"], 1))),
             expiration_date=active_pol.expiration_date,
             stage="proactive",
             priority=priority,
