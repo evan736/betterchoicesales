@@ -390,7 +390,7 @@ export default function ReshopPage() {
                   }}
                 >
                   {/* Column header — single clean row with subtle count badge */}
-                  <div className={`flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg bg-white border border-slate-200 shadow-sm`}>
+                  <div className={`flex items-center gap-2 px-3 py-2.5 mb-3 rounded-lg bg-white border border-slate-200 shadow-sm`} data-reshop-col-header="true">
                     <span className={`text-${stage.color}-500 flex-shrink-0`}>{stage.icon}</span>
                     <span className="text-sm font-semibold text-slate-700">{stage.label}</span>
                     <span className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">
@@ -601,10 +601,41 @@ const ReshopCard: React.FC<{
               ? 'bg-white border-slate-200'
               : ''
       }`}
+      data-reshop-card={forceResolve ? 'force' : isNonRenewal ? 'nonrenewal' : 'default'}
     >
+      {/* Customer identity strip — ALWAYS visible, even in force-resolve state.
+          Agents need to know WHO they're deciding on. */}
+      {forceResolve && (
+        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-red-200">
+          {r.assignee_name && (
+            <div
+              title={r.assignee_name}
+              className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
+                r.assignee_name.includes('Salma') ? 'bg-purple-500' :
+                r.assignee_name.includes('Michelle') ? 'bg-cyan-500' :
+                r.assignee_name.includes('April') ? 'bg-amber-500' :
+                'bg-slate-400'
+              }`}
+            >
+              {r.assignee_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-slate-900 truncate">{r.customer_name}</div>
+            {(r.carrier || r.current_premium) && (
+              <div className="text-xs text-slate-600 truncate font-medium">
+                {r.carrier}
+                {r.carrier && r.current_premium ? ' · ' : ''}
+                {r.current_premium && `$${Number(r.current_premium).toLocaleString()}`}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Forced-decision banner — shown when lead is 7+ days past expiration */}
       {forceResolve && (
-        <div className="mb-2 -mx-3 -mt-2.5 px-3 py-2 bg-red-600 text-white rounded-t-lg">
+        <div className="mb-0 px-2 py-2 bg-red-600 text-white rounded">
           <div className="flex items-center gap-1.5 mb-1.5">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span className="text-[11px] font-bold tracking-wide uppercase">

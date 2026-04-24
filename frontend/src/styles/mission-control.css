@@ -1410,3 +1410,66 @@ body.mission-control .start-quote-btn {
 body.mission-control .start-quote-btn:hover {
   box-shadow: 0 4px 20px rgba(34, 197, 94, 0.35);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RESHOP KANBAN CARDS — dark-theme overrides
+   Reshop cards are marked with data-reshop-card (default|nonrenewal|force)
+   and column headers with data-reshop-col-header. The Tailwind classes give
+   them a white/light-tinted background that gets inverted to dark by the
+   general bg-white override upstream; that inversion leaves slate-800/900
+   text unreadable. These rules restore contrast inside that dark background.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Default (non-renewal/non-force) cards — dark bg inherited from bg-white
+   override, text must flip to light */
+body.mission-control [data-reshop-card="default"] .text-slate-900 {
+  color: var(--mc-text-primary) !important;
+}
+body.mission-control [data-reshop-card="default"] .text-slate-800,
+body.mission-control [data-reshop-card="default"] .text-slate-700 {
+  color: var(--mc-text-primary) !important;
+}
+body.mission-control [data-reshop-card="default"] .text-slate-600 {
+  color: var(--mc-text-secondary) !important;
+}
+body.mission-control [data-reshop-card="default"] .text-slate-500,
+body.mission-control [data-reshop-card="default"] .text-slate-400 {
+  color: var(--mc-text-tertiary) !important;
+}
+
+/* Non-renewal cards keep their amber-50 background (bg-amber-50 is NOT in
+   the bg-white override list) — text stays dark-on-amber which reads fine.
+   No special rule needed. */
+
+/* Force-resolve (overdue) cards — red-50 bg, text stays dark. BUT the
+   identity strip above the banner needs explicit high-contrast text. */
+body.mission-control [data-reshop-card="force"] .text-slate-900 {
+  color: #0f172a !important;   /* keep it dark against the red-50 bg */
+}
+body.mission-control [data-reshop-card="force"] .text-slate-600 {
+  color: #334155 !important;
+}
+
+/* Column headers — bg-white flipped dark, icon + label + count need light text */
+body.mission-control [data-reshop-col-header="true"] {
+  border-color: var(--mc-border) !important;
+}
+body.mission-control [data-reshop-col-header="true"] .text-slate-700 {
+  color: var(--mc-text-primary) !important;
+}
+body.mission-control [data-reshop-col-header="true"] .bg-slate-100 {
+  background-color: rgba(255,255,255,0.08) !important;
+}
+body.mission-control [data-reshop-col-header="true"] .text-slate-600 {
+  color: var(--mc-text-secondary) !important;
+}
+
+/* Small color chips like "1d left" and "Quote: $X" keep their bg but need
+   text recalibration since the inner bg stays tinted */
+body.mission-control [data-reshop-card="default"] .bg-red-100,
+body.mission-control [data-reshop-card="default"] .bg-amber-100,
+body.mission-control [data-reshop-card="default"] .bg-emerald-100 {
+  /* These bg-*-100 classes are NOT in the global override, so they're still
+     tinted. The default dark text on tinted-light bg reads fine. Just
+     make sure we don't accidentally force light text here. */
+}
