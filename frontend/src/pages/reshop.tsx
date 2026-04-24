@@ -525,6 +525,22 @@ const StatPill: React.FC<{ label: string; value: any; icon: React.ReactNode; col
 );
 
 // ── Reshop Card ──────────────────────────────────────────────────
+// Overdue-lead policy: reshops whose expiration date is 7+ days in the past
+// force the owning agent to mark the lead Renewed/Rewrote (stage='bound') or
+// Lost before they can do anything else with the card. New hires are exempt
+// for their first 30 days. Currently the only new hire being exempted is
+// April Wilson (hired 2026-04-22). Her exemption expires 2026-05-22.
+const OVERDUE_DAYS_THRESHOLD = 7;
+const APRIL_USER_ID = 19;
+const APRIL_EXEMPTION_EXPIRES = new Date('2026-05-22T00:00:00');
+
+function isUserExemptFromForcedResolution(userId: number | undefined): boolean {
+  if (userId === APRIL_USER_ID && Date.now() < APRIL_EXEMPTION_EXPIRES.getTime()) {
+    return true;
+  }
+  return false;
+}
+
 const ReshopCard: React.FC<{
   reshop: any; onOpen: () => void; onMove: (s: string) => void;
   onDelete: () => void;
@@ -539,16 +555,24 @@ const ReshopCard: React.FC<{
   const isExpiringSoon = daysUntilExp !== null && daysUntilExp <= 14 && daysUntilExp >= 0;
   const isNonRenewal = r.source === 'non_renewal';
 
+  // Forced-decision logic: expired 7+ days ago AND still open (not bound/lost)
+  const isOpen = !['bound','lost','cancelled','renewed'].includes(r.stage);
+  const isOverdue = daysUntilExp !== null && daysUntilExp <= -OVERDUE_DAYS_THRESHOLD && isOpen;
+  // Exempt: assignee is in their grace period (April during onboarding)
+  const assigneeExempt = isUserExemptFromForcedResolution(r.assigned_to);
+  // Show banner only if overdue AND assignee isn't exempt
+  const forceResolve = isOverdue && !assigneeExempt;
+
   // Next stage
   const currentIdx = stages.findIndex(s => s.key === r.stage);
   const nextStage = currentIdx < stages.length - 1 ? stages[currentIdx + 1] : null;
 
   return (
     <div
-      onClick={onOpen}
-      draggable={canManage}
+      onClick={forceResolve ? (e) => e.stopPropagation() : onOpen}
+      draggable={canManage && !forceResolve}
       onDragStart={(e) => {
-        if (!canManage) return;
+        if (!canManage || forceResolve) { e.preventDefault(); return; }
         e.dataTransfer.setData('reshopId', String(r.id));
         e.dataTransfer.effectAllowed = 'move';
         (e.currentTarget as HTMLElement).style.opacity = '0.5';
@@ -556,16 +580,50 @@ const ReshopCard: React.FC<{
       onDragEnd={(e) => {
         (e.currentTarget as HTMLElement).style.opacity = '1';
       }}
-      className={`border rounded-lg px-3 py-2.5 cursor-pointer hover:shadow-md transition-all group ${
-        canManage ? 'cursor-grab active:cursor-grabbing' : ''
+      className={`border rounded-lg px-3 py-2.5 transition-all group ${
+        forceResolve
+          ? 'bg-red-50 border-l-[4px] border-l-red-600 border-t border-r border-b border-red-200 cursor-default'
+          : canManage ? 'cursor-grab active:cursor-grabbing cursor-pointer hover:shadow-md' : 'cursor-pointer hover:shadow-md'
       } ${
-        isNonRenewal
+        !forceResolve && isNonRenewal
           ? 'bg-amber-50 border-l-[4px] border-l-amber-500 border-t border-r border-b border-amber-200'
-          : isUrgent
+          : !forceResolve && isUrgent
             ? 'bg-white border-l-[3px] border-l-red-500 border-t border-r border-b border-slate-200'
-            : 'bg-white border-slate-200'
+            : !forceResolve
+              ? 'bg-white border-slate-200'
+              : ''
       }`}
     >
+      {/* Forced-decision banner — shown when lead is 7+ days past expiration */}
+      {forceResolve && (
+        <div className="mb-2 -mx-3 -mt-2.5 px-3 py-2 bg-red-600 text-white rounded-t-lg">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <AlertCircle size={12} className="flex-shrink-0" />
+            <span className="text-[11px] font-bold tracking-wide uppercase">
+              Expired {Math.abs(daysUntilExp!)} days ago
+            </span>
+          </div>
+          <p className="text-[10px] mb-2 text-red-50 leading-tight">
+            Resolve this lead to continue working others.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); onMove('bound'); }}
+              disabled={!canManage}
+              className="px-2 py-1.5 text-[11px] font-bold rounded bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 transition-colors"
+            >
+              ✓ Renewed/Rewrote
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onMove('lost'); }}
+              disabled={!canManage}
+              className="px-2 py-1.5 text-[11px] font-bold rounded bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors"
+            >
+              ✗ Lost
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between mb-1.5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
@@ -636,13 +694,13 @@ const ReshopCard: React.FC<{
       )}
 
       {/* 3-attempt outreach tracker */}
-      <div className="mt-2 flex items-center gap-1.5">
+      <div className={`mt-2 flex items-center gap-1.5 ${forceResolve ? 'opacity-40 pointer-events-none' : ''}`}>
         <span className="text-[10px] font-medium text-slate-500">Attempts:</span>
         {[1, 2, 3].map(n => {
           const at = r[`attempt_${n}_at`];
           const answered = r[`attempt_${n}_answered`];
           const prevFilled = n === 1 || r[`attempt_${n-1}_at`];
-          const isClickable = canManage && !at && prevFilled;
+          const isClickable = canManage && !at && prevFilled && !forceResolve;
           const title = at
             ? `Attempt ${n} — ${answered ? 'Customer answered' : 'No answer'} at ${new Date(at).toLocaleString()}`
             : !prevFilled
@@ -671,7 +729,7 @@ const ReshopCard: React.FC<{
       </div>
 
       {/* Quick action buttons */}
-      {canManage && (
+      {canManage && !forceResolve && (
         <div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {nextStage && (
             <button
