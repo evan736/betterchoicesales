@@ -31,6 +31,7 @@ from app.api import cancellation as cancellation_api
 from app.api import nowcerts_poll as nowcerts_poll_api
 from app.api import inspection as inspection_api
 from app.api import reshop as reshop_api
+from app.api import id_cards as id_cards_api
 from app.api import leads as leads_api
 from app.api import sales_records as sales_records_api
 from app.models.inspection import InspectionDraft
@@ -231,6 +232,27 @@ def init_database():
                 EXCEPTION WHEN others THEN NULL;
                 END $$;
             """))
+            # Reshop outreach attempt tracking (3-attempt workflow)
+            for colname in ["attempt_1_at","attempt_2_at","attempt_3_at"]:
+                conn.execute(text(f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='reshops' AND column_name='{colname}') THEN
+                            ALTER TABLE reshops ADD COLUMN {colname} TIMESTAMP WITH TIME ZONE;
+                        END IF;
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """))
+            for colname in ["attempt_1_answered","attempt_2_answered","attempt_3_answered"]:
+                conn.execute(text(f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='reshops' AND column_name='{colname}') THEN
+                            ALTER TABLE reshops ADD COLUMN {colname} BOOLEAN;
+                        END IF;
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """))
             conn.commit()
             conn.execute(text("""
                 DO $$
@@ -1396,6 +1418,24 @@ def force_migrate():
     except Exception as e:
         results.append(f"SKIP statement_lines.is_renewal_term: {str(e)[:80]}")
 
+    # Reshop outreach attempt tracking (3-attempt workflow)
+    for colname in ["attempt_1_at","attempt_2_at","attempt_3_at"]:
+        try:
+            with engine.connect() as conn:
+                conn.execute(sa_text(f"ALTER TABLE reshops ADD COLUMN {colname} TIMESTAMP WITH TIME ZONE"))
+                conn.commit()
+            results.append(f"OK: Added reshops.{colname}")
+        except Exception as e:
+            results.append(f"SKIP reshops.{colname}: {str(e)[:80]}")
+    for colname in ["attempt_1_answered","attempt_2_answered","attempt_3_answered"]:
+        try:
+            with engine.connect() as conn:
+                conn.execute(sa_text(f"ALTER TABLE reshops ADD COLUMN {colname} BOOLEAN"))
+                conn.commit()
+            results.append(f"OK: Added reshops.{colname}")
+        except Exception as e:
+            results.append(f"SKIP reshops.{colname}: {str(e)[:80]}")
+
     # Add file_data BYTEA column to chat_messages for persistent file storage
     try:
         with engine.connect() as conn:
@@ -1503,6 +1543,7 @@ except Exception as e:
     logger.error(f"Failed to load events router: {e}")
 
 app.include_router(reshop_api.router)
+app.include_router(id_cards_api.router)
 
 from app.api import revenue_tracker as revenue_tracker_api
 app.include_router(revenue_tracker_api.router)

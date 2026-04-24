@@ -183,6 +183,10 @@ export const reshopAPI = {
     api.post('/api/reshops/detect-proactive', null, { params: { days_out: daysOut || 60, increase_threshold: threshold || 10 } }),
   teamMembers: () => api.get('/api/reshops/team/members'),
   badgeCount: () => api.get('/api/reshops/badge-count'),
+  logAttempt: (id: number, attemptNumber: number, answered: boolean) =>
+    api.post(`/api/reshops/${id}/attempt`, { attempt_number: attemptNumber, answered }),
+  clearAttempt: (id: number, attemptNumber: number) =>
+    api.delete(`/api/reshops/${id}/attempt/${attemptNumber}`),
 };
 
 // Survey / Welcome Email API

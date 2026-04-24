@@ -27,6 +27,210 @@ function normCarrier(c: string | null): string {
   return CARRIER_DISPLAY[c.toLowerCase().trim()] || c;
 }
 
+
+// ── ID Card Email Modal ──────────────────────────────────────────
+// Lets the agent upload a PDF (typically pulled from the carrier portal) and
+// send it to the customer with branded copy + carrier app download info.
+const IdCardEmailModal: React.FC<{
+  customer: any;
+  policy: any;
+  onClose: () => void;
+  onSent: () => void;
+}> = ({ customer, policy, onClose, onSent }) => {
+  const [pdf, setPdf] = useState<File | null>(null);
+  const [recipient, setRecipient] = useState<string>(customer.email || '');
+  const [sending, setSending] = useState(false);
+  const [appInfo, setAppInfo] = useState<any>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch carrier app info on mount
+  useEffect(() => {
+    const carrier = policy.carrier || '';
+    if (!carrier) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    fetch(`${baseUrl}/api/id-cards/carrier-app-info?carrier=${encodeURIComponent(carrier)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then(setAppInfo)
+      .catch(() => setAppInfo(null));
+  }, [policy.carrier]);
+
+  const handleFile = (f: File | null) => {
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('File must be a PDF');
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      toast.error('PDF exceeds 10MB limit');
+      return;
+    }
+    setPdf(f);
+  };
+
+  const handleSend = async () => {
+    if (!pdf) { toast.error('Upload the ID card PDF first'); return; }
+    if (!recipient || !recipient.includes('@')) { toast.error('Enter a valid email'); return; }
+    setSending(true);
+    try {
+      const fd = new FormData();
+      fd.append('pdf', pdf);
+      fd.append('customer_id', String(customer.id));
+      if (policy.id) fd.append('policy_id', String(policy.id));
+      fd.append('recipient_email', recipient);
+      fd.append('carrier', policy.carrier || '');
+      if (policy.line_of_business) fd.append('line_of_business', policy.line_of_business);
+
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const res = await fetch(`${baseUrl}/api/id-cards/send`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Send failed' }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      toast.success(`ID card sent to ${recipient}${data.has_app ? ' with app info' : ''}`);
+      onSent();
+      onClose();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to send');
+    }
+    setSending(false);
+  };
+
+  const customerName = customer.full_name || `${customer.first_name || ''} ${customer.last_name || ''}`.trim();
+  const carrierDisplay = normCarrier(policy.carrier);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => !sending && onClose()}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Mail size={18} className="text-blue-600" />
+              Email ID Card
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Send {customerName} their {carrierDisplay} {policy.line_of_business || policy.policy_type || 'policy'} ID card
+            </p>
+          </div>
+          <button onClick={() => !sending && onClose()} disabled={sending} className="text-slate-400 hover:text-slate-600 disabled:opacity-50">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {/* PDF upload zone */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">ID Card PDF</label>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setDragOver(false);
+                handleFile(e.dataTransfer.files[0] || null);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`rounded-lg border-2 border-dashed p-4 text-center cursor-pointer transition-colors ${
+                dragOver ? 'border-blue-500 bg-blue-50' :
+                pdf ? 'border-emerald-400 bg-emerald-50' :
+                'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={e => handleFile(e.target.files?.[0] || null)}
+              />
+              {pdf ? (
+                <div>
+                  <CheckCircle2 size={20} className="text-emerald-600 mx-auto mb-1" />
+                  <p className="text-sm font-semibold text-emerald-700">{pdf.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{(pdf.size / 1024).toFixed(0)} KB — click to replace</p>
+                </div>
+              ) : (
+                <div>
+                  <Upload size={20} className="text-slate-400 mx-auto mb-1" />
+                  <p className="text-sm font-semibold text-slate-700">Drop PDF here or click to select</p>
+                  <p className="text-xs text-slate-500 mt-0.5">PDF only, up to 10MB</p>
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Pull the ID card from the {carrierDisplay} portal and upload it here.
+            </p>
+          </div>
+
+          {/* Recipient */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Send to</label>
+            <input
+              type="email"
+              value={recipient}
+              onChange={e => setRecipient(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="customer@example.com"
+            />
+          </div>
+
+          {/* App info preview */}
+          {appInfo?.found && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600">
+              <div className="font-semibold text-slate-700 mb-1">Email will include:</div>
+              <ul className="space-y-0.5 ml-3 list-disc">
+                <li>Branded intro from Better Choice Insurance</li>
+                <li>PDF attachment you uploaded</li>
+                {(appInfo.has_ios || appInfo.has_android) ? (
+                  <li>
+                    Download links for the {appInfo.name} mobile app
+                    {appInfo.has_ios && appInfo.has_android ? ' (iOS + Android)' : appInfo.has_ios ? ' (iOS only)' : ' (Android only)'}
+                  </li>
+                ) : appInfo.service_phone ? (
+                  <li>{appInfo.name} customer service number ({appInfo.service_phone})</li>
+                ) : null}
+              </ul>
+            </div>
+          )}
+          {appInfo && !appInfo.found && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+              No app info configured for "{policy.carrier}" — email will still send with ID card, just without the app section.
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={() => !sending && onClose()}
+              disabled={sending}
+              className="flex-1 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || !pdf || !recipient}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {sending ? <><Loader2 size={14} className="animate-spin" /> Sending...</> : <><Send size={14} /> Send</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 export default function CustomersPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -44,6 +248,7 @@ export default function CustomersPage() {
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [copiedPolicy, setCopiedPolicy] = useState<string | null>(null);
+  const [idCardTarget, setIdCardTarget] = useState<{ customer: any; policy: any } | null>(null);
   const [driversData, setDriversData] = useState<any>(null);
   const [driversLoading, setDriversLoading] = useState(false);
   const [driversOpen, setDriversOpen] = useState(false);
@@ -704,6 +909,18 @@ export default function CustomersPage() {
                                       >
                                         {copiedPolicy === (p.policy_number || '') ? '✓ Copied!' : (p.policy_number || '—')}
                                       </button>
+                                      {p.status?.toLowerCase() === 'active' && detail?.customer?.email && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIdCardTarget({ customer: detail.customer, policy: p });
+                                          }}
+                                          title={`Email ID card for ${p.carrier || 'this policy'} to customer`}
+                                          className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"
+                                        >
+                                          <Mail size={13} />
+                                        </button>
+                                      )}
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : p.status?.toLowerCase() === 'non-renewed' || p.status?.toLowerCase() === 'nonrenewed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || '?'}</span>
                                       {p.first_term_producer && (
                                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-cyan-100 text-cyan-700" title="Policy is in first term — original selling agent">
@@ -1132,6 +1349,16 @@ export default function CustomersPage() {
             customer={nonRenewalCustomer}
             onClose={() => setNonRenewalCustomer(null)}
             onCreated={() => { setNonRenewalCustomer(null); toast.info('Non-renewal added to reshop pipeline!'); }}
+          />
+        )}
+
+        {/* ID Card Email Modal */}
+        {idCardTarget && (
+          <IdCardEmailModal
+            customer={idCardTarget.customer}
+            policy={idCardTarget.policy}
+            onClose={() => setIdCardTarget(null)}
+            onSent={() => setIdCardTarget(null)}
           />
         )}
       </main>

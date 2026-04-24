@@ -626,6 +626,13 @@ def _reshop_to_dict(r: Reshop) -> dict:
         "stage_updated_at": r.stage_updated_at.isoformat() if r.stage_updated_at else None,
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+        # Outreach attempts (3-attempt workflow)
+        "attempt_1_at": r.attempt_1_at.isoformat() if getattr(r, "attempt_1_at", None) else None,
+        "attempt_1_answered": r.attempt_1_answered if hasattr(r, "attempt_1_answered") else None,
+        "attempt_2_at": r.attempt_2_at.isoformat() if getattr(r, "attempt_2_at", None) else None,
+        "attempt_2_answered": r.attempt_2_answered if hasattr(r, "attempt_2_answered") else None,
+        "attempt_3_at": r.attempt_3_at.isoformat() if getattr(r, "attempt_3_at", None) else None,
+        "attempt_3_answered": r.attempt_3_answered if hasattr(r, "attempt_3_answered") else None,
     }
 
 
@@ -1253,6 +1260,213 @@ def add_reshop_note(
     _log_activity(db, reshop.id, current_user, "note", data.text)
     db.commit()
     return {"status": "ok"}
+
+
+# ── Outreach attempt tracking ─────────────────────────────────────
+class ReshopAttemptLog(BaseModel):
+    attempt_number: int  # 1, 2, or 3
+    answered: bool       # True = they answered the call → thank-you email
+                         # False = didn't reach them → "we tried" email
+    send_email: bool = True  # Allow skipping email if customer has no email on file
+
+
+def _send_reshop_attempt_email(reshop: Reshop, answered: bool, attempt_number: int) -> tuple[bool, str]:
+    """Send the branded attempt email. Returns (success, message_id_or_error)."""
+    from app.services.welcome_email import BCI_NAVY, BCI_CYAN
+    mg_key = os.environ.get("MAILGUN_API_KEY") or settings.MAILGUN_API_KEY
+    mg_domain = os.environ.get("MAILGUN_DOMAIN") or settings.MAILGUN_DOMAIN
+    if not mg_key or not mg_domain:
+        return False, "Mailgun not configured"
+    if not reshop.customer_email:
+        return False, "No customer email on file"
+
+    # Pick the right copy
+    if answered:
+        subject = "Thank you for speaking with us — Better Choice Insurance"
+        headline = "Thank You"
+        body = (
+            f"Hi {reshop.customer_name.split()[0] if reshop.customer_name else 'there'},"
+            "<br><br>"
+            "Thank you for taking the time to speak with us today about your policy. "
+            "We appreciate the opportunity to review your coverage and look forward to "
+            "finding the right solution for you."
+            "<br><br>"
+            "If you have any follow-up questions, don't hesitate to reach out — we're "
+            "here to help."
+            "<br><br>"
+            "Best regards,"
+            "<br>"
+            "Better Choice Insurance Group"
+        )
+    else:
+        subject = "We tried reaching you about your policy renewal"
+        headline = "We Tried to Reach You"
+        body = (
+            f"Hi {reshop.customer_name.split()[0] if reshop.customer_name else 'there'},"
+            "<br><br>"
+            "We tried reaching out to you today regarding your upcoming policy renewal, but weren't able to connect. "
+            "We'd love the chance to review your current coverage and make sure you're still getting "
+            "the best rate and protection."
+            "<br><br>"
+            "Please give us a call back at your earliest convenience — "
+            "<strong>847-908-5665</strong> — or reply to this email and we'll reach out at a "
+            "time that works for you."
+            "<br><br>"
+            "Best regards,"
+            "<br>"
+            "Better Choice Insurance Group"
+        )
+
+    html = f"""
+    <!DOCTYPE html>
+    <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f5f5;padding:30px 0;">
+        <tr><td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.08);">
+            <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:white;">
+              <div style="font-size:12px;letter-spacing:2px;opacity:.85;">BETTER CHOICE INSURANCE GROUP</div>
+              <div style="font-size:26px;font-weight:700;margin-top:8px;">{headline}</div>
+            </td></tr>
+            <tr><td style="padding:32px;color:#1a1a1a;line-height:1.6;font-size:15px;">
+              {body}
+            </td></tr>
+            <tr><td style="background:#f8f8f8;padding:18px 32px;border-top:1px solid #e5e5e5;color:#666;font-size:12px;">
+              Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
+              847-908-5665 · service@betterchoiceins.com
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body></html>
+    """
+
+    try:
+        resp = http_requests.post(
+            f"https://api.mailgun.net/v3/{mg_domain}/messages",
+            auth=("api", mg_key),
+            data={
+                "from": f"Better Choice Insurance <service@{mg_domain}>",
+                "to": reshop.customer_email,
+                "subject": subject,
+                "html": html,
+                "h:Reply-To": "service@betterchoiceins.com",
+                "h:X-Reshop-Id": str(reshop.id),
+                "h:X-Attempt-Number": str(attempt_number),
+            },
+            timeout=20,
+        )
+        if resp.status_code == 200:
+            msg_id = resp.json().get("id", "sent")
+            return True, msg_id
+        return False, f"Mailgun {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+@router.post("/{reshop_id}/attempt")
+def log_reshop_attempt(
+    reshop_id: int,
+    data: ReshopAttemptLog,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Log an outreach attempt on a reshop and send the matching customer email.
+
+    attempt_number must be 1, 2, or 3 and must be the NEXT unfilled attempt
+    (i.e., can't log attempt 3 before 1 and 2). Each attempt stores timestamp
+    and whether the customer answered; the email dispatched matches that state.
+    """
+    if not _can_access(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if data.attempt_number not in (1, 2, 3):
+        raise HTTPException(status_code=400, detail="attempt_number must be 1, 2, or 3")
+
+    reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
+    if not reshop:
+        raise HTTPException(status_code=404, detail="Reshop not found")
+
+    # Enforce sequential attempts
+    if data.attempt_number == 2 and not reshop.attempt_1_at:
+        raise HTTPException(status_code=400, detail="Must log attempt 1 before attempt 2")
+    if data.attempt_number == 3 and not reshop.attempt_2_at:
+        raise HTTPException(status_code=400, detail="Must log attempt 2 before attempt 3")
+
+    # Already logged?
+    existing_at = {1: reshop.attempt_1_at, 2: reshop.attempt_2_at, 3: reshop.attempt_3_at}[data.attempt_number]
+    if existing_at is not None:
+        raise HTTPException(status_code=400, detail=f"Attempt {data.attempt_number} already logged")
+
+    now = datetime.utcnow()
+    if data.attempt_number == 1:
+        reshop.attempt_1_at = now
+        reshop.attempt_1_answered = data.answered
+    elif data.attempt_number == 2:
+        reshop.attempt_2_at = now
+        reshop.attempt_2_answered = data.answered
+    else:
+        reshop.attempt_3_at = now
+        reshop.attempt_3_answered = data.answered
+
+    email_result = {"sent": False, "reason": None}
+    if data.send_email and reshop.customer_email:
+        sent, info = _send_reshop_attempt_email(reshop, data.answered, data.attempt_number)
+        email_result = {"sent": sent, "message_id": info if sent else None, "error": None if sent else info}
+
+    _log_activity(
+        db, reshop.id, current_user, "attempt_logged",
+        f"Attempt {data.attempt_number}: " +
+        ("Customer answered — thank-you email sent" if data.answered else "No answer — follow-up email sent") +
+        ("" if email_result.get("sent") else f" (email NOT sent: {email_result.get('error') or 'no email on file'})"),
+    )
+    db.commit()
+    db.refresh(reshop)
+    return {
+        "status": "ok",
+        "attempt_number": data.attempt_number,
+        "answered": data.answered,
+        "email": email_result,
+        "reshop": _reshop_to_dict(reshop),
+    }
+
+
+@router.delete("/{reshop_id}/attempt/{attempt_number}")
+def clear_reshop_attempt(
+    reshop_id: int,
+    attempt_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Clear a logged attempt (admin/manager only — undo for mistakes).
+
+    Clearing attempt N also clears attempts > N to keep the sequence consistent.
+    Does NOT un-send the email that was already sent.
+    """
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if attempt_number not in (1, 2, 3):
+        raise HTTPException(status_code=400, detail="Invalid attempt number")
+
+    reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
+    if not reshop:
+        raise HTTPException(status_code=404, detail="Reshop not found")
+
+    # Clear this attempt and anything after it
+    if attempt_number <= 1:
+        reshop.attempt_1_at = None
+        reshop.attempt_1_answered = None
+    if attempt_number <= 2:
+        reshop.attempt_2_at = None
+        reshop.attempt_2_answered = None
+    if attempt_number <= 3:
+        reshop.attempt_3_at = None
+        reshop.attempt_3_answered = None
+
+    _log_activity(db, reshop.id, current_user, "attempt_cleared",
+                  f"Cleared attempt {attempt_number} and subsequent attempts")
+    db.commit()
+    db.refresh(reshop)
+    return {"status": "ok", "reshop": _reshop_to_dict(reshop)}
 
 
 @router.post("/{reshop_id}/move")

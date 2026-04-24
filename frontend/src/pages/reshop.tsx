@@ -70,6 +70,8 @@ export default function ReshopPage() {
   const [filterAssigned, setFilterAssigned] = useState<string>('all');
   const [detectingProactive, setDetectingProactive] = useState(false);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [attemptTarget, setAttemptTarget] = useState<{ reshop: any; attemptNumber: number } | null>(null);
+  const [attemptSaving, setAttemptSaving] = useState(false);
 
   const isManager = user?.role === 'admin' || user?.role === 'retention_specialist' || user?.role === 'manager';
   const isProducer = user?.role === 'producer';
@@ -175,6 +177,31 @@ export default function ReshopPage() {
       setNoteText('');
       openDetail({ id: reshopId });
     } catch {}
+  };
+
+  const handleLogAttempt = async (answered: boolean) => {
+    if (!attemptTarget) return;
+    setAttemptSaving(true);
+    try {
+      const res = await reshopAPI.logAttempt(
+        attemptTarget.reshop.id,
+        attemptTarget.attemptNumber,
+        answered,
+      );
+      const email = res.data?.email || {};
+      if (email.sent) {
+        toast.success(`Attempt ${attemptTarget.attemptNumber} logged — ${answered ? 'thank-you' : 'follow-up'} email sent`);
+      } else if (!attemptTarget.reshop.customer_email) {
+        toast.warning(`Attempt ${attemptTarget.attemptNumber} logged — no customer email on file, email skipped`);
+      } else {
+        toast.warning(`Attempt ${attemptTarget.attemptNumber} logged — email failed: ${email.error || 'unknown'}`);
+      }
+      setAttemptTarget(null);
+      loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to log attempt');
+    }
+    setAttemptSaving(false);
   };
 
   const handleDetectProactive = async () => {
@@ -375,6 +402,7 @@ export default function ReshopPage() {
                         onOpen={() => openDetail(r)}
                         onMove={(s: string) => handleStageMove(r.id, s)}
                         onDelete={() => handleDelete(r.id, r.customer_name)}
+                        onAttempt={(n: number) => setAttemptTarget({ reshop: r, attemptNumber: n })}
                         stages={STAGES}
                         canManage={isManager}
                       />
@@ -409,6 +437,58 @@ export default function ReshopPage() {
           isManager={isManager}
           saving={saving}
         />
+      )}
+
+      {/* Attempt modal */}
+      {attemptTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => !attemptSaving && setAttemptTarget(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-700 font-bold">{attemptTarget.attemptNumber}</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Log Attempt {attemptTarget.attemptNumber}</h3>
+                <p className="text-xs text-slate-500">{attemptTarget.reshop.customer_name}</p>
+              </div>
+            </div>
+            <div className="border-t border-slate-100 pt-4 mb-5">
+              <p className="text-slate-700 text-sm mb-1">Did they answer?</p>
+              {!attemptTarget.reshop.customer_email && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                  ⚠ No email on file — attempt will be logged but no email sent.
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleLogAttempt(true)}
+                disabled={attemptSaving}
+                className="flex flex-col items-center justify-center py-4 rounded-lg bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-400 transition-all disabled:opacity-50 disabled:cursor-wait"
+              >
+                <span className="text-2xl mb-1">✓</span>
+                <span className="text-sm font-bold text-emerald-700">Yes — they answered</span>
+                <span className="text-[10px] text-emerald-600 mt-0.5">Sends thank-you email</span>
+              </button>
+              <button
+                onClick={() => handleLogAttempt(false)}
+                disabled={attemptSaving}
+                className="flex flex-col items-center justify-center py-4 rounded-lg bg-slate-50 border-2 border-slate-200 hover:bg-slate-100 hover:border-slate-400 transition-all disabled:opacity-50 disabled:cursor-wait"
+              >
+                <span className="text-2xl mb-1">✗</span>
+                <span className="text-sm font-bold text-slate-700">No — no answer</span>
+                <span className="text-[10px] text-slate-500 mt-0.5">Sends "we tried" email</span>
+              </button>
+            </div>
+            <button
+              onClick={() => setAttemptTarget(null)}
+              disabled={attemptSaving}
+              className="mt-4 w-full text-center text-xs text-slate-500 hover:text-slate-700 py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Create Modal */}
@@ -448,14 +528,16 @@ const StatPill: React.FC<{ label: string; value: any; icon: React.ReactNode; col
 const ReshopCard: React.FC<{
   reshop: any; onOpen: () => void; onMove: (s: string) => void;
   onDelete: () => void;
+  onAttempt: (attemptNumber: number) => void;
   stages: any[]; canManage: boolean;
-}> = ({ reshop, onOpen, onMove, onDelete, stages, canManage }) => {
+}> = ({ reshop, onOpen, onMove, onDelete, onAttempt, stages, canManage }) => {
   const r = reshop;
   const daysUntilExp = r.expiration_date
     ? Math.ceil((new Date(r.expiration_date).getTime() - Date.now()) / 86400000)
     : null;
   const isUrgent = r.priority === 'urgent' || r.priority === 'high';
   const isExpiringSoon = daysUntilExp !== null && daysUntilExp <= 14 && daysUntilExp >= 0;
+  const isNonRenewal = r.source === 'non_renewal';
 
   // Next stage
   const currentIdx = stages.findIndex(s => s.key === r.stage);
@@ -474,15 +556,26 @@ const ReshopCard: React.FC<{
       onDragEnd={(e) => {
         (e.currentTarget as HTMLElement).style.opacity = '1';
       }}
-      className={`bg-white border rounded-lg px-3 py-2.5 cursor-pointer hover:shadow-md transition-all group ${
+      className={`border rounded-lg px-3 py-2.5 cursor-pointer hover:shadow-md transition-all group ${
         canManage ? 'cursor-grab active:cursor-grabbing' : ''
       } ${
-        isUrgent ? 'border-l-[3px] border-l-red-500 border-t border-r border-b border-slate-200' : 'border-slate-200'
+        isNonRenewal
+          ? 'bg-amber-50 border-l-[4px] border-l-amber-500 border-t border-r border-b border-amber-200'
+          : isUrgent
+            ? 'bg-white border-l-[3px] border-l-red-500 border-t border-r border-b border-slate-200'
+            : 'bg-white border-slate-200'
       }`}
     >
       <div className="flex items-start justify-between mb-1.5">
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-slate-800 truncate">{r.customer_name}</div>
+          <div className="flex items-center gap-1.5">
+            <div className="text-sm font-semibold text-slate-800 truncate">{r.customer_name}</div>
+            {isNonRenewal && (
+              <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white tracking-wider">
+                NON-RENEWAL
+              </span>
+            )}
+          </div>
           {r.carrier && (
             <div className="text-xs text-slate-500 truncate">{r.carrier} — {r.line_of_business || 'Policy'}</div>
           )}
@@ -541,6 +634,41 @@ const ReshopCard: React.FC<{
           </span>
         </div>
       )}
+
+      {/* 3-attempt outreach tracker */}
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="text-[10px] font-medium text-slate-500">Attempts:</span>
+        {[1, 2, 3].map(n => {
+          const at = r[`attempt_${n}_at`];
+          const answered = r[`attempt_${n}_answered`];
+          const prevFilled = n === 1 || r[`attempt_${n-1}_at`];
+          const isClickable = canManage && !at && prevFilled;
+          const title = at
+            ? `Attempt ${n} — ${answered ? 'Customer answered' : 'No answer'} at ${new Date(at).toLocaleString()}`
+            : !prevFilled
+              ? `Log attempt ${n - 1} first`
+              : `Log attempt ${n}`;
+          return (
+            <button
+              key={n}
+              onClick={e => { e.stopPropagation(); if (isClickable) onAttempt(n); }}
+              disabled={!isClickable}
+              title={title}
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all border ${
+                at
+                  ? answered
+                    ? 'bg-emerald-500 border-emerald-600 text-white'
+                    : 'bg-slate-400 border-slate-500 text-white'
+                  : isClickable
+                    ? 'bg-white border-slate-300 text-slate-400 hover:border-blue-500 hover:text-blue-600 cursor-pointer'
+                    : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
+              }`}
+            >
+              {at ? (answered ? '✓' : '✗') : n}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Quick action buttons */}
       {canManage && (

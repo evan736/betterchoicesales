@@ -66,6 +66,18 @@ class Reshop(Base):
     renewal_premium = Column(Numeric(10, 2), nullable=True)  # new renewal premium if known
     premium_change_pct = Column(Numeric(5, 2), nullable=True)  # % change
 
+    # Outreach attempts (for 3-attempt workflow on non-renewal & general reshop)
+    # Each attempt records timestamp + whether the customer answered.
+    # UI shows 3 checkbox circles; each click logs one attempt and sends either
+    # a "thank you for speaking with us" email (answered=true) or a "tried to
+    # reach you" email (answered=false).
+    attempt_1_at = Column(DateTime(timezone=True), nullable=True)
+    attempt_1_answered = Column(Boolean, nullable=True)
+    attempt_2_at = Column(DateTime(timezone=True), nullable=True)
+    attempt_2_answered = Column(Boolean, nullable=True)
+    attempt_3_at = Column(DateTime(timezone=True), nullable=True)
+    attempt_3_answered = Column(Boolean, nullable=True)
+
     # Timestamps
     requested_at = Column(DateTime(timezone=True), server_default=func.now())
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
