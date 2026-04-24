@@ -27,6 +27,23 @@ function normCarrier(c: string | null): string {
   return CARRIER_DISPLAY[c.toLowerCase().trim()] || c;
 }
 
+// What customer-facing document to send based on policy type.
+// - Auto → ID Card (proof of insurance for vehicles)
+// - Home/Condo/Renters → Dec Page (declaration page, needed by mortgage)
+// - Package/Bundled/anything else → Policy Documents (generic)
+function policyDocType(policy: any): { label: string; bodyNoun: string } {
+  const raw = (policy?.policy_type || policy?.line_of_business || '').toLowerCase();
+  if (!raw) return { label: 'Policy Documents', bodyNoun: 'policy documents' };
+  if (/auto|vehicle|motorcycle|boat|rv|motor/.test(raw)) {
+    return { label: 'ID Card', bodyNoun: 'ID card' };
+  }
+  if (/home|condo|renter|dwelling|ho3|ho6|tenant/.test(raw)) {
+    return { label: 'Dec Page', bodyNoun: 'declarations page' };
+  }
+  // Bundled, package, unknown, umbrella, etc. — generic
+  return { label: 'Policy Documents', bodyNoun: 'policy documents' };
+}
+
 
 // ── ID Card Email Modal ──────────────────────────────────────────
 // Lets the agent upload a PDF (typically pulled from the carrier portal) and
@@ -71,8 +88,11 @@ const IdCardEmailModal: React.FC<{
     setPdf(f);
   };
 
+  // Policy-type-aware labels for buttons, emails, and copy
+  const docType = policyDocType(policy);
+
   const handleSend = async () => {
-    if (!pdf) { toast.error('Upload the ID card PDF first'); return; }
+    if (!pdf) { toast.error(`Upload the ${docType.bodyNoun} PDF first`); return; }
     if (!recipient || !recipient.includes('@')) { toast.error('Enter a valid email'); return; }
     setSending(true);
     try {
@@ -83,6 +103,8 @@ const IdCardEmailModal: React.FC<{
       fd.append('recipient_email', recipient);
       fd.append('carrier', policy.carrier || '');
       if (policy.line_of_business) fd.append('line_of_business', policy.line_of_business);
+      fd.append('doc_label', docType.label);
+      fd.append('doc_body_noun', docType.bodyNoun);
 
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -96,7 +118,7 @@ const IdCardEmailModal: React.FC<{
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      toast.success(`ID card sent to ${recipient}${data.has_app ? ' with app info' : ''}`);
+      toast.success(`${docType.label} sent to ${recipient}${data.has_app ? ' with app info' : ''}`);
       onSent();
       onClose();
     } catch (e: any) {
@@ -115,10 +137,10 @@ const IdCardEmailModal: React.FC<{
           <div>
             <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Mail size={18} className="text-blue-600" />
-              Email ID Card
+              Email {docType.label}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Send {customerName} their {carrierDisplay} {policy.line_of_business || policy.policy_type || 'policy'} ID card
+              Send {customerName} their {carrierDisplay} {policy.line_of_business || policy.policy_type || 'policy'} {docType.bodyNoun}
             </p>
           </div>
           <button onClick={() => !sending && onClose()} disabled={sending} className="text-slate-400 hover:text-slate-600 disabled:opacity-50">
@@ -129,7 +151,7 @@ const IdCardEmailModal: React.FC<{
         <div className="space-y-4">
           {/* PDF upload zone */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">ID Card PDF</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">{docType.label} PDF</label>
             <div
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
@@ -167,7 +189,7 @@ const IdCardEmailModal: React.FC<{
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
-              Pull the ID card from the {carrierDisplay} portal and upload it here.
+              Pull the {docType.bodyNoun} from the {carrierDisplay} portal and upload it here.
             </p>
           </div>
 
@@ -914,18 +936,22 @@ export default function CustomersPage() {
                                       >
                                         {copiedPolicy === (p.policy_number || '') ? '✓ Copied!' : (p.policy_number || '—')}
                                       </button>
-                                      {p.status?.toLowerCase() === 'active' && detail?.customer?.email && (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setIdCardTarget({ customer: detail.customer, policy: p });
-                                          }}
-                                          title={`Email ID card for ${p.carrier || 'this policy'} to customer`}
-                                          className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors"
-                                        >
-                                          <Mail size={13} />
-                                        </button>
-                                      )}
+                                      {p.status?.toLowerCase() === 'active' && detail?.customer?.email && (() => {
+                                        const doc = policyDocType(p);
+                                        return (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setIdCardTarget({ customer: detail.customer, policy: p });
+                                            }}
+                                            title={`Email ${doc.bodyNoun} for ${p.carrier || 'this policy'} to customer`}
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
+                                          >
+                                            <Mail size={10} />
+                                            Email {doc.label}
+                                          </button>
+                                        );
+                                      })()}
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${p.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-700' : p.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-700' : p.status?.toLowerCase() === 'non-renewed' || p.status?.toLowerCase() === 'nonrenewed' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{p.status || '?'}</span>
                                       {p.first_term_producer && (
                                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-cyan-100 text-cyan-700" title="Policy is in first term — original selling agent">

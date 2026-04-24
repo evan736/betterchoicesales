@@ -44,12 +44,29 @@ def _resolve_carrier(carrier: str) -> Optional[dict]:
 
 
 def _build_idcard_html(customer_name: str, carrier_info: Optional[dict], original_carrier: str,
-                       line_of_business: str, customer_id: Optional[int] = None) -> str:
-    """Build the branded ID card email body. Falls back gracefully if carrier not known."""
+                       line_of_business: str, customer_id: Optional[int] = None,
+                       doc_label: str = "ID Card", doc_body_noun: str = "ID card") -> str:
+    """Build the branded email body. Doc type controls header/intro/storage tip.
+
+    doc_label: Title-cased label for headers ("ID Card", "Dec Page", "Policy Documents")
+    doc_body_noun: Lowercase noun for inline prose ("ID card", "declarations page", "policy documents")
+    """
     first_name = (customer_name or "there").split()[0] if customer_name else "there"
     lob_label = (line_of_business or "policy").replace("_", " ").title()
     carrier_display = (carrier_info or {}).get("display_name") or original_carrier or "your insurance"
     accent_color = (carrier_info or {}).get("accent_color") or BCI_CYAN
+
+    # Per-doc-type intro & storage hint
+    lowered = doc_body_noun.lower()
+    if "id card" in lowered:
+        intro_tip = ("Keep a copy on your phone or print it and store it in your vehicle &mdash; "
+                     "you'll need it if you're ever pulled over or involved in an accident.")
+    elif "declarations" in lowered or "dec" in lowered:
+        intro_tip = ("Keep a copy for your records. Your mortgage company or landlord may request it "
+                     "as proof of coverage.")
+    else:
+        intro_tip = ("Keep a copy for your records and reach out anytime if you have questions "
+                     "about your coverage.")
 
     app_section = ""
     if carrier_info:
@@ -137,12 +154,12 @@ def _build_idcard_html(customer_name: str, carrier_info: Optional[dict], origina
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.08);">
         <tr><td style="background:linear-gradient(135deg,{BCI_NAVY} 0%,{BCI_CYAN} 100%);padding:30px;color:#ffffff;">
           <div style="font-size:14px;letter-spacing:2px;font-weight:700;color:#ffffff;">BETTER CHOICE INSURANCE GROUP</div>
-          <div style="font-size:26px;font-weight:700;margin-top:10px;color:#ffffff;">Your ID Card</div>
+          <div style="font-size:26px;font-weight:700;margin-top:10px;color:#ffffff;">Your {doc_label}</div>
         </td></tr>
         <tr><td style="padding:32px;color:#1a1a1a;line-height:1.6;font-size:15px;">
           Hi {first_name},<br><br>
-          Attached is your ID card for your <strong>{carrier_display} {lob_label}</strong> policy.
-          Keep a copy on your phone or print it and store it in your vehicle &mdash; you'll need it if you're ever pulled over or involved in an accident.
+          Attached is your {doc_body_noun} for your <strong>{carrier_display} {lob_label}</strong> policy.
+          {intro_tip}
           <br><br>
           If you need anything else, call or text us anytime at <strong>847-908-5665</strong>.
           <br><br>
@@ -169,10 +186,12 @@ async def send_id_card_email(
     recipient_email: str = Form(...),
     carrier: str = Form(...),
     line_of_business: Optional[str] = Form(None),
+    doc_label: str = Form("ID Card"),
+    doc_body_noun: str = Form("ID card"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Email the customer their ID card PDF with branded copy and carrier info."""
+    """Email the customer their policy document PDF with branded copy and carrier info."""
     mg_key = os.environ.get("MAILGUN_API_KEY") or settings.MAILGUN_API_KEY
     mg_domain = os.environ.get("MAILGUN_DOMAIN") or settings.MAILGUN_DOMAIN
     if not mg_key or not mg_domain:
@@ -194,9 +213,13 @@ async def send_id_card_email(
 
     carrier_info = _resolve_carrier(carrier)
     customer_name = customer.full_name or f"{customer.first_name or ''} {customer.last_name or ''}".strip()
-    html = _build_idcard_html(customer_name, carrier_info, carrier, line_of_business or "", customer_id=customer_id)
+    html = _build_idcard_html(
+        customer_name, carrier_info, carrier, line_of_business or "",
+        customer_id=customer_id,
+        doc_label=doc_label, doc_body_noun=doc_body_noun,
+    )
     carrier_display = (carrier_info or {}).get("display_name") or carrier
-    subject = f"Your {carrier_display} ID Card — Better Choice Insurance"
+    subject = f"Your {carrier_display} {doc_label} — Better Choice Insurance"
 
     try:
         resp = http_requests.post(
