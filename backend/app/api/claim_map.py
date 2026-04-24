@@ -92,13 +92,19 @@ def list_claim_map_customers(
         lob_source = (p.line_of_business or "").strip().lower()
         if not lob_source:
             lob_source = (p.policy_type or "").strip().lower()
-        # Further inference from common patterns if still empty
-        if not lob_source:
+        # policy_type is often "New Business" / "Renewal" — not an actual LOB.
+        # If we haven't identified a real LOB value, fall through to carrier inference.
+        KNOWN_LOB_WORDS = ("home", "auto", "commercial", "bop", "gl", "workers", "liability",
+                           "dwelling", "renter", "ho3", "ho6", "dp1", "dp3", "umbrella", "life")
+        if not any(w in lob_source for w in KNOWN_LOB_WORDS):
             pn = (p.policy_number or "").lower()
             carrier = (p.carrier or "").lower()
-            if "ho" in pn or "dwelling" in pn or "universal p" in carrier or "openly" in carrier or "hippo" in carrier or "steadily" in carrier or "bamboo" in carrier:
+            if "ho" in pn or "dwelling" in pn or "universal p" in carrier or "openly" in carrier or "hippo" in carrier or "steadily" in carrier or "bamboo" in carrier or "american modern" in carrier:
                 lob_source = "home"
             elif any(c in pn for c in ("auto", "pa ")) or "geico" in carrier or "progressive" in carrier or "national general" in carrier or "nat gen" in carrier or "bristol west" in carrier or "gainsco" in carrier or "clearcover" in carrier or "next" in carrier:
+                lob_source = "auto"
+            elif "safeco" in carrier or "travelers" in carrier or "grange" in carrier:
+                # Multi-line carriers — default to auto unless policy number hints otherwise
                 lob_source = "auto"
         if lob_source:
             by_customer[c.id]["lob_set"].add(lob_source)
