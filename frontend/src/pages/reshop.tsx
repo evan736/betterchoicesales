@@ -357,9 +357,9 @@ export default function ReshopPage() {
 
         {/* Kanban Board */}
         {loading ? (
-          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
             {STAGES.map(s => (
-              <div key={s.key} className="flex-shrink-0" style={{ width: 280 }}>
+              <div key={s.key} className="flex-shrink-0" style={{ width: 240 }}>
                 <div className="rounded-lg p-2 mb-2 h-9 bg-slate-200 animate-pulse" />
                 {[1,2,3].map(i => (
                   <div key={i} className="rounded-lg mb-2 p-4 bg-slate-200 animate-pulse" style={{ height: 100 }} />
@@ -368,14 +368,14 @@ export default function ReshopPage() {
             ))}
           </div>
         ) : (
-          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+          <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
             {STAGES.map(stage => {
               const items = filteredByStage(stage.key);
               const isDragOver = dragOverStage === stage.key;
               return (
                 <div
                   key={stage.key}
-                  className={`flex-shrink-0 w-[280px] transition-all ${isDragOver ? 'scale-[1.01]' : ''}`}
+                  className={`flex-shrink-0 w-[240px] transition-all ${isDragOver ? 'scale-[1.01]' : ''}`}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
