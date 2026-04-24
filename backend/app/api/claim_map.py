@@ -219,15 +219,19 @@ def geocode_batch(
     if current_user.role.lower() not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Admin/Manager only")
 
-    # Find customers with active policies that don't yet have a successful cache entry
-    customers = (
-        db.query(Customer)
+    # Find customers with active policies that don't yet have a successful cache entry.
+    # We can't do SELECT DISTINCT customers.* here because Customer has JSON columns
+    # (tags, nowcerts_raw) and Postgres has no equality operator for json. Instead,
+    # grab unique IDs via a subquery, then fetch the full rows.
+    customer_ids_subq = (
+        db.query(Customer.id)
         .join(CustomerPolicy, CustomerPolicy.customer_id == Customer.id)
         .filter(CustomerPolicy.status.ilike("active"))
         .filter(Customer.address.isnot(None))
         .distinct()
-        .all()
+        .subquery()
     )
+    customers = db.query(Customer).filter(Customer.id.in_(customer_ids_subq)).all()
 
     # Filter to ones without a cached successful result
     pending = []
