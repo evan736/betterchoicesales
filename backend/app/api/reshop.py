@@ -1197,15 +1197,30 @@ def list_commercial_accounts(
 @router.post("/detect-proactive")
 def detect_proactive_reshops(
     days_out: int = Query(60, description="Look for renewals with effective dates within N days"),
-    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag"),
-    min_annual_premium: float = Query(2000.0, description="Minimum annualized premium to consider"),
+    increase_threshold: float = Query(10.0, description="Minimum premium increase % to flag (unless account is high-value)"),
+    min_annual_premium: float = Query(1000.0, description="Floor: never flag accounts with annualized premium below this"),
+    high_value_annual_premium: float = Query(4000.0, description="Ceiling: always flag accounts at or above this annualized premium, regardless of % change"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Scan for upcoming renewal terms and flag policies with premium increases."""
+    """Scan for upcoming renewal terms and flag policies for proactive review.
+
+    Rules:
+      - Skip any account with annualized premium below `min_annual_premium` (default $1,000)
+      - Flag any account with annualized premium at or above `high_value_annual_premium`
+        (default $4,000) regardless of premium change — high-value accounts always get
+        a retention conversation at renewal
+      - For accounts between the floor and ceiling, flag only if annualized premium
+        increase is at or above `increase_threshold` (default 10%)
+
+    Premium is annualized based on actual term length (6-month terms multiplied by 2).
+    """
     if not _can_manage(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
-    return _run_proactive_scan(db, days_out, increase_threshold, min_annual_premium, current_user.full_name or current_user.username)
+    return _run_proactive_scan(
+        db, days_out, increase_threshold, min_annual_premium,
+        high_value_annual_premium, current_user.full_name or current_user.username,
+    )
 
 
 @router.get("/{reshop_id}")
@@ -1692,14 +1707,21 @@ def _run_proactive_scan(
     db: Session,
     days_out: int = 60,
     increase_threshold: float = 10.0,
-    min_annual_premium: float = 2000.0,
+    min_annual_premium: float = 1000.0,
+    high_value_annual_premium: float = 4000.0,
     actor_name: str = "system",
 ):
     """Core reshop detection logic — callable from scheduler or endpoint.
-    
-    Scans for upcoming renewal terms and flags policies with premium increases.
-    NowCerts syncs future renewal terms (status='Renewing') 30-60 days before
-    effective date. Compares each Renewing term's premium to the current Active term.
+
+    Filter rules (in order):
+      1. Skip if annualized renewal premium < min_annual_premium (the "never" floor)
+      2. Include if annualized renewal premium >= high_value_annual_premium
+         (high-value accounts always get a touch at renewal, even if flat/dropping)
+      3. Otherwise, include only if renewal increase % >= increase_threshold
+
+    Scans for upcoming renewal terms by matching "Renewing" + "Active" policy
+    terms (NowCerts sometimes stores renewal terms as Active). Annualizes both
+    current and renewal premium based on actual term length (6-month terms * 2).
     """
     now = datetime.utcnow()
     cutoff = now + timedelta(days=days_out)
@@ -1861,12 +1883,18 @@ def _run_proactive_scan(
         ann_current = current_prem * (12 / current_term)
         ann_renewal = renewal_prem * (12 / renewal_term)
 
+        # Floor: never flag accounts below the minimum annualized premium
         if ann_renewal < min_annual_premium:
             skipped_below_threshold += 1
             continue
 
         change_pct = ((ann_renewal - ann_current) / ann_current) * 100
-        if change_pct < increase_threshold:
+
+        # Ceiling: always include high-value accounts regardless of % change
+        is_high_value = ann_renewal >= high_value_annual_premium
+
+        # For non-high-value accounts, require the threshold increase
+        if not is_high_value and change_pct < increase_threshold:
             skipped_no_increase += 1
             continue
 
@@ -1878,6 +1906,7 @@ def _run_proactive_scan(
             "change_pct": change_pct,
             "current_term": current_term,
             "renewal_term": renewal_term,
+            "is_high_value": is_high_value,
         })
 
     candidates.sort(key=lambda c: c["ann_renewal"], reverse=True)
@@ -1909,11 +1938,24 @@ def _run_proactive_scan(
 
         days_to_renewal = (renewal.effective_date - now).days if renewal.effective_date else 0
         term_note = " [6mo annualized]" if c["current_term"] < 12 or c["renewal_term"] < 12 else ""
-        source_detail = (
-            f"+{c['change_pct']:.1f}% increase: "
-            f"${float(active_pol.premium or 0):,.0f} → ${float(renewal.premium or 0):,.0f}{term_note}, "
-            f"renews in {days_to_renewal} days"
-        )
+
+        # High-value accounts with no/low increase get a different reason label
+        # so retention team knows this is a proactive-touch account rather than
+        # a response to a premium hike.
+        if c.get("is_high_value") and c["change_pct"] < increase_threshold:
+            source_detail = (
+                f"High-value account review: ${c['ann_renewal']:,.0f}/yr annualized"
+                f"{term_note}, "
+                f"change {c['change_pct']:+.1f}%, renews in {days_to_renewal} days"
+            )
+            reason_label = "high_value_review"
+        else:
+            source_detail = (
+                f"+{c['change_pct']:.1f}% increase: "
+                f"${float(active_pol.premium or 0):,.0f} → ${float(renewal.premium or 0):,.0f}{term_note}, "
+                f"renews in {days_to_renewal} days"
+            )
+            reason_label = "renewal_increase"
 
         # Auto-assign via round-robin (if enabled)
         auto_agent_id = _get_next_round_robin_agent(db, customer_id=customer.id, customer_name=customer.full_name or "")
@@ -1935,7 +1977,7 @@ def _run_proactive_scan(
             priority=priority,
             source="proactive_renewal",
             source_detail=source_detail,
-            reason="renewal_increase",
+            reason=reason_label,
             is_proactive=True,
         )
         db.add(reshop)
@@ -1984,6 +2026,7 @@ def _run_proactive_scan(
         "criteria": {
             "days_out": days_out,
             "min_annual_premium": min_annual_premium,
+            "high_value_annual_premium": high_value_annual_premium,
             "increase_threshold_pct": increase_threshold,
         },
     }
