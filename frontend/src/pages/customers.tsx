@@ -61,6 +61,10 @@ const IdCardEmailModal: React.FC<{
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Save back to customer record if they didn't have an email before (default on)
+  const hadEmailOnRecord = Boolean(customer.email);
+  const [saveToCustomer, setSaveToCustomer] = useState(!hadEmailOnRecord);
+
   // Fetch carrier app info on mount
   useEffect(() => {
     const carrier = policy.carrier || '';
@@ -118,7 +122,36 @@ const IdCardEmailModal: React.FC<{
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      toast.success(`${docType.label} sent to ${recipient}${data.has_app ? ' with app info' : ''}`);
+
+      // If the agent wants to save the typed email to the customer record
+      // (default: on when no email was on file; off when email already present
+      // and unchanged)
+      const shouldPersist = saveToCustomer && recipient.trim() && recipient.trim() !== (customer.email || '').trim();
+      if (shouldPersist) {
+        try {
+          const patchRes = await fetch(`${baseUrl}/api/customers/${customer.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              fields: { email: recipient.trim() },
+              push_to_nowcerts: true,
+            }),
+          });
+          if (patchRes.ok) {
+            toast.success(`${docType.label} sent & email saved to customer record`);
+          } else {
+            toast.warning(`${docType.label} sent — but failed to save email to record`);
+          }
+        } catch {
+          toast.warning(`${docType.label} sent — but failed to save email to record`);
+        }
+      } else {
+        toast.success(`${docType.label} sent to ${recipient}${data.has_app ? ' with app info' : ''}`);
+      }
+
       onSent();
       onClose();
     } catch (e: any) {
@@ -195,7 +228,14 @@ const IdCardEmailModal: React.FC<{
 
           {/* Recipient */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Send to</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Send to
+              {!hadEmailOnRecord && (
+                <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 uppercase tracking-wide">
+                  No email on file
+                </span>
+              )}
+            </label>
             <input
               type="email"
               value={recipient}
@@ -204,6 +244,23 @@ const IdCardEmailModal: React.FC<{
               style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
               placeholder="customer@example.com"
             />
+            {/* Save-to-customer toggle — default on when no email was on record */}
+            {recipient.trim() && recipient.trim() !== (customer.email || '').trim() && (
+              <label className="flex items-start gap-2 mt-2 text-xs text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={saveToCustomer}
+                  onChange={e => setSaveToCustomer(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  {hadEmailOnRecord
+                    ? <>Also update <strong>customer&apos;s email on file</strong> to this address (syncs to NowCerts)</>
+                    : <>Also save this email to the <strong>customer&apos;s record</strong> (syncs to NowCerts)</>
+                  }
+                </span>
+              </label>
+            )}
           </div>
 
           {/* App info preview */}
@@ -936,19 +993,28 @@ export default function CustomersPage() {
                                       >
                                         {copiedPolicy === (p.policy_number || '') ? '✓ Copied!' : (p.policy_number || '—')}
                                       </button>
-                                      {p.status?.toLowerCase() === 'active' && detail?.customer?.email && (() => {
+                                      {p.status?.toLowerCase() === 'active' && (() => {
                                         const doc = policyDocType(p);
+                                        const hasEmail = Boolean(detail?.customer?.email);
                                         return (
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               setIdCardTarget({ customer: detail.customer, policy: p });
                                             }}
-                                            title={`Email ${doc.bodyNoun} for ${p.carrier || 'this policy'} to customer`}
-                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
+                                            title={hasEmail
+                                              ? `Email ${doc.bodyNoun} for ${p.carrier || 'this policy'} to customer`
+                                              : `Add email & send ${doc.bodyNoun} for ${p.carrier || 'this policy'}`
+                                            }
+                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-colors ${
+                                              hasEmail
+                                                ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'
+                                                : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200'
+                                            }`}
                                           >
                                             <Mail size={10} />
                                             Email {doc.label}
+                                            {!hasEmail && <span className="text-amber-600">+</span>}
                                           </button>
                                         );
                                       })()}
