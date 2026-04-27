@@ -667,6 +667,9 @@ export default function Sales() {
             onClose={() => setShowCreateModal(false)}
             onSuccess={() => { setShowCreateModal(false); loadSales(); }}
             dropdownOptions={dropdownOptions}
+            isPrivileged={isPrivileged}
+            employees={employees}
+            currentUserId={user?.id}
           />
         )}
       </main>
@@ -1108,10 +1111,19 @@ const InfoItem: React.FC<{ label: string; value: any }> = ({ label, value }) => 
 /* ========== CREATE SALE MODAL — 3 STEPS ========== */
 type Step = 'upload' | 'review' | 'manual';
 
-const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dropdownOptions: any }> = ({ onClose, onSuccess, dropdownOptions }) => {
+const CreateSaleModal: React.FC<{
+  onClose: () => void;
+  onSuccess: () => void;
+  dropdownOptions: any;
+  isPrivileged?: boolean;
+  employees?: any[];
+  currentUserId?: number;
+}> = ({ onClose, onSuccess, dropdownOptions, isPrivileged = false, employees = [], currentUserId }) => {
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [leadSource, setLeadSource] = useState('referral');
+  // Default producer = current user. Admin/manager can override before saving.
+  const [selectedProducerId, setSelectedProducerId] = useState<number | undefined>(currentUserId);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
   const [extractedData, setExtractedData] = useState<any>(null);
@@ -1230,6 +1242,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
             state: clientInfo.state || undefined,
             lead_source: leadSource,
             effective_date: effectiveDate,
+            producer_id: isPrivileged ? selectedProducerId : undefined,
             lines: groupPols?.map(p => ({
               policy_type: p.policy_type || 'other',
               premium: parseFloat(p.written_premium) || 0,
@@ -1254,6 +1267,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
             item_count: parseInt(pol.item_count) || 1,
             effective_date: effectiveDate,
             notes: pol.notes || undefined,
+            producer_id: isPrivileged ? selectedProducerId : undefined,
           });
         }
         
@@ -1322,6 +1336,7 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
         policy_type: manualData.policy_type || undefined,
         carrier: manualData.carrier || undefined,
         state: manualData.state || undefined,
+        producer_id: isPrivileged ? selectedProducerId : undefined,
       });
       onSuccess();
     } catch (err: any) {
@@ -1383,6 +1398,27 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                   {(!dropdownOptions?.lead_sources?.length) && <option value="referral">Referral</option>}
                 </select>
               </div>
+
+              {/* Producer (admin/manager only) */}
+              {isPrivileged && employees.length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Attribute to Producer
+                    <span className="ml-1 text-xs text-slate-400 font-normal">(commission credit goes to this producer)</span>
+                  </label>
+                  <select
+                    value={selectedProducerId || ''}
+                    onChange={(e) => setSelectedProducerId(parseInt(e.target.value) || undefined)}
+                    className="input-field"
+                  >
+                    {employees
+                      .filter((em: any) => !['beacon.ai', 'admin'].includes((em.username || '').toLowerCase()))
+                      .map((em: any) => (
+                        <option key={em.id} value={em.id}>{em.full_name}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
 
               {extractError && (
                 <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
@@ -1477,6 +1513,22 @@ const CreateSaleModal: React.FC<{ onClose: () => void; onSuccess: () => void; dr
                       ))}
                     </select>
                   </div>
+                  {isPrivileged && employees.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Attribute to Producer</label>
+                      <select
+                        value={selectedProducerId || ''}
+                        onChange={(e) => setSelectedProducerId(parseInt(e.target.value) || undefined)}
+                        className="input-field"
+                      >
+                        {employees
+                          .filter((em: any) => !['beacon.ai', 'admin'].includes((em.username || '').toLowerCase()))
+                          .map((em: any) => (
+                            <option key={em.id} value={em.id}>{em.full_name}</option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
 

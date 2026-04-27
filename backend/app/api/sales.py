@@ -554,7 +554,13 @@ def create_from_pdf(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a sale from extracted PDF data, with household grouping logic."""
+    """Create a sale from extracted PDF data, with household grouping logic.
+
+    By default the sale is attributed to the user who uploaded it
+    (current_user). If the request includes producer_id and the user is
+    admin/manager, the sale is attributed to that producer instead — useful
+    when ops/admin staff upload sales on behalf of producers.
+    """
     from datetime import datetime
 
     # Check for duplicate policy number
@@ -565,9 +571,25 @@ def create_from_pdf(
             detail="Sale with this policy number already exists"
         )
 
+    # Determine effective producer
+    payload = sale_data.model_dump()
+    requested_producer_id = payload.pop("producer_id", None)
+    effective_producer_id = current_user.id
+    if requested_producer_id and requested_producer_id != current_user.id:
+        if current_user.role.lower() not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin/manager can attribute a sale to another producer"
+            )
+        target = db.query(User).filter(User.id == requested_producer_id, User.is_active == True).first()
+        if not target:
+            raise HTTPException(status_code=400, detail="Target producer not found or inactive")
+        effective_producer_id = requested_producer_id
+        logger.info(f"Sale created by {current_user.full_name} on behalf of producer {target.full_name} (id={requested_producer_id})")
+
     sale = Sale(
-        **sale_data.model_dump(),
-        producer_id=current_user.id,
+        **payload,
+        producer_id=effective_producer_id,
         status=determine_status(sale_data.effective_date),
     )
     # Normalize carrier name (e.g. "Obsidian" → "Steadily")
@@ -657,6 +679,21 @@ def create_bundle(
     total_premium = sum(float(l.get("premium", 0)) for l in lines)
     total_items = sum(int(l.get("item_count", 1)) for l in lines)
 
+    # Determine effective producer (admin/manager can attribute to another producer)
+    requested_producer_id = request.get("producer_id")
+    effective_producer_id = current_user.id
+    if requested_producer_id and int(requested_producer_id) != current_user.id:
+        if current_user.role.lower() not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin/manager can attribute a sale to another producer"
+            )
+        target = db.query(User).filter(User.id == int(requested_producer_id), User.is_active == True).first()
+        if not target:
+            raise HTTPException(status_code=400, detail="Target producer not found or inactive")
+        effective_producer_id = int(requested_producer_id)
+        logger.info(f"Bundle sale created by {current_user.full_name} on behalf of producer {target.full_name} (id={effective_producer_id})")
+
     # Parse effective_date
     eff_date = None
     eff_str = request.get("effective_date")
@@ -674,7 +711,7 @@ def create_bundle(
         carrier=_normalize_carrier(str(request.get("carrier", "")).strip()),
         written_premium=total_premium,
         recognized_premium=total_premium,
-        producer_id=current_user.id,
+        producer_id=effective_producer_id,
         lead_source=request.get("lead_source"),
         item_count=total_items,
         client_name=str(request.get("client_name", "")).strip(),
@@ -724,7 +761,11 @@ def create_sale(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new sale"""
+    """Create a new sale.
+
+    By default attributed to current_user. Admin/manager can pass producer_id
+    to attribute the sale to a different producer.
+    """
     # Check for duplicate policy number
     existing = db.query(Sale).filter(Sale.policy_number == sale_data.policy_number).first()
     if existing:
@@ -732,15 +773,30 @@ def create_sale(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sale with this policy number already exists"
         )
-    
+
+    payload = sale_data.model_dump()
+    requested_producer_id = payload.pop("producer_id", None)
+    effective_producer_id = current_user.id
+    if requested_producer_id and requested_producer_id != current_user.id:
+        if current_user.role.lower() not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin/manager can attribute a sale to another producer"
+            )
+        target = db.query(User).filter(User.id == requested_producer_id, User.is_active == True).first()
+        if not target:
+            raise HTTPException(status_code=400, detail="Target producer not found or inactive")
+        effective_producer_id = requested_producer_id
+        logger.info(f"Manual sale created by {current_user.full_name} on behalf of producer {target.full_name} (id={requested_producer_id})")
+
     sale = Sale(
-        **sale_data.model_dump(),
-        producer_id=current_user.id,
+        **payload,
+        producer_id=effective_producer_id,
         status=determine_status(sale_data.effective_date),
     )
     # Normalize carrier name (e.g. "Obsidian" → "Steadily")
     sale.carrier = _normalize_carrier(sale.carrier, sale.policy_number)
-    
+
     db.add(sale)
     db.commit()
     db.refresh(sale)
