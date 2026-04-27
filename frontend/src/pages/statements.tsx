@@ -70,7 +70,7 @@ const CARRIERS = [
   { value: 'national_general', label: 'National General' },
   { value: 'progressive', label: 'Progressive' },
   { value: 'grange', label: 'Grange' },
-  { value: 'safeco', label: 'Safeco' },
+  { value: 'safeco', label: 'Liberty Mutual (Safeco)' },
   { value: 'travelers', label: 'Travelers' },
   { value: 'geico', label: 'Geico' },
   { value: 'first_connect', label: 'First Connect' },

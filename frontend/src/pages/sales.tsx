@@ -1166,8 +1166,8 @@ const CreateSaleModal: React.FC<{
       if (natgenAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'National General';
       const steadilyAliases = ['obsidian', 'canopius'];
       if (steadilyAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'Steadily';
-      const safecoAliases = ['american economy'];
-      if (safecoAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'Safeco';
+      const safecoAliases = ['american economy', 'safeco', 'liberty mutual'];
+      if (safecoAliases.some(a => carrier.toLowerCase().includes(a))) carrier = 'Liberty Mutual';
       // SP3 policy prefix = Steadily
       const rawPols = data.policies || [];
       if (!carrier && rawPols.some((p: any) => (p.policy_number || '').toUpperCase().startsWith('SP3'))) carrier = 'Steadily';

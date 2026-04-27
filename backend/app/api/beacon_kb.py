@@ -417,7 +417,8 @@ def _generate_smart_title(content: str, carrier: str, filename: str) -> str:
     
     # Build carrier short name
     CARRIER_SHORT = {
-        'national general': 'NatGen', 'travelers': 'Travelers', 'safeco': 'Safeco',
+        'national general': 'NatGen', 'travelers': 'Travelers', 'safeco': 'Liberty Mutual',
+        'liberty mutual': 'Liberty Mutual',
         'progressive': 'Progressive', 'grange': 'Grange', 'geico': 'GEICO',
         'hartford': 'Hartford', 'openly': 'Openly', 'foremost': 'Foremost',
     }
@@ -442,7 +443,8 @@ def _detect_carrier_from_content(content: str) -> str:
         'new south insurance': 'National General',
         'imperial fire': 'National General',
         'travelers': 'Travelers',
-        'safeco': 'Safeco',
+        'safeco': 'Liberty Mutual',
+        'liberty mutual': 'Liberty Mutual',
         'progressive': 'Progressive',
         'grange': 'Grange',
         'geico': 'GEICO',

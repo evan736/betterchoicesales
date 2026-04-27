@@ -558,7 +558,7 @@ function NonPayTab({ nonpayEmails, nonpayHistory }: { nonpayEmails: any[]; nonpa
               method: 'CSV upload → review → send',
             },
             {
-              carrier: 'Safeco',
+              carrier: 'Liberty Mutual',
               status: 'manual',
               type: 'Manual Upload',
               method: 'CSV upload → review → send',
