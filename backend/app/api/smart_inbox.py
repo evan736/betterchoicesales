@@ -202,9 +202,20 @@ def _archive_inbound_on_send(db: Session, inbound_email_id: int):
         logger.warning(f"Failed to auto-archive inbound #{inbound_email_id}: {e}")
 
 
-async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] = None) -> Optional[str]:
-    """Send email via Mailgun. Returns message ID or None."""
-    import httpx
+async def _send_via_mailgun(
+    to: str,
+    subject: str,
+    html: str,
+    cc: Optional[str] = None,
+    attachments: Optional[list] = None,
+) -> Optional[str]:
+    """Send email via Mailgun. Returns message ID or None.
+
+    attachments: optional list of dicts with {filename, content_type, base64_data}
+    (matches InboundEmail.attachment_data shape). Each is forwarded as a real
+    multipart attachment on the outbound email.
+    """
+    import httpx, base64
     if not MAILGUN_API_KEY or not MAILGUN_DOMAIN:
         logger.error("Mailgun not configured")
         return None
@@ -228,16 +239,33 @@ async def _send_via_mailgun(to: str, subject: str, html: str, cc: Optional[str] 
     if AGENCY_BCC:
         data["bcc"] = AGENCY_BCC
 
+    # Build multipart files for attachments
+    files = []
+    if attachments:
+        for att in attachments:
+            try:
+                fname = att.get("filename") or "attachment.pdf"
+                ctype = att.get("content_type") or "application/octet-stream"
+                b64 = att.get("base64_data")
+                if not b64:
+                    continue
+                raw = base64.b64decode(b64)
+                files.append(("attachment", (fname, raw, ctype)))
+            except Exception as e:
+                logger.warning(f"Skipping attachment {att.get('filename')}: {e}")
+
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
                 auth=("api", MAILGUN_API_KEY),
                 data=data,
+                files=files if files else None,
             )
             if resp.status_code == 200:
                 msg_id = resp.json().get("id")
-                logger.info(f"Email sent via Mailgun: {msg_id}")
+                att_note = f" with {len(files)} attachment(s)" if files else ""
+                logger.info(f"Email sent via Mailgun{att_note}: {msg_id}")
                 return msg_id
             else:
                 logger.error(f"Mailgun send failed: {resp.status_code} — {resp.text[:200]}")
@@ -1188,10 +1216,42 @@ async def approve_outbound(item_id: int, db: Session = Depends(get_db)):
             from app.services.smart_inbox_ai import wrap_branded_email
             send_html = wrap_branded_email(send_html, item.to_name or "Valued Customer")
             item.body_html = send_html  # Update stored version too
+
+        # If the AI's draft references "the attached" / "attached report" /
+        # "attached inspection" etc, forward the original PDF attachments
+        # from the inbound email so the customer actually gets what we said
+        # we'd send. Only forwards PDFs (skips images, .eml, etc.) to keep
+        # things scoped to safe-to-share documents like inspection reports.
+        outbound_attachments = []
+        inbound_for_atts = db.query(InboundEmail).filter(InboundEmail.id == item.inbound_email_id).first()
+        if inbound_for_atts and inbound_for_atts.attachment_data:
+            haystack = ((item.body_plain or "") + " " + (item.subject or "") + " " + (send_html or "")).lower()
+            references_attachment = any(
+                kw in haystack for kw in [
+                    "attached report", "attached inspection", "attached document",
+                    "attached letter", "the attached", "see attached", "see the attached",
+                    "review the attached", "review attached",
+                    "report attached", "inspection report", "compliance report",
+                    "attached for your reference", "enclosed report",
+                ]
+            )
+            if references_attachment:
+                for att in inbound_for_atts.attachment_data:
+                    fname = (att.get("filename") or "").lower()
+                    ctype = (att.get("content_type") or "").lower()
+                    if fname.endswith(".pdf") or ctype == "application/pdf":
+                        outbound_attachments.append(att)
+                if outbound_attachments:
+                    logger.info(
+                        f"Forwarding {len(outbound_attachments)} PDF attachment(s) from inbound "
+                        f"#{inbound_for_atts.id} to customer (draft references attachments)"
+                    )
+
         msg_id = await _send_via_mailgun(
             to=item.to_email,
             subject=item.subject,
             html=send_html,
+            attachments=outbound_attachments if outbound_attachments else None,
         )
 
     if msg_id:
@@ -1810,6 +1870,58 @@ def _serialize_inbound(e: InboundEmail) -> dict:
 
 
 def _serialize_outbound(o: OutboundQueue) -> dict:
+    # Surface inbound PDF attachments that WILL be forwarded if approved.
+    # Helps the admin see exactly what's going out before clicking Approve.
+    forwarded_attachments = []
+    try:
+        from app.models.smart_inbox import InboundEmail
+        from app.core.database import SessionLocal
+        # Use the existing session if possible — this is a serializer, no
+        # transactional concerns. Fall back to opening one if needed.
+        from sqlalchemy.orm import object_session
+        sess = object_session(o)
+        if not sess:
+            sess = SessionLocal()
+            should_close = True
+        else:
+            should_close = False
+        try:
+            inbound = sess.query(InboundEmail).filter(InboundEmail.id == o.inbound_email_id).first()
+            if inbound and inbound.attachment_data:
+                haystack = ((o.body_plain or "") + " " + (o.subject or "") + " " + (o.body_html or "")).lower()
+                references = any(
+                    kw in haystack for kw in [
+                        "attached report", "attached inspection", "attached document",
+                        "attached letter", "the attached", "see attached", "see the attached",
+                        "review the attached", "review attached",
+                        "report attached", "inspection report", "compliance report",
+                        "attached for your reference", "enclosed report",
+                    ]
+                )
+                if references:
+                    for att in inbound.attachment_data:
+                        fname = (att.get("filename") or "").lower()
+                        ctype = (att.get("content_type") or "").lower()
+                        if fname.endswith(".pdf") or ctype == "application/pdf":
+                            # Only surface metadata (filename + size), not the actual bytes
+                            size_bytes = 0
+                            b64 = att.get("base64_data") or ""
+                            try:
+                                size_bytes = int(len(b64) * 3 / 4)  # rough decode size
+                            except Exception:
+                                pass
+                            forwarded_attachments.append({
+                                "filename": att.get("filename") or "attachment.pdf",
+                                "content_type": att.get("content_type") or "application/pdf",
+                                "size_bytes": size_bytes,
+                            })
+        finally:
+            if should_close:
+                sess.close()
+    except Exception as e:
+        # Non-fatal — serializer should never crash because of attachment hint
+        logger.warning(f"Could not load forwarded_attachments preview for queue#{o.id}: {e}")
+
     return {
         "id": o.id,
         "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -1828,6 +1940,7 @@ def _serialize_outbound(o: OutboundQueue) -> dict:
         "delivery_method": getattr(o, "delivery_method", "email") or "email",
         "thanksio_order_id": getattr(o, "thanksio_order_id", None),
         "inbound_email_id": o.inbound_email_id,
+        "forwarded_attachments": forwarded_attachments,
     }
 
 

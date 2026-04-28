@@ -621,6 +621,25 @@ export default function SmartInboxPage() {
                   ) : (
                     <div className="rounded bg-slate-50 border border-slate-200 p-3 mb-3 text-xs text-slate-600 leading-relaxed max-h-[200px] overflow-y-auto" dangerouslySetInnerHTML={{__html:msg.body_html}}/>
                   )}
+
+                  {/* Attachment preview — shows what PDFs will be forwarded */}
+                  {msg.forwarded_attachments && msg.forwarded_attachments.length > 0 && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 mb-3">
+                      <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide mb-1.5">
+                        📎 {msg.forwarded_attachments.length} attachment{msg.forwarded_attachments.length>1?'s':''} will be forwarded
+                      </div>
+                      <ul className="text-xs text-blue-800 space-y-0.5">
+                        {msg.forwarded_attachments.map((att:any, i:number)=>(
+                          <li key={i} className="flex items-center justify-between gap-2">
+                            <span className="truncate">{att.filename}</span>
+                            <span className="text-blue-500 text-[10px] flex-shrink-0">
+                              {att.size_bytes ? `${Math.round(att.size_bytes/1024)} KB` : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   
                   {needsEmail ? (
                     isEditing ? (
