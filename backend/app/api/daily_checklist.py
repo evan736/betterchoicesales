@@ -30,7 +30,10 @@ class DailyChecklistItem(Base):
 # ── Default checklist items ──────────────────────────────────────────────────
 
 DEFAULT_NONPAY_ITEMS = [
-    {"key": "nonpay_safeco", "label": "Safeco Non-Pay List", "carrier": "Safeco"},
+    # Key kept as nonpay_safeco for backwards compat with existing checked-off
+    # rows in the database — Liberty Mutual's portal still ships statements
+    # under the Safeco identifier internally.
+    {"key": "nonpay_safeco", "label": "Liberty Mutual Non-Pay List", "carrier": "Liberty Mutual"},
     {"key": "nonpay_travelers", "label": "Travelers Non-Pay List", "carrier": "Travelers"},
     {"key": "nonpay_grange", "label": "Grange Non-Pay List", "carrier": "Grange"},
     {"key": "nonpay_natgen", "label": "National General Non-Pay List", "carrier": "National General"},

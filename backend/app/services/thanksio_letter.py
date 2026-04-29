@@ -48,7 +48,7 @@ CARRIER_LOGOS = {
     "universal_property": "universal_property.png", "next": "next.png", "hippo": "hippo.png",
     "gainsco": "gainsco.png", "steadily": "steadily.png", "geico": "geico.png",
     "american_modern": "american_modern.png", "progressive": "progressive.png",
-    "clearcover": "clearcover.png", "safeco": "safeco.png", "travelers": "travelers.png",
+    "clearcover": "clearcover.png", "liberty_mutual": "liberty_mutual.png", "travelers": "travelers.png",
     "national_general": "national_general.png", "openly": "openly.png",
     "bristol_west": "bristol_west.png", "covertree": "covertree.png",
 }
@@ -65,10 +65,10 @@ CARRIER_INFO = {
         "url": "https://www.progressive.com/pay-bill/",
         "message": "Your Progressive insurance policy has a past-due balance. Progressive may cancel your policy if payment is not received promptly.",
     },
-    "safeco": {
-        "name": "Safeco", "phone": "1-800-332-3226",
-        "url": "https://www.safeco.com/pay-bill",
-        "message": "Your Safeco insurance policy has an outstanding balance that requires immediate attention to avoid a lapse in coverage.",
+    "liberty_mutual": {
+        "name": "Liberty Mutual", "phone": "1-800-290-8711",
+        "url": "https://www.libertymutual.com/log-in",
+        "message": "Your Liberty Mutual insurance policy has an outstanding balance that requires immediate attention to avoid a lapse in coverage.",
     },
     "geico": {
         "name": "GEICO", "phone": "1-800-932-8872",

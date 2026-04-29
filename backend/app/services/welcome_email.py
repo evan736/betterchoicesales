@@ -221,19 +221,19 @@ CARRIER_INFO = {
         "payment_url": "https://clearcover.com/app/",
         "extra_tip": "Use the Clearcover app to manage payments, view your ID card, and file claims quickly.",
     },
-    "safeco": {
-        "display_name": "Safeco Insurance",
-        "accent_color": "#1A3054",
+    "liberty_mutual": {
+        "display_name": "Liberty Mutual Insurance",
+        "accent_color": "#1A1F71",
         "logo_url": "",
-        "mobile_app_url": "https://www.safeco.com/customer-resources/mobile-voice-apps/safeco-mobile-app",
-        "mobile_app_name": "Safeco Mobile App",
-        "online_account_url": "https://www.safeco.com/homepage/returning",
-        "online_account_text": "Log In to Your Safeco Account",
-        "claims_url": "https://www.safeco.com/claims",
-        "claims_phone": "1-866-272-3326",
-        "customer_service": "1-866-272-3326",
-        "payment_url": "https://customer.safeco.com/accountmanager/billing/guest-payment?view=customerSearch",
-        "extra_tip": "The Safeco app lets you view ID cards, file claims, and contact roadside assistance instantly.",
+        "mobile_app_url": "https://www.libertymutual.com/customer-service/manage-your-policy/mobile-app",
+        "mobile_app_name": "Liberty Mutual Mobile App",
+        "online_account_url": "https://www.libertymutual.com/log-in",
+        "online_account_text": "Log In to Your Liberty Mutual Account",
+        "claims_url": "https://www.libertymutual.com/customer-service/claims-center",
+        "claims_phone": "1-800-225-2467",
+        "customer_service": "1-800-290-8711",
+        "payment_url": "https://www.libertymutual.com/log-in",
+        "extra_tip": "The Liberty Mutual app lets you view ID cards, file claims, and contact roadside assistance instantly. (Note: Safeco rebranded to Liberty Mutual in April 2026 — your policy is unchanged, only the name and logo have been updated.)",
     },
     "travelers": {
         "display_name": "Travelers Insurance",
@@ -379,6 +379,19 @@ CARRIER_ALIASES = {
     "the_standard_fire_insurance_company": "travelers",
     "bamboo_insurance": "bamboo",
     "bamboo_ins": "bamboo",
+    # Safeco rebranded to Liberty Mutual effective April 25, 2026.
+    # Existing PDFs/imports/historical records may still say "Safeco" — alias
+    # them all to the new key so display, emails, app catalog, etc. all show
+    # the new brand. Historical sales records keep their carrier='Safeco'
+    # values (that's accurate at-the-time data) but render as Liberty Mutual.
+    "safeco": "liberty_mutual",
+    "safeco_insurance": "liberty_mutual",
+    "safeco_insurance_company": "liberty_mutual",
+    "safeco_ins": "liberty_mutual",
+    "liberty_mutual_insurance": "liberty_mutual",
+    "liberty_mutual_insurance_company": "liberty_mutual",
+    "lm_insurance": "liberty_mutual",
+    "liberty": "liberty_mutual",
 }
 
 
@@ -469,7 +482,7 @@ def _carrier_logo_html(info, carrier_key):
         "american_modern": "american_modern.png",
         "progressive": "progressive.png",
         "clearcover": "clearcover.png",
-        "safeco": "safeco.png",
+        "liberty_mutual": "liberty_mutual.png",
         "travelers": "travelers.png",
         "national_general": "national_general.png",
         "openly": "openly.png",

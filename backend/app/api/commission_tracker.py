@@ -36,6 +36,10 @@ CARRIER_COMMISSION_RATES = {
     "travelers": {"new_business": Decimal("0.15"), "renewal": Decimal("0.10")},
     "grange": {"new_business": Decimal("0.10"), "renewal": Decimal("0.10")},
     "national_general": {"new_business": Decimal("0.15"), "renewal": Decimal("0.12")},
+    # Liberty Mutual (formerly Safeco — rebranded April 25, 2026).
+    # Both keys point to the same rates so any historical or in-flight
+    # records keyed on either name pick up the right percentage.
+    "liberty_mutual": {"new_business": Decimal("0.15"), "renewal": Decimal("0.12")},
     "safeco": {"new_business": Decimal("0.15"), "renewal": Decimal("0.12")},
     "progressive": {"new_business": Decimal("0.10"), "renewal": Decimal("0.08")},
     "default": {"new_business": Decimal("0.12"), "renewal": Decimal("0.10")},
@@ -45,6 +49,7 @@ CARRIER_COMMISSION_RATES = {
 OVERDUE_THRESHOLDS = {
     "travelers": 45,  # Travelers is slow — pays on effective date, needs first payment
     "grange": 35,
+    "liberty_mutual": 30,
     "safeco": 30,
     "default": 35,
 }

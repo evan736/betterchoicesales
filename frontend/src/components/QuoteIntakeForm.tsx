@@ -54,7 +54,7 @@ const PRODUCTS = [
 
 const STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
-const CARRIERS = ['Allstate','American Family','Auto-Owners','Erie','Farmers','GEICO','Grange','Hartford','Liberty Mutual','National General','Nationwide','Progressive','Safeco','State Farm','Travelers','USAA','Other','None / New Policy'];
+const CARRIERS = ['Allstate','American Family','Auto-Owners','Erie','Farmers','GEICO','Grange','Hartford','Liberty Mutual','National General','Nationwide','Progressive','State Farm','Travelers','USAA','Other','None / New Policy'];
 
 interface Props {
   initialName?: string;

@@ -56,6 +56,7 @@ def init_database():
     from app.models.cancellation import CancellationRequest, CancellationCarrier  # ensure tables
     from app.models.mia_bypass import VipBypass, TempAuthorization  # ensure MIA bypass tables
     from app.models.dialer import DialerCampaign, DialerLead, DialerDNC, DialerPhoneNumber  # dialer tables
+    from app.models.uw_item import UWItem, UWActivity  # UW tracker tables
     from decimal import Decimal
 
     logger.info("Creating database tables...")
@@ -1104,6 +1105,67 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_reshop_digest_scheduler, daemon=True).start()
 
+    # ── UW Tracker daily digest + proximity reminders (7:30 AM CT, every day) ─
+    def _uw_tracker_scheduler():
+        import time as _time
+        from datetime import datetime as _datetime
+        _time.sleep(45)  # Wait for migrations to finish
+        logger.info("UW Tracker scheduler started (7:30 AM CT daily)")
+        _last_digest_date = None
+        _last_proximity_date = None
+
+        while True:
+            try:
+                from zoneinfo import ZoneInfo
+                now_ct = _datetime.now(ZoneInfo("America/Chicago"))
+                today_ct = now_ct.date()
+
+                # Daily digest at 7:30 AM CT (every day, including weekends —
+                # carriers don't care about weekends and UW deadlines tick over
+                # regardless)
+                if (now_ct.hour == 7 and now_ct.minute >= 30 and now_ct.minute < 45
+                        and _last_digest_date != today_ct):
+                    logger.info("Sending UW daily digest...")
+                    try:
+                        from app.core.database import SessionLocal
+                        from app.services.uw_digest import send_daily_digests
+                        _db = SessionLocal()
+                        try:
+                            result = send_daily_digests(_db)
+                            logger.info("UW digest result: %s", result)
+                        finally:
+                            _db.close()
+                        _last_digest_date = today_ct
+                    except Exception as de:
+                        logger.error("UW digest send error: %s", de)
+                        _last_digest_date = today_ct
+
+                # Proximity reminders at 7:35 AM CT (5 min after digest so we
+                # don't double-blast the assignee with two emails at once
+                # for the same item)
+                if (now_ct.hour == 7 and now_ct.minute >= 35 and now_ct.minute < 50
+                        and _last_proximity_date != today_ct):
+                    logger.info("Sending UW proximity reminders...")
+                    try:
+                        from app.core.database import SessionLocal
+                        from app.services.uw_digest import send_proximity_reminders
+                        _db = SessionLocal()
+                        try:
+                            result = send_proximity_reminders(_db)
+                            logger.info("UW proximity result: %s", result)
+                        finally:
+                            _db.close()
+                        _last_proximity_date = today_ct
+                    except Exception as de:
+                        logger.error("UW proximity send error: %s", de)
+                        _last_proximity_date = today_ct
+            except Exception as e:
+                logger.error("UW scheduler error: %s", e)
+
+            _time.sleep(60)  # Check every minute
+
+    threading.Thread(target=_uw_tracker_scheduler, daemon=True).start()
+
     # ── Quote follow-up scheduler (hourly) ─────────────────────────
     def _quote_followup_scheduler():
         import time as _time
@@ -1590,6 +1652,9 @@ app.include_router(inspection_api.router)
 
 from app.api import claim_map as claim_map_api
 app.include_router(claim_map_api.router)
+
+from app.api import uw_tracker as uw_tracker_api
+app.include_router(uw_tracker_api.router)
 
 from app.api import life_crosssell as life_crosssell_api
 app.include_router(life_crosssell_api.router, prefix="/api")

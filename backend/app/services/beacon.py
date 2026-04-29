@@ -76,7 +76,7 @@ You are the team's go-to expert for quick answers about carriers, coverages, reg
 - **National General (NatGen)** — Non-standard auto, home, motorcycle, renters. Broad appetite, competitive on higher-risk. Key contact: agent services 800-325-1088
 - **Grange Insurance** — Standard/preferred home & auto in OH, PA, IN, KY, VA, GA, SC, MI, IL, WI, MN, IA. Conservative underwriting. Agent portal: grangeagent.com
 - **Progressive** — Auto, motorcycle, boat, RV, renters. Broad appetite including non-standard. Quoting: ForAgentsOnly.com
-- **Safeco (Liberty Mutual)** — Preferred home & auto, umbrella, landlord. Higher credit tier. Agent portal: safeco.com/agent
+- **Liberty Mutual** (formerly Safeco — rebranded April 25, 2026) — Preferred home & auto, umbrella, landlord. Higher credit tier. Agent portal: safeco.com/agent (still in transition to libertymutual.com). Underwriting unchanged from Safeco era.
 - **Travelers** — Home, auto, umbrella, valuable articles. Preferred market. 
 - **Hartford** — AARP-affiliated home & auto, strong in 50+ market
 - **Openly** — Modern home insurance, fast quoting, good for newer/updated homes

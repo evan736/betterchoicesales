@@ -132,6 +132,7 @@ const Navbar: React.FC = () => {
   const [inboxBadge, setInboxBadge] = useState(0);
   const [chatBadge, setChatBadge] = useState(0);
   const [textingBadge, setTextingBadge] = useState(0);
+  const [uwBadge, setUwBadge] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -166,6 +167,22 @@ const Navbar: React.FC = () => {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         setChatBadge(r.data.total_unread || 0);
+      } catch {}
+      // UW Tracker — unassigned + overdue count
+      try {
+        const token = localStorage.getItem('token');
+        const r = await axios.get(
+          `${API_BASE}/api/uw/stats`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const s = r.data || {};
+        // For admin/manager: show pending_assignment + overdue
+        // For others: show their own overdue items only
+        if (isManager) {
+          setUwBadge((s.pending_assignment || 0) + (s.overdue || 0));
+        } else {
+          setUwBadge(s.your_items_overdue || 0);
+        }
       } catch {}
       // Texting unread count (admins only — matches link visibility)
       if (isAdmin) {
@@ -267,6 +284,7 @@ const Navbar: React.FC = () => {
         { href: '/revenue-tracker', label: 'Revenue Tracker', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
         { href: '/claim-map', label: 'Claim Map', icon: <MapPin size={16} />, show: isManager || user?.role?.toLowerCase() === 'retention_specialist' },
+        { href: '/uw-tracker', label: 'UW Tracker', icon: <FileText size={16} />, show: isManager || ['producer', 'retention_specialist'].includes(user?.role?.toLowerCase() || ''), badge: uwBadge },
         { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },
         { href: '/timeclock', label: 'Attendance', icon: <Clock size={16} />, show: isAdmin },
       ],
@@ -285,7 +303,7 @@ const Navbar: React.FC = () => {
   const currentPage = allNavItems.find((i) => router.asPath.startsWith(i.href))?.label || 'Menu';
 
   // Total badge count for mobile indicator
-  const totalBadges = reshopBadge + inboxBadge + chatBadge;
+  const totalBadges = reshopBadge + inboxBadge + chatBadge + uwBadge;
 
   return (
     <nav className="glass sticky top-0 z-50 border-b border-white/20">

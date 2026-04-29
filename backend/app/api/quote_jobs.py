@@ -34,8 +34,8 @@ router = APIRouter(prefix="/api/quote-jobs", tags=["quote-jobs"])
 BOT_API_KEY = os.environ.get("QUOTE_BOT_API_KEY", "")
 
 # Auto/Home carrier targets
-AUTO_CARRIERS = ["Travelers", "Progressive", "National General", "Safeco"]
-HOME_CARRIERS = ["Travelers", "Safeco", "National General", "Grange"]
+AUTO_CARRIERS = ["Travelers", "Progressive", "National General", "Liberty Mutual"]
+HOME_CARRIERS = ["Travelers", "Liberty Mutual", "National General", "Grange"]
 
 
 def _verify_bot_key(x_bot_key: str = Header(None, alias="X-Bot-Key")):

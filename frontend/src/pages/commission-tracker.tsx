@@ -168,7 +168,7 @@ export default function CommissionTracker() {
 
         {/* Carrier Filter */}
         <div className="flex gap-2 mb-4 flex-wrap">
-          {['', 'travelers', 'grange', 'national_general', 'safeco', 'progressive', 'geico'].map((c) => (
+          {['', 'travelers', 'grange', 'national_general', 'liberty_mutual', 'progressive', 'geico'].map((c) => (
             <button
               key={c}
               onClick={() => setCarrierFilter(c)}

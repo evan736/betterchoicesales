@@ -88,18 +88,27 @@ CARRIER_NORMALIZE = {
     "trust gard": "Grange",
     "trustgard mutual": "Grange",
     "trustgard insurance": "Grange",
-    # Safeco
-    "safeco": "Safeco",
-    "safeco insurance": "Safeco",
-    "safeco insurance company of america": "Safeco",
-    "safeco insurance company of oregon": "Safeco",
-    "american economy": "Safeco",
-    "american economy insurance": "Safeco",
-    "american economy insurance company": "Safeco",
-    "american states preferred insurance company": "Safeco",
-    "american states preferred ins co": "Safeco",
-    "american states preferred": "Safeco",
-    "general insurance company of america": "Safeco",
+    # Liberty Mutual (formerly Safeco — rebranded April 25, 2026.
+    # Underlying underwriting companies — American Economy, American States,
+    # General Insurance Co of America, Safeco Insurance Co of America — all
+    # remain unchanged on policy paper but are marketed under the Liberty
+    # Mutual brand. Map all of them to "Liberty Mutual" so new sales display
+    # consistently. Historical sales records keep whatever they already had.)
+    "safeco": "Liberty Mutual",
+    "safeco insurance": "Liberty Mutual",
+    "safeco insurance company of america": "Liberty Mutual",
+    "safeco insurance company of oregon": "Liberty Mutual",
+    "liberty mutual": "Liberty Mutual",
+    "liberty mutual insurance": "Liberty Mutual",
+    "liberty mutual insurance company": "Liberty Mutual",
+    "lm insurance": "Liberty Mutual",
+    "american economy": "Liberty Mutual",
+    "american economy insurance": "Liberty Mutual",
+    "american economy insurance company": "Liberty Mutual",
+    "american states preferred insurance company": "Liberty Mutual",
+    "american states preferred ins co": "Liberty Mutual",
+    "american states preferred": "Liberty Mutual",
+    "general insurance company of america": "Liberty Mutual",
     # GEICO
     "geico": "GEICO",
     "geico insurance": "GEICO",

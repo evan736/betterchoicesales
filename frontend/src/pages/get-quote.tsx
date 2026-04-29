@@ -7,7 +7,7 @@ import GoogleAnalytics from '../components/GoogleAnalytics';
 const CARRIERS = [
   { name: 'Travelers', logo: '/carrier-logos/travelers.png' },
   { name: 'Progressive', logo: '/carrier-logos/progressive.png' },
-  { name: 'Safeco', logo: '/carrier-logos/safeco.png' },
+  { name: 'Liberty Mutual', logo: '/carrier-logos/liberty_mutual.png' },
   { name: 'National General', logo: '/carrier-logos/national_general.png' },
   { name: 'Grange', logo: '/carrier-logos/grange.png' },
   { name: 'GEICO', logo: '/carrier-logos/geico.png' },
@@ -158,7 +158,7 @@ export default function GetQuotePage() {
         <meta name="description" content="Compare home and auto insurance rates from 15+ carriers in St. Charles, IL. Serving Kane County, DuPage County, and the Fox Valley. Free quotes in minutes — call (847) 908-5665." />
         <meta name="keywords" content="insurance st charles il, home insurance st charles, auto insurance st charles, car insurance kane county, homeowners insurance geneva il, insurance agent elgin il, cheap auto insurance batavia, insurance quotes fox valley, independent insurance agency illinois" />
         <meta property="og:title" content="Better Choice Insurance Group | St. Charles, IL" />
-        <meta property="og:description" content="Compare rates from Travelers, Progressive, Safeco, National General, and 12+ more carriers. Free quotes, no obligation." />
+        <meta property="og:description" content="Compare rates from Travelers, Progressive, Liberty Mutual, National General, and 12+ more carriers. Free quotes, no obligation." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://quote.betterchoiceins.com/get-quote" />
         <meta name="geo.region" content="US-IL" />
@@ -217,7 +217,7 @@ export default function GetQuotePage() {
           },
           "priceRange": "Free quotes",
           "sameAs": [],
-          "description": "Independent insurance agency comparing rates from 15+ carriers including Travelers, Progressive, Safeco, National General, Grange, GEICO, and more. Specializing in home, auto, and bundled insurance in the Fox Valley and greater Chicagoland area.",
+          "description": "Independent insurance agency comparing rates from 15+ carriers including Travelers, Progressive, Liberty Mutual, National General, Grange, GEICO, and more. Specializing in home, auto, and bundled insurance in the Fox Valley and greater Chicagoland area.",
           "hasOfferCatalog": {
             "@type": "OfferCatalog",
             "name": "Insurance Products",

@@ -51,9 +51,10 @@ CARRIER_SELLING_POINTS = {
         "coverage options, industry-leading claim response times, and personalized service."
     ),
     "safeco": (
-        "Safeco, a Liberty Mutual company, is built specifically for independent agents "
-        "who put customers first. With broad coverage options, generous discounts, and an "
-        "A (Excellent) AM Best rating, Safeco is a trusted name in personal insurance."
+        "Liberty Mutual (formerly Safeco) is built specifically for independent agents and offers "
+        "comprehensive home, auto, and umbrella coverage. With Fortune 100 backing and an "
+        "A (Excellent) AM Best rating, Liberty Mutual is a trusted name in personal insurance. "
+        "(Note: Safeco rebranded to Liberty Mutual effective April 25, 2026 — same underwriting, new name.)"
     ),
     "grange": (
         "Grange Insurance has been a Midwest staple since 1935, earning an A (Excellent) "
@@ -149,9 +150,9 @@ CARRIER_TRUST = {
     },
     "safeco": {
         "am_best": "A", "am_best_label": "Excellent",
-        "claims_stat": "Backed by Liberty Mutual's claims network",
-        "customers": "Trusted by independent agents nationwide",
-        "highlight": "Part of the Liberty Mutual family since 2008",
+        "claims_stat": "Liberty Mutual's national claims network",
+        "customers": "100+ years of insurance experience",
+        "highlight": "Liberty Mutual is a Fortune 100 company (formerly marketed as Safeco)",
     },
     "grange": {
         "am_best": "A", "am_best_label": "Excellent",
