@@ -228,6 +228,23 @@ class Quote(Base):
     # GHL
     ghl_webhook_sent = Column(Boolean, default=False)
 
+    # A/B test (Apr 2026) — variant assigned at first send and sticks
+    # for all follow-ups so a single quote stays in one experimental arm.
+    # 'A' = branded email with coverage limits highlighted
+    # 'B' = plain-text personal-style email (no branding, no logo)
+    email_variant = Column(String(1), nullable=True)
+    reply_received = Column(Boolean, default=False)
+    reply_received_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Coverage limits (extracted from PDF) — used by Variant A's
+    # "Your Coverage Highlights" section.
+    coverage_dwelling = Column(Numeric(12, 2), nullable=True)              # home: Coverage A
+    coverage_personal_property = Column(Numeric(12, 2), nullable=True)     # home: Coverage C
+    coverage_liability = Column(Numeric(12, 2), nullable=True)             # home: Coverage E
+    auto_bi_limit = Column(String(50), nullable=True)                      # auto: Bodily Injury (e.g. "100/300")
+    auto_pd_limit = Column(String(50), nullable=True)                      # auto: Property Damage
+    auto_um_limit = Column(String(50), nullable=True)                      # auto: Uninsured Motorist
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

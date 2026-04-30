@@ -48,6 +48,15 @@ class QuoteCreate(BaseModel):
     effective_date: Optional[str] = None
     notes: Optional[str] = None
     policy_lines: Optional[list] = None  # [{policy_type, premium, notes}]
+    # Coverage limits — optional, used by the A/B test variant A email.
+    # For home/condo/renters/landlord
+    coverage_dwelling: Optional[float] = None
+    coverage_personal_property: Optional[float] = None
+    coverage_liability: Optional[float] = None
+    # For auto (strings like "100/300", "100", "100/300")
+    auto_bi_limit: Optional[str] = None
+    auto_pd_limit: Optional[str] = None
+    auto_um_limit: Optional[str] = None
 
 
 class QuoteSendEmail(BaseModel):
@@ -202,6 +211,17 @@ def _quote_to_dict(q: Quote) -> dict:
         "producer_id": q.producer_id,
         "producer_name": q.producer_name,
         "created_at": q.created_at.isoformat() if q.created_at else None,
+        # A/B test fields
+        "email_variant": q.email_variant,
+        "reply_received": bool(q.reply_received),
+        "reply_received_at": q.reply_received_at.isoformat() if q.reply_received_at else None,
+        # Coverage limits (used by Variant A email rendering + UI display)
+        "coverage_dwelling": float(q.coverage_dwelling) if q.coverage_dwelling else None,
+        "coverage_personal_property": float(q.coverage_personal_property) if q.coverage_personal_property else None,
+        "coverage_liability": float(q.coverage_liability) if q.coverage_liability else None,
+        "auto_bi_limit": q.auto_bi_limit,
+        "auto_pd_limit": q.auto_pd_limit,
+        "auto_um_limit": q.auto_um_limit,
     }
 
 
@@ -263,6 +283,13 @@ def create_quote(
         producer_name=current_user.full_name or current_user.username,
         status="quoted",
         unsubscribe_token=str(uuid.uuid4()),
+        # Coverage limits for variant-A email
+        coverage_dwelling=data.coverage_dwelling,
+        coverage_personal_property=data.coverage_personal_property,
+        coverage_liability=data.coverage_liability,
+        auto_bi_limit=data.auto_bi_limit,
+        auto_pd_limit=data.auto_pd_limit,
+        auto_um_limit=data.auto_um_limit,
     )
     try:
         db.add(quote)
@@ -302,7 +329,13 @@ Return ONLY a valid JSON object with these fields:
       "policy_type": "home|auto|renters|condo|landlord|umbrella|motorcycle|boat|rv|life|bundled|commercial|other",
       "written_premium": 2885.00,
       "item_count": 1,
-      "notes": "Brief description of coverage"
+      "notes": "Brief description of coverage",
+      "coverage_dwelling": null,
+      "coverage_personal_property": null,
+      "coverage_liability": null,
+      "auto_bi_limit": null,
+      "auto_pd_limit": null,
+      "auto_um_limit": null
     }
   ]
 }
@@ -314,6 +347,21 @@ CRITICAL RULES:
 - Extract the ANNUAL or TERM premium as shown on the document, not monthly
 - For auto policies, list all vehicles in the notes field and set item_count to the number of vehicles
 - Always extract the mailing address into client_address, client_city, client_state, client_zip separately
+
+COVERAGE LIMITS (per policy in policies[]):
+- HOME / CONDO / RENTERS / LANDLORD / DWELLING:
+  * coverage_dwelling: Coverage A — Dwelling limit as a NUMBER (no $ or commas). E.g. 350000 for $350,000.
+    For renters where Coverage A doesn't apply, leave null.
+  * coverage_personal_property: Coverage C — Personal Property limit as a NUMBER. E.g. 175000.
+  * coverage_liability: Coverage E — Personal Liability limit as a NUMBER. E.g. 300000 or 500000.
+- AUTO (per-policy not per-vehicle):
+  * auto_bi_limit: Bodily Injury limit. STRING in carrier-standard format like "100/300" (means $100k/$300k)
+    or "CSL 500" for combined single limit. Strip thousands.
+  * auto_pd_limit: Property Damage limit. STRING like "100" (meaning $100k) or "50".
+  * auto_um_limit: Uninsured/Underinsured Motorist BI limit. STRING same format as auto_bi_limit.
+- For OTHER policy types (umbrella, boat, RV, life, etc.), leave all coverage limit fields null.
+- If a coverage limit isn't visible, USE NULL — do not guess.
+
 - Return ONLY the JSON, no markdown, no explanation"""
 
 
@@ -411,6 +459,12 @@ async def extract_quote_pdf(
     except Exception:
         carrier_key = raw_carrier
 
+    # Pick coverage limits to surface on the form: home limits from the home
+    # policy in the bundle (if any), auto limits from the auto policy in the
+    # bundle. For non-bundled quotes, the single policy is the source.
+    home_pol = next((p for p in policies if (p.get("policy_type") or "").lower() in ("home", "condo", "renters", "landlord", "dwelling")), None)
+    auto_pol = next((p for p in policies if (p.get("policy_type") or "").lower() == "auto"), None)
+
     result = {
         "prospect_name": raw.get("client_name") or "",
         "prospect_email": raw.get("client_email") or "",
@@ -427,6 +481,13 @@ async def extract_quote_pdf(
         "notes": combined_notes,
         "policy_number": raw.get("quote_number") or "",
         "all_policies": policies,
+        # Coverage limits for variant-A email
+        "coverage_dwelling": (home_pol or {}).get("coverage_dwelling"),
+        "coverage_personal_property": (home_pol or {}).get("coverage_personal_property"),
+        "coverage_liability": (home_pol or {}).get("coverage_liability"),
+        "auto_bi_limit": (auto_pol or {}).get("auto_bi_limit"),
+        "auto_pd_limit": (auto_pol or {}).get("auto_pd_limit"),
+        "auto_um_limit": (auto_pol or {}).get("auto_um_limit"),
     }
 
     return result
@@ -513,25 +574,64 @@ def send_quote_email_endpoint(
                 "premium": f"${float(line.get('premium') or line.get('written_premium') or 0):,.2f}",
             })
 
-    result = send_quote_email(
-        to_email=quote.prospect_email,
-        prospect_name=quote.prospect_name,
-        carrier=quote.carrier,
-        policy_type=quote.policy_type,
-        premium=premium_str,
-        premium_term=premium_term,
-        effective_date=eff_str,
-        agent_name=producer_name,
-        agent_email=producer_email,
-        agent_phone="(847) 908-5665",
-        additional_notes=(data.additional_notes if data else "") or "",
-        pdf_path=quote.quote_pdf_path,
-        pdf_filename=quote.quote_pdf_filename,
-        is_multi_quote=is_multi,
-        quotes_summary=quotes_summary if is_multi else None,
-        quote_id=quote.id,
-        unsubscribe_token=getattr(quote, 'unsubscribe_token', None),
-    )
+    # ── A/B variant assignment ─────────────────────────────────────
+    # If this quote has never been sent, randomly pick A or B and persist it
+    # so all follow-ups stay in the same arm. Sticky-by-quote is critical —
+    # mixing variants mid-funnel would wreck the signal.
+    # If already assigned (re-send case), respect the existing variant.
+    if not quote.email_variant:
+        import random
+        quote.email_variant = random.choice(["A", "B"])
+        # Note: we commit at end of function alongside email_sent
+
+    if quote.email_variant == "B":
+        # Variant B: plain-text personal email, NO HTML, NO branding.
+        from app.services.quote_email_plaintext import send_plaintext_quote_email
+        result = send_plaintext_quote_email(
+            to_email=quote.prospect_email,
+            prospect_name=quote.prospect_name,
+            carrier=quote.carrier,
+            policy_type=quote.policy_type,
+            premium=premium_str,
+            premium_term=premium_term,
+            effective_date=eff_str,
+            agent_name=producer_name,
+            agent_email=producer_email,
+            agent_phone="(847) 908-5665",
+            additional_notes=(data.additional_notes if data else "") or "",
+            pdf_path=quote.quote_pdf_path,
+            pdf_filename=quote.quote_pdf_filename,
+            quote_id=quote.id,
+            unsubscribe_token=getattr(quote, 'unsubscribe_token', None),
+        )
+    else:
+        # Variant A: branded carrier-themed email WITH coverage limits.
+        result = send_quote_email(
+            to_email=quote.prospect_email,
+            prospect_name=quote.prospect_name,
+            carrier=quote.carrier,
+            policy_type=quote.policy_type,
+            premium=premium_str,
+            premium_term=premium_term,
+            effective_date=eff_str,
+            agent_name=producer_name,
+            agent_email=producer_email,
+            agent_phone="(847) 908-5665",
+            additional_notes=(data.additional_notes if data else "") or "",
+            pdf_path=quote.quote_pdf_path,
+            pdf_filename=quote.quote_pdf_filename,
+            is_multi_quote=is_multi,
+            quotes_summary=quotes_summary if is_multi else None,
+            quote_id=quote.id,
+            unsubscribe_token=getattr(quote, 'unsubscribe_token', None),
+            # Coverage limits — only Variant A renders these
+            coverage_dwelling=float(quote.coverage_dwelling) if quote.coverage_dwelling else None,
+            coverage_personal_property=float(quote.coverage_personal_property) if quote.coverage_personal_property else None,
+            coverage_liability=float(quote.coverage_liability) if quote.coverage_liability else None,
+            auto_bi_limit=quote.auto_bi_limit,
+            auto_pd_limit=quote.auto_pd_limit,
+            auto_um_limit=quote.auto_um_limit,
+        )
 
     if result.get("success"):
         quote.email_sent = True
@@ -1034,6 +1134,62 @@ def _get_producer_email(quote, db=None):
     return "service@betterchoiceins.com"
 
 
+def _send_followup_for_quote(quote, day, db=None) -> dict:
+    """Send the right follow-up flavor based on the quote's email_variant.
+
+    A → branded HTML follow-up (quote_followup_email.send_followup_email)
+    B → plain-text follow-up (quote_email_plaintext.send_plaintext_followup_email)
+    None → default to A (legacy quotes from before A/B test launched)
+
+    Returns the same {success, message_id, error} shape as the underlying
+    senders so the scheduler can flag-set on success.
+    """
+    variant = (quote.email_variant or "A").upper()
+    agent_email = _get_producer_email(quote, db)
+    agent_name = quote.producer_name or ""
+    agent_phone = "(847) 908-5665"
+
+    if variant == "B":
+        from app.services.quote_email_plaintext import send_plaintext_followup_email
+        return send_plaintext_followup_email(
+            to_email=quote.prospect_email,
+            prospect_name=quote.prospect_name or "",
+            carrier=quote.carrier or "",
+            policy_type=quote.policy_type or "",
+            premium=float(quote.quoted_premium or 0),
+            premium_term=quote.premium_term or "6 months",
+            agent_name=agent_name,
+            agent_email=agent_email,
+            agent_phone=agent_phone,
+            quote_id=quote.id,
+            day=day,
+            unsubscribe_token=quote.unsubscribe_token or "",
+        )
+    # Default / Variant A: branded HTML
+    from app.services.quote_followup_email import build_followup_email, send_followup_email
+    subject, html = build_followup_email(
+        prospect_name=quote.prospect_name or "",
+        carrier=quote.carrier or "",
+        policy_type=quote.policy_type or "",
+        premium=float(quote.quoted_premium or 0),
+        premium_term=quote.premium_term or "6 months",
+        agent_name=agent_name,
+        agent_email=agent_email,
+        quote_id=quote.id,
+        day=day,
+        unsubscribe_token=quote.unsubscribe_token or "",
+    )
+    if not subject or not html:
+        return {"success": False, "error": "build_followup_email returned empty"}
+    return send_followup_email(
+        to_email=quote.prospect_email,
+        subject=subject,
+        html=html,
+        agent_email=agent_email,
+        quote_id=quote.id,
+    )
+
+
 def _check_followups_logic(db: Session) -> dict:
     """Core follow-up check logic — sends actual emails, skips if customer already bought."""
     now = datetime.utcnow()
@@ -1085,26 +1241,8 @@ def _check_followups_logic(db: Session) -> dict:
                 # If 3+ days since bind request and no sale — send retarget email
                 if days_since_bind >= 3 and not getattr(br, 'retarget_sent', False):
                     try:
-                        subject, html = build_followup_email(
-                            prospect_name=br.prospect_name or "",
-                            carrier=br.carrier or "",
-                            policy_type=br.policy_type or "",
-                            premium=float(br.quoted_premium or 0),
-                            premium_term=br.premium_term or "6 months",
-                            agent_name=br.producer_name or "",
-                            agent_email=_get_producer_email(br),
-                            quote_id=br.id,
-                            day="bind_retarget",
-                            unsubscribe_token=br.unsubscribe_token or "",
-                        )
-                        if subject and html and br.prospect_email:
-                            send_followup_email(
-                                to_email=br.prospect_email,
-                                subject=subject,
-                                html=html,
-                                agent_email=_get_producer_email(br),
-                                quote_id=br.id,
-                            )
+                        if br.prospect_email:
+                            _send_followup_for_quote(br, day="bind_retarget", db=db)
                             results["bind_retarget"] = results.get("bind_retarget", 0) + 1
                     except Exception as e:
                         logger.error(f"Bind retarget email error for {br.prospect_name}: {e}")
@@ -1175,29 +1313,10 @@ def _check_followups_logic(db: Session) -> dict:
         if followup_day and latest.prospect_email:
             email_sent = False
             try:
-                subject, html = build_followup_email(
-                    prospect_name=latest.prospect_name or "",
-                    carrier=latest.carrier or "",
-                    policy_type=latest.policy_type or "",
-                    premium=float(latest.quoted_premium or 0),
-                    premium_term=latest.premium_term or "6 months",
-                    agent_name=latest.producer_name or "",
-                    agent_email=_get_producer_email(latest),
-                    quote_id=latest.id,
-                    day=followup_day,
-                    unsubscribe_token=latest.unsubscribe_token or "",
-                )
-                if subject and html:
-                    result = send_followup_email(
-                        to_email=latest.prospect_email,
-                        subject=subject,
-                        html=html,
-                        agent_email=_get_producer_email(latest),
-                        quote_id=latest.id,
-                    )
-                    email_sent = result.get("success", False)
-                    if not email_sent:
-                        logger.error(f"Follow-up email FAILED for {latest.prospect_name}: {result.get('error', 'unknown')}")
+                result = _send_followup_for_quote(latest, day=followup_day, db=db)
+                email_sent = result.get("success", False)
+                if not email_sent:
+                    logger.error(f"Follow-up email FAILED for {latest.prospect_name}: {result.get('error', 'unknown')}")
             except Exception as e:
                 logger.error(f"Follow-up email error for {latest.prospect_name}: {e}")
 
@@ -1254,3 +1373,67 @@ def _fire_followup_webhook(quote, days_since):
 
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════
+# A/B TEST ANALYTICS
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/ab-test/stats")
+def ab_test_stats(
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compare Variant A vs Variant B performance.
+
+    Variant A = branded HTML email with carrier theme + coverage highlights
+    Variant B = plain-text personal-style email (no logo, no branding)
+
+    Returns counts and rates for each arm:
+      - sent: how many quotes received an email of this variant
+      - replied: how many got a reply (tracked by Mailgun + Smart Inbox webhook)
+      - bound: how many quotes converted to a Sale
+      - reply_rate, bind_rate
+
+    `days` filters to quotes sent within the last N days. Default 30.
+
+    Only admin/manager can see this — it's an experiment dashboard,
+    not a producer-facing metric.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    quotes = (
+        db.query(Quote)
+        .filter(Quote.email_sent == True)
+        .filter(Quote.email_sent_at >= cutoff)
+        .filter(Quote.email_variant.isnot(None))
+        .all()
+    )
+
+    def _summarize(arm_quotes):
+        sent = len(arm_quotes)
+        replied = sum(1 for q in arm_quotes if q.reply_received)
+        bound = sum(1 for q in arm_quotes if q.converted_sale_id)
+        lost = sum(1 for q in arm_quotes if (q.status or "") == "lost")
+        return {
+            "sent": sent,
+            "replied": replied,
+            "bound": bound,
+            "lost": lost,
+            "reply_rate": (replied / sent * 100) if sent else 0,
+            "bind_rate": (bound / sent * 100) if sent else 0,
+        }
+
+    arm_a = [q for q in quotes if (q.email_variant or "").upper() == "A"]
+    arm_b = [q for q in quotes if (q.email_variant or "").upper() == "B"]
+
+    return {
+        "period_days": days,
+        "as_of": datetime.utcnow().isoformat(),
+        "variant_a": _summarize(arm_a),
+        "variant_b": _summarize(arm_b),
+        "total_with_variant": len(quotes),
+    }

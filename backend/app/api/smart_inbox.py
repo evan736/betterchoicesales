@@ -1032,6 +1032,45 @@ async def receive_inbound_email(
     db.commit()
     db.refresh(inbound)
 
+    # ── A/B test reply tracking ────────────────────────────────────
+    # If this inbound came from a prospect we recently sent a quote to,
+    # mark reply_received on their open quote(s). This is best-effort —
+    # we don't need to know what the reply says, just that they replied.
+    # Used by /api/quotes/ab-test/stats to compute reply rate by variant.
+    try:
+        from app.models.campaign import Quote
+        from sqlalchemy import or_, and_, func as sa_func
+        # Extract bare email from "Name <email>" if needed
+        clean_from = (from_addr or "").strip().lower()
+        m_at = clean_from.rfind("<")
+        if m_at >= 0:
+            end = clean_from.rfind(">")
+            if end > m_at:
+                clean_from = clean_from[m_at + 1:end].strip()
+        if clean_from and "@" in clean_from:
+            # Match any sent-but-unanswered quote in the last 90 days
+            cutoff = datetime.utcnow() - timedelta(days=90)
+            matching = (
+                db.query(Quote)
+                .filter(Quote.email_sent == True)
+                .filter(Quote.reply_received == False)
+                .filter(sa_func.lower(Quote.prospect_email) == clean_from)
+                .filter(or_(
+                    Quote.email_sent_at >= cutoff,
+                    Quote.last_remarket_sent_at >= cutoff,
+                ))
+                .all()
+            )
+            if matching:
+                now_dt = datetime.utcnow()
+                for q in matching:
+                    q.reply_received = True
+                    q.reply_received_at = now_dt
+                db.commit()
+                logger.info(f"A/B reply tracked: {len(matching)} quote(s) for {clean_from}")
+    except Exception as e:
+        logger.debug(f"A/B reply tracking skipped: {e}")
+
     # Kick off async processing
     db_url = os.getenv("DATABASE_URL", "")
 

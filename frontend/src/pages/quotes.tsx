@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import { quotesAPI, adminAPI } from '../lib/api';
+import axios from 'axios';
 import {
   Plus, FileText, Send, Upload, X, Check, Trash2, Loader2,
   AlertCircle, Eye, Phone, Mail, ChevronDown, Search, Filter,
@@ -39,6 +40,24 @@ export default function Quotes() {
   const [selectedQuote, setSelectedQuote] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [expandedProspect, setExpandedProspect] = useState<string | null>(null);
+  const [showAbPanel, setShowAbPanel] = useState(false);
+  const [abStats, setAbStats] = useState<any>(null);
+  const [abLoading, setAbLoading] = useState(false);
+  const isAdminOrManager = user?.role && ['admin', 'manager'].includes(user.role.toLowerCase());
+
+  const loadAbStats = async () => {
+    setAbLoading(true);
+    try {
+      const r = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com'}/api/quotes/ab-test/stats?days=30`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      setAbStats(r.data);
+    } catch (e: any) {
+      console.error('A/B stats load failed', e);
+    }
+    setAbLoading(false);
+  };
 
   useEffect(() => {
     if (!loading && !user) router.push('/');
@@ -170,6 +189,79 @@ export default function Quotes() {
                 </p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* A/B Test Panel — admin/manager only */}
+        {isAdminOrManager && (
+          <div className="mb-6">
+            <button
+              onClick={() => {
+                const next = !showAbPanel;
+                setShowAbPanel(next);
+                if (next && !abStats) loadAbStats();
+              }}
+              className="flex items-center gap-2 text-xs font-semibold text-cyan-400 hover:text-cyan-300 mb-2"
+            >
+              <span style={{ display: 'inline-block', transform: showAbPanel ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
+              Email A/B Test (last 30 days)
+              {abStats && abStats.total_with_variant > 0 && (
+                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 ml-1">
+                  {abStats.total_with_variant} quotes
+                </span>
+              )}
+            </button>
+            {showAbPanel && (
+              <div className="rounded-lg p-4" style={{ background: 'rgba(14,165,233,0.04)', border: '1px solid rgba(14,165,233,0.2)' }}>
+                {abLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Loader2 size={12} className="animate-spin" /> Loading…
+                  </div>
+                ) : !abStats ? (
+                  <div className="text-xs text-slate-400">No data yet — send quotes to start collecting.</div>
+                ) : abStats.total_with_variant === 0 ? (
+                  <div className="text-xs text-slate-400 italic">
+                    No A/B test data yet. New quotes will be randomly assigned to variant A or B at first send.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { key: 'A', label: 'Variant A', sub: 'Branded + coverage limits', color: '#a855f7', data: abStats.variant_a },
+                      { key: 'B', label: 'Variant B', sub: 'Plain-text personal style', color: '#10b981', data: abStats.variant_b },
+                    ].map((arm) => (
+                      <div key={arm.key} className="p-3 rounded-lg" style={{ background: 'rgba(15,23,42,0.4)', border: `1px solid ${arm.color}30` }}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <div className="text-sm font-bold" style={{ color: arm.color }}>{arm.label}</div>
+                            <div className="text-[10px] text-slate-400">{arm.sub}</div>
+                          </div>
+                          <div className="text-2xl font-bold text-slate-200">{arm.data.sent}</div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-700">
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Replied</div>
+                            <div className="text-sm font-bold text-amber-400">{arm.data.replied}</div>
+                            <div className="text-[10px] text-slate-400">{arm.data.reply_rate.toFixed(1)}%</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Bound</div>
+                            <div className="text-sm font-bold text-emerald-400">{arm.data.bound}</div>
+                            <div className="text-[10px] text-slate-400">{arm.data.bind_rate.toFixed(1)}%</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Lost</div>
+                            <div className="text-sm font-bold text-rose-400">{arm.data.lost}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-500 mt-3 italic">
+                  Variants are assigned 50/50 at first send and stay sticky through all 5 follow-ups (initial + day 3, 7, 14, 30).
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -391,6 +483,10 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
     prospect_name: '', prospect_email: '', prospect_phone: '',
     prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
     carrier: '', effective_date: '', premium_term: '6 months',
+    // Coverage limits — used by Variant A email rendering. Stored as
+    // strings here for input field compatibility; converted on submit.
+    coverage_dwelling: '', coverage_personal_property: '', coverage_liability: '',
+    auto_bi_limit: '', auto_pd_limit: '', auto_um_limit: '',
   });
   // Each policy line from extraction (or one default for manual entry)
   const [policyLines, setPolicyLines] = useState<Array<{
@@ -425,6 +521,13 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         carrier: d.carrier || '',
         effective_date: d.effective_date || '',
         premium_term: d.premium_term || '6 months',
+        // Coverage limits pre-filled from PDF extraction (variant A)
+        coverage_dwelling: d.coverage_dwelling != null ? String(d.coverage_dwelling) : '',
+        coverage_personal_property: d.coverage_personal_property != null ? String(d.coverage_personal_property) : '',
+        coverage_liability: d.coverage_liability != null ? String(d.coverage_liability) : '',
+        auto_bi_limit: d.auto_bi_limit || '',
+        auto_pd_limit: d.auto_pd_limit || '',
+        auto_um_limit: d.auto_um_limit || '',
       });
       // Try to fuzzy-match extracted carrier to a dropdown value
       if (d.carrier && carriers.length > 0) {
@@ -503,6 +606,13 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
           premium: parseFloat(l.quoted_premium) || 0,
           notes: l.notes,
         })),
+        // Coverage limits — empty strings → null so backend doesn't store 0
+        coverage_dwelling: form.coverage_dwelling ? parseFloat(form.coverage_dwelling) : null,
+        coverage_personal_property: form.coverage_personal_property ? parseFloat(form.coverage_personal_property) : null,
+        coverage_liability: form.coverage_liability ? parseFloat(form.coverage_liability) : null,
+        auto_bi_limit: form.auto_bi_limit || null,
+        auto_pd_limit: form.auto_pd_limit || null,
+        auto_um_limit: form.auto_um_limit || null,
       });
 
       // Attach PDF
@@ -592,6 +702,8 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                   prospect_name: '', prospect_email: '', prospect_phone: '',
                   prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
                   carrier: '', effective_date: '', premium_term: '6 months',
+                  coverage_dwelling: '', coverage_personal_property: '', coverage_liability: '',
+                  auto_bi_limit: '', auto_pd_limit: '', auto_um_limit: '',
                 }); setPolicyLines([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]); }} className="ml-auto hover:text-white">
                   <RotateCcw size={12} />
                 </button>
@@ -789,6 +901,71 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                 )}
               </div>
             </div>
+
+            {/* Coverage Limits — pre-filled from PDF, editable.
+                Used by Variant A's branded email to render Coverage Highlights.
+                Variant B (plain text) ignores these fields. */}
+            {(() => {
+              const enabledTypes = policyLines.filter(l => l.enabled).map(l => l.policy_type.toLowerCase());
+              const showHome = enabledTypes.some(t => ['home', 'condo', 'renters', 'landlord', 'dwelling'].includes(t));
+              const showAuto = enabledTypes.includes('auto');
+              if (!showHome && !showAuto) return null;
+              return (
+                <div className="mt-5 p-4 rounded-lg" style={{ background: 'rgba(14,165,233,0.04)', border: '1px solid rgba(14,165,233,0.2)' }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-400">Coverage Limits (for client-facing email)</h3>
+                    <span className="text-[10px] text-slate-400 italic">A/B test: shown in branded variant only</span>
+                  </div>
+                  {showHome && (
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Dwelling (Cov A)</label>
+                        <input type="number" placeholder="350000" value={form.coverage_dwelling}
+                          onChange={(e) => setForm({ ...form, coverage_dwelling: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Personal Property (Cov C)</label>
+                        <input type="number" placeholder="175000" value={form.coverage_personal_property}
+                          onChange={(e) => setForm({ ...form, coverage_personal_property: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Liability (Cov E)</label>
+                        <input type="number" placeholder="300000" value={form.coverage_liability}
+                          onChange={(e) => setForm({ ...form, coverage_liability: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                    </div>
+                  )}
+                  {showAuto && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Bodily Injury</label>
+                        <input type="text" placeholder="100/300" value={form.auto_bi_limit}
+                          onChange={(e) => setForm({ ...form, auto_bi_limit: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Property Damage</label>
+                        <input type="text" placeholder="100" value={form.auto_pd_limit}
+                          onChange={(e) => setForm({ ...form, auto_pd_limit: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium mb-1 text-slate-400">Uninsured Motorist</label>
+                        <input type="text" placeholder="100/300" value={form.auto_um_limit}
+                          onChange={(e) => setForm({ ...form, auto_um_limit: e.target.value })}
+                          className="w-full px-3 py-2 rounded text-sm" style={{ background: 'rgba(15,23,42,0.4)', color: '#f1f5f9', border: '1px solid rgba(148,163,184,0.2)' }} />
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-500 mt-2 italic">
+                    Auto formats: "100/300" = $100k/$300k split limit, "100" = $100k. Leave any blank to omit from email.
+                  </p>
+                </div>
+              );
+            })()}
 
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium filter-chip">
@@ -1219,10 +1396,21 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
 
         {q.email_sent && (
           <div className="flex items-center justify-between gap-2 p-3 mb-5 rounded-lg bg-blue-500/10 text-blue-400 text-sm">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Check size={14} />
               Quote emailed on {new Date(q.email_sent_at).toLocaleDateString()} at {new Date(q.email_sent_at).toLocaleTimeString()}
               {q.nowcerts_prospect_created && ' • NowCerts prospect created'}
+              {q.email_variant && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${q.email_variant === 'A' ? 'bg-purple-500/20 text-purple-300' : 'bg-emerald-500/20 text-emerald-300'}`}
+                  title={q.email_variant === 'A' ? 'Variant A: branded email with coverage limits' : 'Variant B: plain-text personal-style email'}>
+                  Variant {q.email_variant}
+                </span>
+              )}
+              {q.reply_received && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300" title={q.reply_received_at ? `Replied ${new Date(q.reply_received_at).toLocaleDateString()}` : ''}>
+                  ✉ Replied
+                </span>
+              )}
             </div>
             <button
               onClick={handleSendEmail}

@@ -204,6 +204,7 @@ def send_followup_email(
         "o:tracking-clicks": "yes",
         "o:tracking-opens": "yes",
         "v:email_type": "quote_followup",
+        "v:variant": "A",
         "v:customer_email": to_email,
         "v:agent_email": agent_email,
         "v:quote_id": str(quote_id or ""),

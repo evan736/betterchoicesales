@@ -563,6 +563,18 @@ def init_database():
             "ALTER TABLE quotes ADD COLUMN unsubscribe_token VARCHAR",
             "ALTER TABLE quotes ADD COLUMN last_remarket_sent_at TIMESTAMPTZ",
             "ALTER TABLE quotes ADD COLUMN remarket_touch_count INTEGER DEFAULT 0",
+            # A/B test fields (Apr 2026)
+            "ALTER TABLE quotes ADD COLUMN email_variant VARCHAR(1)",  # 'A' or 'B'
+            "ALTER TABLE quotes ADD COLUMN reply_received BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE quotes ADD COLUMN reply_received_at TIMESTAMPTZ",
+            # Coverage limits (extracted from PDF)
+            "ALTER TABLE quotes ADD COLUMN coverage_dwelling NUMERIC(12, 2)",
+            "ALTER TABLE quotes ADD COLUMN coverage_personal_property NUMERIC(12, 2)",
+            "ALTER TABLE quotes ADD COLUMN coverage_liability NUMERIC(12, 2)",
+            # Auto-specific limits
+            "ALTER TABLE quotes ADD COLUMN auto_bi_limit VARCHAR(50)",   # e.g. "100/300"
+            "ALTER TABLE quotes ADD COLUMN auto_pd_limit VARCHAR(50)",   # e.g. "100"
+            "ALTER TABLE quotes ADD COLUMN auto_um_limit VARCHAR(50)",   # e.g. "100/300"
         ]:
             try:
                 with engine.connect() as conn:
@@ -1334,6 +1346,16 @@ def force_migrate():
         "ALTER TABLE quotes ADD COLUMN unsubscribe_token VARCHAR",
         "ALTER TABLE quotes ADD COLUMN last_remarket_sent_at TIMESTAMPTZ",
         "ALTER TABLE quotes ADD COLUMN remarket_touch_count INTEGER DEFAULT 0",
+        # A/B test fields (Apr 2026)
+        "ALTER TABLE quotes ADD COLUMN email_variant VARCHAR(1)",
+        "ALTER TABLE quotes ADD COLUMN reply_received BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE quotes ADD COLUMN reply_received_at TIMESTAMPTZ",
+        "ALTER TABLE quotes ADD COLUMN coverage_dwelling NUMERIC(12, 2)",
+        "ALTER TABLE quotes ADD COLUMN coverage_personal_property NUMERIC(12, 2)",
+        "ALTER TABLE quotes ADD COLUMN coverage_liability NUMERIC(12, 2)",
+        "ALTER TABLE quotes ADD COLUMN auto_bi_limit VARCHAR(50)",
+        "ALTER TABLE quotes ADD COLUMN auto_pd_limit VARCHAR(50)",
+        "ALTER TABLE quotes ADD COLUMN auto_um_limit VARCHAR(50)",
         """CREATE TABLE IF NOT EXISTS life_cross_sells (
             id SERIAL PRIMARY KEY,
             sale_id INTEGER REFERENCES sales(id),

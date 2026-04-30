@@ -23,7 +23,13 @@ Return ONLY a valid JSON object with these fields:
       "written_premium": 1234.56,
       "item_count": 1,
       "effective_date": "YYYY-MM-DD or null",
-      "notes": "Brief description, e.g. '2 vehicles - 2020 Toyota Camry, 2022 Honda CR-V'"
+      "notes": "Brief description, e.g. '2 vehicles - 2020 Toyota Camry, 2022 Honda CR-V'",
+      "coverage_dwelling": null,
+      "coverage_personal_property": null,
+      "coverage_liability": null,
+      "auto_bi_limit": null,
+      "auto_pd_limit": null,
+      "auto_um_limit": null
     }
   ],
   "total_premium": 1234.56,
@@ -35,6 +41,8 @@ IMPORTANT RULES FOR ITEM COUNTING:
 - Auto policies: count the number of VEHICLES listed. 1 car = 1 item, 2 cars = 2 items, etc.
 - If a bundled application has home + auto with 2 cars, that's 3 items total (1 home + 2 auto)
 - Life/Health = 1 item per policy
+- policy_type must be one of the exact enum values listed above
+- If you can't determine a field, use null
 
 IMPORTANT RULES FOR PREMIUM:
 - Extract the TERM premium — the amount the customer actually pays for this policy period
@@ -43,8 +51,21 @@ IMPORTANT RULES FOR PREMIUM:
 - If the document shows both a per-term and annualized amount, use the PER-TERM amount
 - Do NOT annualize 6-month premiums — report exactly what the dec page shows as the total policy premium
 - If you see multiple policies in one document, list each separately in the policies array
-- policy_type must be one of the exact enum values listed above
-- If you can't determine a field, use null
+
+IMPORTANT RULES FOR COVERAGE LIMITS:
+- For HOME / CONDO / RENTERS / LANDLORD policies, extract:
+  * coverage_dwelling: Coverage A — Dwelling limit (NUMBER, no $ sign, no commas). E.g. 350000 for $350,000.
+    For renters/condo where Coverage A doesn't apply, leave null.
+  * coverage_personal_property: Coverage C — Personal Property limit (NUMBER). E.g. 175000.
+  * coverage_liability: Coverage E — Personal Liability / Family Liability limit (NUMBER). E.g. 300000 or 500000.
+- For AUTO policies, extract per-policy (not per-vehicle) limits as STRINGS in carrier-standard format:
+  * auto_bi_limit: Bodily Injury limit. Format: "split limit" like "100/300" (i.e. 100k/300k) OR "CSL 500" for combined single limit.
+    Always strip the "k" and zeros — the user understands "100/300" means $100k/$300k.
+  * auto_pd_limit: Property Damage limit. Format: "100" (meaning $100k) or "50".
+  * auto_um_limit: Uninsured/Underinsured Motorist BI limit. Format same as auto_bi_limit ("100/300").
+- For OTHER policy types (umbrella, boat, RV, life, etc.), leave all coverage limit fields null.
+- If a coverage limit isn't visible or you're not sure, USE NULL — do not guess.
+
 - Return ONLY the JSON, no markdown, no explanation"""
 
 

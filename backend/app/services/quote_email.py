@@ -238,6 +238,16 @@ def build_quote_email_html(
     quotes_summary: list = None,
     quote_id: int = None,
     unsubscribe_token: str = None,
+    # Coverage limits — only rendered when at least one is provided.
+    # These come from the Quote row (set during PDF extraction).
+    # For home/condo/renters/landlord:
+    coverage_dwelling: float = None,
+    coverage_personal_property: float = None,
+    coverage_liability: float = None,
+    # For auto (strings like "100/300"):
+    auto_bi_limit: str = None,
+    auto_pd_limit: str = None,
+    auto_um_limit: str = None,
 ) -> str:
     """Build carrier-branded quote email HTML."""
     from app.services.welcome_email import CARRIER_INFO, BCI_NAVY, BCI_CYAN
@@ -260,6 +270,98 @@ def build_quote_email_html(
     eff_html = ""
     if effective_date:
         eff_html = f'<p style="color:#64748B;font-size:13px;margin:4px 0 0 0;">Effective Date: <strong>{effective_date}</strong></p>'
+
+    # ── Coverage Highlights (Variant A feature) ────────────────────
+    # Renders ONLY when at least one limit is provided. Three-card row.
+    # Home limits prefer dwelling/personal property/liability.
+    # Auto limits show BI / PD / UM.
+    # Bundled quotes can show both rows stacked.
+    coverage_html = ""
+    home_has_any = any([coverage_dwelling, coverage_personal_property, coverage_liability])
+    auto_has_any = any([auto_bi_limit, auto_pd_limit, auto_um_limit])
+
+    def _fmt_money(v):
+        if v is None:
+            return None
+        try:
+            n = float(v)
+            return f"${n:,.0f}"
+        except (TypeError, ValueError):
+            return None
+
+    def _build_3card_row(cards, accent_hex):
+        """cards = [(label, value), ...]  — emits a 3-up grid with consistent styling.
+
+        Skips cards with None/empty values so we never show 'N/A' boxes.
+        Pads to 3 if needed (with empty boxes) so layout stays even.
+        """
+        valid = [(lbl, val) for lbl, val in cards if val]
+        if not valid:
+            return ""
+        cells = ""
+        for lbl, val in valid:
+            cells += f"""
+                <td style="padding:6px;text-align:center;width:33%;vertical-align:top;">
+                    <div style="background:{accent_hex}10;border:1px solid {accent_hex}25;border-radius:8px;padding:14px 8px;">
+                        <p style="margin:0;font-size:18px;font-weight:800;color:#1e293b;letter-spacing:-0.5px;">{val}</p>
+                        <p style="margin:4px 0 0 0;font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">{lbl}</p>
+                    </div>
+                </td>"""
+        # If only 1 or 2 valid cards, pad with empty cells for alignment
+        for _ in range(3 - len(valid)):
+            cells += '<td style="width:33%;"></td>'
+        return f"""
+        <table style="width:100%;border-collapse:collapse;margin:8px 0;" cellpadding="0" cellspacing="0">
+            <tr>{cells}</tr>
+        </table>"""
+
+    if home_has_any or auto_has_any:
+        rows_inner = ""
+        if home_has_any:
+            rows_inner += _build_3card_row(
+                [
+                    ("Dwelling", _fmt_money(coverage_dwelling)),
+                    ("Personal Property", _fmt_money(coverage_personal_property)),
+                    ("Personal Liability", _fmt_money(coverage_liability)),
+                ],
+                accent,
+            )
+        if auto_has_any:
+            # For auto, prepend "$" to numeric-only limits like "100"
+            def _fmt_auto(v):
+                if not v:
+                    return None
+                v_str = str(v).strip()
+                if not v_str or v_str.lower() == "none":
+                    return None
+                # If purely numeric, treat as $Nk
+                try:
+                    float(v_str)
+                    return f"${v_str}k"
+                except ValueError:
+                    pass
+                # If split limit (e.g. 100/300), format as $100k/$300k
+                if "/" in v_str:
+                    parts = v_str.split("/")
+                    if all(p.strip().replace(".", "").isdigit() for p in parts):
+                        return "/".join(f"${p.strip()}k" for p in parts)
+                return v_str  # fallback: as-is
+
+            rows_inner += _build_3card_row(
+                [
+                    ("Bodily Injury", _fmt_auto(auto_bi_limit)),
+                    ("Property Damage", _fmt_auto(auto_pd_limit)),
+                    ("Uninsured Motorist", _fmt_auto(auto_um_limit)),
+                ],
+                accent,
+            )
+
+        if rows_inner:  # don't render empty wrapper
+            coverage_html = f"""
+            <div style="margin:20px 0;">
+                <p style="margin:0 0 10px 0;color:#1e293b;font-size:14px;font-weight:700;">Coverage Highlights</p>
+                {rows_inner}
+            </div>"""
 
     # Multi-quote comparison table
     multi_html = ""
@@ -422,6 +524,8 @@ def build_quote_email_html(
       {eff_html}
     </div>
 
+    {coverage_html}
+
     {carrier_section}
 
     <p style="color:#334155;font-size:14px;line-height:1.6;margin:0 0 8px 0;">
@@ -563,6 +667,7 @@ def send_quote_email(
         "h:Reply-To": reply_to,
         "bcc": [os.environ.get("SMART_INBOX_BCC", "evan@betterchoiceins.com")],
         "v:email_type": "quote",
+        "v:variant": "A",
         "v:customer_name": prospect_name or "",
         "v:customer_email": to_email or "",
         "v:carrier": carrier_name or "",
