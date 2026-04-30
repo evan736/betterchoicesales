@@ -500,6 +500,9 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   // Extraction merges them; upload sends them all to one quote.
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Separate ref for the "Add another PDF" button on the review screen
+  // so it's independent of the initial drop-zone input ref.
+  const addPdfInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = async (files: File[]) => {
     // Filter to PDFs only — silently ignore non-PDFs rather than erroring,
@@ -739,9 +742,10 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                       <span className="truncate">• {f.name}</span>
                       <button
                         onClick={() => {
-                          // Remove a single file from the list (won't re-extract,
-                          // but the producer can adjust extracted fields manually
-                          // and the file just won't be attached on submit)
+                          // Remove a single file from the list. We DON'T
+                          // re-run extraction here — coverage/premium values
+                          // stay as they are; producer can edit manually.
+                          // The removed file just won't be attached on submit.
                           setPdfFiles(pdfFiles.filter((_, idx) => idx !== i));
                         }}
                         className="text-cyan-300/60 hover:text-rose-400 flex-shrink-0"
@@ -752,6 +756,48 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
                     </li>
                   ))}
                 </ul>
+                {pdfFiles.length < 5 && (
+                  <div className="ml-5 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => addPdfInputRef.current?.click()}
+                      className="text-[11px] font-medium text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline flex items-center gap-1"
+                      title="Add another PDF and re-run extraction"
+                    >
+                      <Plus size={11} /> Add another PDF
+                    </button>
+                    <input
+                      ref={addPdfInputRef}
+                      type="file"
+                      accept=".pdf"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const newFiles = Array.from(e.target.files || []);
+                        e.target.value = '';
+                        if (newFiles.length === 0) return;
+                        const pdfs = newFiles.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+                        if (pdfs.length === 0) {
+                          setError('Please select PDF files only');
+                          return;
+                        }
+                        // Combine with existing — dedupe by filename so re-clicking
+                        // the same file doesn't double-add.
+                        const existingNames = new Set(pdfFiles.map(f => f.name));
+                        const fresh = pdfs.filter(f => !existingNames.has(f.name));
+                        if (fresh.length === 0) {
+                          setError('Already added — pick a different PDF');
+                          return;
+                        }
+                        const combined = [...pdfFiles, ...fresh].slice(0, 5);
+                        // Re-extract from the combined list. handleFiles will
+                        // refill the form from scratch (so premium/coverage
+                        // limits reflect ALL PDFs together).
+                        handleFiles(combined);
+                      }}
+                    />
+                  </div>
+                )}
                 <p className="ml-5 mt-1 text-[10px] text-cyan-300/60 italic">
                   All listed PDFs will be attached to the customer's email.
                 </p>
