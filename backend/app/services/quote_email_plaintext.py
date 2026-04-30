@@ -232,6 +232,7 @@ def send_plaintext_quote_email(
     additional_notes: str = "",
     pdf_path: str = None,
     pdf_filename: str = None,
+    pdf_paths: list = None,  # multi-PDF: [{"path", "filename"}, ...]
     quote_id: int = None,
     unsubscribe_token: str = None,
 ) -> dict:
@@ -266,6 +267,7 @@ def send_plaintext_quote_email(
         quote_id=quote_id,
         pdf_path=pdf_path,
         pdf_filename=pdf_filename,
+        pdf_paths=pdf_paths,
     )
 
 
@@ -326,6 +328,7 @@ def _send_plaintext(
     quote_id: int = None,
     pdf_path: str = None,
     pdf_filename: str = None,
+    pdf_paths: list = None,
     followup_day: str = None,
 ) -> dict:
     """Shared Mailgun send for plain-text variant.
@@ -374,12 +377,21 @@ def _send_plaintext(
         data["v:followup_day"] = followup_day
 
     files = []
-    if pdf_path:
+    attach_list = []
+    if pdf_paths:
+        attach_list = [
+            (p.get("path"), p.get("filename") or f"Quote_{i+1}.pdf")
+            for i, p in enumerate(pdf_paths)
+            if p and p.get("path")
+        ]
+    elif pdf_path:
+        attach_list = [(pdf_path, pdf_filename or "Quote.pdf")]
+
+    for path, fname in attach_list:
         try:
-            fname = pdf_filename or "Quote.pdf"
-            files.append(("attachment", (fname, open(pdf_path, "rb"), "application/pdf")))
+            files.append(("attachment", (fname, open(path, "rb"), "application/pdf")))
         except Exception as e:
-            logger.warning(f"Could not attach PDF {pdf_path}: {e}")
+            logger.warning(f"Could not attach PDF {path}: {e}")
 
     try:
         resp = requests.post(

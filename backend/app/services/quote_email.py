@@ -608,12 +608,23 @@ def send_quote_email(
     additional_notes: str = "",
     pdf_path: str = None,
     pdf_filename: str = None,
+    # Multi-PDF: list of {"path": str, "filename": str}. When provided
+    # AND non-empty, this OVERRIDES the single pdf_path/pdf_filename
+    # pair and attaches every file in the list.
+    pdf_paths: list = None,
     is_multi_quote: bool = False,
     quotes_summary: list = None,
     quote_id: int = None,
     unsubscribe_token: str = None,
+    # Coverage limits — passed through to build_quote_email_html.
+    coverage_dwelling: float = None,
+    coverage_personal_property: float = None,
+    coverage_liability: float = None,
+    auto_bi_limit: str = None,
+    auto_pd_limit: str = None,
+    auto_um_limit: str = None,
 ) -> dict:
-    """Send quote email with PDF attachment via Mailgun."""
+    """Send quote email with PDF attachment(s) via Mailgun."""
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return {"success": False, "error": "Mailgun not configured"}
 
@@ -651,6 +662,12 @@ def send_quote_email(
         quotes_summary=quotes_summary,
         quote_id=quote_id,
         unsubscribe_token=unsubscribe_token,
+        coverage_dwelling=coverage_dwelling,
+        coverage_personal_property=coverage_personal_property,
+        coverage_liability=coverage_liability,
+        auto_bi_limit=auto_bi_limit,
+        auto_pd_limit=auto_pd_limit,
+        auto_um_limit=auto_um_limit,
     )
 
     reply_to = "sales@betterchoiceins.com"
@@ -676,13 +693,26 @@ def send_quote_email(
         "v:quote_id": str(quote_id or ""),
     }
 
+    # Build attachment list. If pdf_paths (the new multi-file list) is
+    # provided and non-empty, use that; otherwise fall back to the
+    # legacy single pdf_path field. This ensures backwards compat with
+    # any callers that haven't migrated.
     files = []
-    if pdf_path:
+    attach_list = []
+    if pdf_paths:
+        attach_list = [
+            (p.get("path"), p.get("filename") or f"Quote_{i+1}.pdf")
+            for i, p in enumerate(pdf_paths)
+            if p and p.get("path")
+        ]
+    elif pdf_path:
+        attach_list = [(pdf_path, pdf_filename or f"{carrier_name}_{policy_label}_Quote.pdf")]
+
+    for path, fname in attach_list:
         try:
-            fname = pdf_filename or f"{carrier_name}_{policy_label}_Quote.pdf"
-            files.append(("attachment", (fname, open(pdf_path, "rb"), "application/pdf")))
+            files.append(("attachment", (fname, open(path, "rb"), "application/pdf")))
         except Exception as e:
-            logger.warning(f"Could not attach PDF {pdf_path}: {e}")
+            logger.warning(f"Could not attach PDF {path}: {e}")
 
     try:
         resp = requests.post(

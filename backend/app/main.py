@@ -575,6 +575,8 @@ def init_database():
             "ALTER TABLE quotes ADD COLUMN auto_bi_limit VARCHAR(50)",   # e.g. "100/300"
             "ALTER TABLE quotes ADD COLUMN auto_pd_limit VARCHAR(50)",   # e.g. "100"
             "ALTER TABLE quotes ADD COLUMN auto_um_limit VARCHAR(50)",   # e.g. "100/300"
+            # Multi-PDF (Apr 2026) — list of attached PDFs
+            "ALTER TABLE quotes ADD COLUMN quote_pdf_paths JSON",
         ]:
             try:
                 with engine.connect() as conn:
@@ -1178,6 +1180,41 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_uw_tracker_scheduler, daemon=True).start()
 
+    # ── A/B Test weekly digest (Friday 8 AM CT) ─────────────────────
+    # Runs once per Friday morning. Skips weeks with no activity.
+    def _ab_weekly_digest_scheduler():
+        import time as _time
+        from datetime import datetime as _datetime
+        _time.sleep(60)  # Wait for migrations
+        logger.info("A/B weekly digest scheduler started (Fridays 8 AM CT)")
+        _last_run_date = None
+        while True:
+            try:
+                from zoneinfo import ZoneInfo
+                now_ct = _datetime.now(ZoneInfo("America/Chicago"))
+                # Friday is weekday() == 4
+                if (now_ct.weekday() == 4 and now_ct.hour == 8 and now_ct.minute < 15
+                        and _last_run_date != now_ct.date()):
+                    logger.info("Sending A/B weekly digest...")
+                    try:
+                        from app.core.database import SessionLocal
+                        from app.services.ab_digest import send_weekly_digest
+                        _db = SessionLocal()
+                        try:
+                            result = send_weekly_digest(_db)
+                            logger.info("A/B digest result: %s", result)
+                        finally:
+                            _db.close()
+                        _last_run_date = now_ct.date()
+                    except Exception as de:
+                        logger.error("A/B digest send error: %s", de)
+                        _last_run_date = now_ct.date()
+            except Exception as e:
+                logger.error("A/B digest scheduler error: %s", e)
+            _time.sleep(60)
+
+    threading.Thread(target=_ab_weekly_digest_scheduler, daemon=True).start()
+
     # ── Quote follow-up scheduler (hourly) ─────────────────────────
     def _quote_followup_scheduler():
         import time as _time
@@ -1356,6 +1393,7 @@ def force_migrate():
         "ALTER TABLE quotes ADD COLUMN auto_bi_limit VARCHAR(50)",
         "ALTER TABLE quotes ADD COLUMN auto_pd_limit VARCHAR(50)",
         "ALTER TABLE quotes ADD COLUMN auto_um_limit VARCHAR(50)",
+        "ALTER TABLE quotes ADD COLUMN quote_pdf_paths JSON",
         """CREATE TABLE IF NOT EXISTS life_cross_sells (
             id SERIAL PRIMARY KEY,
             sale_id INTEGER REFERENCES sales(id),

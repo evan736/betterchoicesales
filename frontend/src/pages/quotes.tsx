@@ -496,19 +496,33 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  // Multi-PDF: collect all dropped/selected files in one array.
+  // Extraction merges them; upload sends them all to one quote.
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please upload a PDF file');
+  const handleFiles = async (files: File[]) => {
+    // Filter to PDFs only — silently ignore non-PDFs rather than erroring,
+    // since users sometimes drag the whole folder by accident.
+    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    if (pdfs.length === 0) {
+      setError('Please upload at least one PDF');
       return;
     }
-    setPdfFile(file);
+    if (pdfs.length > 5) {
+      setError('Maximum 5 PDFs per quote');
+      return;
+    }
+    setPdfFiles(pdfs);
     setExtracting(true);
     setError('');
     try {
-      const res = await quotesAPI.extractPDF(file);
+      // Use the multi-PDF endpoint for 2+ files; singular for 1
+      // (mostly to avoid unnecessary multipart parsing overhead, but
+      // also so the endpoint logs cleanly distinguish the two paths).
+      const res = pdfs.length === 1
+        ? await quotesAPI.extractPDF(pdfs[0])
+        : await quotesAPI.extractPDFs(pdfs);
       const d = res.data;
       setForm({
         prospect_name: d.prospect_name || '',
@@ -521,7 +535,6 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         carrier: d.carrier || '',
         effective_date: d.effective_date || '',
         premium_term: d.premium_term || '6 months',
-        // Coverage limits pre-filled from PDF extraction (variant A)
         coverage_dwelling: d.coverage_dwelling != null ? String(d.coverage_dwelling) : '',
         coverage_personal_property: d.coverage_personal_property != null ? String(d.coverage_personal_property) : '',
         coverage_liability: d.coverage_liability != null ? String(d.coverage_liability) : '',
@@ -529,7 +542,6 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         auto_pd_limit: d.auto_pd_limit || '',
         auto_um_limit: d.auto_um_limit || '',
       });
-      // Try to fuzzy-match extracted carrier to a dropdown value
       if (d.carrier && carriers.length > 0) {
         const extracted = (d.carrier || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         const match = carriers.find(c => {
@@ -540,7 +552,6 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
           setForm(prev => ({ ...prev, carrier: match }));
         }
       }
-      // Build policy lines from extraction
       const allPolicies = d.all_policies || [];
       if (allPolicies.length > 0) {
         setPolicyLines(allPolicies.map((p: any) => ({
@@ -568,8 +579,8 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length > 0) handleFiles(dropped);
   };
 
   const handleSubmit = async () => {
@@ -615,9 +626,9 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
         auto_um_limit: form.auto_um_limit || null,
       });
 
-      // Attach PDF
-      if (pdfFile) {
-        try { await quotesAPI.uploadPDF(res.data.id, pdfFile); } catch {}
+      // Attach PDF(s) — uploadPDFs handles 1+ in a single call
+      if (pdfFiles.length > 0) {
+        try { await quotesAPI.uploadPDFs(res.data.id, pdfFiles); } catch {}
       }
       onCreated(res.data);
     } catch (e: any) {
@@ -656,14 +667,18 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload size={36} className="mx-auto mb-3 text-gray-400" />
-              <p className="text-sm font-medium page-title mb-1">Drop a quote PDF here</p>
-              <p className="text-xs page-subtitle">or click to browse</p>
+              <p className="text-sm font-medium page-title mb-1">Drop quote PDF(s) here</p>
+              <p className="text-xs page-subtitle">or click to browse — up to 5 files for one quote</p>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf"
+                multiple
                 className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                onChange={(e) => {
+                  const fs = Array.from(e.target.files || []);
+                  if (fs.length > 0) handleFiles(fs);
+                }}
               />
             </div>
 
@@ -687,26 +702,59 @@ function CreateQuoteModal({ carriers, onClose, onCreated }: {
           <div className="py-12 text-center">
             <Loader2 size={32} className="mx-auto mb-3 animate-spin text-cyan-400" />
             <p className="text-sm font-medium page-title">Extracting quote details...</p>
-            <p className="text-xs page-subtitle mt-1">Reading PDF with AI</p>
+            <p className="text-xs page-subtitle mt-1">
+              Reading {pdfFiles.length === 1 ? 'PDF' : `${pdfFiles.length} PDFs`} with AI
+            </p>
           </div>
         )}
 
         {/* Phase 2: Form (pre-filled or manual) */}
         {phase === 'form' && !extracting && (
           <>
-            {pdfFile && (
-              <div className="flex items-center gap-2 p-2 mb-4 rounded-lg bg-cyan-500/10 text-cyan-400 text-xs">
-                <FileText size={14} />
-                <span>Extracted from: {pdfFile.name}</span>
-                <button onClick={() => { setPdfFile(null); setPhase('upload'); setForm({
-                  prospect_name: '', prospect_email: '', prospect_phone: '',
-                  prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
-                  carrier: '', effective_date: '', premium_term: '6 months',
-                  coverage_dwelling: '', coverage_personal_property: '', coverage_liability: '',
-                  auto_bi_limit: '', auto_pd_limit: '', auto_um_limit: '',
-                }); setPolicyLines([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]); }} className="ml-auto hover:text-white">
-                  <RotateCcw size={12} />
-                </button>
+            {pdfFiles.length > 0 && (
+              <div className="p-2 mb-4 rounded-lg bg-cyan-500/10 text-cyan-400 text-xs">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileText size={14} />
+                  <span className="font-semibold">
+                    Extracted from {pdfFiles.length} {pdfFiles.length === 1 ? 'file' : 'files'}:
+                  </span>
+                  <button onClick={() => {
+                    setPdfFiles([]);
+                    setPhase('upload');
+                    setForm({
+                      prospect_name: '', prospect_email: '', prospect_phone: '',
+                      prospect_address: '', prospect_city: '', prospect_state: '', prospect_zip: '',
+                      carrier: '', effective_date: '', premium_term: '6 months',
+                      coverage_dwelling: '', coverage_personal_property: '', coverage_liability: '',
+                      auto_bi_limit: '', auto_pd_limit: '', auto_um_limit: '',
+                    });
+                    setPolicyLines([{ policy_type: 'auto', quoted_premium: '', notes: '', enabled: true }]);
+                  }} className="ml-auto hover:text-white" title="Start over">
+                    <RotateCcw size={12} />
+                  </button>
+                </div>
+                <ul className="ml-5 space-y-0.5">
+                  {pdfFiles.map((f, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span className="truncate">• {f.name}</span>
+                      <button
+                        onClick={() => {
+                          // Remove a single file from the list (won't re-extract,
+                          // but the producer can adjust extracted fields manually
+                          // and the file just won't be attached on submit)
+                          setPdfFiles(pdfFiles.filter((_, idx) => idx !== i));
+                        }}
+                        className="text-cyan-300/60 hover:text-rose-400 flex-shrink-0"
+                        title="Remove from upload"
+                      >
+                        <X size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="ml-5 mt-1 text-[10px] text-cyan-300/60 italic">
+                  All listed PDFs will be attached to the customer's email.
+                </p>
               </div>
             )}
 
@@ -1025,17 +1073,19 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
     } catch {}
   };
 
-  // PDF Upload
-  const handleFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+  // PDF Upload — supports multiple files at once. Each call appends to
+  // the quote's pdf_paths list, so users can also upload one-at-a-time.
+  const handleFiles = async (files: File[]) => {
+    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    if (pdfs.length === 0) {
       setMessage('Only PDF files allowed');
       setMsgType('error');
       return;
     }
     setUploading(true);
     try {
-      await quotesAPI.uploadPDF(q.id, file);
-      setMessage(`${file.name} uploaded`);
+      await quotesAPI.uploadPDFs(q.id, pdfs);
+      setMessage(`${pdfs.length} ${pdfs.length === 1 ? 'file' : 'files'} uploaded`);
       setMsgType('success');
       await refreshQuote();
       onRefresh();
@@ -1047,11 +1097,26 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
     }
   };
 
+  // Remove a single attached PDF by its index in the list
+  const handleDeletePdf = async (idx: number) => {
+    if (!confirm('Remove this PDF from the quote?')) return;
+    try {
+      await quotesAPI.deletePDF(q.id, idx);
+      setMessage('PDF removed');
+      setMsgType('success');
+      await refreshQuote();
+      onRefresh();
+    } catch (e: any) {
+      setMessage(e.response?.data?.detail || 'Delete failed');
+      setMsgType('error');
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length > 0) handleFiles(dropped);
   };
 
   // Send Email
@@ -1253,22 +1318,39 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
           </div>
         )}
 
-        {/* PDF Upload Zone */}
+        {/* PDF Upload Zone — supports multiple files. Shows list view with
+            delete-X per file when 1+ are attached, and an "Add more" link.
+            Drag-drop / click both accept multiple PDFs in one go. */}
         <div className="mb-5">
-          <p className="text-xs font-medium page-subtitle mb-2">Quote PDF</p>
-          {q.pdf_uploaded ? (
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <FileText size={18} className="text-emerald-400" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-emerald-300">{q.pdf_filename}</p>
-                <p className="text-xs text-emerald-400/60">PDF attached — will be included in quote email</p>
-              </div>
+          <p className="text-xs font-medium page-subtitle mb-2">
+            Quote PDFs {q.pdf_count > 0 && <span className="text-emerald-400">({q.pdf_count} attached)</span>}
+          </p>
+          {q.pdf_count > 0 ? (
+            <div className="space-y-2">
+              {(q.pdf_paths || []).map((p: any, i: number) => (
+                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <FileText size={16} className="text-emerald-400 flex-shrink-0" />
+                  <p className="text-sm font-medium text-emerald-300 flex-1 truncate">{p.filename || `Quote_${i+1}.pdf`}</p>
+                  <button
+                    onClick={() => handleDeletePdf(i)}
+                    className="text-rose-400/70 hover:text-rose-300 flex-shrink-0"
+                    title="Remove this PDF"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs text-cyan-400 hover:underline"
+                className="w-full py-2 rounded-lg text-xs font-medium border border-dashed border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-colors flex items-center justify-center gap-1.5"
+                disabled={uploading || (q.pdf_count >= 5)}
               >
-                Replace
+                {uploading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                {q.pdf_count >= 5 ? 'Maximum 5 PDFs' : 'Add another PDF'}
               </button>
+              <p className="text-[10px] text-emerald-400/60 italic px-1">
+                All attached PDFs will be included in the customer's email.
+              </p>
             </div>
           ) : (
             <div
@@ -1285,8 +1367,8 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
               ) : (
                 <>
                   <Upload size={28} className="mx-auto mb-2 text-gray-400" />
-                  <p className="text-sm page-subtitle">Drag & drop quote PDF here</p>
-                  <p className="text-xs text-gray-500 mt-1">or click to browse</p>
+                  <p className="text-sm page-subtitle">Drag & drop quote PDF(s) here</p>
+                  <p className="text-xs text-gray-500 mt-1">or click to browse — up to 5 files</p>
                 </>
               )}
             </div>
@@ -1295,10 +1377,11 @@ function QuoteDetailModal({ quote, onClose, onRefresh, allQuotes }: {
             ref={fileInputRef}
             type="file"
             accept=".pdf"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
+              const fs = Array.from(e.target.files || []);
+              if (fs.length > 0) handleFiles(fs);
               e.target.value = '';
             }}
           />

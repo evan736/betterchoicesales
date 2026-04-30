@@ -14,7 +14,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import HTMLResponse
@@ -195,8 +195,10 @@ def _quote_to_dict(q: Quote) -> dict:
         "notes": q.notes or "",
         "policy_lines": json.loads(q.policy_lines) if q.policy_lines else [],
         "status": q.status,
-        "pdf_uploaded": bool(q.quote_pdf_path),
+        "pdf_uploaded": bool(q.quote_pdf_path or (q.quote_pdf_paths and len(q.quote_pdf_paths) > 0)),
         "pdf_filename": q.quote_pdf_filename,
+        "pdf_count": len(q.quote_pdf_paths) if q.quote_pdf_paths else (1 if q.quote_pdf_path else 0),
+        "pdf_paths": q.quote_pdf_paths or ([{"path": q.quote_pdf_path, "filename": q.quote_pdf_filename}] if q.quote_pdf_path else []),
         "email_sent": q.email_sent,
         "email_sent_at": q.email_sent_at.isoformat() if q.email_sent_at else None,
         "days_since_sent": days_since_sent,
@@ -493,6 +495,187 @@ async def extract_quote_pdf(
     return result
 
 
+# ── Multi-PDF extraction (Apr 2026) ──────────────────────────────
+# A single quote often spans multiple carrier PDFs (e.g., home from
+# Travelers + auto from Progressive + umbrella from one carrier).
+# This endpoint accepts multiple uploads, extracts each via Claude, and
+# merges them into a single result so the producer doesn't have to
+# manually consolidate.
+
+async def _extract_one_pdf(pdf_bytes: bytes) -> dict:
+    """Run Claude extraction on a single PDF. Returns the parsed dict,
+    or {} on failure so the caller can keep merging the rest."""
+    import base64, httpx, re
+    import json as jsonlib
+    from app.services.pdf_extract import truncate_pdf
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+
+    truncated = truncate_pdf(pdf_bytes, max_pages=10)
+    pdf_b64 = base64.standard_b64encode(truncated).decode("utf-8")
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 2000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                        {"type": "text", "text": QUOTE_EXTRACTION_PROMPT},
+                    ],
+                }],
+            },
+        )
+    if resp.status_code != 200:
+        logger.warning("Multi-PDF extraction: Claude returned %s — %s", resp.status_code, resp.text[:200])
+        return {}
+    try:
+        data = resp.json()
+        text = data["content"][0]["text"].strip()
+        # Strip ```json fencing if present
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return jsonlib.loads(text)
+    except Exception as e:
+        logger.warning("Multi-PDF extraction: parse failed — %s", e)
+        return {}
+
+
+@router.post("/extract-pdfs")
+async def extract_quote_pdfs(
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract quote info from MULTIPLE PDFs and merge into a single result.
+
+    Merge rules — important so the producer doesn't see weird combinations:
+      - Client info (name/email/phone/address): take from FIRST PDF that has
+        each field non-empty. Same client across multiple PDFs is the
+        common case; we don't try to reconcile differences.
+      - Carrier: this gets tricky for bundles. Take whichever PDF lists the
+        most policies (likely a bundle proposal); fall back to the first.
+        The producer can change it manually anyway.
+      - Effective date: take the EARLIEST one across PDFs (so follow-up
+        scheduling triggers correctly).
+      - Policies: CONCATENATED across all PDFs. If two PDFs each have a
+        home policy line, both show up — producer can disable duplicates.
+      - Coverage limits: home limits from the first PDF that has any
+        home line; auto limits from the first PDF that has any auto line.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    if len(files) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 PDFs per quote")
+
+    extracted_all = []  # list of (filename, parsed_dict)
+    for f in files:
+        if not f.filename or not f.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail=f"Not a PDF: {f.filename}")
+        pdf_bytes = await f.read()
+        if not pdf_bytes:
+            continue
+        parsed = await _extract_one_pdf(pdf_bytes)
+        extracted_all.append((f.filename, parsed))
+
+    if not extracted_all:
+        raise HTTPException(status_code=500, detail="No PDFs could be extracted")
+
+    # Merge: pick the first non-empty value for each scalar client field
+    def _first_nonempty(key):
+        for _fn, ext in extracted_all:
+            v = ext.get(key)
+            if v not in (None, "", 0):
+                return v
+        return None
+
+    # Carrier preference: PDF with most policies (likely a bundle proposal)
+    carrier_source = max(
+        extracted_all,
+        key=lambda t: len(t[1].get("policies") or []),
+        default=(None, {}),
+    )[1]
+
+    # Earliest effective date across all PDFs
+    eff_dates = [ext.get("effective_date") for _f, ext in extracted_all if ext.get("effective_date")]
+    earliest_eff = min(eff_dates) if eff_dates else None  # ISO strings sort correctly
+
+    # Concatenate all policies
+    all_policies = []
+    for _fn, ext in extracted_all:
+        all_policies.extend(ext.get("policies") or [])
+
+    # Determine combined policy_type
+    if len(all_policies) > 1:
+        policy_type = "bundled"
+    elif len(all_policies) == 1:
+        policy_type = all_policies[0].get("policy_type") or "other"
+    else:
+        policy_type = "other"
+
+    # Coverage limit picks
+    home_pol = next((p for p in all_policies if (p.get("policy_type") or "").lower() in ("home", "condo", "renters", "landlord", "dwelling")), None)
+    auto_pol = next((p for p in all_policies if (p.get("policy_type") or "").lower() == "auto"), None)
+
+    # Total premium across all PDFs
+    total_premium = sum(
+        (ext.get("total_premium") or 0)
+        for _fn, ext in extracted_all
+    )
+    if not total_premium:
+        total_premium = sum((p.get("written_premium") or 0) for p in all_policies)
+
+    # Notes: combine across all
+    notes_parts = []
+    for p in all_policies:
+        ptype = (p.get("policy_type") or "").capitalize()
+        pprem = p.get("written_premium")
+        pnotes = p.get("notes") or ""
+        prem_str = f"${pprem:,.2f}" if pprem else ""
+        notes_parts.append(f"{ptype}: {prem_str} — {pnotes}".strip(" —"))
+    combined_notes = " | ".join(notes_parts) if notes_parts else ""
+
+    # Carrier alias resolution (Encompass → National General etc.)
+    raw_carrier = (carrier_source.get("carrier") or "").lower().replace(" ", "_")
+    try:
+        from app.services.welcome_email import _get_carrier_key
+        carrier_key = _get_carrier_key(raw_carrier)
+    except Exception:
+        carrier_key = raw_carrier
+
+    return {
+        "prospect_name": _first_nonempty("client_name") or "",
+        "prospect_email": _first_nonempty("client_email") or "",
+        "prospect_phone": _first_nonempty("client_phone") or "",
+        "prospect_address": _first_nonempty("client_address") or "",
+        "prospect_city": _first_nonempty("client_city") or "",
+        "prospect_state": _first_nonempty("client_state") or _first_nonempty("state") or "",
+        "prospect_zip": _first_nonempty("client_zip") or "",
+        "carrier": carrier_key,
+        "policy_type": policy_type,
+        "quoted_premium": str(total_premium) if total_premium else "",
+        "effective_date": earliest_eff or "",
+        "premium_term": "12 months" if any(ext.get("policy_term_months") == 12 for _f, ext in extracted_all) else "6 months",
+        "notes": combined_notes,
+        "all_policies": all_policies,
+        "coverage_dwelling": (home_pol or {}).get("coverage_dwelling"),
+        "coverage_personal_property": (home_pol or {}).get("coverage_personal_property"),
+        "coverage_liability": (home_pol or {}).get("coverage_liability"),
+        "auto_bi_limit": (auto_pol or {}).get("auto_bi_limit"),
+        "auto_pd_limit": (auto_pol or {}).get("auto_pd_limit"),
+        "auto_um_limit": (auto_pol or {}).get("auto_um_limit"),
+        "source_files": [fn for fn, _ext in extracted_all],
+    }
+
+
 @router.post("/{quote_id}/upload-pdf")
 async def upload_quote_pdf(
     quote_id: int,
@@ -500,7 +683,10 @@ async def upload_quote_pdf(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a quote PDF (drag-and-drop)."""
+    """Upload a quote PDF (drag-and-drop). Single-file legacy endpoint —
+    kept for any callers that haven't migrated to upload-pdfs yet.
+    Appends to quote_pdf_paths so it composes correctly with multi-PDF
+    uploads on the same quote."""
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -520,8 +706,12 @@ async def upload_quote_pdf(
     with open(file_path, "wb") as f:
         f.write(pdf_bytes)
 
+    # Update legacy single-file fields AND append to the new list field
     quote.quote_pdf_path = str(file_path)
     quote.quote_pdf_filename = file.filename
+    paths = list(quote.quote_pdf_paths or [])
+    paths.append({"path": str(file_path), "filename": file.filename})
+    quote.quote_pdf_paths = paths
     db.commit()
 
     return {
@@ -529,7 +719,93 @@ async def upload_quote_pdf(
         "pdf_uploaded": True,
         "filename": file.filename,
         "size_kb": round(len(pdf_bytes) / 1024, 1),
+        "total_pdfs": len(paths),
     }
+
+
+@router.post("/{quote_id}/upload-pdfs")
+async def upload_quote_pdfs(
+    quote_id: int,
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Upload MULTIPLE PDFs to a single quote. Appends to existing list.
+
+    Each PDF gets a unique filename (timestamp + index) so two drops with
+    the same filename don't clobber each other.
+    """
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    if len(files) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 PDFs per quote")
+    for f in files:
+        if not f.filename or not f.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail=f"Not a PDF: {f.filename}")
+
+    upload_dir = Path(settings.UPLOAD_DIR) / "quotes"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = list(quote.quote_pdf_paths or [])
+    saved = []
+    ts = int(datetime.utcnow().timestamp())
+    for i, f in enumerate(files):
+        safe_name = f"quote_{quote_id}_{ts}_{i}_{f.filename}"
+        file_path = upload_dir / safe_name
+        pdf_bytes = await f.read()
+        with open(file_path, "wb") as out:
+            out.write(pdf_bytes)
+        paths.append({"path": str(file_path), "filename": f.filename})
+        saved.append({"filename": f.filename, "size_kb": round(len(pdf_bytes) / 1024, 1)})
+
+    # Keep legacy field pointing at the LAST file so older code paths
+    # still attach something reasonable.
+    if paths:
+        quote.quote_pdf_path = paths[-1]["path"]
+        quote.quote_pdf_filename = paths[-1]["filename"]
+    quote.quote_pdf_paths = paths
+    db.commit()
+
+    return {
+        "id": quote.id,
+        "uploaded": saved,
+        "total_pdfs": len(paths),
+    }
+
+
+@router.delete("/{quote_id}/pdf/{idx}")
+def delete_quote_pdf(
+    quote_id: int,
+    idx: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove one PDF from a quote's attachment list (by index)."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    paths = list(quote.quote_pdf_paths or [])
+    if idx < 0 or idx >= len(paths):
+        raise HTTPException(status_code=404, detail="Index out of range")
+    removed = paths.pop(idx)
+    quote.quote_pdf_paths = paths
+    if paths:
+        quote.quote_pdf_path = paths[-1]["path"]
+        quote.quote_pdf_filename = paths[-1]["filename"]
+    else:
+        quote.quote_pdf_path = None
+        quote.quote_pdf_filename = None
+    db.commit()
+    try:
+        if removed.get("path") and Path(removed["path"]).exists():
+            Path(removed["path"]).unlink()
+    except Exception:
+        pass
+    return {"ok": True, "remaining": len(paths)}
 
 
 @router.post("/{quote_id}/send-email")
@@ -601,6 +877,7 @@ def send_quote_email_endpoint(
             additional_notes=(data.additional_notes if data else "") or "",
             pdf_path=quote.quote_pdf_path,
             pdf_filename=quote.quote_pdf_filename,
+            pdf_paths=quote.quote_pdf_paths or None,
             quote_id=quote.id,
             unsubscribe_token=getattr(quote, 'unsubscribe_token', None),
         )
@@ -620,6 +897,7 @@ def send_quote_email_endpoint(
             additional_notes=(data.additional_notes if data else "") or "",
             pdf_path=quote.quote_pdf_path,
             pdf_filename=quote.quote_pdf_filename,
+            pdf_paths=quote.quote_pdf_paths or None,
             is_multi_quote=is_multi,
             quotes_summary=quotes_summary if is_multi else None,
             quote_id=quote.id,
@@ -1437,3 +1715,20 @@ def ab_test_stats(
         "variant_b": _summarize(arm_b),
         "total_with_variant": len(quotes),
     }
+
+
+@router.post("/ab-test/send-digest-now")
+def send_ab_digest_now(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger the weekly A/B digest email immediately (admin/manager only).
+
+    Useful for previewing the digest before Friday or sending an ad-hoc
+    summary. Same template as the scheduled Friday-morning digest.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+    from app.services.ab_digest import send_weekly_digest
+    result = send_weekly_digest(db)
+    return result

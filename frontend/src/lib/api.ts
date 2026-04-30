@@ -345,6 +345,16 @@ export const quotesAPI = {
       timeout: 60000,
     });
   },
+  // Multi-PDF: drop several files at once, get one merged result
+  extractPDFs: (files: File[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files', f));
+    return api.post('/api/quotes/extract-pdfs', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // 60s per file is the rough Claude timeout; 5-PDF max → 5min ceiling
+      timeout: 300000,
+    });
+  },
   create: (data: any) => api.post('/api/quotes/', data),
   update: (id: number, data: any) => api.patch(`/api/quotes/${id}`, data),
   uploadPDF: (id: number, file: File) => {
@@ -354,6 +364,16 @@ export const quotesAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  // Multi-PDF: append several files to an existing quote
+  uploadPDFs: (id: number, files: File[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files', f));
+    return api.post(`/api/quotes/${id}/upload-pdfs`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+  },
+  deletePDF: (id: number, idx: number) => api.delete(`/api/quotes/${id}/pdf/${idx}`),
   sendEmail: (id: number, data?: { additional_notes?: string; premium_term?: string }) =>
     api.post(`/api/quotes/${id}/send-email`, data || {}),
   emailPreview: (id: number) => api.get(`/api/quotes/${id}/email-preview`),

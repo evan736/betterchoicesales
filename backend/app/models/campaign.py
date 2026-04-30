@@ -190,9 +190,13 @@ class Quote(Base):
     effective_date = Column(DateTime, nullable=True)
     quote_date = Column(DateTime(timezone=True), server_default=func.now())
 
-    # PDF attachment
+    # PDF attachment(s) — quote_pdf_path is legacy single-file (kept for
+    # backward compat with existing rows); quote_pdf_paths is the new
+    # multi-file list. When sending email, we attach EVERY file in the
+    # list, plus the legacy field if it's set and not already in the list.
     quote_pdf_path = Column(String, nullable=True)
     quote_pdf_filename = Column(String, nullable=True)
+    quote_pdf_paths = Column(JSON, nullable=True)  # [{"path": "...", "filename": "..."}, ...]
 
     # Email tracking
     email_sent = Column(Boolean, default=False)
