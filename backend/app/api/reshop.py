@@ -1776,11 +1776,22 @@ def clear_reshop_attempt(
 def move_reshop_stage(
     reshop_id: int,
     stage: str = Query(...),
+    bound_carrier: Optional[str] = Query(None, description="Required when stage='bound'"),
+    bound_premium: Optional[float] = Query(None, description="Required when stage='bound'"),
+    lost_reason: Optional[str] = Query(None, description="Optional when stage='lost'"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Quick stage move endpoint. Producers can move TO new_request (refer).
-    Retention/admin can move to any stage."""
+    Retention/admin can move to any stage.
+
+    When moving to 'bound', bound_carrier and bound_premium MUST be provided
+    (passed as query params) so we capture the win data the outcome report
+    needs. When moving to 'lost', a reason is strongly encouraged but
+    optional (legacy lost cards exist without reasons). The frontend kanban
+    drag-handler should show a small modal prompting for these fields
+    BEFORE calling this endpoint, but we enforce here too as a server-side
+    safety net for callers that bypass the UI."""
     if not _can_access(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -1794,6 +1805,27 @@ def move_reshop_stage(
     reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
     if not reshop:
         raise HTTPException(status_code=404, detail="Reshop not found")
+
+    # Bound-stage gate: require bound_carrier + bound_premium so reporting
+    # totals (premium savings, agent leaderboards) populate correctly.
+    if stage == "bound":
+        if bound_carrier is None or bound_premium is None:
+            raise HTTPException(
+                status_code=400,
+                detail="bound_carrier and bound_premium are required when moving to 'bound'. Use the bind dialog in the kanban or pass them as query params.",
+            )
+        reshop.bound_carrier = bound_carrier
+        reshop.bound_premium = bound_premium
+        reshop.bound_date = datetime.utcnow()
+        # Backfill premium_savings if we have current_premium to compare against
+        if reshop.current_premium:
+            reshop.premium_savings = float(reshop.current_premium) - float(bound_premium)
+
+    # Lost-stage: capture the reason if provided (encouraged but not enforced
+    # — legacy lost cards exist without it, blocking would break those flows)
+    if stage == "lost":
+        if lost_reason:
+            reshop.reason = lost_reason
 
     old_stage = reshop.stage
     reshop.stage = stage

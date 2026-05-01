@@ -72,6 +72,16 @@ export default function ReshopPage() {
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [attemptTarget, setAttemptTarget] = useState<{ reshop: any; attemptNumber: number } | null>(null);
   const [attemptSaving, setAttemptSaving] = useState(false);
+  // Bind/lost stage dialogs — captured BEFORE moving the card so the
+  // outcome report has bound_carrier/bound_premium/reason populated.
+  const [bindDialogState, setBindDialogState] = useState<{
+    open: boolean; reshopId: number | null;
+    defaultCarrier?: string; defaultPremium?: number | string | null;
+    currentPremium?: number | null; customerName?: string;
+  }>({ open: false, reshopId: null });
+  const [lostDialogState, setLostDialogState] = useState<{
+    open: boolean; reshopId: number | null; customerName?: string;
+  }>({ open: false, reshopId: null });
 
   // Pipeline / Report view toggle
   const [viewMode, setViewMode] = useState<'pipeline' | 'report'>('pipeline');
@@ -142,12 +152,66 @@ export default function ReshopPage() {
   };
 
   const handleStageMove = async (reshopId: number, newStage: string) => {
+    // Bound moves require capturing bound_carrier + bound_premium so the
+    // outcome report can attribute the win and compute premium savings.
+    // We pop a small modal here BEFORE firing the API call. If the user
+    // cancels, the card stays where it was.
+    if (newStage === 'bound') {
+      const reshop = reshops.find((r: any) => r.id === reshopId);
+      setBindDialogState({
+        open: true,
+        reshopId,
+        defaultCarrier: reshop?.quoted_carrier || reshop?.carrier || '',
+        defaultPremium: reshop?.quoted_premium ?? '',
+        currentPremium: reshop?.current_premium ?? null,
+        customerName: reshop?.customer_name || '',
+      });
+      return;
+    }
+    if (newStage === 'lost') {
+      const reshop = reshops.find((r: any) => r.id === reshopId);
+      setLostDialogState({
+        open: true,
+        reshopId,
+        customerName: reshop?.customer_name || '',
+      });
+      return;
+    }
     try {
       await reshopAPI.moveStage(reshopId, newStage);
       loadData();
       if (selectedReshop?.id === reshopId) openDetail({ id: reshopId });
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Failed to move');
+    }
+  };
+
+  const submitBind = async (carrier: string, premium: number) => {
+    if (!bindDialogState.reshopId) return;
+    try {
+      await reshopAPI.moveStage(bindDialogState.reshopId, 'bound', {
+        bound_carrier: carrier,
+        bound_premium: premium,
+      });
+      toast.success('Marked as bound 🎉');
+      setBindDialogState({ open: false, reshopId: null });
+      loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to mark bound');
+    }
+  };
+
+  const submitLost = async (reason: string) => {
+    if (!lostDialogState.reshopId) return;
+    try {
+      await reshopAPI.moveStage(lostDialogState.reshopId, 'lost', {
+        lost_reason: reason || undefined,
+      });
+      toast.success('Marked as lost');
+      setLostDialogState({ open: false, reshopId: null });
+      loadData();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Failed to mark lost');
     }
   };
 
@@ -613,6 +677,25 @@ export default function ReshopPage() {
           onCreated={() => { setShowNonRenewal(false); loadData(); }}
           isProducer={isProducer}
           nonRenewalMode
+        />
+      )}
+
+      {/* Bind Dialog — captures bound_carrier + bound_premium so the
+          outcome report attributes the win and computes savings. */}
+      {bindDialogState.open && (
+        <BindDialog
+          state={bindDialogState}
+          onClose={() => setBindDialogState({ open: false, reshopId: null })}
+          onSubmit={submitBind}
+        />
+      )}
+
+      {/* Lost Dialog — captures the loss reason for cohort analysis. */}
+      {lostDialogState.open && (
+        <LostDialog
+          state={lostDialogState}
+          onClose={() => setLostDialogState({ open: false, reshopId: null })}
+          onSubmit={submitLost}
         />
       )}
     </div>
@@ -1563,6 +1646,204 @@ const CreateModal: React.FC<{
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+
+// ─── Bind Dialog ───────────────────────────────────────────────────
+// Pops when an agent drags a card to the Bound column or marks bound
+// from the detail drawer. Captures the carrier and premium they wrote
+// the policy at — the data the outcome report needs to attribute the
+// win and compute premium_savings (current_premium − bound_premium).
+const BindDialog: React.FC<{
+  state: { reshopId: number | null; defaultCarrier?: string; defaultPremium?: number | string | null; currentPremium?: number | null; customerName?: string };
+  onClose: () => void;
+  onSubmit: (carrier: string, premium: number) => Promise<void>;
+}> = ({ state, onClose, onSubmit }) => {
+  const [carrier, setCarrier] = useState(state.defaultCarrier || '');
+  const [premium, setPremium] = useState(
+    state.defaultPremium != null && state.defaultPremium !== '' ? String(state.defaultPremium) : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const numPremium = parseFloat(premium);
+  const validPremium = !isNaN(numPremium) && numPremium > 0;
+  // Preview of premium savings — helps the agent confirm they typed the
+  // right number (e.g., "wait, that's $12k savings, that can't be right")
+  const savings = state.currentPremium != null && validPremium
+    ? state.currentPremium - numPremium
+    : null;
+
+  const submit = async () => {
+    if (!carrier.trim()) {
+      toast.error('Pick a carrier');
+      return;
+    }
+    if (!validPremium) {
+      toast.error('Enter the bound premium');
+      return;
+    }
+    setSaving(true);
+    await onSubmit(carrier.trim(), numPremium);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => !saving && onClose()}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-emerald-700 text-lg">🎉</span>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Mark as Bound</h3>
+            <p className="text-xs text-slate-500">{state.customerName || 'Reshop'}</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Bound Carrier *</label>
+            <input
+              type="text"
+              autoFocus
+              value={carrier}
+              onChange={e => setCarrier(e.target.value)}
+              placeholder="e.g., Travelers, NatGen, Grange"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+              style={{ color: '#0f172a' }}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Bound Premium *</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+              <input
+                type="number"
+                step="0.01"
+                value={premium}
+                onChange={e => setPremium(e.target.value)}
+                placeholder="2,385.64"
+                className="w-full pl-7 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                style={{ color: '#0f172a' }}
+              />
+            </div>
+            {state.currentPremium != null && (
+              <div className="text-[11px] text-slate-500 mt-1">
+                Current premium: ${state.currentPremium.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {savings != null && (
+                  <span className={savings > 0 ? 'ml-2 text-emerald-600 font-semibold' : 'ml-2 text-amber-600 font-semibold'}>
+                    {savings > 0 ? `Savings: $${savings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `Increase: +$${Math.abs(savings).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button
+            onClick={submit}
+            disabled={saving || !carrier.trim() || !validPremium}
+            className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Mark Bound'}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Lost Dialog ───────────────────────────────────────────────────
+// Captures why a reshop was lost. Reason is optional but encouraged
+// (legacy lost cards exist without it). Free-text plus a few canned
+// reasons as quick-click buttons for common cases.
+const LostDialog: React.FC<{
+  state: { reshopId: number | null; customerName?: string };
+  onClose: () => void;
+  onSubmit: (reason: string) => Promise<void>;
+}> = ({ state, onClose, onSubmit }) => {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const QUICK_REASONS = [
+    'Stayed with current carrier',
+    'Went with another agency',
+    'Could not improve price',
+    'No response after attempts',
+    'Customer cancelled the policy',
+  ];
+
+  const submit = async () => {
+    setSaving(true);
+    await onSubmit(reason);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => !saving && onClose()}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-rose-700 text-lg">✗</span>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Mark as Lost</h3>
+            <p className="text-xs text-slate-500">{state.customerName || 'Reshop'}</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Why was it lost? <span className="text-slate-400 font-normal">(optional but helpful)</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {QUICK_REASONS.map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setReason(r)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                    reason === r ? 'bg-rose-100 border-rose-300 text-rose-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Or type your own reason…"
+              rows={2}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 resize-none"
+              style={{ color: '#0f172a' }}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Mark Lost'}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
