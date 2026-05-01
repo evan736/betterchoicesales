@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, extract
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
@@ -13,6 +14,34 @@ from app.models.sale import Sale
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+
+# All sale dates are stored in UTC (DateTime(timezone=True)). The agency
+# operates on Central Time — when a producer creates a sale at 8 PM CT
+# on April 30, the timestamp is 01:00 UTC May 1. Without a TZ shift, the
+# sale would bucket into May. We use AGENCY_TZ for both:
+#   1) the "now" reference when picking 'this month' / 'this week' / today
+#   2) every extract(month/year, sale_date) call — wrapped via local_sale_date()
+AGENCY_TZ = "America/Chicago"
+
+
+def now_local() -> datetime:
+    """Return the current datetime in agency local time (CT).
+
+    Use instead of datetime.utcnow() when computing 'today', 'this month',
+    or any boundary the user perceives in their own clock.
+    """
+    return datetime.now(ZoneInfo(AGENCY_TZ))
+
+
+def local_sale_date():
+    """Return a SQL expression that converts Sale.sale_date to agency local time
+    before any extract() / func.date() call. Postgres syntax.
+
+    Example:
+        extract("month", local_sale_date()) == 4   # bucket by CT month
+        func.date(local_sale_date()) == today_ct   # filter today in CT
+    """
+    return func.timezone(AGENCY_TZ, Sale.sale_date)
 
 
 def count_business_days(start_date: date, end_date: date) -> int:
@@ -64,7 +93,7 @@ def get_trending_projection(
     if cached is not None:
         return cached
 
-    now = datetime.utcnow()
+    now = now_local()
     today = now.date()
 
     # Build base user filter
@@ -94,12 +123,12 @@ def get_trending_projection(
         last_year = today.year - 1
         ly_premium = float(
             db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-                extract("year", Sale.sale_date) == last_year,
+                extract("year", local_sale_date()) == last_year,
                 *user_filters,
             ).scalar() or 0
         )
         ly_sales = db.query(func.count(Sale.id)).filter(
-            extract("year", Sale.sale_date) == last_year,
+            extract("year", local_sale_date()) == last_year,
             *user_filters,
         ).scalar() or 0
 
@@ -108,8 +137,8 @@ def get_trending_projection(
         for m in range(1, 13):
             mp = float(
                 db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-                    extract("year", Sale.sale_date) == last_year,
-                    extract("month", Sale.sale_date) == m,
+                    extract("year", local_sale_date()) == last_year,
+                    extract("month", local_sale_date()) == m,
                     *user_filters,
                 ).scalar() or 0
             )
@@ -147,16 +176,16 @@ def get_trending_projection(
         actual_end = min(today, custom_end)
         custom_premium = float(
             db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-                Sale.sale_date >= datetime.combine(custom_start, datetime.min.time()),
-                Sale.sale_date <= datetime.combine(actual_end, datetime.max.time()),
+                local_sale_date() >= datetime.combine(custom_start, datetime.min.time()),
+                local_sale_date() <= datetime.combine(actual_end, datetime.max.time()),
                 *user_filters,
             ).scalar() or 0
         )
 
         # Policy/item count
         custom_policies = db.query(func.count(Sale.id)).filter(
-            Sale.sale_date >= datetime.combine(custom_start, datetime.min.time()),
-            Sale.sale_date <= datetime.combine(actual_end, datetime.max.time()),
+            local_sale_date() >= datetime.combine(custom_start, datetime.min.time()),
+            local_sale_date() <= datetime.combine(actual_end, datetime.max.time()),
             *user_filters,
         ).scalar() or 0
 
@@ -229,37 +258,37 @@ def get_trending_projection(
 
     # Get premium for the period
     period_query = db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-        Sale.sale_date >= datetime.combine(period_start, datetime.min.time()),
+        local_sale_date() >= datetime.combine(period_start, datetime.min.time()),
         *user_filters,
     )
 
     if period == "today":
         period_query = period_query.filter(
-            func.date(Sale.sale_date) == today,
+            func.date(local_sale_date()) == today,
         )
     elif period == "this_week":
         week_start = today - timedelta(days=today.weekday())
         period_query = period_query.filter(
-            func.date(Sale.sale_date) >= week_start,
-            func.date(Sale.sale_date) <= today,
+            func.date(local_sale_date()) >= week_start,
+            func.date(local_sale_date()) <= today,
         )
     elif period == "last_month":
         lm_year = today.year if today.month > 1 else today.year - 1
         lm_month = today.month - 1 if today.month > 1 else 12
         period_query = period_query.filter(
-            extract("year", Sale.sale_date) == lm_year,
-            extract("month", Sale.sale_date) == lm_month,
+            extract("year", local_sale_date()) == lm_year,
+            extract("month", local_sale_date()) == lm_month,
         )
     elif period != "annual":
         # Monthly — filter to current month
         period_query = period_query.filter(
-            extract("year", Sale.sale_date) == today.year,
-            extract("month", Sale.sale_date) == today.month,
+            extract("year", local_sale_date()) == today.year,
+            extract("month", local_sale_date()) == today.month,
         )
     else:
         # Annual — filter to this year
         period_query = period_query.filter(
-            extract("year", Sale.sale_date) == today.year,
+            extract("year", local_sale_date()) == today.year,
         )
 
     current_premium = float(period_query.scalar() or 0)
@@ -267,7 +296,7 @@ def get_trending_projection(
     # YTD premium (always this year total)
     ytd_premium = float(
         db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-            extract("year", Sale.sale_date) == today.year,
+            extract("year", local_sale_date()) == today.year,
             *user_filters,
         ).scalar() or 0
     )
@@ -293,8 +322,8 @@ def get_trending_projection(
     # For tier purposes, always use current month
     current_month_premium = float(
         db.query(func.coalesce(func.sum(Sale.written_premium), 0)).filter(
-            extract("year", Sale.sale_date) == today.year,
-            extract("month", Sale.sale_date) == today.month,
+            extract("year", local_sale_date()) == today.year,
+            extract("month", local_sale_date()) == today.month,
             *user_filters,
         ).scalar() or 0
     )
@@ -426,35 +455,35 @@ def get_sales_summary(
     # Exclude corrupt timestamps
     query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
-    now = datetime.utcnow()
+    now = now_local()
     today_date = now.date()
     if start_date and end_date:
         from datetime import date as date_type
         sd = date_type.fromisoformat(start_date)
         ed = date_type.fromisoformat(end_date)
-        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+        query = query.filter(func.date(local_sale_date()) >= sd, func.date(local_sale_date()) <= ed)
     elif period == "today":
-        query = query.filter(func.date(Sale.sale_date) == today_date)
+        query = query.filter(func.date(local_sale_date()) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())
-        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+        query = query.filter(func.date(local_sale_date()) >= week_start, func.date(local_sale_date()) <= today_date)
     elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
-            extract("year", Sale.sale_date) == lm_year,
-            extract("month", Sale.sale_date) == lm_month,
+            extract("year", local_sale_date()) == lm_year,
+            extract("month", local_sale_date()) == lm_month,
         )
     elif period == "monthly" or (month and year):
         y = year or now.year
         m = month or now.month
         query = query.filter(
-            extract("year", Sale.sale_date) == y,
-            extract("month", Sale.sale_date) == m,
+            extract("year", local_sale_date()) == y,
+            extract("month", local_sale_date()) == m,
         )
     elif period == "annual" or (year and not month):
         y = year or now.year
-        query = query.filter(extract("year", Sale.sale_date) == y)
+        query = query.filter(extract("year", local_sale_date()) == y)
 
     sales = query.all()
 
@@ -533,35 +562,35 @@ def get_sales_by_group(
     # Exclude corrupt timestamps
     query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
-    now = datetime.utcnow()
+    now = now_local()
     today_date = now.date()
     if start_date and end_date:
         from datetime import date as date_type
         sd = date_type.fromisoformat(start_date)
         ed = date_type.fromisoformat(end_date)
-        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+        query = query.filter(func.date(local_sale_date()) >= sd, func.date(local_sale_date()) <= ed)
     elif period == "today":
-        query = query.filter(func.date(Sale.sale_date) == today_date)
+        query = query.filter(func.date(local_sale_date()) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())
-        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+        query = query.filter(func.date(local_sale_date()) >= week_start, func.date(local_sale_date()) <= today_date)
     elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
-            extract("year", Sale.sale_date) == lm_year,
-            extract("month", Sale.sale_date) == lm_month,
+            extract("year", local_sale_date()) == lm_year,
+            extract("month", local_sale_date()) == lm_month,
         )
     elif period == "monthly":
         y = year or now.year
         m = month or now.month
         query = query.filter(
-            extract("year", Sale.sale_date) == y,
-            extract("month", Sale.sale_date) == m,
+            extract("year", local_sale_date()) == y,
+            extract("month", local_sale_date()) == m,
         )
     elif period == "annual":
         y = year or now.year
-        query = query.filter(extract("year", Sale.sale_date) == y)
+        query = query.filter(extract("year", local_sale_date()) == y)
 
     rows = query.group_by(group_col).order_by(func.sum(Sale.written_premium).desc()).all()
 
@@ -627,35 +656,35 @@ def get_sales_table(
     # Exclude corrupt timestamps
     query = query.filter(Sale.sale_date < datetime(2100, 1, 1))
     # Time filters
-    now = datetime.utcnow()
+    now = now_local()
     today_date = now.date()
     if start_date and end_date:
         from datetime import date as date_type
         sd = date_type.fromisoformat(start_date)
         ed = date_type.fromisoformat(end_date)
-        query = query.filter(func.date(Sale.sale_date) >= sd, func.date(Sale.sale_date) <= ed)
+        query = query.filter(func.date(local_sale_date()) >= sd, func.date(local_sale_date()) <= ed)
     elif period == "today":
-        query = query.filter(func.date(Sale.sale_date) == today_date)
+        query = query.filter(func.date(local_sale_date()) == today_date)
     elif period == "this_week":
         week_start = today_date - timedelta(days=today_date.weekday())
-        query = query.filter(func.date(Sale.sale_date) >= week_start, func.date(Sale.sale_date) <= today_date)
+        query = query.filter(func.date(local_sale_date()) >= week_start, func.date(local_sale_date()) <= today_date)
     elif period == "last_month":
         lm_year = now.year if now.month > 1 else now.year - 1
         lm_month = now.month - 1 if now.month > 1 else 12
         query = query.filter(
-            extract("year", Sale.sale_date) == lm_year,
-            extract("month", Sale.sale_date) == lm_month,
+            extract("year", local_sale_date()) == lm_year,
+            extract("month", local_sale_date()) == lm_month,
         )
     elif period == "monthly":
         y = year or now.year
         m = month or now.month
         query = query.filter(
-            extract("year", Sale.sale_date) == y,
-            extract("month", Sale.sale_date) == m,
+            extract("year", local_sale_date()) == y,
+            extract("month", local_sale_date()) == m,
         )
     elif period == "annual":
         y = year or now.year
-        query = query.filter(extract("year", Sale.sale_date) == y)
+        query = query.filter(extract("year", local_sale_date()) == y)
 
     # Field filters
     if lead_source:

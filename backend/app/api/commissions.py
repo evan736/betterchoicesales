@@ -70,13 +70,13 @@ def get_my_current_tier(
 
     # Retention specialists get flat 3% — no tier progression
     if is_retention:
-        now = datetime.utcnow()
+        now = datetime.now(__import__('zoneinfo').ZoneInfo('America/Chicago'))
         total_premium = (
             db.query(func.coalesce(func.sum(Sale.written_premium), 0))
             .filter(
                 Sale.producer_id == current_user.id,
-                func.extract('year', Sale.sale_date) == now.year,
-                func.extract('month', Sale.sale_date) == now.month
+                func.extract('year', func.timezone('America/Chicago', Sale.sale_date)) == now.year,
+                func.extract('month', func.timezone('America/Chicago', Sale.sale_date)) == now.month
             )
             .scalar()
         )
@@ -92,13 +92,13 @@ def get_my_current_tier(
         }
     
     # Get current month's total written premium
-    now = datetime.utcnow()
+    now = datetime.now(__import__('zoneinfo').ZoneInfo('America/Chicago'))
     total_premium = (
         db.query(func.coalesce(func.sum(Sale.written_premium), 0))
         .filter(
             Sale.producer_id == current_user.id,
-            func.extract('year', Sale.sale_date) == now.year,
-            func.extract('month', Sale.sale_date) == now.month
+            func.extract('year', func.timezone('America/Chicago', Sale.sale_date)) == now.year,
+            func.extract('month', func.timezone('America/Chicago', Sale.sale_date)) == now.month
         )
         .scalar()
     )

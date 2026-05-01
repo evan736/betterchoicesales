@@ -57,8 +57,8 @@ class CommissionCalculationService:
             self.db.query(func.sum(Sale.written_premium))
             .filter(
                 Sale.producer_id == producer_id,
-                func.extract('year', Sale.sale_date) == int(year),
-                func.extract('month', Sale.sale_date) == int(month)
+                func.extract('year', func.timezone('America/Chicago', Sale.sale_date)) == int(year),
+                func.extract('month', func.timezone('America/Chicago', Sale.sale_date)) == int(month)
             )
             .scalar()
         )
@@ -145,8 +145,8 @@ class CommissionCalculationService:
             self.db.query(Sale)
             .filter(
                 Sale.producer_id == producer_id,
-                func.extract('year', Sale.sale_date) == int(year),
-                func.extract('month', Sale.sale_date) == int(month)
+                func.extract('year', func.timezone('America/Chicago', Sale.sale_date)) == int(year),
+                func.extract('month', func.timezone('America/Chicago', Sale.sale_date)) == int(month)
             )
             .all()
         )
