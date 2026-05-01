@@ -463,9 +463,23 @@ const UWDetailDrawer: React.FC<{
   const [showAttachment, setShowAttachment] = useState<number | null>(null);
   const [editingDueDate, setEditingDueDate] = useState(false);
   const [newDueDate, setNewDueDate] = useState(item.due_date || '');
+  // Match-customer modal — opened when item is unmatched and user clicks
+  // the 'Match Customer' button. The modal has its own search state.
+  const [showMatchModal, setShowMatchModal] = useState(false);
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+  const handleMatchCustomer = async (customerId: number, customerName: string) => {
+    try {
+      await api.post(`/api/uw/items/${item.id}/match-customer`, { customer_id: customerId });
+      toast.success(`Matched to ${customerName}`);
+      setShowMatchModal(false);
+      onUpdated();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Match failed');
+    }
+  };
 
   const handleAssign = async () => {
     if (!selectedAssignee) {
@@ -541,7 +555,27 @@ const UWDetailDrawer: React.FC<{
         <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
           <div className="flex-1 min-w-0">
             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">UW ITEM #{item.id}</div>
-            <h2 className="text-lg font-bold text-slate-900 mt-0.5">{item.customer_name || '(unmatched customer)'}</h2>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <h2 className="text-lg font-bold text-slate-900">{item.customer_name || '(unmatched customer)'}</h2>
+              {/* Match Customer button: prominent when unmatched, subtle 'change' link when already matched */}
+              {!item.customer_id ? (
+                <button
+                  onClick={() => setShowMatchModal(true)}
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-cyan-500 hover:bg-cyan-600 text-white flex items-center gap-1 shadow-sm"
+                  title="Link this UW item to a customer in your database"
+                >
+                  <UserIcon size={11} /> Match Customer
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowMatchModal(true)}
+                  className="text-[10px] text-cyan-600 hover:underline"
+                  title="Re-link to a different customer"
+                >
+                  change
+                </button>
+              )}
+            </div>
             <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
               <span>
                 {item.carrier || '?'} {item.policy_number && `· #${item.policy_number}`}
@@ -766,6 +800,139 @@ const UWDetailDrawer: React.FC<{
                 Dismiss this item (spam / wrong-channel)
               </button>
             </div>
+          )}
+        </div>
+      </div>
+
+      {showMatchModal && (
+        <MatchCustomerModal
+          item={item}
+          onClose={() => setShowMatchModal(false)}
+          onMatch={handleMatchCustomer}
+        />
+      )}
+    </div>
+  );
+};
+
+
+// ─── Match Customer Modal ─────────────────────────────────────────
+// Search the customer DB by name / email / policy number, click a row
+// to link this UW item to that customer. Pre-seeds the search field
+// with the AI-extracted customer name (if any) so the producer often
+// gets a hit on first load without typing.
+const MatchCustomerModal: React.FC<{
+  item: UWItem;
+  onClose: () => void;
+  onMatch: (customerId: number, customerName: string) => void;
+}> = ({ item, onClose, onMatch }) => {
+  // Seed: prefer AI-extracted customer name, fall back to policy #
+  const initialQuery = item.customer_name || item.policy_number || '';
+  const [query, setQuery] = useState(initialQuery);
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  const runSearch = useCallback(async (q: string) => {
+    if (!q || q.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await api.get('/api/customers/search', {
+        params: { q: q.trim(), source: 'local', page_size: 25 },
+      });
+      const rows = r.data.customers || r.data.results || [];
+      setResults(Array.isArray(rows) ? rows : []);
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Search failed');
+    }
+    setLoading(false);
+    setSearched(true);
+  }, []);
+
+  // Auto-search on open with the seed query
+  useEffect(() => {
+    if (initialQuery) runSearch(initialQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced search as user types
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (query !== initialQuery) runSearch(query);
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Match to Customer</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              UW Item #{item.id} · {item.carrier || '?'} {item.policy_number && `#${item.policy_number}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-100">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search by name, email, phone, or policy number…"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              style={{ color: '#0f172a' }}
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center py-8 text-slate-400">
+              <Loader2 size={16} className="animate-spin mr-2" />
+              <span className="text-sm">Searching…</span>
+            </div>
+          )}
+          {!loading && searched && results.length === 0 && (
+            <div className="text-center py-8 px-4">
+              <p className="text-sm text-slate-500">No customers found for "{query}"</p>
+              <p className="text-[11px] text-slate-400 mt-2 italic">
+                Try the policy number, partial last name, or email. If the customer
+                isn't in your local DB yet, you may need to sync from NowCerts first.
+              </p>
+            </div>
+          )}
+          {!loading && results.length > 0 && (
+            <ul className="divide-y divide-slate-100">
+              {results.map((c: any) => (
+                <li key={c.id}>
+                  <button
+                    onClick={() => onMatch(c.id, c.full_name || c.name || `Customer ${c.id}`)}
+                    className="w-full text-left px-5 py-3 hover:bg-cyan-50 flex items-center justify-between gap-3 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-900 truncate">
+                        {c.full_name || c.name || `Customer ${c.id}`}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate flex flex-wrap gap-x-3">
+                        {c.email && <span>{c.email}</span>}
+                        {c.phone && <span>{c.phone}</span>}
+                        {c.address && <span>{c.address}{c.state ? `, ${c.state}` : ''}</span>}
+                      </div>
+                    </div>
+                    <ChevronRight size={14} className="text-slate-400 flex-shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

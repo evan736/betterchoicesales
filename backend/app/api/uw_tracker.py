@@ -757,6 +757,65 @@ def dismiss_uw_item(
     return {"status": "ok"}
 
 
+class MatchCustomerBody(BaseModel):
+    customer_id: int
+
+
+@router.post("/items/{item_id}/match-customer")
+def match_customer(
+    item_id: int,
+    body: MatchCustomerBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually link a UW item to a customer record.
+
+    Used when AI extraction couldn't auto-match (item shows '(unmatched
+    customer)' in the kanban). After matching:
+      - customer_id is set, which unlocks the account_premium pill on
+        the kanban card and in all email notifications going forward
+      - customer_name is REPLACED with the canonical name from the
+        customer record (overwrites whatever the AI extracted, which
+        is usually a partial or misspelled version)
+      - customer_email is set if the customer has one on file
+      - Activity log entry is created so we can see who matched what
+
+    Anyone who can edit the item can match (assignee or admin/manager).
+    """
+    item = db.query(UWItem).filter(UWItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="UW item not found")
+    if not (_can_admin(current_user) or item.assigned_to == current_user.id):
+        raise HTTPException(status_code=403, detail="Only assignee or admin/manager can edit")
+
+    from app.models.customer import Customer
+    customer = db.query(Customer).filter(Customer.id == body.customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    prior_name = item.customer_name
+    prior_id = item.customer_id
+
+    item.customer_id = customer.id
+    # Replace stored name with the canonical version. The AI-extracted
+    # name was a best-guess from email text and is usually less
+    # complete than what's in NowCerts.
+    item.customer_name = customer.full_name
+    if customer.email and not item.customer_email:
+        item.customer_email = customer.email
+
+    detail_parts = [f"Matched to customer #{customer.id} ({customer.full_name})"]
+    if prior_id:
+        detail_parts.append(f"was previously linked to #{prior_id}")
+    elif prior_name:
+        detail_parts.append(f"was '{prior_name}' (unmatched)")
+    _log_activity(db, item.id, current_user, "customer_matched", "; ".join(detail_parts))
+
+    db.commit()
+    db.refresh(item)
+    return {"status": "ok", "item": _serialize_item(item)}
+
+
 class EditBody(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
