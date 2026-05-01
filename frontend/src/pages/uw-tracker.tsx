@@ -83,13 +83,26 @@ export default function UWTracker() {
   const [detail, setDetail] = useState<UWItem | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Premium-by-producer panel: total open UW account premium grouped by
+  // assignee. Fetched alongside the main item list so refreshes stay
+  // in sync. Endpoint returns rows sorted highest-premium-first with
+  // 'Pending Assignment' bucket pinned to the end.
+  const [premiumByProducer, setPremiumByProducer] = useState<{
+    by_producer: { assignee_id: number | null; assignee_name: string; item_count: number; total_premium: number }[];
+    total_premium: number;
+    total_count: number;
+  } | null>(null);
 
   // Load data
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get('/api/uw/items', { params: { include_completed: true, limit: 300 } });
-      setItems(r.data.items || []);
+      const [itemsRes, premiumRes] = await Promise.all([
+        api.get('/api/uw/items', { params: { include_completed: true, limit: 300 } }),
+        api.get('/api/uw/premium-by-producer'),
+      ]);
+      setItems(itemsRes.data.items || []);
+      setPremiumByProducer(premiumRes.data || null);
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Failed to load UW items');
     }
@@ -242,6 +255,52 @@ export default function UWTracker() {
           <StatPill label="Due This Week" value={stats.due_this_week} icon={<Calendar size={16} />} color="amber" />
           <StatPill label="Overdue" value={stats.overdue} icon={<AlertTriangle size={16} />} color="red" />
         </div>
+
+        {/* Total UW Premium at Risk — broken down by producer */}
+        {premiumByProducer && premiumByProducer.total_count > 0 && (
+          <div className="mb-5 rounded-lg border border-emerald-500/20"
+               style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.05), rgba(16,185,129,0.02))' }}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-emerald-500/10">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Total UW Premium at Risk</span>
+                <span className="text-xl font-bold text-emerald-300">
+                  ${Math.round(premiumByProducer.total_premium).toLocaleString()}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  across {premiumByProducer.total_count} {premiumByProducer.total_count === 1 ? 'item' : 'items'}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 p-3">
+              {premiumByProducer.by_producer.map((row) => {
+                // Pending-assignment bucket gets a different visual treatment
+                // so it stands out from the producer leaderboard rows.
+                const isPending = row.assignee_id === null;
+                const accent = isPending ? '#a855f7' : '#10b981';
+                return (
+                  <div key={row.assignee_id ?? 'pending'}
+                       className="rounded px-3 py-2 flex items-center justify-between"
+                       style={{
+                         background: isPending ? 'rgba(168,85,247,0.08)' : 'rgba(15,23,42,0.4)',
+                         border: `1px solid ${accent}30`,
+                       }}>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold truncate" style={{ color: accent }}>
+                        {row.assignee_name}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {row.item_count} {row.item_count === 1 ? 'item' : 'items'}
+                      </div>
+                    </div>
+                    <div className="text-sm font-bold text-slate-200 ml-2 whitespace-nowrap">
+                      ${Math.round(row.total_premium).toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex items-center gap-2 mb-5 flex-wrap">

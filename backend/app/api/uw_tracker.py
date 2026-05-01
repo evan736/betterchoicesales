@@ -845,6 +845,77 @@ def uw_stats(
     }
 
 
+@router.get("/premium-by-producer")
+def uw_premium_by_producer(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Total UW account premium at risk, broken down by assignee.
+
+    'At risk' = sum of account_premium across all open UW items
+    (status != completed/dismissed), grouped by who they're assigned to.
+    Unassigned items roll up under 'Pending Assignment'.
+
+    The 'account premium' for each item is the sum of the customer's
+    active policies in the local DB — same number that renders on the
+    kanban card pill. Items where we couldn't match a customer or where
+    the customer has no synced policies contribute zero (they don't
+    cause the row to be missing entirely; the row just shows the count
+    without dollars).
+
+    Used by the 'Total UW Premium at Risk' panel at the top of
+    /uw-tracker so the team can see which producer has the biggest
+    book of UW work in front of them.
+    """
+    if not _can_view(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    open_items = (
+        db.query(UWItem)
+        .filter(UWItem.status.notin_(["completed", "dismissed"]))
+        .all()
+    )
+
+    customer_ids = list({i.customer_id for i in open_items if i.customer_id})
+    premium_lookup = _bulk_premium_lookup(customer_ids, db) if customer_ids else {}
+
+    # Group by assignee (None = pending assignment)
+    by_producer: dict = {}
+    for item in open_items:
+        prem = premium_lookup.get(item.customer_id, 0.0) if item.customer_id else 0.0
+        if item.assigned_to:
+            key = item.assigned_to
+            name = item.assignee.full_name if item.assignee else f"User {item.assigned_to}"
+        else:
+            key = None
+            name = "Pending Assignment"
+        if key not in by_producer:
+            by_producer[key] = {
+                "assignee_id": key,
+                "assignee_name": name,
+                "item_count": 0,
+                "total_premium": 0.0,
+            }
+        by_producer[key]["item_count"] += 1
+        by_producer[key]["total_premium"] += prem
+
+    # Sort: highest premium first, with 'Pending Assignment' always last
+    # so it doesn't confuse the producer leaderboard
+    rows = list(by_producer.values())
+    rows.sort(
+        key=lambda r: (r["assignee_id"] is None, -r["total_premium"], -r["item_count"])
+    )
+
+    grand_total_premium = sum(r["total_premium"] for r in rows)
+    grand_total_count = sum(r["item_count"] for r in rows)
+
+    return {
+        "by_producer": rows,
+        "total_premium": grand_total_premium,
+        "total_count": grand_total_count,
+    }
+
+
 # ───────────────────────────────────────────────────────────────────────────
 # Manual create
 # ───────────────────────────────────────────────────────────────────────────
