@@ -36,6 +36,102 @@ router = APIRouter(prefix="/api/uw", tags=["uw-tracker"])
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Account premium helper — used in every UW notification email so Evan and
+# the assignees can see how much business is at risk on this account.
+# ───────────────────────────────────────────────────────────────────────────
+
+def _account_total_premium(item: UWItem, premium_by_customer: Optional[dict] = None) -> Optional[float]:
+    """Sum of premium across all active policies for this UW item's customer.
+
+    Returns None when:
+      - The UW item didn't match a customer (we can't compute account totals
+        for an unmatched record)
+      - The customer has no policies in the local DB yet (NowCerts sync may
+        not have run, or this is a new prospect)
+
+    The point of including this in UW emails is so the agent treating the
+    request knows what the dollar exposure is. A $5k account with one home
+    policy gets very different treatment than a $30k bundled commercial book.
+
+    Performance: the list serializer calls this for every item. To avoid N+1
+    queries when serializing 200 items, callers can pre-build a
+    {customer_id: total_premium} dict via _bulk_premium_lookup() and pass
+    it in. Without it, this falls back to a fresh per-call DB session
+    (fine for single-item email contexts, expensive for list views).
+    """
+    if not item.customer_id:
+        return None
+    # Bulk-lookup path — used by list serializer
+    if premium_by_customer is not None:
+        return premium_by_customer.get(item.customer_id)
+    # Single-call fallback — opens its own session
+    try:
+        from app.models.customer import CustomerPolicy
+        from app.core.database import SessionLocal
+        _db = SessionLocal()
+        try:
+            policies = (
+                _db.query(CustomerPolicy)
+                .filter(CustomerPolicy.customer_id == item.customer_id)
+                .filter(or_(
+                    CustomerPolicy.status.is_(None),
+                    ~func.lower(CustomerPolicy.status).in_(
+                        ["cancelled", "canceled", "expired", "lapsed", "non-renewed", "non renewed"]
+                    ),
+                ))
+                .all()
+            )
+            if not policies:
+                return None
+            total = sum(float(p.premium or 0) for p in policies)
+            return total if total > 0 else None
+        finally:
+            _db.close()
+    except Exception as e:
+        logger.debug(f"Could not compute account premium for UW item {item.id}: {e}")
+        return None
+
+
+def _bulk_premium_lookup(customer_ids: list, db: Session) -> dict:
+    """Return {customer_id: total_active_premium} for a batch of customers.
+
+    One SQL aggregation instead of N queries. Used by the list endpoint
+    serializer. Customers with no active policies are absent from the
+    result dict (caller treats absence as None).
+    """
+    if not customer_ids:
+        return {}
+    try:
+        from app.models.customer import CustomerPolicy
+        rows = (
+            db.query(
+                CustomerPolicy.customer_id,
+                func.sum(CustomerPolicy.premium).label("total"),
+            )
+            .filter(CustomerPolicy.customer_id.in_(customer_ids))
+            .filter(or_(
+                CustomerPolicy.status.is_(None),
+                ~func.lower(CustomerPolicy.status).in_(
+                    ["cancelled", "canceled", "expired", "lapsed", "non-renewed", "non renewed"]
+                ),
+            ))
+            .group_by(CustomerPolicy.customer_id)
+            .all()
+        )
+        return {cid: float(total) for cid, total in rows if total and float(total) > 0}
+    except Exception as e:
+        logger.debug(f"_bulk_premium_lookup failed: {e}")
+        return {}
+
+
+def _format_money(amount: Optional[float]) -> str:
+    """$1,234 (no decimals) or em-dash placeholder for None."""
+    if amount is None or amount == 0:
+        return "—"
+    return f"${amount:,.0f}"
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Helpers
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -59,13 +155,18 @@ def _log_activity(db: Session, item_id: int, user: Optional[User], action: str, 
     ))
 
 
-def _serialize_item(item: UWItem, include_attachments: bool = False) -> dict:
+def _serialize_item(item: UWItem, include_attachments: bool = False, premium_by_customer: Optional[dict] = None) -> dict:
     """Return UW item as JSON-friendly dict.
 
     include_attachments: when True, includes attachment metadata
     (filename + size, NOT the base64 bytes) for the kanban preview.
     The base64 bytes are only served via the /attachment/{idx} endpoint
     to keep list responses lean.
+
+    premium_by_customer: optional pre-fetched {customer_id: total_premium}
+    dict to avoid N+1 queries when serializing many items at once. List
+    endpoints should pre-build this; single-item endpoints can omit it
+    and pay the per-call lookup cost.
     """
     today = date.today()
     is_overdue = bool(item.due_date and item.due_date < today and item.status not in ("completed", "dismissed"))
@@ -104,6 +205,9 @@ def _serialize_item(item: UWItem, include_attachments: bool = False) -> dict:
         "intake_email_body_html": item.intake_email_body_html,
         "intake_received_at": item.intake_received_at.isoformat() if item.intake_received_at else None,
         "ai_confidence": item.ai_confidence,
+        # Account total premium — surfaces in kanban card + drawer for
+        # at-a-glance "how much business is at risk" visibility.
+        "account_premium": _account_total_premium(item, premium_by_customer),
         "created_at": item.created_at.isoformat() if item.created_at else None,
     }
 
@@ -285,6 +389,15 @@ def _send_admin_new_item_alert(item: UWItem):
     customer = item.customer_name or "(unmatched customer)"
     carrier = item.carrier or "(unknown carrier)"
     policy = item.policy_number or "(unknown policy)"
+    account_total = _account_total_premium(item)
+    premium_row = ""
+    if account_total is not None:
+        # Only render the row when we have a real number — silent skip
+        # when the customer is unmatched or has no synced policies.
+        premium_row = (
+            f'<tr><td style="color:#64748b;padding:4px 0;">Account Premium:</td>'
+            f'<td style="color:#0f172a;font-weight:600;">{_format_money(account_total)}</td></tr>'
+        )
 
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
@@ -298,6 +411,7 @@ def _send_admin_new_item_alert(item: UWItem):
           <tr><td style="color:#64748b;padding:4px 0;width:120px;">Customer:</td><td style="color:#0f172a;">{customer}</td></tr>
           <tr><td style="color:#64748b;padding:4px 0;">Carrier:</td><td style="color:#0f172a;">{carrier}</td></tr>
           <tr><td style="color:#64748b;padding:4px 0;">Policy:</td><td style="color:#0f172a;">{policy}</td></tr>
+          {premium_row}
           <tr><td style="color:#64748b;padding:4px 0;">Due:</td><td style="color:#dc2626;font-weight:600;">{due_str}</td></tr>
         </table>
         <p style="color:#475569;font-size:13px;line-height:1.5;">{(item.required_action or '')[:400]}</p>
@@ -384,7 +498,14 @@ def list_uw_items(
         desc(UWItem.created_at),
     ).limit(limit).all()
 
-    return {"items": [_serialize_item(i) for i in items], "count": len(items)}
+    # Bulk-fetch premium totals so we don't run N queries when serializing.
+    customer_ids = [i.customer_id for i in items if i.customer_id]
+    premium_lookup = _bulk_premium_lookup(list(set(customer_ids)), db) if customer_ids else {}
+
+    return {
+        "items": [_serialize_item(i, premium_by_customer=premium_lookup) for i in items],
+        "count": len(items),
+    }
 
 
 @router.get("/items/{item_id}")
@@ -516,6 +637,14 @@ def _send_assignment_notification(item: UWItem, assignee: User):
     due_str = item.due_date.strftime("%b %d, %Y") if item.due_date else "no deadline"
     days_to_go = (item.due_date - date.today()).days if item.due_date else None
     urgency_color = "#dc2626" if (days_to_go is not None and days_to_go <= 7) else "#0ea5e9"
+    account_total = _account_total_premium(item)
+    premium_line = ""
+    if account_total is not None:
+        premium_line = (
+            f'<div style="color:#475569;font-size:13px;margin-top:6px;">'
+            f'Account premium: <strong style="color:#0f172a;">{_format_money(account_total)}</strong>'
+            f'</div>'
+        )
 
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
@@ -534,6 +663,7 @@ def _send_assignment_notification(item: UWItem, assignee: User):
           <div style="color:{urgency_color};font-size:13px;font-weight:600;margin-top:6px;">
             Due: {due_str}
           </div>
+          {premium_line}
         </div>
         <p style="color:#475569;font-size:13px;line-height:1.5;">{(item.required_action or '')[:400]}</p>
         <p style="margin:20px 0 0 0;">

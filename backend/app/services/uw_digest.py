@@ -16,11 +16,49 @@ from typing import Optional
 
 import requests as http_requests
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 
 from app.models.uw_item import UWItem, UWActivity
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _account_total_premium(item: UWItem, db: Session) -> Optional[float]:
+    """Sum of premium across the customer's active policies, or None.
+
+    Mirrors the helper in api/uw_tracker.py — duplicated here to keep
+    services free of api imports. Uses the caller's existing DB session
+    rather than opening a new one (the digest loop already has one).
+    """
+    if not item.customer_id:
+        return None
+    try:
+        from app.models.customer import CustomerPolicy
+        policies = (
+            db.query(CustomerPolicy)
+            .filter(CustomerPolicy.customer_id == item.customer_id)
+            .filter(or_(
+                CustomerPolicy.status.is_(None),
+                ~func.lower(CustomerPolicy.status).in_(
+                    ["cancelled", "canceled", "expired", "lapsed", "non-renewed", "non renewed"]
+                ),
+            ))
+            .all()
+        )
+        if not policies:
+            return None
+        total = sum(float(p.premium or 0) for p in policies)
+        return total if total > 0 else None
+    except Exception as e:
+        logger.debug(f"Could not compute account premium for UW item {item.id}: {e}")
+        return None
+
+
+def _fmt_money(amount: Optional[float]) -> str:
+    if amount is None or amount == 0:
+        return "—"
+    return f"${amount:,.0f}"
 
 
 def _mailgun_send(to: str, subject: str, html: str) -> bool:
@@ -49,8 +87,13 @@ def _mailgun_send(to: str, subject: str, html: str) -> bool:
         return False
 
 
-def _format_item_row(item: UWItem, app_url: str) -> str:
-    """Return an HTML table row for a UW item in a digest email."""
+def _format_item_row(item: UWItem, app_url: str, db: Optional[Session] = None) -> str:
+    """Return an HTML table row for a UW item in a digest email.
+
+    db is optional — when provided, we look up the customer's account
+    premium and render it under the customer name. Without db, the row
+    renders without premium (used by callers that don't have access).
+    """
     today = date.today()
     if item.due_date:
         days_to = (item.due_date - today).days
@@ -76,11 +119,23 @@ def _format_item_row(item: UWItem, app_url: str) -> str:
     carrier = item.carrier or "?"
     policy = item.policy_number or "?"
 
+    # Account premium — small line below carrier · policy. Only renders
+    # when we have a customer match AND policies in the local DB.
+    premium_html = ""
+    if db is not None:
+        total = _account_total_premium(item, db)
+        if total is not None:
+            premium_html = (
+                f'<div style="color:#0f172a;font-size:11px;margin-top:2px;'
+                f'font-weight:600;">Premium: {_fmt_money(total)}</div>'
+            )
+
     return f"""
         <tr style="border-bottom:1px solid #e2e8f0;">
           <td style="padding:10px 8px;vertical-align:top;">
             <div style="font-weight:600;color:#0f172a;font-size:13px;">{customer}</div>
             <div style="color:#64748b;font-size:11px;margin-top:2px;">{carrier} · #{policy}</div>
+            {premium_html}
           </td>
           <td style="padding:10px 8px;vertical-align:top;color:#475569;font-size:12px;line-height:1.4;">
             {(item.title or item.required_action or '')[:80]}
@@ -101,6 +156,7 @@ def _build_digest_html(
     items: list[UWItem],
     app_url: str,
     is_admin_master: bool = False,
+    db: Optional[Session] = None,
 ) -> str:
     """Build the daily digest email HTML."""
     if not items:
@@ -138,7 +194,7 @@ def _build_digest_html(
     ]:
         if not group:
             continue
-        rows = "".join(_format_item_row(i, app_url) for i in group)
+        rows = "".join(_format_item_row(i, app_url, db) for i in group)
         sections.append(f"""
         <div style="margin-top:24px;">
           <div style="font-size:13px;font-weight:700;color:{color};letter-spacing:0.5px;margin-bottom:8px;">
@@ -202,7 +258,7 @@ def send_daily_digests(db: Session) -> dict:
         if not user or not user.email:
             skipped_no_email += 1
             continue
-        html = _build_digest_html(user.full_name or user.username, items, app_url)
+        html = _build_digest_html(user.full_name or user.username, items, app_url, db=db)
         ok = _mailgun_send(
             to=user.email,
             subject=f"📋 Your UW items today ({len(items)} open)",
@@ -218,6 +274,7 @@ def send_daily_digests(db: Session) -> dict:
         items=open_items,
         app_url=app_url,
         is_admin_master=True,
+        db=db,
     )
     pending_count = sum(1 for i in open_items if i.status == "pending_assignment")
     overdue_count = sum(1 for i in open_items if i.due_date and i.due_date < today)
@@ -293,6 +350,14 @@ def send_proximity_reminders(db: Session) -> dict:
 
         first_name = (item.assignee.full_name or '').split()[0] or 'there'
         due_str = item.due_date.strftime("%b %d, %Y")
+        account_total = _account_total_premium(item, db)
+        premium_line = ""
+        if account_total is not None:
+            premium_line = (
+                f'<div style="color:#475569;font-size:13px;margin-top:6px;">'
+                f'Account premium: <strong style="color:#0f172a;">{_fmt_money(account_total)}</strong>'
+                f'</div>'
+            )
         html = f"""
         <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
           <div style="background:{badge_color};color:#fff;padding:20px;border-radius:10px 10px 0 0;">
@@ -310,6 +375,7 @@ def send_proximity_reminders(db: Session) -> dict:
               <div style="color:{badge_color};font-size:13px;font-weight:600;margin-top:6px;">
                 Due: {due_str}
               </div>
+              {premium_line}
             </div>
             <p style="color:#475569;font-size:13px;line-height:1.5;">{(item.required_action or '')[:400]}</p>
             <p style="margin:20px 0 0 0;">

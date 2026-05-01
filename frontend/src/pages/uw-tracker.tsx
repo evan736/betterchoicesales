@@ -46,6 +46,7 @@ interface UWItem {
   intake_email_body_html?: string;
   intake_received_at?: string;
   ai_confidence?: number;
+  account_premium?: number | null;
   attachment_count?: number;
   attachments?: Array<{ index: number; filename: string; content_type: string; size_bytes: number }>;
   activity?: Array<{ action: string; detail?: string; user_name?: string; created_at?: string }>;
@@ -355,8 +356,14 @@ const UWCard: React.FC<{ item: UWItem; onClick: () => void }> = ({ item, onClick
           </span>
         )}
       </div>
-      <div className="text-xs text-slate-500 mb-1.5 truncate">
-        {item.carrier || '?'} {item.policy_number && `· #${item.policy_number}`}
+      <div className="text-xs text-slate-500 mb-1.5 truncate flex items-center gap-1.5 flex-wrap">
+        <span>{item.carrier || '?'} {item.policy_number && `· #${item.policy_number}`}</span>
+        {item.account_premium != null && item.account_premium > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 whitespace-nowrap"
+                title="Total active premium for this account">
+            ${Math.round(item.account_premium).toLocaleString()}
+          </span>
+        )}
       </div>
       <div className="text-xs text-slate-600 mb-2 line-clamp-2 leading-snug">
         {item.title || item.required_action || '(no description)'}
@@ -476,9 +483,17 @@ const UWDetailDrawer: React.FC<{
           <div className="flex-1 min-w-0">
             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">UW ITEM #{item.id}</div>
             <h2 className="text-lg font-bold text-slate-900 mt-0.5">{item.customer_name || '(unmatched customer)'}</h2>
-            <div className="text-xs text-slate-500 mt-0.5">
-              {item.carrier || '?'} {item.policy_number && `· #${item.policy_number}`}
-              {item.line_of_business && ` · ${item.line_of_business}`}
+            <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>
+                {item.carrier || '?'} {item.policy_number && `· #${item.policy_number}`}
+                {item.line_of_business && ` · ${item.line_of_business}`}
+              </span>
+              {item.account_premium != null && item.account_premium > 0 && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
+                      title="Total active premium across all of this customer's policies">
+                  Account: ${Math.round(item.account_premium).toLocaleString()}
+                </span>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1">
