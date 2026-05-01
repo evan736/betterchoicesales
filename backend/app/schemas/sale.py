@@ -49,6 +49,11 @@ class SaleUpdate(BaseModel):
     lead_source: Optional[str] = None
     client_name: Optional[str] = None
     policy_number: Optional[str] = None
+    # sale_date — admin/manager only. Used to correct mistakes like
+    # sales submitted shortly after midnight that should bucket into
+    # the prior day's month/quarter for reporting purposes.
+    sale_date: Optional[datetime] = None
+    effective_date: Optional[datetime] = None
 
 
 class SaleInDB(SaleBase):

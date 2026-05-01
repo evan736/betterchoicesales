@@ -1513,6 +1513,20 @@ def update_sale(
             )
         logger.info(f"Sale {sale_id} reassigned from producer {sale.producer_id} to {update_data['producer_id']} by {current_user.full_name}")
 
+    # Only admin/manager can change sale_date or effective_date — these
+    # affect reporting buckets (monthly totals, commission runs) so we
+    # don't want producers freely adjusting them on their own sales.
+    for date_field in ("sale_date", "effective_date"):
+        if date_field in update_data and current_user.role.lower() not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Only admin/manager can change {date_field}"
+            )
+    if "sale_date" in update_data:
+        old = sale.sale_date.isoformat() if sale.sale_date else None
+        new = update_data["sale_date"].isoformat() if update_data["sale_date"] else None
+        logger.info(f"Sale {sale_id} sale_date changed: {old} → {new} by {current_user.full_name}")
+
     # Update fields
     for field, value in update_data.items():
         setattr(sale, field, value)
