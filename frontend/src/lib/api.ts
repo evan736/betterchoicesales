@@ -264,7 +264,14 @@ export const customersAPI = {
   sync: (id: number) => api.post(`/api/customers/${id}/sync`),
   importFromNowCerts: (nowcertsId: string) =>
     api.post('/api/customers/import-from-nowcerts', null, { params: { nowcerts_insured_id: nowcertsId } }),
-  syncAll: () => api.post('/api/customers/sync-all'),
+  // Full NowCerts sync pulls 3,700+ customers and 11,000+ policies via
+  // OData paginated endpoints. Real-world run time is 5-8 minutes at
+  // current volume. Default axios timeout (60s) was way too aggressive
+  // and caused a 'Sync failed' toast even though the backend was still
+  // churning successfully — the sync would complete a couple minutes
+  // later but the UI had already given up. 10-minute ceiling gives
+  // headroom for NowCerts API slowdowns.
+  syncAll: () => api.post('/api/customers/sync-all', null, { timeout: 600000 }),
   nowcertsStatus: () => api.get('/api/customers/nowcerts/status'),
   agencyStats: () => api.get('/api/customers/agency-stats'),
   geographicDistribution: () => api.get('/api/customers/state-distribution'),

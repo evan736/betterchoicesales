@@ -550,13 +550,25 @@ export default function CustomersPage() {
   };
 
   const handleSyncAll = async () => {
-    if (!confirm('Pull all customers from NowCerts? This may take a few minutes.')) return;
+    if (!confirm('Pull all customers from NowCerts? This may take 5–10 minutes.')) return;
     setSyncing(true);
     try {
       const r = await customersAPI.syncAll();
       toast.success(`Sync complete!\n${r.data.imported} imported, ${r.data.updated} updated\n${r.data.policies_imported} policies imported, ${r.data.policies_updated} policies updated`);
       loadStats();
-    } catch (e: any) { toast.error(e.response?.data?.detail || 'Sync failed'); }
+    } catch (e: any) {
+      // A timeout here doesn't mean the sync actually failed — the backend
+      // keeps churning even after axios gives up. Show a softer message
+      // and refresh stats so the user can see progress.
+      const isTimeout = e?.code === 'ECONNABORTED' || (e?.message || '').toLowerCase().includes('timeout');
+      if (isTimeout) {
+        toast.success('Sync is still running in the background. Refreshing stats…');
+        // Wait a bit for the backend to flush, then poll
+        setTimeout(() => loadStats(), 5000);
+      } else {
+        toast.error(e.response?.data?.detail || 'Sync failed');
+      }
+    }
     setSyncing(false);
   };
 
