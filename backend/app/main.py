@@ -918,6 +918,16 @@ def init_database():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Run database init on startup + start background scheduler."""
+    # ── Install Mailgun deliverability hook BEFORE any sender can fire ──
+    # Forces o:tracking-clicks=no, adds List-Unsubscribe headers for Gmail
+    # 2024 compliance, marks as Auto-Submitted. Applies to every Mailgun
+    # /messages call regardless of which sender file made it.
+    try:
+        from app.services.mailer import install_mailgun_hook
+        install_mailgun_hook()
+    except Exception as e:
+        logger.error(f"Failed to install Mailgun deliverability hook: {e}")
+
     # ── Security check: refuse to run with default secret key ──
     if settings.SECRET_KEY == "your-secret-key-change-in-production":
         logger.critical("🚨 SECURITY: SECRET_KEY is set to the default value! Set a unique SECRET_KEY env var.")
