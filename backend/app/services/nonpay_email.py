@@ -177,12 +177,20 @@ def send_nonpay_email(
     )
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
+        # Hardcode the apex-domain From — was previously
+        # f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>" which
+        # depended on MAILGUN_DOMAIN happening to be set to the apex.
+        # Hardcoding makes this robust to future env-var changes and
+        # makes the customer-facing From line obvious in code review.
+        "from": f"{AGENCY_NAME} <service@betterchoiceins.com>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+        # Tracking defaults are now applied centrally by app/services/mailer.py:
+        #   - tracking-clicks forced to "no" (was incorrectly "yes" here)
+        #   - tracking-opens defaults to "yes"
+        # We don't set them here so the central policy is the single
+        # source of truth.
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }
