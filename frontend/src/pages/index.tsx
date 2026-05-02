@@ -201,7 +201,14 @@ export default function Login() {
 
     try {
       await login(username, password);
-      if (username.toLowerCase() === 'evan.larson') {
+      // Honor ?returnTo= so that someone bounced from a deep-link
+      // (e.g. clicking 'Open UW Tracker' in a digest email) lands
+      // back on their intended page after authenticating, instead
+      // of always going to /dashboard or /customers.
+      const returnTo = typeof router.query.returnTo === 'string' ? router.query.returnTo : '';
+      if (returnTo && returnTo.startsWith('/')) {
+        router.push(returnTo);
+      } else if (username.toLowerCase() === 'evan.larson') {
         router.push('/customers');
       } else {
         router.push('/dashboard');

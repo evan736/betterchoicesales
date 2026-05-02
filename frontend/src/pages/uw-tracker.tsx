@@ -69,8 +69,28 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 export default function UWTracker() {
   const router = useRouter();
-  const { user } = useAuth();
+  // Pull the auth context's own loading flag — without it we can't tell
+  // "auth check still in flight" apart from "auth check finished and we
+  // have no user." Previously the page just rendered 'Loading...' for
+  // both states, which trapped employees who arrived from a digest
+  // email link without a valid session — the page hung forever instead
+  // of redirecting them to log in.
+  const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role && ['admin', 'manager'].includes(user.role.toLowerCase());
+
+  // Redirect unauthenticated users to login. Triggered after the auth
+  // check completes (authLoading flips false) AND there's no user.
+  // The most common path here is an employee clicking 'Open UW Tracker'
+  // in a digest email from a device where they aren't logged in.
+  useEffect(() => {
+    if (!authLoading && !user) {
+      // Preserve the destination so they land back here after login
+      const returnTo = encodeURIComponent(
+        typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/uw-tracker'
+      );
+      router.replace(`/?returnTo=${returnTo}`);
+    }
+  }, [authLoading, user, router]);
 
   const [items, setItems] = useState<UWItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,7 +241,26 @@ export default function UWTracker() {
     due_this_week: colItems('due_soon').length,
   };
 
-  if (!user) return <div className="p-8 text-slate-500">Loading...</div>;
+  // Three early-return states:
+  //   1. Auth check still in flight  → real "Loading..." spinner
+  //   2. Auth done but no user       → useEffect above redirects; show
+  //      a brief "Redirecting to login..." message during the redirect
+  //   3. Authed user                 → render the page (fall through)
+  if (authLoading) {
+    return (
+      <div className="p-8 text-slate-500 flex items-center gap-2">
+        <Loader2 size={16} className="animate-spin" />
+        <span>Loading…</span>
+      </div>
+    );
+  }
+  if (!user) {
+    return (
+      <div className="p-8 text-slate-500">
+        Redirecting to login…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
