@@ -428,7 +428,7 @@ def _send_admin_new_item_alert(item: UWItem):
         f"https://api.mailgun.net/v3/{mg_domain}/messages",
         auth=("api", mg_key),
         data={
-            "from": f"ORBIT UW Tracker <noreply@{mg_domain}>",
+            "from": f"ORBIT UW Tracker <noreply@betterchoiceins.com>",
             "to": "evan@betterchoiceins.com",
             "subject": f"📋 New UW item awaiting assignment — {customer}",
             "html": html,
@@ -679,7 +679,7 @@ def _send_assignment_notification(item: UWItem, assignee: User):
         f"https://api.mailgun.net/v3/{mg_domain}/messages",
         auth=("api", mg_key),
         data={
-            "from": f"ORBIT UW Tracker <noreply@{mg_domain}>",
+            "from": f"ORBIT UW Tracker <noreply@betterchoiceins.com>",
             "to": assignee.email,
             "subject": f"📋 UW item assigned: {item.customer_name or 'Customer'} — Due {due_str}",
             "html": html,

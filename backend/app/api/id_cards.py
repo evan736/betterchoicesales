@@ -236,7 +236,7 @@ async def send_id_card_email(
                 # do route to the team's Gmail inbox. This was a deliberate
                 # revert (see commit history) to avoid customer emails going
                 # to spam during the DNS propagation window.
-                "from": f"Better Choice Insurance <service@{mg_domain}>",
+                "from": f"Better Choice Insurance <service@betterchoiceins.com>",
                 "to": recipient_email,
                 "bcc": "service@betterchoiceins.com",
                 "subject": subject,

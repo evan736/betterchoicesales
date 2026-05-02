@@ -289,7 +289,8 @@ def send_mailgun_email(to: str, subject: str, html: str) -> bool:
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"MIA AI Receptionist <service@{settings.MAILGUN_DOMAIN}>",
+                # Hardcoded apex From — see commit 91c2859.
+                "from": f"MIA AI Receptionist <service@betterchoiceins.com>",
                 "to": to,
                 "subject": subject,
                 "html": html,

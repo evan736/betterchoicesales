@@ -228,7 +228,8 @@ def _send_reminder_email(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+                # Hardcoded apex From — see commit 91c2859.
+                "from": f"Better Choice Insurance <service@betterchoiceins.com>",
                 "to": [to_email],
                 "subject": subject,
                 "html": html,

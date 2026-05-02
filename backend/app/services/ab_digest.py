@@ -178,7 +178,7 @@ def send_weekly_digest(db: Session) -> dict:
             f"https://api.mailgun.net/v3/{mg_domain}/messages",
             auth=("api", mg_key),
             data={
-                "from": f"ORBIT A/B Test <noreply@{mg_domain}>",
+                "from": f"ORBIT A/B Test <noreply@betterchoiceins.com>",
                 "to": "evan@betterchoiceins.com",
                 "subject": f"📊 Quote A/B test weekly digest — A:{week_a['sent']} B:{week_b['sent']}",
                 "html": html,

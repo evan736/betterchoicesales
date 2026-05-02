@@ -74,7 +74,7 @@ def _mailgun_send(to: str, subject: str, html: str) -> bool:
             f"https://api.mailgun.net/v3/{mg_domain}/messages",
             auth=("api", mg_key),
             data={
-                "from": f"ORBIT UW Tracker <noreply@{mg_domain}>",
+                "from": f"ORBIT UW Tracker <noreply@betterchoiceins.com>",
                 "to": to,
                 "subject": subject,
                 "html": html,

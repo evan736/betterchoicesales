@@ -443,12 +443,16 @@ def _send_escalation_email(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+                # Hardcoded apex-domain From — was service@{MAILGUN_DOMAIN}
+                # which depended on the env var being set to the apex.
+                # Hardcoding makes this robust and the customer-facing
+                # address obvious in code review.
+                "from": f"Better Choice Insurance <service@betterchoiceins.com>",
                 "to": to_list,
                 "subject": subject,
                 "html": html,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+                # Tracking now controlled centrally by services/mailer.py.
+                # tracking-clicks forced to "no", tracking-opens to "yes".
             },
             timeout=30,
         )

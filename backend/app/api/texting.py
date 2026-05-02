@@ -848,7 +848,9 @@ def _send_inbound_notification(
     if not MAILGUN_API_KEY:
         return
 
-    import httpx as _httpx
+    import requests as _http  # use requests so the centralized
+    # services/mailer.py deliverability hook applies (was previously
+    # using httpx, which bypasses the hook entirely).
 
     customer_info = ""
     if customer_match:
@@ -894,11 +896,15 @@ def _send_inbound_notification(
     </body></html>"""
 
     try:
-        _httpx.post(
+        _http.post(
             f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/messages",
             auth=("api", MAILGUN_API_KEY),
             data={
-                "from": f"ORBIT Texting <noreply@{MAILGUN_DOMAIN}>",
+                # Internal alert to staff — apex domain From for consistency.
+                # noreply@ is fine here because this goes to evan@ and isn't
+                # something anyone should be replying to (the reply lives in
+                # the texting UI, not email).
+                "from": f"ORBIT Texting <noreply@betterchoiceins.com>",
                 "to": INBOUND_NOTIFY_EMAIL,
                 "subject": f"💬 Text from {customer_name} ({from_number})",
                 "html": html,

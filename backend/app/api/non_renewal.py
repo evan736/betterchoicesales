@@ -150,12 +150,12 @@ def _send_nonrenewal_email(data: NonRenewalCreate) -> bool:
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance Group <service@{settings.MAILGUN_DOMAIN}>",
+                # Hardcoded apex From — see commit 91c2859.
+                "from": f"Better Choice Insurance Group <service@betterchoiceins.com>",
                 "to": [data.customer_email],
                 "subject": subject,
                 "html": html,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+                # Tracking centrally controlled by services/mailer.py.
                 "h:Reply-To": "service@betterchoiceins.com",
             },
         )

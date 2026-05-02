@@ -532,7 +532,10 @@ def _notify_retention_team(reshop: "Reshop", created_by: str, db: Session = None
         subject += " (via " + reshop.referred_by + ")"
 
     try:
-        from_email = settings.MAILGUN_FROM_EMAIL or "service@" + settings.MAILGUN_DOMAIN
+        # Fallback default if MAILGUN_FROM_EMAIL is unset. Hardcoded
+        # apex address rather than service@{MAILGUN_DOMAIN} so the
+        # fallback doesn't accidentally embed a tracking subdomain.
+        from_email = settings.MAILGUN_FROM_EMAIL or "service@betterchoiceins.com"
         resp = http_requests.post(
             "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
             auth=("api", settings.MAILGUN_API_KEY),

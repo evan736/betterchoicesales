@@ -519,7 +519,8 @@ def _send_cancellation_form_email(email: str, name: str, token: str):
         f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
         auth=("api", settings.MAILGUN_API_KEY),
         data={
-            "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+            # Hardcoded apex From — see commit 91c2859 for rationale.
+            "from": f"Better Choice Insurance <service@betterchoiceins.com>",
             "to": [email],
             "subject": "Need help cancelling your old policy? We've got you covered!",
             "html": html,
@@ -700,12 +701,14 @@ def _deliver_via_email(req: CancellationRequest, carrier_email: str) -> dict:
     <p>Thank you,<br>Better Choice Insurance Group<br>(847) 908-5665</p>"""
 
     data = {
-        "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+        # Hardcoded apex From — sent to carrier email addresses, so
+        # carrier-side spam filtering matters. Same rationale as the
+        # customer-facing fix in commit 91c2859.
+        "from": f"Better Choice Insurance <service@betterchoiceins.com>",
         "to": [carrier_email],
         "subject": subject,
         "html": html_body,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+        # Tracking now controlled centrally by services/mailer.py.
         "h:Reply-To": "service@betterchoiceins.com",
     }
 

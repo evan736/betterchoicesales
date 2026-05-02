@@ -428,7 +428,8 @@ def _send_poll_summary_email(result: dict):
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
+                # Internal alert to Evan — apex domain From for consistency.
+                "from": f"ORBIT System <system@betterchoiceins.com>",
                 "to": ["evan@betterchoiceins.com"],
                 "subject": f"ORBIT: {result.get('emails_sent', 0)} Non-Pay Alerts Sent (NowCerts Poll)",
                 "html": html,

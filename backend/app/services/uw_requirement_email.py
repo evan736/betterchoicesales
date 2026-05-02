@@ -242,12 +242,10 @@ def send_uw_requirement_email(
         bcc_list.append(producer_email)
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
+        "from": f"{AGENCY_NAME} <service@betterchoiceins.com>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": bcc_list,
     }
@@ -323,7 +321,7 @@ def send_undeliverable_mail_alert(
     h.append('</div></div></body></html>')
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
+        "from": f"{AGENCY_NAME} <service@betterchoiceins.com>",
         "to": [producer_email],
                 "bcc": ["evan@betterchoiceins.com"],
         "subject": subject,
@@ -467,12 +465,10 @@ def send_non_renewal_email(
         bcc_list.append(producer_email)
 
     mail_data = {
-        "from": f"{AGENCY_NAME} <service@{settings.MAILGUN_DOMAIN}>",
+        "from": f"{AGENCY_NAME} <service@betterchoiceins.com>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": bcc_list,
     }

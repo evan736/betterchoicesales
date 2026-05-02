@@ -143,7 +143,17 @@ def _send_renewal_email(notice: RenewalNotice, is_high_increase: bool) -> bool:
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance Group <renewals@{settings.MAILGUN_DOMAIN}>",
+                # Hardcoded apex From. Was previously
+                # 'renewals@{MAILGUN_DOMAIN}' but no actual 'renewals@'
+                # mailbox exists in Google Workspace — direct replies
+                # to that address would have gone nowhere. The Reply-To
+                # header already routes replies to service@, so the only
+                # effect of the renewals@ prefix was a slightly different
+                # display in the customer's inbox. Normalizing to
+                # service@ matches every other transactional sender and
+                # ensures any customer who replies directly to the From
+                # address reaches a real mailbox.
+                "from": f"Better Choice Insurance Group <service@betterchoiceins.com>",
                 "to": [notice.customer_email],
                 "subject": subject,
                 "html": html,

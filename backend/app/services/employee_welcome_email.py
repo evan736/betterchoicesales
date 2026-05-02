@@ -201,7 +201,8 @@ def send_employee_welcome_email(
     )
 
     mail_data = {
-        "from": "Better Choice Insurance <service@" + settings.MAILGUN_DOMAIN + ">",
+        # Hardcoded apex From — see commit 91c2859.
+        "from": "Better Choice Insurance <service@betterchoiceins.com>",
         "to": to_email,
         "subject": "Welcome to ORBIT — Your login credentials",
         "html": html,

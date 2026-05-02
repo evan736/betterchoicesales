@@ -493,12 +493,12 @@ def send_inspection_customer_email(
     )
 
     mail_data = {
-        "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+        # Hardcoded apex From — see commit 91c2859.
+        "from": f"Better Choice Insurance <service@betterchoiceins.com>",
         "to": [to_email],
         "subject": subject,
         "html": html,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+        # Tracking now controlled centrally by services/mailer.py.
         "h:Reply-To": "service@betterchoiceins.com",
         "bcc": ["evan@betterchoiceins.com"],
     }
@@ -1019,12 +1019,12 @@ def _send_evan_alert_no_match(sender: str, subject: str, details: dict, status_m
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
+                # Internal alert to staff — apex domain From for consistency.
+                "from": f"ORBIT System <system@betterchoiceins.com>",
                 "to": ["evan@betterchoiceins.com"],
                 "subject": f"🔍 Inspection Alert: {policy} — {status_msg}",
                 "html": html,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+                # Tracking centrally controlled by services/mailer.py.
             },
         )
     except Exception as e:
@@ -1117,12 +1117,12 @@ def _send_evan_approval_email(draft, details: dict, sender: str, subject: str, c
 
     try:
         mail_data = {
-            "from": f"ORBIT System <system@{settings.MAILGUN_DOMAIN}>",
+            # Internal approval email to Evan — apex domain From for consistency.
+            "from": f"ORBIT System <system@betterchoiceins.com>",
             "to": ["evan@betterchoiceins.com"],
             "subject": f"🔍 APPROVE? Inspection: {policy} — {carrier} ({customer_name})",
             "html": html,
-        "o:tracking-clicks": "yes",
-        "o:tracking-opens": "yes",
+            # Tracking centrally controlled by services/mailer.py.
         }
 
         # Attach PDFs so Evan can review what the customer will receive

@@ -3267,7 +3267,8 @@ A task has been created on the dashboard.</p>
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                "from": f"Better Choice Insurance <service@{settings.MAILGUN_DOMAIN}>",
+                # Internal alert to staff — apex domain From for consistency.
+                "from": f"Better Choice Insurance <service@betterchoiceins.com>",
                 "to": ["service@betterchoiceins.com"],
                 "subject": subject,
                 "html": html,
