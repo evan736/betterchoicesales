@@ -472,3 +472,256 @@ def create_winback_manually(
     db.refresh(wb)
 
     return {"id": wb.id, "status": "pending", "customer_name": wb.customer_name}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Lost Account Analysis
+# ─────────────────────────────────────────────────────────────────────
+# This is the analytical view (read-only, no records created) that
+# answers: "How much premium have we lost in fully-cancelled accounts,
+# and who are they?"
+#
+# DEFINITION OF 'LOST ACCOUNT':
+#   A customer whose entire book with us is gone — every policy in
+#   customer_policies has a non-active status. If the same person has
+#   ANY active policy under ANY duplicate profile, they are not lost.
+#
+# DUPLICATE CROSS-CHECK:
+#   Before declaring an account lost, we look for other customer rows
+#   that share the same email, phone (last 10 digits), or normalized
+#   full name. If any of those duplicate profiles has an active policy,
+#   we treat the original as a duplicate-of-active and exclude it.
+#   This matches the existing /api/customers/duplicates logic exactly.
+
+ACTIVE_STATUSES_LOWER = {"active", "in force", "inforce"}
+
+
+def _is_active_status(status: Optional[str]) -> bool:
+    return (status or "").strip().lower() in ACTIVE_STATUSES_LOWER
+
+
+def _phone_key(phone: Optional[str]) -> Optional[str]:
+    """Last 10 digits of a phone, or None if unusable."""
+    if not phone:
+        return None
+    digits = "".join(d for d in phone if d.isdigit())
+    if len(digits) < 7:
+        return None
+    return digits[-10:]
+
+
+@router.get("/lost-account-analysis")
+def lost_account_analysis(
+    months_back: Optional[int] = Query(None, description="If set, only include customers with cancellations within this many months"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Analyze fully-lost customer accounts and total cancelled premium.
+
+    Returns a per-customer breakdown plus aggregates by carrier, producer,
+    and cancellation date. Does NOT create any winback records or send
+    anything — read-only analysis.
+
+    Definition of 'lost': customer has ZERO active policies in our local
+    cache (which mirrors NowCerts). Duplicates are cross-checked by
+    name/phone/email before declaring a customer lost — if any duplicate
+    profile has an active policy we exclude the customer from the
+    'fully lost' set.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager access required")
+
+    # ── Step 1: Build duplicate index across ALL customers ──
+    # We need this BEFORE filtering to lost candidates, because a 'lost'
+    # candidate might have a duplicate that's still active and we
+    # wouldn't see that connection if we only loaded lost customers.
+    all_customers = db.query(Customer).all()
+
+    # Map customer_id → set of duplicate customer_ids (excluding self)
+    name_groups: dict[str, list[int]] = {}
+    phone_groups: dict[str, list[int]] = {}
+    email_groups: dict[str, list[int]] = {}
+
+    for c in all_customers:
+        nk = (c.full_name or "").strip().lower()
+        if nk and len(nk) > 2:
+            name_groups.setdefault(nk, []).append(c.id)
+        for ph in (c.phone, c.mobile_phone):
+            pk = _phone_key(ph)
+            if pk:
+                phone_groups.setdefault(pk, []).append(c.id)
+        ek = (c.email or "").strip().lower()
+        if ek and "@" in ek:
+            email_groups.setdefault(ek, []).append(c.id)
+
+    duplicates_of: dict[int, set[int]] = {}
+    for groups in (name_groups, phone_groups, email_groups):
+        for ids in groups.values():
+            if len(ids) < 2:
+                continue
+            id_set = set(ids)
+            for cid in id_set:
+                duplicates_of.setdefault(cid, set()).update(id_set - {cid})
+
+    # ── Step 2: Determine which customers have ANY active policy ──
+    # Single SQL pass to map customer_id → True/False
+    customer_has_active: dict[int, bool] = {}
+    all_policies = db.query(CustomerPolicy).all()
+    customer_policies_map: dict[int, list[CustomerPolicy]] = {}
+    for pol in all_policies:
+        customer_policies_map.setdefault(pol.customer_id, []).append(pol)
+        if _is_active_status(pol.status):
+            customer_has_active[pol.customer_id] = True
+    # Default everyone else to False
+    for c in all_customers:
+        customer_has_active.setdefault(c.id, False)
+
+    # ── Step 3: Identify lost customers (no active policies + no
+    # duplicate has active policies + at least one cancelled policy
+    # with usable premium info) ──
+    cutoff_date = None
+    if months_back and months_back > 0:
+        cutoff_date = datetime.utcnow() - timedelta(days=months_back * 30)
+
+    lost_records = []
+    excluded_due_to_duplicate = 0
+    excluded_due_to_no_premium = 0
+    excluded_due_to_old_cancellation = 0
+    excluded_no_contact_info = 0
+
+    for c in all_customers:
+        if customer_has_active.get(c.id, False):
+            continue  # has active policy → not lost
+
+        # Cross-check duplicates
+        dup_ids = duplicates_of.get(c.id, set())
+        if any(customer_has_active.get(dup_id, False) for dup_id in dup_ids):
+            excluded_due_to_duplicate += 1
+            continue
+
+        # Their policies (all non-active by definition of being here)
+        pols = customer_policies_map.get(c.id, [])
+        if not pols:
+            continue  # no policies at all — probably a stale prospect
+
+        # Pick the most recent cancellation date and total premium
+        # We sum the LATEST premium per line of business so an auto +
+        # home customer shows their full lost premium, not just one
+        latest_per_lob: dict[str, CustomerPolicy] = {}
+        for p in pols:
+            lob = (p.line_of_business or "Unknown").strip()
+            existing = latest_per_lob.get(lob)
+            if not existing:
+                latest_per_lob[lob] = p
+                continue
+            # Pick the one with the later expiration_date / effective_date
+            ex_dt = existing.expiration_date or existing.effective_date or datetime.min
+            new_dt = p.expiration_date or p.effective_date or datetime.min
+            if new_dt > ex_dt:
+                latest_per_lob[lob] = p
+
+        total_lost_premium = 0.0
+        latest_cancel_date = None
+        carriers = set()
+        for lob, p in latest_per_lob.items():
+            if p.premium:
+                try:
+                    total_lost_premium += float(p.premium)
+                except (TypeError, ValueError):
+                    pass
+            if p.carrier:
+                carriers.add(p.carrier)
+            cd = p.expiration_date or p.updated_at
+            if cd and (latest_cancel_date is None or cd > latest_cancel_date):
+                latest_cancel_date = cd
+
+        if total_lost_premium <= 0:
+            excluded_due_to_no_premium += 1
+            continue
+
+        if cutoff_date and latest_cancel_date and latest_cancel_date < cutoff_date:
+            excluded_due_to_old_cancellation += 1
+            continue
+
+        if not c.email and not c.phone and not c.mobile_phone:
+            excluded_no_contact_info += 1
+            # Still count them in totals but flag separately
+
+        lost_records.append({
+            "customer_id": c.id,
+            "nowcerts_insured_id": c.nowcerts_insured_id,
+            "full_name": c.full_name,
+            "email": c.email,
+            "phone": c.phone or c.mobile_phone,
+            "city": c.city,
+            "state": c.state,
+            "agent_name": c.agent_name,
+            "policy_count": len(pols),
+            "lines_of_business": sorted(latest_per_lob.keys()),
+            "carriers": sorted(carriers),
+            "total_lost_premium": round(total_lost_premium, 2),
+            "latest_cancel_date": latest_cancel_date.isoformat() if latest_cancel_date else None,
+            "has_email": bool(c.email),
+            "has_phone": bool(c.phone or c.mobile_phone),
+            "duplicate_profile_count": len(dup_ids),
+        })
+
+    # Sort by lost premium desc — biggest lost accounts first
+    lost_records.sort(key=lambda r: r["total_lost_premium"], reverse=True)
+
+    # ── Step 4: Aggregates ──
+    grand_total_premium = sum(r["total_lost_premium"] for r in lost_records)
+
+    by_carrier: dict[str, dict] = {}
+    for r in lost_records:
+        for carrier in r["carriers"] or ["Unknown"]:
+            slot = by_carrier.setdefault(carrier, {"customer_count": 0, "premium": 0.0})
+            slot["customer_count"] += 1
+            slot["premium"] += r["total_lost_premium"] / max(len(r["carriers"]), 1)
+
+    by_producer: dict[str, dict] = {}
+    for r in lost_records:
+        prod = r["agent_name"] or "Unassigned"
+        slot = by_producer.setdefault(prod, {"customer_count": 0, "premium": 0.0})
+        slot["customer_count"] += 1
+        slot["premium"] += r["total_lost_premium"]
+
+    by_year: dict[str, dict] = {}
+    for r in lost_records:
+        year = (r["latest_cancel_date"] or "")[:4] or "Unknown"
+        slot = by_year.setdefault(year, {"customer_count": 0, "premium": 0.0})
+        slot["customer_count"] += 1
+        slot["premium"] += r["total_lost_premium"]
+
+    return {
+        "filters": {
+            "months_back": months_back,
+            "cutoff_date": cutoff_date.isoformat() if cutoff_date else None,
+        },
+        "totals": {
+            "lost_customer_count": len(lost_records),
+            "lost_premium_total": round(grand_total_premium, 2),
+            "lost_customers_with_email": sum(1 for r in lost_records if r["has_email"]),
+            "lost_customers_with_phone": sum(1 for r in lost_records if r["has_phone"]),
+            "lost_customers_no_contact": sum(1 for r in lost_records if not r["has_email"] and not r["has_phone"]),
+        },
+        "exclusions": {
+            "excluded_due_to_active_duplicate": excluded_due_to_duplicate,
+            "excluded_due_to_no_premium_data": excluded_due_to_no_premium,
+            "excluded_due_to_old_cancellation": excluded_due_to_old_cancellation,
+        },
+        "by_carrier": [
+            {"carrier": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv for kk, vv in v.items()}}
+            for k, v in sorted(by_carrier.items(), key=lambda kv: kv[1]["premium"], reverse=True)
+        ],
+        "by_producer": [
+            {"producer": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv for kk, vv in v.items()}}
+            for k, v in sorted(by_producer.items(), key=lambda kv: kv[1]["premium"], reverse=True)
+        ],
+        "by_year": [
+            {"year": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv for kk, vv in v.items()}}
+            for k, v in sorted(by_year.items(), reverse=True)
+        ],
+        "top_50_customers": lost_records[:50],
+        "all_customer_count": len(lost_records),
+    }
