@@ -2117,11 +2117,54 @@ async def send_due_emails(
 # ── Unsubscribe ───────────────────────────────────────────────────
 
 @router.get("/unsubscribe/{token}")
-def unsubscribe(token: str, db: Session = Depends(get_db)):
-    """Handle email unsubscribe — adds to GLOBAL blocklist so they're never emailed again."""
+def unsubscribe_confirm(token: str, db: Session = Depends(get_db)):
+    """GET shows confirmation page. Real unsubscribe happens on POST."""
+    from fastapi.responses import HTMLResponse
     lead = db.query(RequoteLead).filter(RequoteLead.unsubscribe_token == token).first()
     if not lead:
-        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content="""
+        <html><body style="font-family:Arial;text-align:center;padding:60px;">
+        <h2>Invalid or expired link</h2>
+        <p>If you need help, contact us at service@betterchoiceins.com</p>
+        </body></html>
+        """)
+
+    if lead.opted_out:
+        return HTMLResponse(content="""
+        <html><body style="font-family:Arial;text-align:center;padding:60px;">
+        <h2>You're already unsubscribed</h2>
+        <p>If you're still receiving emails, please contact us at service@betterchoiceins.com</p>
+        </body></html>
+        """)
+
+    first_name = ((lead.name or '').split() + ['there'])[0]
+    return HTMLResponse(content=f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Confirm Unsubscribe</title></head>
+<body style="margin:0;padding:40px 20px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1a2b5f,#0c4a6e);padding:24px;text-align:center;">
+    <h1 style="color:#fff;font-size:20px;margin:0;">Confirm Unsubscribe</h1>
+  </div>
+  <div style="padding:28px 24px;">
+    <p style="color:#1e293b;font-size:16px;line-height:1.55;margin:0 0 16px;">Hi {first_name},</p>
+    <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 24px;">
+      To stop receiving emails from Better Choice Insurance, click the button below.
+    </p>
+    <form method="POST" action="/api/campaigns/unsubscribe/{token}" style="text-align:center;margin:0 0 12px;">
+      <button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Yes, unsubscribe me</button>
+    </form>
+    <p style="text-align:center;margin:16px 0 0;">
+      <a href="tel:8479085665" style="color:#0ea5e9;font-size:14px;text-decoration:none;">Or call us: 847-908-5665</a>
+    </p>
+  </div>
+</div></body></html>""")
+
+
+@router.post("/unsubscribe/{token}")
+def unsubscribe_confirmed(token: str, db: Session = Depends(get_db)):
+    """The actual unsubscribe — adds to GLOBAL blocklist so they're never emailed again."""
+    from fastapi.responses import HTMLResponse
+    lead = db.query(RequoteLead).filter(RequoteLead.unsubscribe_token == token).first()
+    if not lead:
         return HTMLResponse(content="""
         <html><body style="font-family:Arial;text-align:center;padding:60px;">
         <h2>Invalid or expired link</h2>
@@ -2156,7 +2199,6 @@ def unsubscribe(token: str, db: Session = Depends(get_db)):
 
     db.commit()
 
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <html><body style="font-family:Arial;text-align:center;padding:60px;">
     <h2>You've been unsubscribed</h2>

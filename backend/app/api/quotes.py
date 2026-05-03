@@ -1077,14 +1077,66 @@ def check_followups(
 
 
 @router.get("/unsubscribe/{token}")
+def unsubscribe_confirmation_page(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — customer clicks unsubscribe link in follow-up email.
+
+    GET shows a CONFIRMATION page with a button. The actual unsubscribe
+    happens on POST when the customer clicks the button.
+
+    Why two-step:
+      - Email clients (Gmail, Outlook 365 Defender, Apple Mail) pre-fetch
+        links for spam scanning. Auto-unsubscribing on GET means a single
+        spam-scan bot pre-fetch silently unsubscribes a customer who never
+        intended to.
+      - This is the industry-standard pattern (Mailchimp, ConvertKit, etc.)
+    """
+    quote = db.query(Quote).filter(Quote.unsubscribe_token == token).first()
+    if not quote:
+        return HTMLResponse(
+            content=_unsub_page(
+                "Link Expired",
+                "This unsubscribe link is no longer valid. If you're still receiving emails, please contact us at service@betterchoiceins.com or call 847-908-5665.",
+            ),
+            status_code=200,
+        )
+
+    # Already unsubscribed?
+    if quote.followup_disabled:
+        return HTMLResponse(
+            content=_unsub_page(
+                "Already Unsubscribed",
+                f"You've already been removed from follow-up emails. If you're still receiving emails, please contact us at service@betterchoiceins.com or call 847-908-5665.",
+            ),
+            status_code=200,
+        )
+
+    first_name = (quote.prospect_name or "there").split()[0]
+    return HTMLResponse(content=_unsub_confirm_page(token, first_name), status_code=200)
+
+
+@router.post("/unsubscribe/{token}")
 def unsubscribe_from_followups(
     token: str,
     db: Session = Depends(get_db),
 ):
-    """Public endpoint — customer clicks unsubscribe link in follow-up email."""
+    """The actual unsubscribe — only fires when customer explicitly clicks
+    the confirm button on the GET page (or hits POST directly).
+
+    Pre-fetch bots only do GETs, so this is safe from accidental
+    unsubscription via email-scanning tools.
+    """
     quote = db.query(Quote).filter(Quote.unsubscribe_token == token).first()
     if not quote:
-        return HTMLResponse(content=_unsub_page("Link Expired", "This unsubscribe link is no longer valid. If you're still receiving emails, please contact us at service@betterchoiceins.com or call 847-908-5665."), status_code=200)
+        return HTMLResponse(
+            content=_unsub_page(
+                "Link Expired",
+                "This unsubscribe link is no longer valid. If you're still receiving emails, please contact us at service@betterchoiceins.com or call 847-908-5665.",
+            ),
+            status_code=200,
+        )
 
     # Disable followups for ALL quotes with this prospect's email
     email = (quote.prospect_email or "").lower().strip()
@@ -1098,8 +1150,45 @@ def unsubscribe_from_followups(
         quote.followup_disabled = True
     db.commit()
 
-    logger.info(f"Unsubscribed: {quote.prospect_name} ({quote.prospect_email}) via token {token[:8]}...")
-    return HTMLResponse(content=_unsub_page("You've Been Unsubscribed", f"You will no longer receive follow-up emails from Better Choice Insurance Group about your quote. If you ever need insurance help in the future, we're always here — just call us at 847-908-5665."), status_code=200)
+    logger.info(
+        f"Unsubscribed (POST confirmed): {quote.prospect_name} ({quote.prospect_email}) via token {token[:8]}..."
+    )
+    return HTMLResponse(
+        content=_unsub_page(
+            "You've Been Unsubscribed",
+            f"You will no longer receive follow-up emails from Better Choice Insurance Group about your quote. If you ever need insurance help in the future, we're always here — just call us at 847-908-5665.",
+        ),
+        status_code=200,
+    )
+
+
+def _unsub_confirm_page(token: str, first_name: str) -> str:
+    """Confirmation page — customer must click button to actually unsubscribe."""
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Confirm Unsubscribe — Better Choice Insurance</title></head>
+<body style="margin:0;padding:40px 20px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1a2b5f,#0c4a6e);padding:24px;text-align:center;">
+    <h1 style="color:#fff;font-size:20px;margin:0;">Confirm Unsubscribe</h1>
+  </div>
+  <div style="padding:28px 24px;">
+    <p style="color:#1e293b;font-size:16px;line-height:1.55;margin:0 0 16px;">Hi {first_name},</p>
+    <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      To stop receiving follow-up emails about your insurance quote from Better Choice Insurance Group, click the button below.
+    </p>
+    <p style="color:#64748b;font-size:13px;line-height:1.55;margin:0 0 24px;">
+      <strong>Just want to slow them down?</strong> Reply directly to any email and let us know what cadence works for you. We'd rather adjust than lose touch entirely.
+    </p>
+    <form method="POST" action="/api/quotes/unsubscribe/{token}" style="text-align:center;margin:0 0 12px;">
+      <button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Yes, unsubscribe me</button>
+    </form>
+    <p style="text-align:center;margin:16px 0 0;">
+      <a href="tel:8479085665" style="color:#0ea5e9;font-size:14px;text-decoration:none;">Or call us: 847-908-5665</a>
+    </p>
+    <div style="text-align:center;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px;">
+      <p style="color:#94a3b8;font-size:12px;margin:0;">Better Choice Insurance Group · 847-908-5665</p>
+    </div>
+  </div>
+</div></body></html>"""
 
 
 def _unsub_page(title: str, message: str) -> str:

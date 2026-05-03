@@ -423,15 +423,64 @@ def opt_out(
 
 
 @router.get("/unsubscribe/{contact_id}")
-def unsubscribe_from_campaign(
+def unsubscribe_confirm_page(
     contact_id: int,
     db: Session = Depends(get_db),
 ):
-    """Public unsubscribe endpoint — no auth required (CAN-SPAM compliance).
-    
-    Customer clicks unsubscribe link in email → immediately opted out.
-    Returns a simple HTML confirmation page.
+    """GET shows the confirmation page. POST does the actual unsubscribe.
+
+    Two-step pattern protects against email-client pre-fetch bots
+    (Gmail, Outlook 365 Defender, Apple Mail) silently unsubscribing
+    customers who never clicked the link.
     """
+    from fastapi.responses import HTMLResponse
+    contact = db.query(LifeCrossSellContact).filter(LifeCrossSellContact.id == contact_id).first()
+    if not contact:
+        return HTMLResponse(content="""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;text-align:center;padding:60px;">
+<h2>Invalid or expired link</h2>
+<p>If you need help, contact us at service@betterchoiceins.com</p>
+</body></html>""")
+
+    if contact.status == "opted_out":
+        return HTMLResponse(content="""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;text-align:center;padding:60px;">
+<h2>You're already unsubscribed</h2>
+<p>If you're still receiving emails, please contact us at service@betterchoiceins.com</p>
+</body></html>""")
+
+    first_name = ((contact.customer_name or '').split() + ['there'])[0]
+    return HTMLResponse(content=f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Confirm Unsubscribe</title></head>
+<body style="margin:0;padding:40px 20px;background:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:linear-gradient(135deg,#1a2b5f,#0c4a6e);padding:24px;text-align:center;">
+    <h1 style="color:#fff;font-size:20px;margin:0;">Confirm Unsubscribe</h1>
+  </div>
+  <div style="padding:28px 24px;">
+    <p style="color:#1e293b;font-size:16px;line-height:1.55;margin:0 0 16px;">Hi {first_name},</p>
+    <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 8px;">
+      To stop receiving life insurance emails from Better Choice Insurance, click the button below.
+    </p>
+    <p style="color:#64748B;font-size:13px;line-height:1.55;margin:0 0 24px;">
+      Your existing property and auto coverage will not be affected.
+    </p>
+    <form method="POST" action="/api/life-campaign/unsubscribe/{contact_id}" style="text-align:center;margin:0 0 12px;">
+      <button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Yes, unsubscribe me</button>
+    </form>
+    <p style="text-align:center;margin:16px 0 0;">
+      <a href="tel:8479085665" style="color:#0ea5e9;font-size:14px;text-decoration:none;">Or call us: (847) 908-5665</a>
+    </p>
+  </div>
+</div></body></html>""")
+
+
+@router.post("/unsubscribe/{contact_id}")
+def unsubscribe_confirmed(
+    contact_id: int,
+    db: Session = Depends(get_db),
+):
+    """The actual unsubscribe — only fires after explicit user confirmation."""
+    from fastapi.responses import HTMLResponse
     contact = db.query(LifeCrossSellContact).filter(LifeCrossSellContact.id == contact_id).first()
     if contact and contact.status not in ("opted_out",):
         contact.status = "opted_out"
@@ -439,8 +488,6 @@ def unsubscribe_from_campaign(
         db.commit()
         logger.info(f"Life cross-sell: {contact.customer_email} unsubscribed (contact {contact_id})")
 
-    # Return a simple branded confirmation page
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Unsubscribed</title></head>

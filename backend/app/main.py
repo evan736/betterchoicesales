@@ -2553,14 +2553,73 @@ def confirm_bind(quote_id: int, body: dict = None):
 
 # ── Public unsubscribe endpoint (no auth — customer-facing) ──
 @app.get("/api/unsubscribe/{token}")
-def unsubscribe_page(token: str):
-    """Opt out of follow-up emails for a quote."""
+def unsubscribe_confirm_page(token: str):
+    """GET shows the confirmation page. The actual unsubscribe happens on POST.
+
+    Why two-step:
+      - Email clients pre-fetch links for spam scanning (Gmail, Outlook
+        365 Defender, Apple Mail). Auto-unsubscribing on GET means a
+        single bot pre-fetch silently unsubscribes a customer.
+      - Industry standard pattern (Mailchimp, ConvertKit, etc.)
+    """
     from app.core.database import SessionLocal
     from app.models.campaign import Quote as QuoteModel
 
     db = SessionLocal()
     try:
-        # Find all quotes with this token OR same prospect email
+        quote = db.query(QuoteModel).filter(QuoteModel.unsubscribe_token == token).first()
+        if not quote:
+            return HTMLResponse("""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unsubscribe</title></head><body style="font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f1f5f9;margin:0;">
+<div style="background:white;border-radius:12px;padding:40px;max-width:440px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+<p style="font-size:16px;color:#64748B;">This link is no longer valid or has already been used.</p>
+<p style="font-size:14px;color:#94a3b8;margin-top:12px;">If you need assistance, call us at (847) 908-5665.</p>
+</div></body></html>""", status_code=404)
+
+        if quote.followup_disabled:
+            return HTMLResponse("""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Already Unsubscribed</title></head><body style="font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f1f5f9;margin:0;">
+<div style="background:white;border-radius:12px;padding:40px;max-width:440px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+<p style="font-size:16px;color:#1e293b;font-weight:600;">You're already unsubscribed.</p>
+<p style="font-size:14px;color:#64748B;margin-top:8px;">If you're still receiving emails, please contact us at service@betterchoiceins.com or call (847) 908-5665.</p>
+</div></body></html>""")
+
+        first_name = (quote.prospect_name or "there").split()[0]
+        return HTMLResponse(f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confirm Unsubscribe — Better Choice Insurance</title>
+<style>*{{margin:0;padding:0;box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f1f5f9;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}}</style>
+</head><body>
+<div style="background:white;border-radius:16px;max-width:480px;width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.12);">
+  <div style="background:linear-gradient(135deg,#1a2b5f,#0c4a6e);padding:24px;text-align:center;">
+    <h1 style="color:#fff;font-size:18px;">Confirm Unsubscribe</h1>
+  </div>
+  <div style="padding:28px;">
+    <p style="color:#1e293b;font-size:16px;margin-bottom:16px;">Hi {first_name},</p>
+    <p style="color:#334155;font-size:15px;line-height:1.6;margin-bottom:20px;">To stop receiving follow-up emails about your insurance quote from Better Choice Insurance Group, click the button below.</p>
+    <p style="color:#64748B;font-size:13px;line-height:1.55;margin-bottom:24px;"><strong>Just want to slow them down?</strong> Reply to any email and let us know what cadence works for you. We'd rather adjust than lose touch entirely.</p>
+    <form method="POST" action="/api/unsubscribe/{token}" style="text-align:center;margin-bottom:12px;">
+      <button type="submit" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">Yes, unsubscribe me</button>
+    </form>
+    <p style="text-align:center;margin:16px 0 0;">
+      <a href="tel:8479085665" style="color:#0ea5e9;font-size:14px;text-decoration:none;">Or call us: (847) 908-5665</a>
+    </p>
+    <div style="text-align:center;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px;">
+      <p style="color:#94a3b8;font-size:12px;">Better Choice Insurance Group · 847-908-5665</p>
+    </div>
+  </div>
+</div></body></html>""")
+    finally:
+        db.close()
+
+
+@app.post("/api/unsubscribe/{token}")
+def unsubscribe_confirmed(token: str):
+    """The actual unsubscribe — fires only after customer clicks the button."""
+    from app.core.database import SessionLocal
+    from app.models.campaign import Quote as QuoteModel
+
+    db = SessionLocal()
+    try:
         quote = db.query(QuoteModel).filter(QuoteModel.unsubscribe_token == token).first()
         if not quote:
             return HTMLResponse("""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2573,7 +2632,6 @@ def unsubscribe_page(token: str):
         prospect_name = quote.prospect_name or "there"
         first_name = prospect_name.split()[0]
 
-        # Disable follow-ups for ALL quotes for this email
         if quote.prospect_email:
             related = db.query(QuoteModel).filter(
                 QuoteModel.prospect_email == quote.prospect_email,
@@ -2597,13 +2655,13 @@ def unsubscribe_page(token: str):
     <div style="font-size:48px;margin-bottom:12px;">✉️</div>
     <h2 style="color:#1e293b;font-size:20px;margin-bottom:12px;">You've Been Unsubscribed</h2>
     <p style="color:#64748B;font-size:14px;line-height:1.6;margin-bottom:20px;">
-      No worries, {first_name}! We've stopped all follow-up emails for your quote. 
+      No worries, {first_name}! We've stopped all follow-up emails for your quote.
       You won't receive any more reminders from us.
     </p>
     <div style="background:#F8FAFC;border-radius:8px;padding:16px;border:1px solid #E2E8F0;">
       <p style="color:#334155;font-size:13px;line-height:1.6;">
-        If you change your mind or want to move forward with your quote, 
-        you can always reach us at <a href="tel:8479085665" style="color:#0ea5e9;font-weight:600;">(847) 908-5665</a> 
+        If you change your mind or want to move forward with your quote,
+        you can always reach us at <a href="tel:8479085665" style="color:#0ea5e9;font-weight:600;">(847) 908-5665</a>
         or email <a href="mailto:service@betterchoiceins.com" style="color:#0ea5e9;font-weight:600;">service@betterchoiceins.com</a>.
       </p>
     </div>
