@@ -840,6 +840,63 @@ def create_sale(
     except Exception as e:
         logger.warning(f"Quote auto-conversion check failed: {e}")
 
+    # Auto-mark matching winback campaigns as won-back (same email or name)
+    try:
+        from app.models.campaign import WinBackCampaign
+        from sqlalchemy import or_ as sa_or, func as sa_func_wb
+        wb_email_lc = (sale.client_email or "").strip().lower()
+        wb_name_lc = (sale.client_name or "").strip().lower()
+        wb_filters = []
+        if wb_email_lc and "@" in wb_email_lc:
+            wb_filters.append(sa_func_wb.lower(WinBackCampaign.customer_email) == wb_email_lc)
+        if wb_name_lc:
+            wb_filters.append(sa_func_wb.lower(WinBackCampaign.customer_name) == wb_name_lc)
+        if wb_filters:
+            wbs = db.query(WinBackCampaign).filter(
+                WinBackCampaign.status != "won_back",
+                WinBackCampaign.excluded == False,
+                sa_or(*wb_filters),
+            ).all()
+            now_dt2 = datetime.utcnow()
+            for wb in wbs:
+                wb.status = "won_back"
+                wb.won_back_date = now_dt2
+                wb.new_policy_number = sale.policy_number
+            if wbs:
+                db.commit()
+                logger.info(f"Auto-marked {len(wbs)} winback record(s) won-back for sale {sale.id} ({sale.client_name})")
+    except Exception as e:
+        logger.warning(f"Winback won-back auto-conversion check failed: {e}")
+
+    # Auto-mark matching cold prospects as converted (same email or name)
+    # Stops their cold-outreach campaign immediately when a sale is created.
+    try:
+        from app.models.campaign import ColdProspect
+        from sqlalchemy import or_, func as sa_func_cp
+        client_email_lc = (sale.client_email or "").strip().lower()
+        client_name_lc = (sale.client_name or "").strip().lower()
+        match_filters = []
+        if client_email_lc and "@" in client_email_lc:
+            match_filters.append(sa_func_cp.lower(ColdProspect.email) == client_email_lc)
+        if client_name_lc:
+            match_filters.append(sa_func_cp.lower(ColdProspect.full_name) == client_name_lc)
+        if match_filters:
+            cps = db.query(ColdProspect).filter(
+                ColdProspect.status != "converted",
+                ColdProspect.excluded == False,
+                or_(*match_filters),
+            ).all()
+            now_dt = datetime.utcnow()
+            for cp in cps:
+                cp.status = "converted"
+                cp.converted_at = now_dt
+                cp.converted_sale_id = sale.id
+            if cps:
+                db.commit()
+                logger.info(f"Auto-converted {len(cps)} cold prospect(s) for sale {sale.id} ({sale.client_name})")
+    except Exception as e:
+        logger.warning(f"Cold prospect auto-conversion check failed: {e}")
+
     # Check if this sale sets a new daily/monthly record
     try:
         from app.api.sales_records import check_for_new_records

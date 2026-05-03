@@ -51,3 +51,4 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
 slowapi==0.1.9
 pytz
+dnspython==2.6.1

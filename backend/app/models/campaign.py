@@ -185,6 +185,113 @@ class WinBackCampaign(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# COLD PROSPECT OUTREACH
+# ═══════════════════════════════════════════════════════════════════
+# Separate from WinBackCampaign because cold prospects are categorically
+# different:
+#   - They were never our customer (we have NO prior relationship)
+#   - Email copy can't reference "you previously were insured with us"
+#   - Stop condition is sale-uploaded (became a client), not won-back
+#   - Need to track bounces aggressively (cold list = high bounce risk)
+#   - Need DNC compliance (Allstate Do Not Mail flag from source data)
+#
+# Sourced from the Allstate territorial prospect export (X-date files).
+# Each row is one person with one X-date. Multiple imports can cover
+# the same person — dedupe by (lower(email), state) or (last_name,
+# first_name, zip5).
+
+class ColdProspect(Base):
+    """A prospect from the Allstate X-date export — never our customer.
+
+    Lifecycle phases (mirrors WinBackCampaign for consistency):
+      cold_wakeup  → Phase 1, first email (90-day rollout, premium DESC)
+      x_date_prep  → Phase 2, in -30/-21/-14/-7 day window before X-date
+      dormant      → between cycles, waiting for next prep window
+      converted    → sale uploaded, became client (final state)
+      suppressed   → bounced / replied / opted out
+    """
+    __tablename__ = "cold_prospects"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Identity
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    full_name = Column(String, nullable=True, index=True)
+    email = Column(String, nullable=True, index=True)
+    home_phone = Column(String, nullable=True)
+    work_phone = Column(String, nullable=True)
+    mobile_phone = Column(String, nullable=True)
+
+    # Address
+    street = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String(2), nullable=True, index=True)
+    zip_code = Column(String(10), nullable=True, index=True)
+
+    # Source policy info (the policy they had when added to the list)
+    policy_type = Column(String, nullable=True)  # Auto, Home, etc
+    company = Column(String, nullable=True)  # who they were with
+    premium = Column(Numeric(10, 2), nullable=True)
+    quoted_company = Column(String, nullable=True)  # what we'd quoted them
+    quoted_premium = Column(Numeric(10, 2), nullable=True)
+    customer_status = Column(String, nullable=True, index=True)
+    # Values: Prospect, Former Customer, Customer (excluded), Claim Contact (excluded)
+
+    # X-date tracking
+    original_x_date = Column(DateTime(timezone=True), nullable=True)
+    next_x_date = Column(DateTime(timezone=True), nullable=True, index=True)
+    x_date_cycle_count = Column(Integer, default=0)
+    cycle_touchpoint_count = Column(Integer, default=0)
+
+    # Compliance flags from source
+    mail_status = Column(String, nullable=True)  # OK to Mail / Do Not Mail
+    call_status = Column(String, nullable=True)  # OK to Call / Do Not Call
+    do_not_email = Column(Boolean, default=False, nullable=False)
+    do_not_text = Column(Boolean, default=False, nullable=False)
+    do_not_call = Column(Boolean, default=False, nullable=False)
+
+    # Validation status
+    email_validated = Column(Boolean, default=False, nullable=False)
+    email_valid = Column(Boolean, default=False, nullable=False)
+    email_validation_reason = Column(String, nullable=True)
+    email_validated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Outreach tracking
+    phase = Column(String, default="cold_wakeup", nullable=False, index=True)
+    status = Column(String, default="active", nullable=False, index=True)
+    # Values: active, paused_replied, paused_bounced, paused_unsubscribed, converted, excluded
+    touchpoint_count = Column(Integer, default=0)
+    last_touchpoint_at = Column(DateTime(timezone=True), nullable=True)
+    last_email_variant = Column(String, nullable=True)
+    # Tracks which copy variant was last used so the next contact uses
+    # a different one. 4 variants in rotation.
+
+    # Reply / bounce tracking
+    last_reply_at = Column(DateTime(timezone=True), nullable=True)
+    last_reply_subject = Column(String, nullable=True)
+    bounce_count = Column(Integer, default=0)
+    last_bounce_at = Column(DateTime(timezone=True), nullable=True)
+    bounce_reason = Column(String, nullable=True)
+
+    # Conversion (sale uploaded for them = stop campaign)
+    converted_at = Column(DateTime(timezone=True), nullable=True)
+    converted_sale_id = Column(Integer, nullable=True)
+
+    # Round-robin assignment (joseph/evan/giulian)
+    assigned_producer = Column(String, nullable=True)
+
+    # Source tracking — for audit
+    source = Column(String, nullable=True)  # 'allstate_xdate_2026_csv', 'manual', etc.
+    source_external_id = Column(String, nullable=True)
+    excluded = Column(Boolean, default=False, nullable=False)
+    excluded_reason = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════════
 # QUOTE TRACKING
 # ═══════════════════════════════════════════════════════════════════
 

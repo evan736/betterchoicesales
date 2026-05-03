@@ -1078,7 +1078,7 @@ async def receive_inbound_email(
     # all future winback emails for that customer. Producer takes
     # over manually from their inbox.
     try:
-        from app.models.campaign import WinBackCampaign
+        from app.models.campaign import WinBackCampaign, ColdProspect
         from sqlalchemy import func as sa_func2
         clean_from2 = (from_addr or "").strip().lower()
         m2 = clean_from2.rfind("<")
@@ -1103,8 +1103,27 @@ async def receive_inbound_email(
                 logger.info(
                     f"Winback reply detected: paused {len(wb_matches)} campaign(s) for {clean_from2}"
                 )
+
+            # Same for cold prospects
+            cp_matches = (
+                db.query(ColdProspect)
+                .filter(ColdProspect.last_reply_at.is_(None))
+                .filter(ColdProspect.excluded == False)
+                .filter(sa_func2.lower(ColdProspect.email) == clean_from2)
+                .all()
+            )
+            if cp_matches:
+                now_dt3 = datetime.utcnow()
+                for cp in cp_matches:
+                    cp.last_reply_at = now_dt3
+                    cp.last_reply_subject = (subject or "")[:200]
+                    cp.status = "paused_replied"
+                db.commit()
+                logger.info(
+                    f"Cold prospect reply detected: paused {len(cp_matches)} prospect(s) for {clean_from2}"
+                )
     except Exception as e:
-        logger.debug(f"Winback reply tracking skipped: {e}")
+        logger.debug(f"Winback/cold reply tracking skipped: {e}")
 
     # Kick off async processing
     db_url = os.getenv("DATABASE_URL", "")

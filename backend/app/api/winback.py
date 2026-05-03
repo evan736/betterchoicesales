@@ -1805,7 +1805,7 @@ def winback_scheduler_tick(
     if require_business_hours and not dry_run:
         weekday = now_ct.weekday()
         hour = now_ct.hour
-        if weekday >= 5 or hour < 9 or hour >= 18:
+        if weekday >= 5 or hour < 9 or hour >= 15:
             return {
                 "skipped": "outside_business_hours",
                 "now_ct": now_ct.isoformat(),

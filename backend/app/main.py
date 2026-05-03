@@ -19,6 +19,7 @@ from app.api import customers as customers_api
 from app.api import nonpay as nonpay_api
 from app.api import uw_requirements as uw_api
 from app.api import winback as winback_api
+from app.api import cold_prospects as cold_prospects_api
 from app.api import missive as missive_api
 from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
@@ -446,6 +447,76 @@ def init_database():
             logger.info("winback_campaigns Phase 2 columns ready")
         except Exception as e:
             logger.warning(f"winback Phase 2 migration: {e}")
+
+    # Cold prospect outreach table (Allstate X-date prospects)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cold_prospects (
+                    id SERIAL PRIMARY KEY,
+                    first_name VARCHAR,
+                    last_name VARCHAR,
+                    full_name VARCHAR,
+                    email VARCHAR,
+                    home_phone VARCHAR,
+                    work_phone VARCHAR,
+                    mobile_phone VARCHAR,
+                    street VARCHAR,
+                    city VARCHAR,
+                    state VARCHAR(2),
+                    zip_code VARCHAR(10),
+                    policy_type VARCHAR,
+                    company VARCHAR,
+                    premium NUMERIC(10,2),
+                    quoted_company VARCHAR,
+                    quoted_premium NUMERIC(10,2),
+                    customer_status VARCHAR,
+                    original_x_date TIMESTAMPTZ,
+                    next_x_date TIMESTAMPTZ,
+                    x_date_cycle_count INTEGER DEFAULT 0,
+                    cycle_touchpoint_count INTEGER DEFAULT 0,
+                    mail_status VARCHAR,
+                    call_status VARCHAR,
+                    do_not_email BOOLEAN DEFAULT FALSE NOT NULL,
+                    do_not_text BOOLEAN DEFAULT FALSE NOT NULL,
+                    do_not_call BOOLEAN DEFAULT FALSE NOT NULL,
+                    email_validated BOOLEAN DEFAULT FALSE NOT NULL,
+                    email_valid BOOLEAN DEFAULT FALSE NOT NULL,
+                    email_validation_reason VARCHAR,
+                    email_validated_at TIMESTAMPTZ,
+                    phase VARCHAR DEFAULT 'cold_wakeup' NOT NULL,
+                    status VARCHAR DEFAULT 'active' NOT NULL,
+                    touchpoint_count INTEGER DEFAULT 0,
+                    last_touchpoint_at TIMESTAMPTZ,
+                    last_email_variant VARCHAR,
+                    last_reply_at TIMESTAMPTZ,
+                    last_reply_subject VARCHAR,
+                    bounce_count INTEGER DEFAULT 0,
+                    last_bounce_at TIMESTAMPTZ,
+                    bounce_reason VARCHAR,
+                    converted_at TIMESTAMPTZ,
+                    converted_sale_id INTEGER,
+                    assigned_producer VARCHAR,
+                    source VARCHAR,
+                    source_external_id VARCHAR,
+                    excluded BOOLEAN DEFAULT FALSE NOT NULL,
+                    excluded_reason VARCHAR,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_email ON cold_prospects(LOWER(email))"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_phase ON cold_prospects(phase)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_status ON cold_prospects(status)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_state ON cold_prospects(state)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_zip ON cold_prospects(zip_code)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_full_name ON cold_prospects(full_name)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_x_date ON cold_prospects(next_x_date)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_cold_prospects_customer_status ON cold_prospects(customer_status)"))
+            conn.commit()
+            logger.info("cold_prospects table ready")
+        except Exception as e:
+            logger.warning(f"cold_prospects migration: {e}")
 
     # Ensure chat tables exist
     with engine.connect() as conn:
@@ -1356,7 +1427,7 @@ async def lifespan(app: FastAPI):
                         now_ct = _dt.utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
                         weekday = now_ct.weekday()
                         hour = now_ct.hour
-                        if weekday >= 5 or hour < 9 or hour >= 18:
+                        if weekday >= 5 or hour < 9 or hour >= 15:
                             pass  # outside business hours, skip silently
                         else:
                             max_per_tick = int(os.getenv("WINBACK_MAX_PER_TICK", "4"))
@@ -1444,6 +1515,122 @@ async def lifespan(app: FastAPI):
             _time.sleep(1800)  # Every 30 minutes
 
     threading.Thread(target=_winback_scheduler, daemon=True).start()
+
+    # ── Cold prospect scheduler (every 30 min during business hours) ──
+    # Same Phase 1 + Phase 2 logic as winback but for the separate
+    # cold_prospects table (Allstate X-date prospects).
+    #
+    # GATE: env var COLD_PROSPECT_SCHEDULER_ENABLED must be 'true'.
+    # Default false so this never auto-fires on a fresh deploy.
+    #
+    # Default pace: COLD_MAX_PER_TICK env var (default 4). With 4 emails
+    # per tick × 12 ticks/business-day (9-3pm) = ~48/day. Tunable.
+    def _cold_prospect_scheduler():
+        import time as _time
+        import os
+        _time.sleep(180)  # Wait for migrations + winback scheduler
+        logger.info("Cold prospect scheduler started (gated on COLD_PROSPECT_SCHEDULER_ENABLED)")
+        while True:
+            try:
+                if os.getenv("COLD_PROSPECT_SCHEDULER_ENABLED", "false").lower() == "true":
+                    from app.core.database import SessionLocal
+                    from app.api.cold_prospects import _send_cold_email, _get_assigned_producer
+                    from app.models.campaign import ColdProspect
+                    from datetime import datetime as _dt, timedelta as _td
+                    from zoneinfo import ZoneInfo
+                    _db = SessionLocal()
+                    try:
+                        now_ct = _dt.utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
+                        weekday = now_ct.weekday()
+                        hour = now_ct.hour
+                        # Per Evan: 9 AM - 3 PM CT, M-F
+                        if weekday >= 5 or hour < 9 or hour >= 15:
+                            pass
+                        else:
+                            max_per_tick = int(os.getenv("COLD_MAX_PER_TICK", "4"))
+                            sent = 0
+                            base_filter = [
+                                ColdProspect.excluded == False,
+                                ColdProspect.status == "active",
+                                ColdProspect.email_valid == True,
+                                ColdProspect.do_not_email == False,
+                                ColdProspect.email.isnot(None),
+                                ColdProspect.last_reply_at.is_(None),
+                                ColdProspect.bounce_count < 2,
+                            ]
+
+                            # Phase 2 priority
+                            offset_map = {0: 30, 1: 21, 2: 14, 3: 7}
+                            p2_candidates = _db.query(ColdProspect).filter(
+                                *base_filter,
+                                ColdProspect.next_x_date.isnot(None),
+                                ColdProspect.next_x_date <= _dt.utcnow() + _td(days=35),
+                                ColdProspect.next_x_date >= _dt.utcnow() - _td(days=2),
+                                ColdProspect.cycle_touchpoint_count < 4,
+                            ).order_by(
+                                ColdProspect.next_x_date.asc(),
+                                ColdProspect.premium.desc().nullslast(),
+                            ).limit(max_per_tick * 3).all()
+
+                            for c in p2_candidates:
+                                if sent >= max_per_tick:
+                                    break
+                                cycle_tc = c.cycle_touchpoint_count or 0
+                                offset_days = offset_map.get(cycle_tc, 7)
+                                due_at = c.next_x_date - _td(days=offset_days)
+                                due_naive = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
+                                if _dt.utcnow() < due_naive:
+                                    continue
+                                if c.last_touchpoint_at:
+                                    lt = c.last_touchpoint_at.replace(tzinfo=None) if c.last_touchpoint_at.tzinfo else c.last_touchpoint_at
+                                    if (_dt.utcnow() - lt).days < 5:
+                                        continue
+                                if _send_cold_email(c, _db):
+                                    c.touchpoint_count = (c.touchpoint_count or 0) + 1
+                                    c.cycle_touchpoint_count = cycle_tc + 1
+                                    c.last_touchpoint_at = _dt.utcnow()
+                                    c.phase = "x_date_prep"
+                                    if c.cycle_touchpoint_count >= 4:
+                                        c.next_x_date = c.next_x_date + _td(days=365)
+                                        c.cycle_touchpoint_count = 0
+                                        c.x_date_cycle_count = (c.x_date_cycle_count or 0) + 1
+                                        c.phase = "dormant"
+                                    sent += 1
+
+                            # Phase 1 fills the rest
+                            if sent < max_per_tick:
+                                p1 = _db.query(ColdProspect).filter(
+                                    *base_filter,
+                                    ColdProspect.touchpoint_count == 0,
+                                ).filter(
+                                    (ColdProspect.phase == "cold_wakeup") | (ColdProspect.phase.is_(None))
+                                ).order_by(
+                                    ColdProspect.premium.desc().nullslast(),
+                                    ColdProspect.created_at.asc(),
+                                ).limit(max_per_tick - sent).all()
+                                for c in p1:
+                                    if c.next_x_date:
+                                        nx = c.next_x_date.replace(tzinfo=None) if c.next_x_date.tzinfo else c.next_x_date
+                                        days_until = (nx - _dt.utcnow()).days
+                                        if 0 < days_until < 60:
+                                            c.phase = "x_date_prep"
+                                            continue
+                                    if _send_cold_email(c, _db):
+                                        c.touchpoint_count = 1
+                                        c.last_touchpoint_at = _dt.utcnow()
+                                        c.phase = "dormant"
+                                        sent += 1
+
+                            _db.commit()
+                            if sent > 0:
+                                logger.info(f"Cold prospect scheduler: sent {sent} email(s)")
+                    finally:
+                        _db.close()
+            except Exception as e:
+                logger.error("Cold prospect scheduler error: %s", e)
+            _time.sleep(1800)
+
+    threading.Thread(target=_cold_prospect_scheduler, daemon=True).start()
 
     # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
     logger.info("Life cross-sell campaign send available via API endpoint")
@@ -1874,6 +2061,7 @@ app.include_router(customers_api.router)
 app.include_router(nonpay_api.router)
 app.include_router(uw_api.router)
 app.include_router(winback_api.router)
+app.include_router(cold_prospects_api.router)
 app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
