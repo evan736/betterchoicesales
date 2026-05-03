@@ -240,8 +240,14 @@ def send_plaintext_quote_email(
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return {"success": False, "error": "Mailgun not configured"}
 
-    app_url = getattr(settings, 'FRONTEND_URL', None) or "https://better-choice-web.onrender.com"
-    unsubscribe_url = f"{app_url}/unsubscribe?token={unsubscribe_token}" if unsubscribe_token else None
+    # Point at the WORKING backend endpoint. The frontend has no /unsubscribe
+    # page, so the previous URL pattern (frontend /unsubscribe?token=) returned
+    # 404 to every customer who clicked. CAN-SPAM compliance requires a working
+    # mechanism. /api/quotes/unsubscribe/{token} is the existing handler that
+    # sets followup_disabled=True on the matching Quote (and all related quotes
+    # for the same email).
+    api_url = getattr(settings, 'API_URL', None) or "https://better-choice-api.onrender.com"
+    unsubscribe_url = f"{api_url}/api/quotes/unsubscribe/{unsubscribe_token}" if unsubscribe_token else None
 
     subject, body = build_plaintext_quote_email(
         prospect_name=prospect_name,
@@ -289,8 +295,14 @@ def send_plaintext_followup_email(
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
         return {"success": False, "error": "Mailgun not configured"}
 
-    app_url = getattr(settings, 'FRONTEND_URL', None) or "https://better-choice-web.onrender.com"
-    unsubscribe_url = f"{app_url}/unsubscribe?token={unsubscribe_token}" if unsubscribe_token else None
+    # Point at the WORKING backend endpoint. The frontend has no /unsubscribe
+    # page, so the previous URL pattern (frontend /unsubscribe?token=) returned
+    # 404 to every customer who clicked. CAN-SPAM compliance requires a working
+    # mechanism. /api/quotes/unsubscribe/{token} is the existing handler that
+    # sets followup_disabled=True on the matching Quote (and all related quotes
+    # for the same email).
+    api_url = getattr(settings, 'API_URL', None) or "https://better-choice-api.onrender.com"
+    unsubscribe_url = f"{api_url}/api/quotes/unsubscribe/{unsubscribe_token}" if unsubscribe_token else None
 
     subject, body = build_plaintext_followup_email(
         prospect_name=prospect_name,
