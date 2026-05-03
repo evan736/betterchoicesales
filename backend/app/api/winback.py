@@ -1891,3 +1891,73 @@ def winback_scheduler_tick(
         "would_send_texts": text_actions if dry_run else None,
         "candidates_found": len(pending_t1) + len(active_due),
     }
+
+
+@router.post("/test-send-to/{recipient_email}")
+def test_send_winback_email(
+    recipient_email: str,
+    campaign_id: int = Query(..., description="ID of an existing winback record to use as template data"),
+    touchpoint: int = Query(1, description="Which touchpoint variant to send (1, 2, or 3)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a test winback email to a specified address (admin only).
+
+    Renders the v2 email using a real winback record's customer info
+    and the assigned producer's voice, then sends to recipient_email.
+    The actual customer is NOT contacted — the email is redirected.
+
+    Used for previewing what customers will receive before bulk send.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if "@" not in recipient_email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+
+    campaign = db.query(WinBackCampaign).filter(WinBackCampaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail=f"Campaign {campaign_id} not found")
+
+    # Build the email exactly as it would go to the customer, then
+    # send to recipient_email instead. We DON'T mutate the campaign record.
+    from app.core.config import settings
+    import requests
+
+    producer = _get_assigned_producer(campaign)
+    subject, html = _build_winback_email_v2(campaign, touchpoint)
+    from_header = f"{producer['full_name']} <sales@betterchoiceins.com>"
+
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        raise HTTPException(status_code=500, detail="Mailgun not configured")
+
+    try:
+        resp = requests.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": from_header,
+                "to": [recipient_email],
+                "subject": f"[TEST] {subject}",
+                "html": html,
+                "h:Reply-To": producer["email"],
+                "v:email_type": "winback_test",
+                "v:winback_campaign_id": str(campaign.id),
+            },
+        )
+        return {
+            "success": resp.status_code == 200,
+            "status": resp.status_code,
+            "campaign_used": {
+                "id": campaign.id,
+                "customer_name": campaign.customer_name,
+                "carrier": campaign.carrier,
+                "line_of_business": campaign.line_of_business,
+                "agent": producer["username"],
+            },
+            "rendered_subject": subject,
+            "sent_to": recipient_email,
+            "from_header": from_header,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
