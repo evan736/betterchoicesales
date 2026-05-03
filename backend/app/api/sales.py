@@ -1251,6 +1251,61 @@ def debug_sale_counts(
     }
 
 
+@router.get("/debug-contact-coverage")
+def debug_sale_contact_coverage(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Debug: how many historical sales have client_email / client_phone populated.
+
+    Specifically aimed at understanding how reachable old (Performology-era)
+    sales would be for a winback campaign that uses the sales table as its
+    base instead of the live customer_policies cache.
+
+    Breaks down by year so we can see whether contact-info coverage
+    improved over time (e.g. modern sales are 100% with email, but
+    2022 import was 0%).
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager only")
+
+    from sqlalchemy import func, extract as sql_ext, case
+
+    results = db.query(
+        sql_ext("year", Sale.sale_date).label("y"),
+        func.count(Sale.id).label("total"),
+        func.sum(case((Sale.client_email.isnot(None), 1), else_=0)).label("with_email"),
+        func.sum(case((Sale.client_phone.isnot(None), 1), else_=0)).label("with_phone"),
+        func.sum(
+            case(
+                (
+                    Sale.client_email.isnot(None) | Sale.client_phone.isnot(None),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("with_either"),
+        func.sum(case((Sale.client_email.is_(None) & Sale.client_phone.is_(None), 1), else_=0)).label("with_neither"),
+    ).filter(Sale.sale_date.isnot(None)).group_by("y").order_by("y").all()
+
+    return {
+        "by_year": [
+            {
+                "year": int(r.y) if r.y else None,
+                "total_sales": int(r.total or 0),
+                "with_email": int(r.with_email or 0),
+                "with_phone": int(r.with_phone or 0),
+                "with_either": int(r.with_either or 0),
+                "with_neither": int(r.with_neither or 0),
+                "email_coverage_pct": round(100.0 * (r.with_email or 0) / max(r.total, 1), 1),
+                "phone_coverage_pct": round(100.0 * (r.with_phone or 0) / max(r.total, 1), 1),
+                "either_coverage_pct": round(100.0 * (r.with_either or 0) / max(r.total, 1), 1),
+            }
+            for r in results
+        ]
+    }
+
+
 
 # ── NatGen Summer Promo tracker ────────────────────────────────────────
 # Promo window: April 20, 2026 through September 30, 2026.
