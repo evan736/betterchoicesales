@@ -279,8 +279,8 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
     if producer["first_name"] == "Evan":
         headshot_html = (
             '<img src="https://better-choice-web.onrender.com/evan_headshot.jpg" '
-            'alt="Evan Larson" width="64" height="64" '
-            'style="width:64px;height:64px;border-radius:50%;display:block;margin:0 0 8px 0;" />'
+            'alt="Evan Larson" width="96" height="96" '
+            'style="width:96px;height:96px;border-radius:50%;display:block;margin:0 0 10px 0;" />'
         )
 
     body_html = f"""<!DOCTYPE html>
