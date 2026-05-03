@@ -252,6 +252,7 @@ def _build_winback_email_v2(campaign: WinBackCampaign, touchpoint: int) -> tuple
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">Better Choice Insurance Group</p>
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 &middot; {producer['email']}</p>
 <p style="margin:24px 0 0 0;color:#a3a3a3;font-size:11px;border-top:1px solid #eee;padding-top:12px;">
+<img src="https://www.betterchoiceins.com/images/logo.png" alt="Better Choice Insurance Group" width="140" style="display:block;margin:0 0 8px 0;max-width:140px;height:auto;" /><br>
 Better Choice Insurance Group &middot; 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
 Don't want these? Just reply STOP and I'll take you off the list.
 </p>
