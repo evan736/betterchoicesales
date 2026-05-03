@@ -41,119 +41,391 @@ class WinBackCreate(BaseModel):
     cancellation_reason: Optional[str] = None
 
 
-# ── Email template ──
+# ── Email template (v2 — plain-text feel, round-robin producer voice) ──
 
-def _build_winback_email_html(campaign: WinBackCampaign, touchpoint: int) -> str:
-    """Build win-back email based on touchpoint number."""
-    from app.services.welcome_email import BCI_NAVY, BCI_CYAN
+# The three round-robin producers. Round-robin assignment is set when
+# the WinBackCampaign record is created (in agent_name) so the same
+# producer handles all touchpoints for one customer (a customer who
+# replies to Joseph's email gets continuity if Joseph also handles
+# the follow-up). Update this list if team composition changes.
+WINBACK_ROUND_ROBIN = [
+    {
+        "username": "joseph.rivera",
+        "full_name": "Joseph Rivera",
+        "first_name": "Joseph",
+        "email": "joseph@betterchoiceins.com",
+    },
+    {
+        "username": "evan.larson",
+        "full_name": "Evan Larson",
+        "first_name": "Evan",
+        "email": "evan@betterchoiceins.com",
+    },
+    {
+        "username": "giulian.baez",
+        "full_name": "Giulian Baez",
+        "first_name": "Giulian",
+        "email": "giulian@betterchoiceins.com",
+    },
+]
 
-    first_name = campaign.customer_name.split()[0] if campaign.customer_name else "there"
 
-    if touchpoint == 1:
-        # Initial win-back: warm, personal
-        subject_text = "We miss you!"
-        body = f"""
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          Hi {first_name},
-        </p>
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          We noticed your insurance policy is no longer active with us, and we wanted
-          to reach out personally. At Better Choice Insurance Group, every customer matters
-          to us, and we would love the opportunity to help you again.
-        </p>
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          Insurance rates change frequently, and we may be able to find you a better rate
-          than what you are currently paying. Would you be open to a quick, no-obligation quote?
-        </p>"""
-    elif touchpoint == 2:
-        # Follow-up: value-focused
-        subject_text = "New rates available for you"
-        body = f"""
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          Hi {first_name},
-        </p>
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          We wanted to follow up and let you know that we have access to new carrier
-          options and competitive rates that may save you money on your insurance.
-        </p>
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          We work with over 15 carriers and can shop your coverage in minutes. Many of
-          our returning customers are pleasantly surprised at the savings.
-        </p>"""
+def _get_assigned_producer(campaign: WinBackCampaign) -> dict:
+    """Return the round-robin producer assigned to this campaign.
+
+    Resolution order:
+      1. If campaign.agent_name matches one of joseph/evan/giulian
+         (by username or full_name), use that — preserves continuity
+         on follow-ups.
+      2. Otherwise, fall back to round-robin based on campaign.id %
+         3 (deterministic given the id, so same email-builder result
+         every time it's called).
+    """
+    name = (campaign.agent_name or "").lower().strip()
+    for p in WINBACK_ROUND_ROBIN:
+        if name in (p["username"], p["full_name"].lower(), p["first_name"].lower()):
+            return p
+    # Deterministic fallback by id
+    idx = (campaign.id or 0) % len(WINBACK_ROUND_ROBIN)
+    return WINBACK_ROUND_ROBIN[idx]
+
+
+def _has_lob(campaign: WinBackCampaign, *targets: str) -> bool:
+    """Did the customer have any of the listed lines of business with us?"""
+    lob = (campaign.line_of_business or "").lower()
+    if not lob:
+        return False
+    return any(t in lob for t in targets)
+
+
+def _build_winback_email_v2(campaign: WinBackCampaign, touchpoint: int) -> tuple[str, str]:
+    """Build (subject, plain-text-style HTML body) for a winback email.
+
+    Tone: casual, like a real producer typed it. No header banner, no
+    CTA button graphics, no marketing-speak. Just text in a basic
+    HTML wrapper so it renders cleanly across email clients.
+
+    Per-producer voice variation (Joseph / Evan / Giulian) so a
+    customer who got Joseph's email and another customer getting
+    Evan's don't read identical templates with different signatures.
+
+    LOB-aware copy:
+      - If they had only home → ask about "home" not "home and auto"
+      - If they had only auto → ask about "vehicles" not "home and auto"
+      - If unclear or both → full "home and auto" version
+
+    Touchpoint variations:
+      1: initial outreach (your script)
+      2: follow-up at 3 months
+      3: 6-month touch
+      4+: 9-month, 12-month etc.
+    """
+    first_name = (campaign.customer_name or "there").split()[0]
+    producer = _get_assigned_producer(campaign)
+
+    # Determine the right scope question based on what they had with us
+    has_home = _has_lob(campaign, "home", "ho-3", "ho-6", "renters", "condo", "dwelling")
+    has_auto = _has_lob(campaign, "auto", "motorcycle", "rv", "boat")
+
+    if has_home and has_auto:
+        scope_phrase = "home and auto"
+        verify_question = "Can you verify the current vehicles in the household and roughly the year the roof was last replaced?"
+    elif has_home:
+        scope_phrase = "home"
+        verify_question = "Can you verify roughly when the roof was last replaced and any major updates to the home?"
+    elif has_auto:
+        scope_phrase = "auto"
+        verify_question = "Can you verify the current vehicles in the household?"
     else:
-        # Later touchpoints: seasonal/timely
-        subject_text = "Time for an insurance check-up?"
-        body = f"""
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          Hi {first_name},
-        </p>
-        <p style="color:#334155;font-size:14px;line-height:1.6;">
-          It has been a while since we last worked together, and we just wanted to
-          remind you that we are always here if you need us. Insurance needs change
-          over time, and a quick review could save you money or improve your coverage.
-        </p>"""
+        scope_phrase = "insurance"
+        verify_question = "Can you let me know what coverages you have right now so I can match them up?"
 
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;">
-<div style="max-width:600px;margin:0 auto;padding:20px;">
-  <div style="background:{BCI_NAVY};padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
-    <img src="https://better-choice-web.onrender.com/carrier-logos/bci_header_white.png" alt="Better Choice Insurance Group" width="220" style="display:block;margin:0 auto;max-width:220px;height:auto;" />
-    <p style="margin:4px 0 0 0;color:{BCI_CYAN};font-size:13px;">{subject_text}</p>
-  </div>
-  <div style="background:white;padding:32px;border-radius:0 0 12px 12px;">
-    {body}
-    <div style="text-align:center;margin:24px 0;">
-      <a href="tel:8479085665" style="display:inline-block;background:{BCI_CYAN};color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;">
-        Call Us: (847) 908-5665
-      </a>
-    </div>
-    <p style="color:#334155;font-size:14px;margin:16px 0 0 0;">
-      Best regards,<br><strong>Better Choice Insurance Group</strong>
-    </p>
-    <p style="color:#94a3b8;font-size:11px;margin:16px 0 0 0;">
-      If you no longer wish to receive these messages, simply reply STOP.
-    </p>
-  </div>
+    # Per-producer & per-touchpoint subject + body variations
+    if producer["first_name"] == "Joseph":
+        if touchpoint == 1:
+            subject = "been a minute"
+            opening = (
+                f"Hey {first_name},<br><br>"
+                f"You previously were insured with our agency and I wanted to reach out again "
+                f"because we took some massive rate decreases with most of our insurance carriers."
+            )
+            ask = (
+                f"Would you mind if I work some new quotes for your {scope_phrase}? {verify_question}"
+            )
+            close = (
+                "I'll work on some stuff and get in your inbox. Or if you have 5 min, "
+                "lets jump on a quick call."
+            )
+        elif touchpoint == 2:
+            subject = f"checking back in {first_name}"
+            opening = (
+                f"Hey {first_name} — just circling back. Sent you a note a few months ago "
+                f"about taking another look at your {scope_phrase} since rates dropped, didn't "
+                f"hear back so figured I'd try again."
+            )
+            ask = "Worth me running new numbers? Even if you're happy where you're at, no harm in seeing what's out there."
+            close = "Reply to this email or call/text me direct."
+        else:
+            subject = f"hey {first_name}"
+            opening = (
+                f"Hey {first_name}, hope you're doing well. Wanted to drop a quick line — "
+                f"if you're up for renewal soon and want me to take another look, happy to."
+            )
+            ask = "Just hit reply with what you're paying now and I'll dig in."
+            close = "No pressure either way."
+    elif producer["first_name"] == "Evan":
+        if touchpoint == 1:
+            subject = "quick check-in"
+            opening = (
+                f"Hey {first_name},<br><br>"
+                f"You previously were insured with us and I wanted to reach back out because "
+                f"we just took some pretty significant rate decreases across most of our carriers."
+            )
+            ask = (
+                f"Mind if I run some new quotes for your {scope_phrase}? {verify_question}"
+            )
+            close = (
+                "I'll dig in and send something over. Or if you have 5 min, easier to just "
+                "jump on a quick call."
+            )
+        elif touchpoint == 2:
+            subject = f"following up — {first_name}"
+            opening = (
+                f"Hey {first_name},<br><br>"
+                f"Wanted to follow up on the note I sent a few months back. Carriers have "
+                f"continued to file rate decreases — wondering if it's a good time to take "
+                f"another look at your {scope_phrase}."
+            )
+            ask = "Worth a quick conversation?"
+            close = "If now's not a good time, no problem — just let me know when is."
+        else:
+            subject = f"{first_name} — touching base"
+            opening = (
+                f"Hey {first_name}, hope all is well. Touching base — if you're getting close "
+                f"to a renewal or just want a second set of eyes on your insurance, happy to help."
+            )
+            ask = "Reply with your dec page or current premium and I'll take a look."
+            close = "Talk soon."
+    else:  # Giulian
+        if touchpoint == 1:
+            subject = f"hey {first_name}"
+            opening = (
+                f"Hey {first_name},<br><br>"
+                f"You previously had insurance with our agency and I wanted to reach back out — "
+                f"we just took some massive rate decreases with a bunch of our carriers and "
+                f"I think it's worth taking another look."
+            )
+            ask = (
+                f"Mind if I run some new quotes on your {scope_phrase}? {verify_question}"
+            )
+            close = (
+                "I'll send some options over to your inbox. Or if you've got 5 minutes, "
+                "easiest to hop on a quick call."
+            )
+        elif touchpoint == 2:
+            subject = f"{first_name} — round 2"
+            opening = (
+                f"Hey {first_name} — wanted to circle back. Tried reaching out a few months "
+                f"ago about your {scope_phrase} since carrier rates have come down. Figured "
+                f"I'd give it another shot."
+            )
+            ask = "Want me to run a few options?"
+            close = "Easy to text/call too if email isn't your thing."
+        else:
+            subject = f"hey {first_name} — checking in"
+            opening = (
+                f"Hey {first_name}, just checking back in. If you're approaching renewal or "
+                f"just want a fresh quote for the heck of it, I've got you."
+            )
+            ask = "Reply or text me."
+            close = ""
+
+    # The body is intentionally minimal HTML — looks like a real email,
+    # not a marketing campaign. No header banner, no buttons, no logo.
+    # mailer.py hook adds List-Unsubscribe + opt-out compliance.
+    body_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1a1a1a;">
+<div style="max-width:560px;margin:0 auto;padding:24px 20px;">
+<p style="margin:0 0 16px 0;">{opening}</p>
+<p style="margin:0 0 16px 0;">{ask}</p>
+{f'<p style="margin:0 0 24px 0;">{close}</p>' if close else ''}
+<p style="margin:0 0 4px 0;">— {producer['first_name']}</p>
+<p style="margin:0 0 2px 0;color:#666;font-size:13px;">{producer['full_name']}</p>
+<p style="margin:0 0 2px 0;color:#666;font-size:13px;">Better Choice Insurance Group</p>
+<p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 · {producer['email']}</p>
+<p style="margin:24px 0 0 0;color:#a3a3a3;font-size:11px;border-top:1px solid #eee;padding-top:12px;">
+Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
+Don't want these? Just reply STOP and I'll take you off the list.
+</p>
 </div>
 </body></html>"""
 
+    return subject, body_html
+
+
+def _build_winback_text_v2(campaign: WinBackCampaign, touchpoint: int) -> str:
+    """Build SMS body for a winback text. Single message, plain text,
+    short. Includes brand identification and STOP/HELP per A2P 10DLC
+    requirements.
+
+    NOT auto-sent — this is built but only fires when:
+      1. TWILIO_A2P_APPROVED env var is 'true' (manual gate)
+      2. The campaign has been activated and is on the right touchpoint
+    """
+    first_name = (campaign.customer_name or "there").split()[0]
+    producer = _get_assigned_producer(campaign)
+
+    has_home = _has_lob(campaign, "home", "ho-3", "ho-6", "renters", "condo", "dwelling")
+    has_auto = _has_lob(campaign, "auto", "motorcycle", "rv", "boat")
+
+    if has_home and has_auto:
+        scope = "home and auto"
+    elif has_home:
+        scope = "home"
+    elif has_auto:
+        scope = "auto"
+    else:
+        scope = "insurance"
+
+    if touchpoint == 1:
+        return (
+            f"Hi {first_name}, this is {producer['first_name']} at Better Choice Insurance. "
+            f"You were previously with our agency — we took some big rate decreases recently and "
+            f"I wanted to see if you'd let me run new {scope} quotes for you. Reply YES or call "
+            f"(847) 908-5665. Reply STOP to opt out."
+        )
+    elif touchpoint == 2:
+        return (
+            f"Hey {first_name}, {producer['first_name']} from Better Choice again. Following up "
+            f"on the note I sent — worth a quick look at your {scope}? "
+            f"(847) 908-5665. Reply STOP to opt out."
+        )
+    else:
+        return (
+            f"Hi {first_name}, {producer['first_name']} at Better Choice. "
+            f"Just checking back in — let me know if you'd like new quotes. "
+            f"(847) 908-5665. STOP to opt out."
+        )
+
+
+# Keep legacy function for backward compat with the old /activate endpoint
+def _build_winback_email_html(campaign: WinBackCampaign, touchpoint: int) -> str:
+    """LEGACY: original branded template. Kept so old code paths still work.
+    New code should use _build_winback_email_v2 which returns (subject, body)."""
+    _, body = _build_winback_email_v2(campaign, touchpoint)
+    return body
+
 
 def _send_winback_email(campaign: WinBackCampaign, touchpoint: int) -> bool:
-    """Send win-back email via Mailgun."""
+    """Send a winback email via Mailgun using the v2 plain-text-style
+    templates. From-line is the round-robin-assigned producer's name +
+    sales@ domain, Reply-To is the producer's actual mailbox so any
+    customer reply lands in their inbox.
+    """
     from app.core.config import settings
     import requests
 
     if not campaign.customer_email:
         return False
     if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        logger.warning("Winback send blocked — Mailgun not configured")
         return False
 
-    first_name = campaign.customer_name.split()[0] if campaign.customer_name else "Valued Customer"
-    subjects = {
-        1: f"{first_name}, we miss having you as a customer!",
-        2: f"New insurance rates available for you, {first_name}",
-        3: f"Time for an insurance check-up, {first_name}?",
-    }
-    subject = subjects.get(touchpoint, f"A message from Better Choice Insurance")
-    html = _build_winback_email_html(campaign, touchpoint)
+    producer = _get_assigned_producer(campaign)
+    subject, html = _build_winback_email_v2(campaign, touchpoint)
+
+    # From line uses the producer's name + sales@ apex domain so it
+    # looks personal but the reply-to keeps the conversation in their
+    # actual mailbox.
+    from_header = f"{producer['full_name']} <sales@betterchoiceins.com>"
 
     try:
         resp = requests.post(
             f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
             auth=("api", settings.MAILGUN_API_KEY),
             data={
-                # Hardcoded apex From — see commit 91c2859.
-                "from": f"Better Choice Insurance Group <service@betterchoiceins.com>",
+                "from": from_header,
                 "to": [campaign.customer_email],
                 "subject": subject,
                 "html": html,
-                "h:Reply-To": "service@betterchoiceins.com",
+                "h:Reply-To": producer["email"],
+                # Tag for analytics + email_type so the centralized
+                # mailer hook adds List-Unsubscribe (marketing email).
+                "v:email_type": "winback",
+                "v:winback_campaign_id": str(campaign.id),
+                "v:touchpoint": str(touchpoint),
+                "v:assigned_producer": producer["username"],
             },
         )
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            logger.info(
+                "Winback email sent: campaign=%s touchpoint=%s to=%s producer=%s",
+                campaign.id, touchpoint, campaign.customer_email, producer["username"],
+            )
+            return True
+        else:
+            logger.error(
+                "Winback email failed: campaign=%s status=%s body=%s",
+                campaign.id, resp.status_code, resp.text[:200],
+            )
+            return False
     except Exception as e:
-        logger.error(f"Win-back email error: {e}")
+        logger.error(f"Win-back email error: campaign={campaign.id} {e}")
+        return False
+
+
+def _send_winback_text(campaign: WinBackCampaign, touchpoint: int, db: Session) -> bool:
+    """Send a winback SMS via Twilio. GATED: only fires when env var
+    TWILIO_A2P_APPROVED='true'. Until A2P 10DLC is approved by TCR,
+    every call to this function returns False with a log message — the
+    infrastructure is wired up but no actual texts go out.
+
+    Once A2P is approved, flipping the env var on Render will
+    immediately enable text sending without a code deploy.
+    """
+    import os
+    if os.getenv("TWILIO_A2P_APPROVED", "false").lower() != "true":
+        logger.info(
+            "Winback SMS skipped — TWILIO_A2P_APPROVED not enabled. "
+            "campaign=%s touchpoint=%s", campaign.id, touchpoint,
+        )
+        return False
+
+    if not campaign.customer_phone:
+        return False
+
+    # Reuse the existing twilio_sms.send helper so all numbers go
+    # through the same audited send pipeline (status callbacks,
+    # message logging, opt-out handling).
+    try:
+        from app.services.twilio_sms import send_message
+        body = _build_winback_text_v2(campaign, touchpoint)
+
+        # send_message is async — call it via sync wrapper for the
+        # scheduler context. If it returns failure, log and continue.
+        import asyncio
+        result = asyncio.run(send_message(
+            to_number=campaign.customer_phone,
+            content=body,
+            db=db,
+            customer_id=campaign.customer_id,
+            context=f"winback_t{touchpoint}",
+            sent_by=f"winback_scheduler_{_get_assigned_producer(campaign)['username']}",
+        ))
+        if result and result.get("success"):
+            logger.info(
+                "Winback SMS sent: campaign=%s touchpoint=%s to=%s sid=%s",
+                campaign.id, touchpoint, campaign.customer_phone, result.get("sid"),
+            )
+            return True
+        else:
+            logger.error(
+                "Winback SMS failed: campaign=%s result=%s", campaign.id, result,
+            )
+            return False
+    except Exception as e:
+        logger.error(f"Winback SMS error: campaign={campaign.id} {e}")
         return False
 
 
@@ -1391,4 +1663,231 @@ def enroll_all_missing(
             "require_email": require_email,
             "max_to_enroll": max_to_enroll,
         },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Round-Robin Reassignment + Smart Scheduler
+# ─────────────────────────────────────────────────────────────────────
+
+@router.post("/assign-round-robin")
+def assign_round_robin(
+    only_unassigned: bool = Query(True, description="Only reassign records whose current agent_name isn't joseph/evan/giulian"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bulk-assign pending winback records to round-robin producer.
+
+    For records whose agent_name doesn't match one of the three
+    round-robin producers (joseph.rivera / evan.larson / giulian.baez),
+    overwrites with a deterministic round-robin assignment based on
+    record id. This means:
+      - Record 1 → Joseph, 2 → Evan, 3 → Giulian, 4 → Joseph, etc.
+      - Same customer always gets the same producer (consistent voice
+        on follow-ups)
+      - Distribution is even across the three producers
+
+    Default only_unassigned=true preserves any record that already has
+    one of the three producers assigned. Pass false to force-reassign
+    everyone (use sparingly — destroys continuity for records that
+    were correctly assigned manually).
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    valid_names = {p["username"] for p in WINBACK_ROUND_ROBIN}
+    valid_names.update(p["full_name"].lower() for p in WINBACK_ROUND_ROBIN)
+    valid_names.update(p["first_name"].lower() for p in WINBACK_ROUND_ROBIN)
+
+    query = db.query(WinBackCampaign).filter(
+        WinBackCampaign.status.in_(["pending", "active"]),
+        WinBackCampaign.excluded == False,
+    )
+    candidates = query.all()
+
+    reassigned = 0
+    skipped_already_correct = 0
+    counts = {p["username"]: 0 for p in WINBACK_ROUND_ROBIN}
+
+    for c in candidates:
+        current = (c.agent_name or "").lower().strip()
+        if only_unassigned and current in valid_names:
+            skipped_already_correct += 1
+            counts[
+                next((p["username"] for p in WINBACK_ROUND_ROBIN
+                      if current in (p["username"], p["full_name"].lower(), p["first_name"].lower())),
+                     "unknown")
+            ] = counts.get(
+                next((p["username"] for p in WINBACK_ROUND_ROBIN
+                      if current in (p["username"], p["full_name"].lower(), p["first_name"].lower())),
+                     "unknown"),
+                0,
+            ) + 1
+            continue
+
+        idx = (c.id or 0) % len(WINBACK_ROUND_ROBIN)
+        producer = WINBACK_ROUND_ROBIN[idx]
+        c.agent_name = producer["username"]
+        counts[producer["username"]] += 1
+        reassigned += 1
+
+    db.commit()
+
+    return {
+        "reassigned": reassigned,
+        "skipped_already_correct": skipped_already_correct,
+        "by_producer": counts,
+    }
+
+
+@router.post("/scheduler-tick")
+def winback_scheduler_tick(
+    max_emails_per_tick: int = Query(20, description="Max winback emails to send in this batch"),
+    max_texts_per_tick: int = Query(10, description="Max winback texts (only fires if A2P approved)"),
+    require_business_hours: bool = Query(True, description="Skip if not 9am-3pm CT Mon-Fri"),
+    dry_run: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send the next batch of due winback emails (and optionally texts).
+
+    Designed to be called periodically by either:
+      a) An external cron / scheduler hitting this endpoint
+      b) An internal background scheduler (similar to the existing
+         reshop digest / quote follow-up schedulers)
+
+    Selection logic:
+      - Status='pending' and not excluded → send touchpoint 1
+      - Status='active', last_touchpoint_at < (now - 90 days), not won-back
+        → send next touchpoint (touchpoint_count + 1)
+      - Capped at max_emails_per_tick per call to keep the natural
+        ~16/day pace evenly distributed
+
+    Order:
+      - Sort by premium_at_cancel DESC so highest-value customers go first
+
+    Texts:
+      - Only sent if TWILIO_A2P_APPROVED env var is 'true'
+      - Texts are sent ~24 hrs AFTER the email (different touchpoint
+        on same campaign, gives email a chance to land first)
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    import os
+    from zoneinfo import ZoneInfo
+
+    now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    now_ct = now_utc.astimezone(ZoneInfo("America/Chicago"))
+
+    if require_business_hours and not dry_run:
+        weekday = now_ct.weekday()  # 0=Mon, 6=Sun
+        hour = now_ct.hour
+        if weekday >= 5 or hour < 9 or hour >= 15:
+            return {
+                "skipped": "outside_business_hours",
+                "now_ct": now_ct.isoformat(),
+                "current_weekday": weekday,
+                "current_hour": hour,
+            }
+
+    twilio_approved = os.getenv("TWILIO_A2P_APPROVED", "false").lower() == "true"
+
+    # Find campaigns due for an email touchpoint
+    pending_t1 = db.query(WinBackCampaign).filter(
+        WinBackCampaign.status == "pending",
+        WinBackCampaign.excluded == False,
+        WinBackCampaign.customer_email.isnot(None),
+    ).order_by(
+        WinBackCampaign.premium_at_cancel.desc().nullslast(),
+        WinBackCampaign.created_at.asc(),
+    ).limit(max_emails_per_tick).all()
+
+    # And active campaigns due for a follow-up touchpoint (90+ days
+    # since last touchpoint)
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    active_due = db.query(WinBackCampaign).filter(
+        WinBackCampaign.status == "active",
+        WinBackCampaign.excluded == False,
+        WinBackCampaign.customer_email.isnot(None),
+        WinBackCampaign.touchpoint_count < 4,  # cap at 4 total touchpoints
+        WinBackCampaign.last_touchpoint_at < cutoff,
+    ).order_by(
+        WinBackCampaign.premium_at_cancel.desc().nullslast(),
+    ).limit(max(0, max_emails_per_tick - len(pending_t1))).all()
+
+    sent_email = 0
+    sent_text = 0
+    failed = 0
+    actions = []
+
+    for c in pending_t1 + active_due:
+        touchpoint = (c.touchpoint_count or 0) + 1
+        if dry_run:
+            actions.append({
+                "campaign_id": c.id,
+                "customer_name": c.customer_name,
+                "would_send": "email",
+                "touchpoint": touchpoint,
+                "agent": _get_assigned_producer(c)["username"],
+                "premium": float(c.premium_at_cancel) if c.premium_at_cancel else 0,
+            })
+            continue
+
+        ok = _send_winback_email(c, touchpoint=touchpoint)
+        if ok:
+            c.touchpoint_count = touchpoint
+            c.last_touchpoint_at = datetime.utcnow()
+            c.next_touchpoint_at = datetime.utcnow() + timedelta(days=90)
+            c.status = "active"
+            sent_email += 1
+        else:
+            failed += 1
+
+    if not dry_run:
+        db.commit()
+
+    # Texts: only if A2P approved + customer has phone + email already
+    # sent at this touchpoint (we want email to land first)
+    text_actions = []
+    if twilio_approved and max_texts_per_tick > 0:
+        text_candidates = db.query(WinBackCampaign).filter(
+            WinBackCampaign.status == "active",
+            WinBackCampaign.excluded == False,
+            WinBackCampaign.customer_phone.isnot(None),
+            WinBackCampaign.touchpoint_count >= 1,
+            WinBackCampaign.last_touchpoint_at < datetime.utcnow() - timedelta(hours=24),
+        ).order_by(
+            WinBackCampaign.premium_at_cancel.desc().nullslast(),
+        ).limit(max_texts_per_tick).all()
+
+        for c in text_candidates:
+            if dry_run:
+                text_actions.append({
+                    "campaign_id": c.id,
+                    "would_send": "sms",
+                    "touchpoint": c.touchpoint_count,
+                })
+                continue
+            ok = _send_winback_text(c, touchpoint=c.touchpoint_count, db=db)
+            if ok:
+                # Mark text-sent — could add a field for this but for
+                # now we'll bump last_touchpoint_at to prevent re-send
+                c.last_touchpoint_at = datetime.utcnow()
+                sent_text += 1
+            else:
+                failed += 1
+        if not dry_run:
+            db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "now_ct": now_ct.isoformat(),
+        "twilio_a2p_approved": twilio_approved,
+        "emails_sent": sent_email,
+        "texts_sent": sent_text,
+        "failed": failed,
+        "would_send_emails": [a for a in actions if a.get("would_send") == "email"] if dry_run else None,
+        "would_send_texts": text_actions if dry_run else None,
+        "candidates_found": len(pending_t1) + len(active_due),
     }
