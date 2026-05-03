@@ -202,3 +202,115 @@ def get_month_policies(
         "total_projected_commission": round(sum(p["projected_commission"] for p in policies), 2),
         "policies": policies,
     }
+
+
+@router.get("/realized-commission-stats")
+def realized_commission_stats(
+    months_back: int = 12,
+    new_business_only: bool = False,
+    db: Session = Depends(get_db),
+    _user = Depends(get_current_user),
+):
+    """Compute the ACTUAL realized commission rate from matched statement
+    lines.
+
+    Useful for replacing the hardcoded 13% assumption with a real number
+    derived from what carriers actually paid us.
+
+    Returns:
+      - by_carrier: average realized rate per carrier
+      - overall: weighted average across all carriers
+      - by_lob: average rate broken out by line of business
+      - sample_size: how many statement lines fed into each number
+    """
+    from sqlalchemy import func, and_
+    from datetime import datetime, timezone, timedelta
+    from collections import defaultdict
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months_back * 30)
+
+    q = db.query(
+        StatementImport.carrier,
+        StatementLine.line_of_business,
+        StatementLine.transaction_type,
+        StatementLine.premium_amount,
+        StatementLine.commission_amount,
+        StatementLine.commission_rate,
+    ).join(
+        StatementImport,
+        StatementLine.statement_import_id == StatementImport.id,
+    ).filter(
+        StatementLine.commission_amount.isnot(None),
+        StatementLine.premium_amount.isnot(None),
+        StatementLine.premium_amount > 0,
+        StatementLine.commission_amount > 0,
+        StatementImport.created_at >= cutoff,
+    )
+
+    if new_business_only:
+        q = q.filter(StatementLine.transaction_type == "new_business")
+
+    rows = q.all()
+
+    if not rows:
+        return {"error": "no statement lines found", "sample_size": 0}
+
+    # Aggregate
+    overall_premium = 0.0
+    overall_commission = 0.0
+    by_carrier = defaultdict(lambda: {"premium": 0.0, "commission": 0.0, "count": 0})
+    by_lob = defaultdict(lambda: {"premium": 0.0, "commission": 0.0, "count": 0})
+
+    for carrier, lob, tx_type, premium, commission, _rate in rows:
+        p = float(premium or 0)
+        c = float(commission or 0)
+        if p <= 0:
+            continue
+        overall_premium += p
+        overall_commission += c
+        by_carrier[carrier or "unknown"]["premium"] += p
+        by_carrier[carrier or "unknown"]["commission"] += c
+        by_carrier[carrier or "unknown"]["count"] += 1
+        if lob:
+            by_lob[lob]["premium"] += p
+            by_lob[lob]["commission"] += c
+            by_lob[lob]["count"] += 1
+
+    overall_rate = overall_commission / overall_premium if overall_premium else 0
+
+    carrier_breakdown = []
+    for c, agg in by_carrier.items():
+        if agg["premium"] > 0:
+            carrier_breakdown.append({
+                "carrier": c,
+                "policies": agg["count"],
+                "total_premium": round(agg["premium"], 2),
+                "total_commission": round(agg["commission"], 2),
+                "realized_rate": round(agg["commission"] / agg["premium"], 4),
+            })
+    carrier_breakdown.sort(key=lambda x: -x["total_premium"])
+
+    lob_breakdown = []
+    for l, agg in by_lob.items():
+        if agg["premium"] > 0:
+            lob_breakdown.append({
+                "lob": l,
+                "policies": agg["count"],
+                "total_premium": round(agg["premium"], 2),
+                "total_commission": round(agg["commission"], 2),
+                "realized_rate": round(agg["commission"] / agg["premium"], 4),
+            })
+    lob_breakdown.sort(key=lambda x: -x["total_premium"])
+
+    return {
+        "months_back": months_back,
+        "new_business_only": new_business_only,
+        "sample_size": len(rows),
+        "overall": {
+            "total_premium": round(overall_premium, 2),
+            "total_commission": round(overall_commission, 2),
+            "realized_rate": round(overall_rate, 4),
+        },
+        "by_carrier": carrier_breakdown,
+        "by_lob": lob_breakdown,
+    }
