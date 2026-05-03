@@ -248,10 +248,13 @@ def scan_for_winback_candidates(
 def list_winback_campaigns(
     status: Optional[str] = None,
     include_excluded: bool = False,
+    limit: int = 500,
+    skip: int = 0,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List win-back campaigns."""
+    """List win-back campaigns. Default limit bumped to 500 to handle
+    bulk-enrolled cohorts. Pass ?limit=N&skip=N for pagination."""
     query = db.query(WinBackCampaign)
 
     if not include_excluded:
@@ -259,10 +262,14 @@ def list_winback_campaigns(
     if status:
         query = query.filter(WinBackCampaign.status == status)
 
-    campaigns = query.order_by(WinBackCampaign.created_at.desc()).limit(200).all()
+    total = query.count()
+    campaigns = query.order_by(WinBackCampaign.created_at.desc()).offset(skip).limit(limit).all()
 
     return {
-        "total": len(campaigns),
+        "total": total,
+        "returned": len(campaigns),
+        "skip": skip,
+        "limit": limit,
         "campaigns": [
             {
                 "id": c.id,
@@ -272,6 +279,7 @@ def list_winback_campaigns(
                 "policy_number": c.policy_number,
                 "carrier": c.carrier,
                 "line_of_business": c.line_of_business,
+                "premium_at_cancel": float(c.premium_at_cancel) if c.premium_at_cancel else None,
                 "months_active": c.months_active,
                 "cancellation_date": c.cancellation_date.isoformat() if c.cancellation_date else None,
                 "cancellation_reason": c.cancellation_reason,
