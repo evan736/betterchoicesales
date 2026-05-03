@@ -1306,6 +1306,418 @@ def debug_sale_contact_coverage(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Performology Historical Import
+# ─────────────────────────────────────────────────────────────────────
+# Imports the full Performology export (typically 7,000+ rows from
+# 2016–present) into the sales table. Designed to be idempotent and
+# safe to re-run: dedup by policy_number, dry-run mode shows what
+# would change without writing anything.
+#
+# DECISIONS LOCKED IN BY EVAN (2026-05-02 session):
+#   - Import all rows including pre-BCI-era (Allstate). Pre-2022
+#     records get lead_source='legacy_allstate' so winback analysis
+#     can filter them out.
+#   - Skip duplicates entirely (no updates to existing records).
+#   - Always run dry_run=true first to preview impact.
+#
+# CSV COLUMN EXPECTATIONS (Performology format):
+#   Id, saleDate, issuedDate, effectiveDate, customerFirstName,
+#   customerLastName, customer, household, policyNumber, policyType,
+#   company, premium, revenue, items, points, producer, user,
+#   location, team, leadSource, leadSourceCombinedName, reason,
+#   transactionTypeName, priorCompany, state, zipcode, note,
+#   noteAdditional, groupName, subGroupName, paymentDate,
+#   compensationAmount, chargebackAmount, reinstatementAmount,
+#   policyCount, attributeName
+
+# Map Performology policy types to ORBIT's controlled vocabulary
+_POLICY_TYPE_MAP = {
+    "auto": "auto",
+    "auto (6m)": "auto",
+    "auto (12m)": "auto",
+    "auto (12 m)": "auto",
+    "home": "home",
+    "homeowners": "home",
+    "renters": "renters",
+    "tenant": "renters",
+    "condo": "condo",
+    "umbrella": "umbrella",
+    "personal umbrella": "umbrella",
+    "motorcycle": "motorcycle",
+    "rv": "rv",
+    "boat": "boat",
+    "watercraft": "boat",
+    "atv": "atv",
+    "snowmobile": "atv",
+    "life": "life",
+    "term life": "life",
+    "whole life": "life",
+    "commercial": "commercial",
+    "business": "commercial",
+    "general liability": "commercial",
+    "ho-3": "home",
+    "ho-6": "condo",
+    "dp-3": "dwelling_fire",
+    "dwelling fire": "dwelling_fire",
+    "landlord": "landlord",
+    "rental dwelling": "landlord",
+    "flood": "flood",
+    "earthquake": "earthquake",
+    "pet": "pet",
+    "jewelry": "jewelry",
+    "scheduled personal property": "jewelry",
+}
+
+
+def _resolve_policy_type(raw: str) -> str:
+    """Normalize a Performology policyType to ORBIT's enum."""
+    if not raw:
+        return "other"
+    normalized = (raw or "").strip().lower()
+    return _POLICY_TYPE_MAP.get(normalized, normalized.replace(" ", "_"))
+
+
+def _parse_us_date(s: str):
+    """Parse M/D/YYYY or MM/DD/YYYY. Returns None on failure."""
+    if not s:
+        return None
+    s = s.strip()
+    if not s:
+        return None
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_premium(raw: str):
+    """Strip $ and commas, parse to Decimal. Returns None on failure."""
+    from decimal import Decimal, InvalidOperation
+    if raw is None:
+        return None
+    s = str(raw).strip().replace("$", "").replace(",", "")
+    if not s:
+        return None
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _build_producer_resolver(db: Session):
+    """Build (active_users_map, ghost_users_map, ghost_creator) tuple.
+
+    Returns:
+      - resolve_producer(name) → user_id, was_ghost_created (bool)
+        Maps free-text producer name from CSV to a user_id. If no
+        active user matches, looks up or creates a ghost user
+        (is_active=False) so foreign-key constraints are satisfied
+        without polluting the active producer pool.
+    """
+    active_map: dict[str, int] = {}
+    for u in db.query(User).all():
+        if u.full_name:
+            active_map[u.full_name.lower().strip()] = u.id
+            parts = u.full_name.split()
+            if len(parts) >= 2:
+                active_map[f"{parts[0].lower()} {parts[-1].lower()}"] = u.id
+    # Common typo: Performology spells "Giulian" as "Guilian"
+    if "giulian baez" in active_map:
+        active_map["guilian baez"] = active_map["giulian baez"]
+
+    return active_map
+
+
+def _resolve_or_ghost(name: str, active_map: dict[str, int], db: Session, dry_run: bool, ghost_log: dict[str, int]):
+    """Returns (user_id, was_newly_ghosted).
+
+    If name matches an active or already-ghosted user → returns id.
+    If no match → creates a ghost user with is_active=False (or simulates
+    one in dry_run mode by recording in ghost_log).
+    """
+    if not name:
+        return None, False
+    key = name.strip().lower()
+    if key in active_map:
+        return active_map[key], False
+
+    # In dry_run, just track what would be ghosted
+    if dry_run:
+        if key in ghost_log:
+            return -1, False  # already counted
+        ghost_log[key] = ghost_log.get(key, 0) + 1
+        return -1, True  # would create new ghost
+
+    # Real run: look up if a ghost already exists
+    existing_ghost = db.query(User).filter(
+        User.full_name == name,
+        User.is_active == False,
+    ).first()
+    if existing_ghost:
+        active_map[key] = existing_ghost.id
+        return existing_ghost.id, False
+
+    # Create new ghost user. Username must be unique — slug from name.
+    import re
+    slug = re.sub(r"[^a-z0-9]+", ".", name.lower()).strip(".")
+    base_username = f"legacy.{slug}"
+    username = base_username
+    counter = 0
+    while db.query(User).filter(User.username == username).first():
+        counter += 1
+        username = f"{base_username}.{counter}"
+
+    ghost = User(
+        email=f"{username}@legacy.betterchoiceins.local",
+        username=username,
+        hashed_password="!disabled",  # disabled bcrypt format — never matches
+        full_name=name,
+        role="producer",
+        is_active=False,
+        is_superuser=False,
+    )
+    db.add(ghost)
+    db.flush()  # get the id
+    active_map[key] = ghost.id
+    return ghost.id, True
+
+
+@router.post("/import-performology")
+async def import_performology_csv(
+    file: UploadFile = File(...),
+    dry_run: bool = Form(True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Import the historical Performology sales export.
+
+    POST /api/sales/import-performology with form-data:
+      - file: the CSV
+      - dry_run: 'true' (default) for preview, 'false' to actually write
+
+    Behavior:
+      - Skips rows with blank/duplicate policyNumber (within CSV or
+        already in ORBIT)
+      - Resolves producers by name; creates is_active=False ghost
+        users for legacy producers (Erica Haynes, Akasha Austin,
+        etc.) so the FK is satisfied without polluting active staff
+      - Tags pre-2022 rows with lead_source='legacy_allstate' so
+        winback analysis can exclude them
+      - Returns a per-year preview, ghost-user list, sample rows
+
+    DRY RUN OUTPUT lets you see what WOULD happen without any DB writes.
+    Always run dry_run=true first.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    import csv as _csv
+    import io
+    from decimal import Decimal
+
+    raw = await file.read()
+    if len(raw) > 50_000_000:  # 50MB ceiling
+        raise HTTPException(status_code=400, detail="File too large")
+
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = _csv.DictReader(io.StringIO(text))
+
+    # Validate columns
+    required_cols = {"saleDate", "policyNumber", "customer", "company", "premium", "producer"}
+    csv_cols = set(reader.fieldnames or [])
+    missing = required_cols - csv_cols
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV missing required columns: {sorted(missing)}",
+        )
+
+    # Pre-load existing policy numbers (single query)
+    existing_policy_numbers = set(
+        pn for (pn,) in db.query(Sale.policy_number).filter(Sale.policy_number.isnot(None)).all()
+    )
+
+    active_map = _build_producer_resolver(db)
+    ghost_log: dict[str, int] = {}
+
+    # Counters
+    counted = 0
+    skip_no_policy_number = 0
+    skip_duplicate_in_orbit = 0
+    skip_duplicate_in_csv = 0
+    skip_no_premium = 0
+    skip_invalid_date = 0
+    by_year_new: dict[int, int] = {}
+    by_year_premium: dict[int, float] = {}
+    by_producer_new: dict[str, int] = {}
+    legacy_pre_2022 = 0
+    sample_new_rows: list[dict] = []
+    seen_csv_policy_numbers: set[str] = set()
+
+    rows_to_insert = []  # only used when dry_run=False
+
+    for raw_row in reader:
+        counted += 1
+
+        policy_number = (raw_row.get("policyNumber") or "").strip()
+        if not policy_number:
+            skip_no_policy_number += 1
+            continue
+
+        if policy_number in seen_csv_policy_numbers:
+            skip_duplicate_in_csv += 1
+            continue
+        seen_csv_policy_numbers.add(policy_number)
+
+        if policy_number in existing_policy_numbers:
+            skip_duplicate_in_orbit += 1
+            continue
+
+        sale_date = _parse_us_date(raw_row.get("saleDate", ""))
+        if not sale_date:
+            skip_invalid_date += 1
+            continue
+
+        premium_dec = _parse_premium(raw_row.get("premium", ""))
+        if premium_dec is None or premium_dec < 0:
+            skip_no_premium += 1
+            continue
+
+        producer_name = (raw_row.get("producer") or "").strip()
+        producer_id, was_ghosted = _resolve_or_ghost(producer_name, active_map, db, dry_run, ghost_log)
+        if not producer_id:
+            # Should be impossible since we either match or ghost — but
+            # fall back to admin to avoid losing the row
+            admin = db.query(User).filter(User.role == "admin").first()
+            producer_id = admin.id if admin else None
+            if not producer_id:
+                continue
+
+        effective_date = _parse_us_date(raw_row.get("effectiveDate", ""))
+        client_name = (raw_row.get("customer") or "").strip() or "Unknown"
+        company = (raw_row.get("company") or "").strip()
+        policy_type_raw = (raw_row.get("policyType") or "").strip()
+        policy_type = _resolve_policy_type(policy_type_raw)
+        state = (raw_row.get("state") or "").strip()[:2] or None
+        items = 1
+        try:
+            items = int(raw_row.get("items") or 1)
+        except (TypeError, ValueError):
+            items = 1
+
+        # Lead source. Pre-2022 = legacy_allstate marker, regardless of
+        # what the original lead source was, so the winback analysis can
+        # cleanly exclude these from "lost client" outreach.
+        if sale_date.year < 2022:
+            lead_source = "legacy_allstate"
+            legacy_pre_2022 += 1
+        else:
+            raw_ls = (raw_row.get("leadSourceCombinedName") or raw_row.get("leadSource") or "").strip()
+            lead_source = raw_ls.lower().replace(" ", "_") if raw_ls else "other"
+
+        # Status default. Performology export doesn't have a clear
+        # "currently cancelled" flag — transactionTypeName is empty for
+        # all rows in the audit. Set status='active' as a placeholder;
+        # the winback analysis cross-references against the live
+        # NowCerts customer_policies table to determine who's actually
+        # cancelled today.
+        status = "active"
+
+        notes_parts = []
+        if raw_row.get("note"):
+            notes_parts.append(raw_row["note"].strip())
+        if raw_row.get("reason"):
+            notes_parts.append(f"Reason: {raw_row['reason'].strip()}")
+        if raw_row.get("priorCompany"):
+            notes_parts.append(f"Prior carrier: {raw_row['priorCompany'].strip()}")
+        notes = " | ".join(p for p in notes_parts if p) or None
+
+        year = sale_date.year
+        by_year_new[year] = by_year_new.get(year, 0) + 1
+        by_year_premium[year] = by_year_premium.get(year, 0.0) + float(premium_dec)
+        by_producer_new[producer_name or "Unknown"] = by_producer_new.get(producer_name or "Unknown", 0) + 1
+
+        if len(sample_new_rows) < 10:
+            sample_new_rows.append({
+                "policy_number": policy_number,
+                "client_name": client_name,
+                "carrier": company,
+                "policy_type": policy_type,
+                "premium": float(premium_dec),
+                "sale_date": sale_date.isoformat(),
+                "producer": producer_name,
+                "lead_source": lead_source,
+                "ghost_producer_created": was_ghosted,
+            })
+
+        if not dry_run:
+            sale = Sale(
+                policy_number=policy_number,
+                policy_type=policy_type,
+                carrier=company,
+                state=state,
+                written_premium=premium_dec,
+                producer_id=producer_id,
+                lead_source=lead_source,
+                item_count=items,
+                client_name=client_name,
+                client_email=None,  # Performology export has no email
+                client_phone=None,  # Performology export has no phone
+                status=status,
+                sale_date=sale_date,
+                effective_date=effective_date,
+                notes=notes,
+            )
+            rows_to_insert.append(sale)
+
+    if not dry_run and rows_to_insert:
+        # Bulk insert in batches of 500 to avoid huge transactions
+        for i in range(0, len(rows_to_insert), 500):
+            batch = rows_to_insert[i:i+500]
+            db.add_all(batch)
+            db.flush()
+        db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "csv_rows_total": counted,
+        "would_insert" if dry_run else "inserted": sum(by_year_new.values()),
+        "skipped": {
+            "no_policy_number": skip_no_policy_number,
+            "duplicate_in_csv": skip_duplicate_in_csv,
+            "duplicate_in_orbit": skip_duplicate_in_orbit,
+            "no_or_invalid_premium": skip_no_premium,
+            "invalid_sale_date": skip_invalid_date,
+        },
+        "by_year": [
+            {
+                "year": y,
+                "new_sales": by_year_new[y],
+                "total_premium": round(by_year_premium[y], 2),
+            }
+            for y in sorted(by_year_new.keys())
+        ],
+        "legacy_pre_2022_count": legacy_pre_2022,
+        "ghost_producers": {
+            "would_create" if dry_run else "created": list(ghost_log.keys()),
+            "count": len(ghost_log),
+        },
+        "by_producer_top_15": [
+            {"producer": p, "new_sales": by_producer_new[p]}
+            for p in sorted(by_producer_new.keys(), key=lambda k: -by_producer_new[k])[:15]
+        ],
+        "sample_new_rows": sample_new_rows,
+        "next_step": (
+            "Review this preview. If it looks correct, re-call this endpoint with dry_run=false to actually insert."
+            if dry_run else
+            f"Inserted {sum(by_year_new.values()):,} new sales records."
+        ),
+    }
+
+
 
 # ── NatGen Summer Promo tracker ────────────────────────────────────────
 # Promo window: April 20, 2026 through September 30, 2026.
