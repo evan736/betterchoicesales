@@ -35,6 +35,7 @@ def preview_welcome_email(
     policy_type: str = Query("auto", description="auto, home, motorcycle, etc."),
     producer_name: str = Query("Evan Larson", description="Producer name (Evan = headshot rendered)"),
     producer_email: str = Query("evan@betterchoiceins.com", description="Producer email for Reply-To"),
+    test_prefix: str = Query("", description="If non-empty, prepend to subject e.g. '[TEST] '"),
     current_user: User = Depends(get_current_user),
 ):
     """Send a welcome email preview to recipient_email using sample data.
@@ -46,6 +47,8 @@ def preview_welcome_email(
     Use producer_name='Evan Larson' to verify the headshot renders.
     Use producer_name='Joseph Rivera' to verify other producers
     correctly skip the headshot.
+    Use test_prefix='[TEST] ' to make it obvious to the recipient
+    this isn't a real policy welcome.
     """
     if current_user.role.lower() not in ("admin",):
         raise HTTPException(status_code=403, detail="Admin only")
@@ -53,15 +56,68 @@ def preview_welcome_email(
     if "@" not in recipient_email:
         raise HTTPException(status_code=400, detail="Invalid email")
 
+    fake_sale_id = 999999
+    fake_policy_number = "PREVIEW-TEST-12345"
+
+    # If a test_prefix is provided, build the email manually so we can
+    # control the subject. Otherwise, use the production send function.
+    if test_prefix:
+        try:
+            from app.services.welcome_email import build_welcome_email_html, AGENCY_NAME
+            from app.core.config import settings
+            import requests as _req
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=f"welcome_email import: {e}")
+
+        subject, html_body = build_welcome_email_html(
+            client_name=client_name,
+            policy_number=fake_policy_number,
+            carrier=carrier,
+            producer_name=producer_name,
+            sale_id=fake_sale_id,
+            policy_type=policy_type,
+        )
+
+        if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+            raise HTTPException(status_code=500, detail="Mailgun not configured")
+
+        prefixed_subject = f"{test_prefix}{subject}"
+        resp = _req.post(
+            f"https://api.mailgun.net/v3/{settings.MAILGUN_DOMAIN}/messages",
+            auth=("api", settings.MAILGUN_API_KEY),
+            data={
+                "from": f"{AGENCY_NAME} <{settings.MAILGUN_FROM_EMAIL}>",
+                "to": [recipient_email],
+                "subject": prefixed_subject,
+                "html": html_body,
+                "h:Reply-To": producer_email or "service@betterchoiceins.com",
+                "o:tracking-clicks": "yes",
+                "o:tracking-opens": "yes",
+                "v:email_type": "welcome_preview_test",
+            },
+            timeout=15,
+        )
+        return {
+            "success": resp.status_code == 200,
+            "status_code": resp.status_code,
+            "sent_to": recipient_email,
+            "rendered_subject": prefixed_subject,
+            "with": {
+                "client_name": client_name,
+                "carrier": carrier,
+                "policy_type": policy_type,
+                "producer_name": producer_name,
+                "producer_email": producer_email,
+            },
+            "headshot_should_render": producer_name.lower().split()[0] == "evan",
+            "note": "Sent with TEST prefix — recipient should see this is not real",
+        }
+
+    # Default path — use the real send function
     try:
         from app.services.welcome_email import send_welcome_email
     except ImportError as e:
         raise HTTPException(status_code=500, detail=f"welcome_email import: {e}")
-
-    # Use a fake sale_id high enough that no real sale collides — survey
-    # link still renders, just won't go anywhere meaningful when clicked
-    fake_sale_id = 999999
-    fake_policy_number = "PREVIEW-TEST-12345"
 
     result = send_welcome_email(
         to_email=recipient_email,
