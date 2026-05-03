@@ -1176,3 +1176,211 @@ def bulk_add_from_missing(
         "skipped_no_contact": skipped_no_contact,
         "new_records_sample": new_records[:20],
     }
+
+
+@router.post("/enroll-all-missing")
+def enroll_all_missing(
+    sale_year_from: int = Query(2022),
+    require_contact: bool = Query(True, description="Skip records with no email AND no phone"),
+    require_email: bool = Query(False, description="Require email specifically"),
+    max_to_enroll: int = Query(2000, description="Safety cap on number enrolled"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """One-shot: run missing-from-active analysis AND enroll all reachable
+    records as pending winback campaigns.
+
+    This is the bulk-action equivalent of running /missing-from-active and
+    then calling /bulk-add-from-missing with every result. Avoids the need
+    to round-trip thousands of IDs through the frontend.
+
+    Records are created with status='pending' — NOT auto-sent. Activation
+    is a separate explicit step on the winback list.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from sqlalchemy import or_
+
+    ACTIVE_LOWER = {"active", "in force", "inforce"}
+
+    sales = db.query(Sale).filter(
+        Sale.sale_date >= datetime(sale_year_from, 1, 1),
+        Sale.sale_date < datetime(2100, 1, 1),
+        or_(Sale.lead_source != "legacy_allstate", Sale.lead_source.is_(None)),
+    ).all()
+
+    customers = db.query(Customer).all()
+    by_email_idx: dict[str, int] = {}
+    by_phone_idx: dict[str, int] = {}
+    by_name_idx: dict[str, int] = {}
+
+    def _phone_key(p):
+        if not p:
+            return None
+        digits = "".join(c for c in p if c.isdigit())
+        return digits[-10:] if len(digits) >= 7 else None
+
+    customer_map: dict[int, Customer] = {c.id: c for c in customers}
+    for c in customers:
+        if c.email:
+            by_email_idx[c.email.strip().lower()] = c.id
+        for ph in (c.phone, c.mobile_phone):
+            pk = _phone_key(ph or "")
+            if pk:
+                by_phone_idx[pk] = c.id
+        if c.full_name:
+            by_name_idx[c.full_name.strip().lower()] = c.id
+
+    customer_has_active: dict[int, bool] = {}
+    for pol in db.query(CustomerPolicy).all():
+        if (pol.status or "").strip().lower() in ACTIVE_LOWER:
+            customer_has_active[pol.customer_id] = True
+
+    # Pre-load existing winback records to avoid duplicates
+    existing_pending_customer_ids = set(
+        cid
+        for (cid,) in db.query(WinBackCampaign.customer_id)
+        .filter(WinBackCampaign.status.in_(["pending", "active"]), WinBackCampaign.customer_id.isnot(None))
+        .all()
+    )
+    existing_pending_phone_name = set()
+    for wb in db.query(WinBackCampaign).filter(
+        WinBackCampaign.status.in_(["pending", "active"]),
+    ).all():
+        if wb.customer_phone and wb.customer_name:
+            existing_pending_phone_name.add((wb.customer_name, wb.customer_phone))
+
+    # Aggregate sales per customer (so a customer with 3 cancelled
+    # policies gets one winback record with combined info)
+    lost_by_customer: dict[int, dict] = {}
+    sale_only_records: list[dict] = []
+
+    for sale in sales:
+        if sale.lead_source == "legacy_allstate":
+            continue
+
+        nc_customer_id = None
+        if sale.client_email:
+            nc_customer_id = by_email_idx.get(sale.client_email.strip().lower())
+        if not nc_customer_id and sale.client_phone:
+            pk = _phone_key(sale.client_phone)
+            if pk:
+                nc_customer_id = by_phone_idx.get(pk)
+        if not nc_customer_id and sale.client_name:
+            nc_customer_id = by_name_idx.get(sale.client_name.strip().lower())
+
+        if nc_customer_id and customer_has_active.get(nc_customer_id, False):
+            continue  # has active policy → not lost
+
+        if nc_customer_id:
+            slot = lost_by_customer.setdefault(nc_customer_id, {
+                "most_recent_sale": None,
+                "total_premium": 0.0,
+            })
+            slot["total_premium"] += float(sale.written_premium or 0)
+            sd = sale.sale_date
+            if sd and (not slot["most_recent_sale"] or sd > slot["most_recent_sale"].sale_date):
+                slot["most_recent_sale"] = sale
+        else:
+            sale_only_records.append(sale)
+
+    # Now enroll
+    created = 0
+    skipped_already = 0
+    skipped_no_contact = 0
+    skipped_at_limit = 0
+
+    # NowCerts-matched first
+    for cid, slot in lost_by_customer.items():
+        if created >= max_to_enroll:
+            skipped_at_limit += 1
+            continue
+
+        customer = customer_map.get(cid)
+        if not customer:
+            continue
+        if cid in existing_pending_customer_ids:
+            skipped_already += 1
+            continue
+
+        recent_sale = slot["most_recent_sale"]
+        email = customer.email or (recent_sale.client_email if recent_sale else None)
+        phone = customer.phone or customer.mobile_phone or (recent_sale.client_phone if recent_sale else None)
+
+        if require_email and not email:
+            skipped_no_contact += 1
+            continue
+        if require_contact and not email and not phone:
+            skipped_no_contact += 1
+            continue
+
+        wb = WinBackCampaign(
+            customer_id=customer.id,
+            nowcerts_insured_id=customer.nowcerts_insured_id,
+            customer_name=customer.full_name,
+            customer_email=email,
+            customer_phone=phone,
+            policy_number=recent_sale.policy_number if recent_sale else None,
+            carrier=recent_sale.carrier if recent_sale else None,
+            line_of_business=recent_sale.policy_type if recent_sale else None,
+            premium_at_cancel=round(slot["total_premium"], 2) if slot["total_premium"] > 0 else None,
+            cancellation_date=recent_sale.sale_date if recent_sale else None,
+            months_active=12,
+            agent_name=customer.agent_name or "performology_import",
+            status="pending",
+        )
+        db.add(wb)
+        created += 1
+
+    # Sale-only (deduped to one per phone+name combo)
+    seen_sale_only = set()
+    for sale in sale_only_records:
+        if created >= max_to_enroll:
+            skipped_at_limit += 1
+            continue
+
+        key = (sale.client_name, sale.client_phone)
+        if key in seen_sale_only or key in existing_pending_phone_name:
+            skipped_already += 1
+            continue
+        seen_sale_only.add(key)
+
+        if require_email and not sale.client_email:
+            skipped_no_contact += 1
+            continue
+        if require_contact and not sale.client_email and not sale.client_phone:
+            skipped_no_contact += 1
+            continue
+
+        wb = WinBackCampaign(
+            customer_id=None,
+            customer_name=sale.client_name,
+            customer_email=sale.client_email,
+            customer_phone=sale.client_phone,
+            policy_number=sale.policy_number,
+            carrier=sale.carrier,
+            line_of_business=sale.policy_type,
+            premium_at_cancel=sale.written_premium,
+            cancellation_date=sale.sale_date,
+            months_active=12,
+            agent_name="performology_import",
+            status="pending",
+        )
+        db.add(wb)
+        created += 1
+
+    db.commit()
+
+    return {
+        "enrolled": created,
+        "skipped_already_in_campaign": skipped_already,
+        "skipped_no_contact": skipped_no_contact,
+        "skipped_at_safety_limit": skipped_at_limit,
+        "filters": {
+            "sale_year_from": sale_year_from,
+            "require_contact": require_contact,
+            "require_email": require_email,
+            "max_to_enroll": max_to_enroll,
+        },
+    }
