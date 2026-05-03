@@ -20,6 +20,7 @@ from app.api import nonpay as nonpay_api
 from app.api import uw_requirements as uw_api
 from app.api import winback as winback_api
 from app.api import cold_prospects as cold_prospects_api
+from app.api import email_preview as email_preview_api
 from app.api import missive as missive_api
 from app.api import renewals as renewals_api
 from app.api import quotes as quotes_api
@@ -2062,6 +2063,7 @@ app.include_router(nonpay_api.router)
 app.include_router(uw_api.router)
 app.include_router(winback_api.router)
 app.include_router(cold_prospects_api.router)
+app.include_router(email_preview_api.router)
 app.include_router(renewals_api.router)
 app.include_router(quotes_api.router)
 app.include_router(non_renewal_api.router)
