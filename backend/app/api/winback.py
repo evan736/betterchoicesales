@@ -1742,34 +1742,56 @@ def assign_round_robin(
 
 @router.post("/scheduler-tick")
 def winback_scheduler_tick(
-    max_emails_per_tick: int = Query(20, description="Max winback emails to send in this batch"),
+    max_emails_per_tick: int = Query(10, description="Max winback emails per tick"),
     max_texts_per_tick: int = Query(10, description="Max winback texts (only fires if A2P approved)"),
-    require_business_hours: bool = Query(True, description="Skip if not 9am-3pm CT Mon-Fri"),
+    require_business_hours: bool = Query(True, description="Skip if not 9am-6pm CT Mon-Fri"),
+    phase_1_enabled: bool = Query(True, description="Send cold wake-up (Phase 1) emails"),
+    phase_2_enabled: bool = Query(True, description="Send X-date prep (Phase 2) emails"),
     dry_run: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send the next batch of due winback emails (and optionally texts).
+    """The winback campaign heartbeat. Two phases run in priority order:
 
-    Designed to be called periodically by either:
-      a) An external cron / scheduler hitting this endpoint
-      b) An internal background scheduler (similar to the existing
-         reshop digest / quote follow-up schedulers)
+    PHASE 2 — X-DATE PREP (HIGHER PRIORITY)
+    ─────────────────────────────────────────
+    For records whose next_x_date is approaching, send the next email
+    in the -30/-21/-14/-7 day pre-renewal sequence. cycle_touchpoint_count
+    tracks which of the 4 emails goes next. After cycle_touchpoint_count
+    reaches 4 (or X-date passes), advance next_x_date by +12 months and
+    reset cycle_touchpoint_count to 0.
 
-    Selection logic:
-      - Status='pending' and not excluded → send touchpoint 1
-      - Status='active', last_touchpoint_at < (now - 90 days), not won-back
-        → send next touchpoint (touchpoint_count + 1)
-      - Capped at max_emails_per_tick per call to keep the natural
-        ~16/day pace evenly distributed
+    These run first because they're time-sensitive — if we miss a
+    customer's X-date window, the opportunity is gone for another year.
 
-    Order:
-      - Sort by premium_at_cancel DESC so highest-value customers go first
+    PHASE 1 — COLD WAKE-UP (LOWER PRIORITY)
+    ─────────────────────────────────────────
+    For records with phase='cold_wakeup' that haven't received any
+    email yet, send the initial wake-up email. Ordered by
+    premium_at_cancel DESC so highest-value get the early send slots.
+    Paced to spread ~1,456 records across 90 business days
+    (~16/day at default 4 ticks/day × 4 emails/tick).
 
-    Texts:
-      - Only sent if TWILIO_A2P_APPROVED env var is 'true'
-      - Texts are sent ~24 hrs AFTER the email (different touchpoint
-        on same campaign, gives email a chance to land first)
+    Once an email goes out, the record transitions:
+      cold_wakeup → x_date_prep (or → dormant if X-date is far)
+
+    BUSINESS HOURS GUARD
+    ────────────────────
+    Skips entirely outside 9am-6pm CT M-F unless require_business_hours=false.
+
+    SUPPRESSIONS
+    ────────────
+    The query filters skip records with:
+      - excluded=true (manual block, e.g. Houstons)
+      - last_reply_at is set (customer replied; producer takes over)
+      - status='won_back' (became a client again)
+
+    REPLIES
+    ───────
+    Reply detection happens in the Smart Inbox webhook (separate
+    endpoint). When an inbound email matches a winback customer_email,
+    last_reply_at gets set and the campaign is paused. Producer sees
+    the reply in their normal inbox and handles it manually.
     """
     if current_user.role.lower() not in ("admin",):
         raise HTTPException(status_code=403, detail="Admin only")
@@ -1781,9 +1803,9 @@ def winback_scheduler_tick(
     now_ct = now_utc.astimezone(ZoneInfo("America/Chicago"))
 
     if require_business_hours and not dry_run:
-        weekday = now_ct.weekday()  # 0=Mon, 6=Sun
+        weekday = now_ct.weekday()
         hour = now_ct.hour
-        if weekday >= 5 or hour < 9 or hour >= 15:
+        if weekday >= 5 or hour < 9 or hour >= 18:
             return {
                 "skipped": "outside_business_hours",
                 "now_ct": now_ct.isoformat(),
@@ -1793,70 +1815,192 @@ def winback_scheduler_tick(
 
     twilio_approved = os.getenv("TWILIO_A2P_APPROVED", "false").lower() == "true"
 
-    # Find campaigns due for an email touchpoint
-    pending_t1 = db.query(WinBackCampaign).filter(
-        WinBackCampaign.status == "pending",
-        WinBackCampaign.excluded == False,
-        WinBackCampaign.customer_email.isnot(None),
-    ).order_by(
-        WinBackCampaign.premium_at_cancel.desc().nullslast(),
-        WinBackCampaign.created_at.asc(),
-    ).limit(max_emails_per_tick).all()
-
-    # And active campaigns due for a follow-up touchpoint (90+ days
-    # since last touchpoint)
-    cutoff = datetime.utcnow() - timedelta(days=90)
-    active_due = db.query(WinBackCampaign).filter(
-        WinBackCampaign.status == "active",
-        WinBackCampaign.excluded == False,
-        WinBackCampaign.customer_email.isnot(None),
-        WinBackCampaign.touchpoint_count < 4,  # cap at 4 total touchpoints
-        WinBackCampaign.last_touchpoint_at < cutoff,
-    ).order_by(
-        WinBackCampaign.premium_at_cancel.desc().nullslast(),
-    ).limit(max(0, max_emails_per_tick - len(pending_t1))).all()
-
     sent_email = 0
     sent_text = 0
     failed = 0
-    actions = []
+    phase_1_actions: list[dict] = []
+    phase_2_actions: list[dict] = []
+    text_actions: list[dict] = []
 
-    for c in pending_t1 + active_due:
-        touchpoint = (c.touchpoint_count or 0) + 1
-        if dry_run:
-            actions.append({
-                "campaign_id": c.id,
-                "customer_name": c.customer_name,
-                "would_send": "email",
-                "touchpoint": touchpoint,
-                "agent": _get_assigned_producer(c)["username"],
-                "premium": float(c.premium_at_cancel) if c.premium_at_cancel else 0,
-            })
-            continue
+    remaining = max_emails_per_tick
 
-        ok = _send_winback_email(c, touchpoint=touchpoint)
-        if ok:
-            c.touchpoint_count = touchpoint
-            c.last_touchpoint_at = datetime.utcnow()
-            c.next_touchpoint_at = datetime.utcnow() + timedelta(days=90)
-            c.status = "active"
-            sent_email += 1
-        else:
-            failed += 1
+    # ─── PHASE 2: X-DATE PREP ───
+    # Records whose next_x_date is within 30 days, AND they haven't
+    # finished the 4-email cycle yet (cycle_touchpoint_count < 4)
+    if phase_2_enabled and remaining > 0:
+        # Find the touchpoint due for each record:
+        #   cycle_touchpoint_count = 0 → next email at -30 days from X
+        #   cycle_touchpoint_count = 1 → next email at -21 days from X
+        #   cycle_touchpoint_count = 2 → next email at -14 days from X
+        #   cycle_touchpoint_count = 3 → next email at -7 days from X
+        # The "due" rule: now >= (next_x_date − offset_days)
+        offset_map = {0: 30, 1: 21, 2: 14, 3: 7}
+
+        # We need records where the appropriate offset has been hit.
+        # Easiest: pull all records where next_x_date is within 35 days
+        # and cycle_touchpoint_count < 4, then filter in Python.
+        candidates = db.query(WinBackCampaign).filter(
+            WinBackCampaign.excluded == False,
+            WinBackCampaign.last_reply_at.is_(None),
+            WinBackCampaign.status != "won_back",
+            WinBackCampaign.customer_email.isnot(None),
+            WinBackCampaign.next_x_date.isnot(None),
+            WinBackCampaign.next_x_date <= datetime.utcnow() + timedelta(days=35),
+            WinBackCampaign.next_x_date >= datetime.utcnow() - timedelta(days=2),
+            WinBackCampaign.cycle_touchpoint_count < 4,
+        ).order_by(
+            WinBackCampaign.next_x_date.asc(),
+            WinBackCampaign.premium_at_cancel.desc().nullslast(),
+        ).limit(remaining * 3).all()  # over-fetch since not all will be due
+
+        for c in candidates:
+            if remaining <= 0:
+                break
+            cycle_tc = c.cycle_touchpoint_count or 0
+            offset_days = offset_map.get(cycle_tc, 7)
+            due_at = c.next_x_date - timedelta(days=offset_days)
+
+            # Strip TZ for comparison consistency
+            due_naive = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
+            now_naive = datetime.utcnow()
+
+            if now_naive < due_naive:
+                continue  # not due yet
+
+            # If we sent an email within the last 5 days for this record,
+            # skip — don't double up touchpoints in the same week
+            if c.last_touchpoint_at:
+                last_tp_naive = (
+                    c.last_touchpoint_at.replace(tzinfo=None)
+                    if c.last_touchpoint_at.tzinfo
+                    else c.last_touchpoint_at
+                )
+                if (now_naive - last_tp_naive).days < 5:
+                    continue
+
+            tp = (c.touchpoint_count or 0) + 1
+            if dry_run:
+                phase_2_actions.append({
+                    "campaign_id": c.id,
+                    "customer_name": c.customer_name,
+                    "phase": "x_date_prep",
+                    "cycle_touchpoint": cycle_tc + 1,
+                    "x_date_offset_days": offset_days,
+                    "next_x_date": c.next_x_date.isoformat() if c.next_x_date else None,
+                    "agent": _get_assigned_producer(c)["username"],
+                    "premium": float(c.premium_at_cancel) if c.premium_at_cancel else 0,
+                })
+                remaining -= 1
+                continue
+
+            # Always use touchpoint=1 for the v2 email (avoids changing
+            # email content based on cycle position; cycle is tracked
+            # separately). Could differentiate later.
+            ok = _send_winback_email(c, touchpoint=1 if cycle_tc == 0 else 2)
+            if ok:
+                c.touchpoint_count = tp
+                c.cycle_touchpoint_count = cycle_tc + 1
+                c.last_touchpoint_at = datetime.utcnow()
+                c.phase = "x_date_prep"
+                c.status = "active"
+                # If this was the 4th cycle email, advance next_x_date
+                # to next year and reset cycle counter
+                if c.cycle_touchpoint_count >= 4:
+                    c.next_x_date = c.next_x_date + timedelta(days=365)
+                    c.cycle_touchpoint_count = 0
+                    c.x_date_cycle_count = (c.x_date_cycle_count or 0) + 1
+                    c.phase = "dormant"
+                sent_email += 1
+                remaining -= 1
+            else:
+                failed += 1
+
+    # ─── PHASE 1: COLD WAKE-UP ───
+    # Records that have never been emailed yet (touchpoint_count = 0,
+    # phase = 'cold_wakeup' or NULL for backward compat)
+    if phase_1_enabled and remaining > 0:
+        candidates = db.query(WinBackCampaign).filter(
+            WinBackCampaign.excluded == False,
+            WinBackCampaign.last_reply_at.is_(None),
+            WinBackCampaign.status != "won_back",
+            WinBackCampaign.customer_email.isnot(None),
+            WinBackCampaign.touchpoint_count == 0,
+        ).filter(
+            (WinBackCampaign.phase == "cold_wakeup")
+            | (WinBackCampaign.phase.is_(None))
+        ).order_by(
+            WinBackCampaign.premium_at_cancel.desc().nullslast(),
+            WinBackCampaign.created_at.asc(),
+        ).limit(remaining).all()
+
+        for c in candidates:
+            # Skip if we'd double-tap with Phase 2 — i.e. their X-date
+            # is within 60 days, let Phase 2 handle them so we don't
+            # send a cold wake-up email and then a Phase 2 email a
+            # week later.
+            if c.next_x_date:
+                next_x_naive = (
+                    c.next_x_date.replace(tzinfo=None)
+                    if c.next_x_date.tzinfo
+                    else c.next_x_date
+                )
+                days_until_x = (next_x_naive - datetime.utcnow()).days
+                if 0 < days_until_x < 60:
+                    # Skip — Phase 2 will handle. Set phase explicitly
+                    # so we don't keep re-evaluating this record.
+                    if not dry_run:
+                        c.phase = "x_date_prep"
+                    continue
+
+            if dry_run:
+                phase_1_actions.append({
+                    "campaign_id": c.id,
+                    "customer_name": c.customer_name,
+                    "phase": "cold_wakeup",
+                    "agent": _get_assigned_producer(c)["username"],
+                    "premium": float(c.premium_at_cancel) if c.premium_at_cancel else 0,
+                })
+                remaining -= 1
+                continue
+
+            ok = _send_winback_email(c, touchpoint=1)
+            if ok:
+                c.touchpoint_count = 1
+                c.last_touchpoint_at = datetime.utcnow()
+                c.status = "active"
+                # Transition: set X-date if not already set, then move
+                # to dormant phase between cycles
+                if not c.next_x_date and c.cancellation_date:
+                    cancel_naive = (
+                        c.cancellation_date.replace(tzinfo=None)
+                        if c.cancellation_date.tzinfo
+                        else c.cancellation_date
+                    )
+                    # Compute next X-date: 12-month anniversary of
+                    # cancellation that is in the future
+                    target = cancel_naive + timedelta(days=365)
+                    while target < datetime.utcnow():
+                        target = target + timedelta(days=365)
+                    c.next_x_date = target
+                c.phase = "dormant"
+                sent_email += 1
+                remaining -= 1
+            else:
+                failed += 1
 
     if not dry_run:
         db.commit()
 
-    # Texts: only if A2P approved + customer has phone + email already
-    # sent at this touchpoint (we want email to land first)
-    text_actions = []
+    # ─── TEXTS (gated on A2P) ───
     if twilio_approved and max_texts_per_tick > 0:
         text_candidates = db.query(WinBackCampaign).filter(
-            WinBackCampaign.status == "active",
             WinBackCampaign.excluded == False,
+            WinBackCampaign.last_reply_at.is_(None),
+            WinBackCampaign.status != "won_back",
             WinBackCampaign.customer_phone.isnot(None),
             WinBackCampaign.touchpoint_count >= 1,
             WinBackCampaign.last_touchpoint_at < datetime.utcnow() - timedelta(hours=24),
+            WinBackCampaign.last_touchpoint_at > datetime.utcnow() - timedelta(hours=72),
         ).order_by(
             WinBackCampaign.premium_at_cancel.desc().nullslast(),
         ).limit(max_texts_per_tick).all()
@@ -1871,8 +2015,6 @@ def winback_scheduler_tick(
                 continue
             ok = _send_winback_text(c, touchpoint=c.touchpoint_count, db=db)
             if ok:
-                # Mark text-sent — could add a field for this but for
-                # now we'll bump last_touchpoint_at to prevent re-send
                 c.last_touchpoint_at = datetime.utcnow()
                 sent_text += 1
             else:
@@ -1887,9 +2029,103 @@ def winback_scheduler_tick(
         "emails_sent": sent_email,
         "texts_sent": sent_text,
         "failed": failed,
-        "would_send_emails": [a for a in actions if a.get("would_send") == "email"] if dry_run else None,
+        "phase_1_cold_wakeup": phase_1_actions if dry_run else len(phase_1_actions),
+        "phase_2_x_date_prep": phase_2_actions if dry_run else len(phase_2_actions),
         "would_send_texts": text_actions if dry_run else None,
-        "candidates_found": len(pending_t1) + len(active_due),
+    }
+
+
+@router.post("/initialize-x-dates")
+def initialize_x_dates(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set next_x_date on every winback record that doesn't have one yet.
+
+    Logic: next_x_date = cancellation_date + N years, where N is the
+    smallest integer that puts the result in the future.
+
+    Records without a cancellation_date get NULL (Phase 2 won't fire
+    until a date is manually set).
+
+    Also sets phase='cold_wakeup' on records that have phase=NULL so
+    they enter the Phase 1 queue.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    records = db.query(WinBackCampaign).filter(
+        WinBackCampaign.excluded == False,
+    ).all()
+
+    set_x_date = 0
+    set_phase = 0
+    skipped_no_cancel_date = 0
+
+    for c in records:
+        # Set X-date if missing
+        if not c.next_x_date:
+            if c.cancellation_date:
+                cancel_naive = (
+                    c.cancellation_date.replace(tzinfo=None)
+                    if c.cancellation_date.tzinfo
+                    else c.cancellation_date
+                )
+                target = cancel_naive + timedelta(days=365)
+                while target < datetime.utcnow():
+                    target = target + timedelta(days=365)
+                c.next_x_date = target
+                set_x_date += 1
+            else:
+                skipped_no_cancel_date += 1
+
+        # Set phase if NULL
+        if not c.phase:
+            c.phase = "cold_wakeup"
+            set_phase += 1
+
+    db.commit()
+
+    return {
+        "total_records": len(records),
+        "x_dates_set": set_x_date,
+        "phase_set_to_cold_wakeup": set_phase,
+        "skipped_no_cancellation_date": skipped_no_cancel_date,
+    }
+
+
+@router.post("/detect-reply/{campaign_id}")
+def mark_reply_received(
+    campaign_id: int,
+    subject: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually mark that a customer replied to a winback email.
+    Pauses all future campaign emails for this record.
+
+    Normally called automatically by Smart Inbox when an inbound email
+    matches a winback customer_email. Exposed manually so producers
+    can flag a phone-call response as "reply received" too.
+    """
+    if current_user.role.lower() not in ("admin", "manager", "producer"):
+        raise HTTPException(status_code=403, detail="Auth required")
+
+    c = db.query(WinBackCampaign).filter(WinBackCampaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    c.last_reply_at = datetime.utcnow()
+    if subject:
+        c.last_reply_subject = subject
+    db.commit()
+
+    return {
+        "campaign_id": c.id,
+        "customer_name": c.customer_name,
+        "last_reply_at": c.last_reply_at.isoformat(),
+        "last_reply_subject": c.last_reply_subject,
+        "status": "campaign paused — producer takes over from inbox",
     }
 
 

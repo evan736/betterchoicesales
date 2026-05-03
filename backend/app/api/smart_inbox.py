@@ -1071,6 +1071,41 @@ async def receive_inbound_email(
     except Exception as e:
         logger.debug(f"A/B reply tracking skipped: {e}")
 
+    # ── Winback reply tracking ──────────────────────────────────────
+    # If the sender matches a winback campaign customer_email, mark
+    # the campaign as having received a reply. The scheduler-tick
+    # filters on last_reply_at IS NULL, so this immediately pauses
+    # all future winback emails for that customer. Producer takes
+    # over manually from their inbox.
+    try:
+        from app.models.campaign import WinBackCampaign
+        from sqlalchemy import func as sa_func2
+        clean_from2 = (from_addr or "").strip().lower()
+        m2 = clean_from2.rfind("<")
+        if m2 >= 0:
+            end2 = clean_from2.rfind(">")
+            if end2 > m2:
+                clean_from2 = clean_from2[m2 + 1:end2].strip()
+        if clean_from2 and "@" in clean_from2:
+            wb_matches = (
+                db.query(WinBackCampaign)
+                .filter(WinBackCampaign.last_reply_at.is_(None))
+                .filter(WinBackCampaign.excluded == False)
+                .filter(sa_func2.lower(WinBackCampaign.customer_email) == clean_from2)
+                .all()
+            )
+            if wb_matches:
+                now_dt2 = datetime.utcnow()
+                for wb in wb_matches:
+                    wb.last_reply_at = now_dt2
+                    wb.last_reply_subject = (subject or "")[:200]
+                db.commit()
+                logger.info(
+                    f"Winback reply detected: paused {len(wb_matches)} campaign(s) for {clean_from2}"
+                )
+    except Exception as e:
+        logger.debug(f"Winback reply tracking skipped: {e}")
+
     # Kick off async processing
     db_url = os.getenv("DATABASE_URL", "")
 

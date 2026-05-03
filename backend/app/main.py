@@ -412,6 +412,41 @@ def init_database():
         except Exception as e:
             logger.warning(f"agency_snapshots migration: {e}")
 
+    # Winback Phase 2 columns (added 2026-05-02 for X-date cycle scheduler)
+    # Five new columns: phase, next_x_date, x_date_cycle_count,
+    # cycle_touchpoint_count, last_reply_at, last_reply_subject
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='phase') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN phase VARCHAR DEFAULT 'cold_wakeup';
+                        CREATE INDEX IF NOT EXISTS ix_winback_campaigns_phase ON winback_campaigns(phase);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='next_x_date') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN next_x_date TIMESTAMPTZ;
+                        CREATE INDEX IF NOT EXISTS ix_winback_campaigns_next_x_date ON winback_campaigns(next_x_date);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='x_date_cycle_count') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN x_date_cycle_count INTEGER DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='cycle_touchpoint_count') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN cycle_touchpoint_count INTEGER DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='last_reply_at') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN last_reply_at TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='last_reply_subject') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN last_reply_subject VARCHAR;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+            logger.info("winback_campaigns Phase 2 columns ready")
+        except Exception as e:
+            logger.warning(f"winback Phase 2 migration: {e}")
+
     # Ensure chat tables exist
     with engine.connect() as conn:
         try:
@@ -1287,6 +1322,129 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_requote_campaign_scheduler, daemon=True).start()
 
+    # ── Winback scheduler (every 30 min during business hours) ─────
+    # Runs the Phase 1 cold wake-up + Phase 2 X-date prep emails.
+    # Self-gates on business hours (9am-6pm CT M-F) inside the
+    # scheduler-tick logic, so this thread fires every 30 min and
+    # the tick itself decides whether to send.
+    #
+    # Default pace: 4 emails per tick × 2 ticks/hr × 9 business hrs
+    # × 5 weekdays = 360/week, completing 1,456 records in ~4 weeks.
+    # Bump max_emails_per_tick up to send faster.
+    #
+    # GATE: env var WINBACK_SCHEDULER_ENABLED must be 'true'. Default
+    # is 'false' so this never fires accidentally on a fresh deploy.
+    # Flip the env var on Render to start sending.
+    def _winback_scheduler():
+        import time as _time
+        import os
+        _time.sleep(120)  # Wait for migrations + other schedulers
+        logger.info("Winback scheduler started (runs every 30 min, gated on WINBACK_SCHEDULER_ENABLED)")
+        while True:
+            try:
+                if os.getenv("WINBACK_SCHEDULER_ENABLED", "false").lower() == "true":
+                    from app.core.database import SessionLocal
+                    from app.api.winback import (
+                        WinBackCampaign, _send_winback_email,
+                        _get_assigned_producer,
+                    )
+                    from datetime import datetime as _dt, timedelta as _td
+                    from zoneinfo import ZoneInfo
+                    _db = SessionLocal()
+                    try:
+                        # Business-hours guard inline (avoid HTTP roundtrip)
+                        now_ct = _dt.utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
+                        weekday = now_ct.weekday()
+                        hour = now_ct.hour
+                        if weekday >= 5 or hour < 9 or hour >= 18:
+                            pass  # outside business hours, skip silently
+                        else:
+                            max_per_tick = int(os.getenv("WINBACK_MAX_PER_TICK", "4"))
+                            sent = 0
+                            # Phase 2 (X-date prep) priority — same logic as scheduler-tick
+                            offset_map = {0: 30, 1: 21, 2: 14, 3: 7}
+                            phase_2_candidates = _db.query(WinBackCampaign).filter(
+                                WinBackCampaign.excluded == False,
+                                WinBackCampaign.last_reply_at.is_(None),
+                                WinBackCampaign.status != "won_back",
+                                WinBackCampaign.customer_email.isnot(None),
+                                WinBackCampaign.next_x_date.isnot(None),
+                                WinBackCampaign.next_x_date <= _dt.utcnow() + _td(days=35),
+                                WinBackCampaign.next_x_date >= _dt.utcnow() - _td(days=2),
+                                WinBackCampaign.cycle_touchpoint_count < 4,
+                            ).order_by(
+                                WinBackCampaign.next_x_date.asc(),
+                                WinBackCampaign.premium_at_cancel.desc().nullslast(),
+                            ).limit(max_per_tick * 3).all()
+                            for c in phase_2_candidates:
+                                if sent >= max_per_tick:
+                                    break
+                                cycle_tc = c.cycle_touchpoint_count or 0
+                                offset_days = offset_map.get(cycle_tc, 7)
+                                due_at = c.next_x_date - _td(days=offset_days)
+                                due_naive = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
+                                if _dt.utcnow() < due_naive:
+                                    continue
+                                if c.last_touchpoint_at:
+                                    lt = c.last_touchpoint_at.replace(tzinfo=None) if c.last_touchpoint_at.tzinfo else c.last_touchpoint_at
+                                    if (_dt.utcnow() - lt).days < 5:
+                                        continue
+                                if _send_winback_email(c, touchpoint=1 if cycle_tc == 0 else 2):
+                                    c.touchpoint_count = (c.touchpoint_count or 0) + 1
+                                    c.cycle_touchpoint_count = cycle_tc + 1
+                                    c.last_touchpoint_at = _dt.utcnow()
+                                    c.phase = "x_date_prep"
+                                    c.status = "active"
+                                    if c.cycle_touchpoint_count >= 4:
+                                        c.next_x_date = c.next_x_date + _td(days=365)
+                                        c.cycle_touchpoint_count = 0
+                                        c.x_date_cycle_count = (c.x_date_cycle_count or 0) + 1
+                                        c.phase = "dormant"
+                                    sent += 1
+                            # Phase 1 cold wake-up
+                            if sent < max_per_tick:
+                                p1 = _db.query(WinBackCampaign).filter(
+                                    WinBackCampaign.excluded == False,
+                                    WinBackCampaign.last_reply_at.is_(None),
+                                    WinBackCampaign.status != "won_back",
+                                    WinBackCampaign.customer_email.isnot(None),
+                                    WinBackCampaign.touchpoint_count == 0,
+                                ).filter(
+                                    (WinBackCampaign.phase == "cold_wakeup") | (WinBackCampaign.phase.is_(None))
+                                ).order_by(
+                                    WinBackCampaign.premium_at_cancel.desc().nullslast(),
+                                ).limit(max_per_tick - sent).all()
+                                for c in p1:
+                                    # Skip if X-date soon (Phase 2 will handle)
+                                    if c.next_x_date:
+                                        nx = c.next_x_date.replace(tzinfo=None) if c.next_x_date.tzinfo else c.next_x_date
+                                        days_until = (nx - _dt.utcnow()).days
+                                        if 0 < days_until < 60:
+                                            c.phase = "x_date_prep"
+                                            continue
+                                    if _send_winback_email(c, touchpoint=1):
+                                        c.touchpoint_count = 1
+                                        c.last_touchpoint_at = _dt.utcnow()
+                                        c.status = "active"
+                                        if not c.next_x_date and c.cancellation_date:
+                                            cn = c.cancellation_date.replace(tzinfo=None) if c.cancellation_date.tzinfo else c.cancellation_date
+                                            t = cn + _td(days=365)
+                                            while t < _dt.utcnow():
+                                                t = t + _td(days=365)
+                                            c.next_x_date = t
+                                        c.phase = "dormant"
+                                        sent += 1
+                            _db.commit()
+                            if sent > 0:
+                                logger.info(f"Winback scheduler: sent {sent} email(s)")
+                    finally:
+                        _db.close()
+            except Exception as e:
+                logger.error("Winback scheduler error: %s", e)
+            _time.sleep(1800)  # Every 30 minutes
+
+    threading.Thread(target=_winback_scheduler, daemon=True).start()
+
     # Life cross-sell campaign sending available via POST /api/life-campaign/send-pending
     logger.info("Life cross-sell campaign send available via API endpoint")
 
@@ -1404,6 +1562,13 @@ def force_migrate():
         "ALTER TABLE quotes ADD COLUMN auto_pd_limit VARCHAR(50)",
         "ALTER TABLE quotes ADD COLUMN auto_um_limit VARCHAR(50)",
         "ALTER TABLE quotes ADD COLUMN quote_pdf_paths JSON",
+        # Winback Phase 2 (X-date cycle scheduler)
+        "ALTER TABLE winback_campaigns ADD COLUMN phase VARCHAR DEFAULT 'cold_wakeup'",
+        "ALTER TABLE winback_campaigns ADD COLUMN next_x_date TIMESTAMPTZ",
+        "ALTER TABLE winback_campaigns ADD COLUMN x_date_cycle_count INTEGER DEFAULT 0",
+        "ALTER TABLE winback_campaigns ADD COLUMN cycle_touchpoint_count INTEGER DEFAULT 0",
+        "ALTER TABLE winback_campaigns ADD COLUMN last_reply_at TIMESTAMPTZ",
+        "ALTER TABLE winback_campaigns ADD COLUMN last_reply_subject VARCHAR",
         """CREATE TABLE IF NOT EXISTS life_cross_sells (
             id SERIAL PRIMARY KEY,
             sale_id INTEGER REFERENCES sales(id),

@@ -148,6 +148,31 @@ class WinBackCampaign(Base):
     next_touchpoint_at = Column(DateTime(timezone=True), nullable=True)
     ghl_webhook_sent = Column(Boolean, default=False)
 
+    # Phase tracking (added 2026-05-02 for X-date cycle scheduler)
+    # phase values: cold_wakeup, x_date_prep, dormant, won_back, suppressed
+    #   cold_wakeup  = Phase 1 — first-ever winback contact (90-day rollout)
+    #   x_date_prep  = Phase 2 — within 30 days of next X-date, sending pre-renewal sequence
+    #   dormant      = between X-date cycles, waiting for next prep window
+    #   won_back     = customer became a client again (new sale matched)
+    #   suppressed   = manual opt-out / hard bounce / permanent block
+    phase = Column(String, default="cold_wakeup", nullable=True, index=True)
+    # X-date = our best guess at when their current (non-BCI) policy renews
+    # Initially = cancellation_date + 12 months. Advances +12 months each cycle
+    # after the 4-email pre-renewal sequence (-30/-21/-14/-7 days) completes.
+    next_x_date = Column(DateTime(timezone=True), nullable=True, index=True)
+    # How many X-date cycles we've completed (0 = not started, 1 = one annual
+    # cycle done, etc.). Per Evan: keep going every cycle, no auto-stop.
+    x_date_cycle_count = Column(Integer, default=0, nullable=True)
+    # Touchpoints sent within the CURRENT X-date cycle (0-4). Resets when
+    # next_x_date advances. Lets us know which of the 4 pre-renewal emails
+    # (−30/−21/−14/−7) is next.
+    cycle_touchpoint_count = Column(Integer, default=0, nullable=True)
+    # Last reply detected. Set by Smart Inbox webhook when an inbound email
+    # matches the customer_email. Pauses email campaign — producer takes
+    # over manually from their inbox.
+    last_reply_at = Column(DateTime(timezone=True), nullable=True)
+    last_reply_subject = Column(String, nullable=True)
+
     # Result
     won_back_date = Column(DateTime(timezone=True), nullable=True)
     new_policy_number = Column(String, nullable=True)
