@@ -1552,6 +1552,7 @@ async def import_performology_csv(
     skip_invalid_date = 0
     by_year_new: dict[int, int] = {}
     by_year_premium: dict[int, float] = {}
+    by_year_with_contact: dict[int, int] = {}
     by_producer_new: dict[str, int] = {}
     legacy_pre_2022 = 0
     sample_new_rows: list[dict] = []
@@ -1618,6 +1619,19 @@ async def import_performology_csv(
             raw_ls = (raw_row.get("leadSourceCombinedName") or raw_row.get("leadSource") or "").strip()
             lead_source = raw_ls.lower().replace(" ", "_") if raw_ls else "other"
 
+        # Contact info — Performology's "_full" export has these columns;
+        # the older "_basic" export doesn't (we use .get() so both work)
+        email = (raw_row.get("customerEmail") or "").strip() or None
+        # Phone preference order: mobile → home → work
+        phone = (
+            (raw_row.get("customerMobilePhone") or "").strip()
+            or (raw_row.get("customerHomePhone") or "").strip()
+            or (raw_row.get("customerWorkPhone") or "").strip()
+            or None
+        )
+        if phone == "":
+            phone = None
+
         # Status default. Performology export doesn't have a clear
         # "currently cancelled" flag — transactionTypeName is empty for
         # all rows in the audit. Set status='active' as a placeholder;
@@ -1640,10 +1654,16 @@ async def import_performology_csv(
         by_year_premium[year] = by_year_premium.get(year, 0.0) + float(premium_dec)
         by_producer_new[producer_name or "Unknown"] = by_producer_new.get(producer_name or "Unknown", 0) + 1
 
+        # Track contact-info coverage on rows we'd actually insert
+        if email or phone:
+            by_year_with_contact[year] = by_year_with_contact.get(year, 0) + 1
+
         if len(sample_new_rows) < 10:
             sample_new_rows.append({
                 "policy_number": policy_number,
                 "client_name": client_name,
+                "client_email": email,
+                "client_phone": phone,
                 "carrier": company,
                 "policy_type": policy_type,
                 "premium": float(premium_dec),
@@ -1664,8 +1684,8 @@ async def import_performology_csv(
                 lead_source=lead_source,
                 item_count=items,
                 client_name=client_name,
-                client_email=None,  # Performology export has no email
-                client_phone=None,  # Performology export has no phone
+                client_email=email,
+                client_phone=phone,
                 status=status,
                 sale_date=sale_date,
                 effective_date=effective_date,
@@ -1696,6 +1716,8 @@ async def import_performology_csv(
             {
                 "year": y,
                 "new_sales": by_year_new[y],
+                "with_contact": by_year_with_contact.get(y, 0),
+                "contact_pct": round(100.0 * by_year_with_contact.get(y, 0) / max(by_year_new[y], 1), 1),
                 "total_premium": round(by_year_premium[y], 2),
             }
             for y in sorted(by_year_new.keys())
