@@ -100,183 +100,206 @@ def _get_assigned_producer(prospect: ColdProspect) -> dict:
 def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str, str]:
     """Build (subject, html) for a cold-prospect email.
 
-    These are NOT former customers, so the opening cannot reference any
-    prior insurance with us. Instead we anchor on the Allstate X-date
-    list context (which they likely don't remember) and pivot to the
-    rate-decrease angle.
+    Subject lines lean heavily on the rate-decrease hook because that's
+    the actual "why you should open this" value prop. ~80% of subjects
+    mention rates explicitly. Variety across producer × variant
+    combinations so the same prospect doesn't see two identical
+    subjects across follow-ups.
 
-    Variant rotation: 4 distinct copies (v1, v2, v3, v4) per producer.
-    The scheduler advances last_email_variant each contact so the same
-    person never sees the same email twice.
+    Body intentionally avoids:
+      - Stacked "Mind if... Mind sending..." asks (one ask only)
+      - Defensive hedging ("actually", "I think")
+      - Generic closes ("whatever's easier")
+      - Marketing-speak ("at Better Choice Insurance, we...")
     """
     first_name = prospect.first_name.title() if prospect.first_name else "there"
     producer = _get_assigned_producer(prospect)
 
-    # Determine LOB phrasing from policy_type field
+    # LOB phrasing
     pt = (prospect.policy_type or "").lower()
     if "auto" in pt and "home" not in pt:
-        scope = "auto"
-        anchor = "your auto insurance"
-        verify = "Mind sending over the year/make/model of your current vehicles?"
+        scope_short = "auto"
+        scope_long = "your auto"
+        verify = "Send over the year/make/model on the cars and I'll dig in."
     elif "home" in pt and "auto" not in pt:
-        scope = "home"
-        anchor = "your home insurance"
-        verify = "Mind sharing roughly when the roof was last replaced?"
+        scope_short = "home"
+        scope_long = "your home"
+        verify = "If you can ballpark when the roof was last replaced, I can run a few options."
     elif pt:
-        scope = "insurance"
-        anchor = "your insurance"
-        verify = "Mind sharing what you have right now so I can match it up?"
+        scope_short = "insurance"
+        scope_long = "your insurance"
+        verify = "Send over a quick snapshot of what you've got now and I'll match it up."
     else:
-        scope = "insurance"
-        anchor = "your home and auto"
-        verify = "Mind sharing the year/make/model of your vehicles and roughly when the roof was last replaced?"
+        scope_short = "insurance"
+        scope_long = "your home and auto"
+        verify = "Send the year/make/model on the cars and a rough year on the roof — I'll handle the rest."
 
-    # Per-variant copy. Vary opening hook, sentence structure, and CTA.
+    # Their current carrier — gives the email specificity if we have it
+    current_carrier = (prospect.company or "").strip()
+    # Strip generic suffixes for cleaner inline use
+    for suffix in (" insurance", " ins", " prop & cas", " property & casualty"):
+        if current_carrier.lower().endswith(suffix):
+            current_carrier = current_carrier[: -len(suffix)].strip()
+    # Title-case if all-caps
+    if current_carrier.isupper():
+        current_carrier = current_carrier.title()
+
+    # ─────── PER-PRODUCER, PER-VARIANT CONTENT ───────
+
     if producer["first_name"] == "Joseph":
         if variant == "v1":
-            subject = "rates are coming back down"
-            opening = (
+            subject = "rates dropped — worth a quick look?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph Rivera at Better Choice Insurance — independent agency in Saint Charles. "
-                f"Reaching out because most of our carriers (Progressive, NatGen, GEICO, Travelers) "
-                f"have taken pretty significant rate decreases recently and I think it's worth "
-                f"taking a look at {anchor}."
+                f"Joseph Rivera over at Better Choice Insurance. Quick reason for the email — "
+                f"a bunch of carriers we work with (NatGen, Progressive, GEICO, Travelers) "
+                f"filed rate decreases over the last few months. Doesn't always happen, so "
+                f"figured I'd reach out.<br><br>"
+                f"Want me to take a fresh look at {scope_long}? {verify}<br><br>"
+                f"Easy text or call too: (847) 908-5665."
             )
-            ask = f"{verify} I can put together a few options."
-            close = "Reply here or call/text me direct, whatever works."
         elif variant == "v2":
-            subject = f"hey {first_name}"
-            opening = (
+            subject = f"{first_name} — carriers came down on rates"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph at Better Choice. Quick one — carriers have been filing rate decreases "
-                f"left and right since the end of last year. NatGen, Progressive, GEICO all came down."
+                f"Joseph at Better Choice. Several carriers have cut rates recently — "
+                f"first time in a couple years. Wanted to flag it.<br><br>"
+                f"If you're up for me running fresh quotes on {scope_long}, "
+                f"{verify.lower()}<br><br>"
+                f"Or hop on the phone for 5 minutes."
             )
-            ask = f"Mind if I run a few quotes on {anchor}? {verify}"
-            close = "Or hop on the phone for 5 minutes — easy enough."
         elif variant == "v3":
-            subject = "saw rates dropped — worth a look?"
-            opening = (
+            current_ref = f" (saw you're with {current_carrier} now)" if current_carrier else ""
+            subject = "saw rates moved — quick check?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph Rivera, independent agent over in Saint Charles. "
-                f"Wanted to drop a quick line because the carriers we work with have started "
-                f"giving back some of the rate increases from the last few years."
+                f"Joseph Rivera, independent agent in Saint Charles. "
+                f"Reaching out{current_ref} because rates have come down enough lately "
+                f"that it's worth a side-by-side.<br><br>"
+                f"Quick quote on {scope_long}? {verify}<br><br>"
+                f"Reply works, so does a call: (847) 908-5665."
             )
-            ask = f"Want me to take a look at {anchor}? {verify}"
-            close = "Quick reply or call works either way."
         else:  # v4
-            subject = f"{first_name} — quote you up?"
-            opening = (
+            subject = f"quote you up, {first_name}?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph at Better Choice Insurance. Rates have come down with several "
-                f"of the carriers we work with — figured I'd reach out and see if you wanted "
-                f"to take another look at {anchor}."
+                f"Joseph at Better Choice Insurance. Carriers have been cutting rates the "
+                f"last few months. If you haven't shopped {scope_long} recently, this is "
+                f"a decent window to do it.<br><br>"
+                f"{verify}<br><br>"
+                f"Reply or call me direct."
             )
-            ask = f"{verify}"
-            close = "Reply or call me direct."
 
     elif producer["first_name"] == "Evan":
         if variant == "v1":
-            subject = "rates dropped — quick look?"
-            opening = (
+            subject = "rates came back down — worth a look"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson at Better Choice Insurance Group — we're an independent agency "
-                f"in Saint Charles, work with about 15 carriers. Reaching out because most of "
-                f"those carriers have filed rate decreases recently and I think it's worth a "
-                f"quick check on {anchor}."
+                f"Evan Larson at Better Choice Insurance Group. Independent agency in "
+                f"Saint Charles. Reason for the email: most of our carriers filed rate "
+                f"decreases over the last couple of months and I'd hate for you to miss it.<br><br>"
+                f"Want me to put a fresh quote together for {scope_long}? {verify}<br><br>"
+                f"Or 5 minutes on the phone works: (847) 908-5665."
             )
-            ask = f"{verify}"
-            close = "Reply here or give me a call."
         elif variant == "v2":
-            subject = f"{first_name}, quick check-in"
-            opening = (
+            subject = f"{first_name}, rate decreases worth flagging"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson over at Better Choice. Wanted to reach out — "
-                f"we just took some pretty significant rate decreases across most of our carriers."
+                f"Evan Larson over at Better Choice. Several carriers (Progressive, NatGen, "
+                f"Travelers, GEICO) have come down on rates recently. After two years of "
+                f"increases, this is the first real reversal.<br><br>"
+                f"Worth a quick comparison on {scope_long}? {verify}<br><br>"
+                f"Talk soon."
             )
-            ask = f"Worth me running new numbers on {anchor}? {verify}"
-            close = "Easier on the phone if you've got a minute."
         elif variant == "v3":
-            subject = "thoughts on switching carriers?"
-            opening = (
+            current_ref = f"with {current_carrier}" if current_carrier else "wherever you are"
+            subject = "carriers filed rate decreases — quick check?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan from Better Choice Insurance. Quick note — most of the carriers we work "
-                f"with (Progressive, NatGen, Travelers, GEICO) have come down on rates recently. "
-                f"That doesn't always happen, so worth taking a look while it's there."
+                f"Evan from Better Choice Insurance. Whether you're {current_ref} now, "
+                f"worth knowing that several carriers have cut rates recently. "
+                f"That doesn't last forever.<br><br>"
+                f"Mind if I run a few options on {scope_long}? {verify}<br><br>"
+                f"Reply with your dec page or grab a phone call — easier on the phone."
             )
-            ask = f"Want me to put a few options together for {anchor}? {verify}"
-            close = "Reply with your dec page if easier."
         else:  # v4
-            subject = f"hi {first_name}"
-            opening = (
+            subject = f"hi {first_name} — fresh quote?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson at Better Choice. I keep an eye on rate movements and a few "
-                f"carriers have started filing decreases. Figured I'd reach out and see if "
-                f"you'd want a fresh quote on {anchor}."
+                f"Evan Larson at Better Choice. Rates have moved meaningfully on a few "
+                f"carriers recently. I track this stuff and figured I'd reach out.<br><br>"
+                f"{verify} I'll pull options and send something over.<br><br>"
+                f"Or call: (847) 908-5665."
             )
-            ask = f"{verify}"
-            close = "Talk soon."
 
     else:  # Giulian
         if variant == "v1":
-            subject = f"hey {first_name}"
-            opening = (
+            subject = "rates are dropping — quick look?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian Baez at Better Choice Insurance — local independent agency in Saint Charles. "
-                f"Reaching out because rates have actually come back down with a bunch of our "
-                f"carriers and I think it's worth taking a fresh look at {anchor}."
+                f"Giulian Baez at Better Choice Insurance, independent agency in Saint "
+                f"Charles. Reaching out because rates have come back down with a handful "
+                f"of our carriers — first time in a while.<br><br>"
+                f"Want me to take a fresh look at {scope_long}? {verify}<br><br>"
+                f"Reply or text/call: (847) 908-5665."
             )
-            ask = f"Mind if I run some quotes? {verify}"
-            close = "Reply or call me direct, whatever's easier."
         elif variant == "v2":
-            subject = "rates are dropping"
-            opening = (
+            subject = f"{first_name} — carriers cut rates recently"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian over at Better Choice. Carriers have been cutting rates the last "
-                f"few months — figured I'd reach out since you're in our area."
+                f"Giulian over at Better Choice. NatGen, Progressive, Travelers all came "
+                f"down on rates over the last few months. Worth a re-shop.<br><br>"
+                f"Take 5 minutes? {verify}<br><br>"
+                f"Or hop on a quick call."
             )
-            ask = f"Worth running new numbers on {anchor}? {verify}"
-            close = "Or grab a phone call for 5 min."
         elif variant == "v3":
-            subject = f"quick one for you {first_name}"
-            opening = (
+            current_ref = f"saw you're with {current_carrier}, " if current_carrier else ""
+            subject = "rates moved — figured you'd want to know"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian Baez, Better Choice Insurance. Wanted to drop a note because some of "
-                f"our carriers (NatGen, Progressive, Travelers) have actually filed rate "
-                f"decreases — first time in a while."
+                f"Giulian Baez, Better Choice Insurance. {current_ref.capitalize()}"
+                f"and a few carriers we work with have cut rates lately. Felt like a "
+                f"reasonable reason to reach out.<br><br>"
+                f"Quick quote on {scope_long}? {verify}<br><br>"
+                f"Reply or call works."
             )
-            ask = f"Want me to take a look at {anchor}? {verify}"
-            close = "Easy text/call/reply, whatever's good."
         else:  # v4
-            subject = f"{first_name} — fresh quotes?"
-            opening = (
+            subject = f"fresh quotes, {first_name}?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian at Better Choice. Independent agent — work with most major carriers. "
-                f"Rates have come down recently with several of them and I figured it was worth "
-                f"reaching out."
+                f"Giulian at Better Choice. Carriers have come down on rates recently. "
+                f"If you've been with the same carrier for a few years, probably worth "
+                f"taking a look.<br><br>"
+                f"{verify}<br><br>"
+                f"Reply or call me direct."
             )
-            ask = f"Quick quotes on {anchor}? {verify}"
-            close = "Reply or call."
 
-    # Plain-text-style HTML — no banner, no buttons. Looks like a real email.
-    body = f"""<!DOCTYPE html>
+    # Headshot only for Evan's emails (per Evan)
+    headshot_html = ""
+    if producer["first_name"] == "Evan":
+        headshot_html = (
+            '<img src="https://better-choice-web.onrender.com/evan_headshot.jpg" '
+            'alt="Evan Larson" width="64" height="64" '
+            'style="width:64px;height:64px;border-radius:50%;display:block;margin:0 0 8px 0;" />'
+        )
+
+    body_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1a1a1a;">
 <div style="max-width:560px;margin:0 auto;padding:24px 20px;">
-<p style="margin:0 0 16px 0;">{opening}</p>
-<p style="margin:0 0 16px 0;">{ask}</p>
-<p style="margin:0 0 24px 0;">{close}</p>
-<p style="margin:0 0 4px 0;">— {producer['first_name']}</p>
+<p style="margin:0 0 16px 0;">{body}</p>
+<div style="margin:0 0 4px 0;">{headshot_html}— {producer['first_name']}</div>
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">{producer['full_name']}</p>
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">Better Choice Insurance Group</p>
-<p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 · {producer['email']}</p>
+<p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 &middot; {producer['email']}</p>
 <p style="margin:24px 0 0 0;color:#a3a3a3;font-size:11px;border-top:1px solid #eee;padding-top:12px;">
-Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
+Better Choice Insurance Group &middot; 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
 Don't want these? Just reply STOP and I'll take you off the list.
 </p>
 </div>
 </body></html>"""
 
-    return subject, body
+    return subject, body_html
 
 
 def _next_variant(last: Optional[str]) -> str:

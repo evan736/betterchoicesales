@@ -101,161 +101,158 @@ def _has_lob(campaign: WinBackCampaign, *targets: str) -> bool:
 def _build_winback_email_v2(campaign: WinBackCampaign, touchpoint: int) -> tuple[str, str]:
     """Build (subject, plain-text-style HTML body) for a winback email.
 
-    Tone: casual, like a real producer typed it. No header banner, no
-    CTA button graphics, no marketing-speak. Just text in a basic
-    HTML wrapper so it renders cleanly across email clients.
+    Subject lines lean on the rate-decrease hook (the actual reason
+    to open). Variety across producer × touchpoint combinations so
+    a customer never sees identical subjects on consecutive contacts.
 
-    Per-producer voice variation (Joseph / Evan / Giulian) so a
-    customer who got Joseph's email and another customer getting
-    Evan's don't read identical templates with different signatures.
+    Body avoids:
+      - Stacked "Mind if... Mind sharing..." asks
+      - Defensive hedging
+      - Generic closes ("whatever's easier")
 
-    LOB-aware copy:
-      - If they had only home → ask about "home" not "home and auto"
-      - If they had only auto → ask about "vehicles" not "home and auto"
-      - If unclear or both → full "home and auto" version
+    Tone: casual, like a real producer typed it. No header banner,
+    no CTA buttons, no marketing-speak.
 
-    Touchpoint variations:
-      1: initial outreach (your script)
-      2: follow-up at 3 months
-      3: 6-month touch
-      4+: 9-month, 12-month etc.
+    Per-producer voice variation. LOB-aware copy.
     """
     first_name = (campaign.customer_name or "there").split()[0]
     producer = _get_assigned_producer(campaign)
 
-    # Determine the right scope question based on what they had with us
+    # Determine scope based on what they had with us
     has_home = _has_lob(campaign, "home", "ho-3", "ho-6", "renters", "condo", "dwelling")
     has_auto = _has_lob(campaign, "auto", "motorcycle", "rv", "boat")
 
     if has_home and has_auto:
         scope_phrase = "home and auto"
-        verify_question = "Can you verify the current vehicles in the household and roughly the year the roof was last replaced?"
+        verify = "Send the year/make/model on the cars and a rough year on the roof — I'll handle the rest."
     elif has_home:
         scope_phrase = "home"
-        verify_question = "Can you verify roughly when the roof was last replaced and any major updates to the home?"
+        verify = "If you can ballpark when the roof was last replaced, I can run a few options."
     elif has_auto:
         scope_phrase = "auto"
-        verify_question = "Can you verify the current vehicles in the household?"
+        verify = "Send over the year/make/model on the cars and I'll dig in."
     else:
         scope_phrase = "insurance"
-        verify_question = "Can you let me know what coverages you have right now so I can match them up?"
+        verify = "Send a quick snapshot of what you have right now and I'll match it up."
 
-    # Per-producer & per-touchpoint subject + body variations
+    # Their prior carrier with us — gives the email specificity if available
+    prior_carrier = (campaign.carrier or "").strip()
+    if prior_carrier.isupper():
+        prior_carrier = prior_carrier.title()
+
+    # ─────── PER-PRODUCER, PER-TOUCHPOINT CONTENT ───────
+
     if producer["first_name"] == "Joseph":
         if touchpoint == 1:
-            subject = "been a minute"
-            opening = (
+            subject = "rates dropped — worth a fresh look?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"You previously were insured with our agency and I wanted to reach out again "
-                f"because we took some massive rate decreases with most of our insurance carriers."
-            )
-            ask = (
-                f"Would you mind if I work some new quotes for your {scope_phrase}? {verify_question}"
-            )
-            close = (
-                "I'll work on some stuff and get in your inbox. Or if you have 5 min, "
-                "lets jump on a quick call."
+                f"Joseph Rivera over at Better Choice Insurance. You were previously with "
+                f"our agency and I wanted to reach out — we just took some pretty big rate "
+                f"decreases across most of our carriers.<br><br>"
+                f"Want me to put fresh quotes together for {scope_phrase}? {verify}<br><br>"
+                f"Or 5 minutes on the phone: (847) 908-5665."
             )
         elif touchpoint == 2:
-            subject = f"checking back in {first_name}"
-            opening = (
-                f"Hey {first_name} — just circling back. Sent you a note a few months ago "
-                f"about taking another look at your {scope_phrase} since rates dropped, didn't "
-                f"hear back so figured I'd try again."
+            subject = f"{first_name} — circling back on rate decreases"
+            body = (
+                f"Hey {first_name},<br><br>"
+                f"Joseph at Better Choice. Sent you a note a few months back about rates "
+                f"coming down — figured I'd try once more in case it got lost.<br><br>"
+                f"Worth me running new numbers on {scope_phrase}? Even if you're happy "
+                f"where you are, no harm in seeing what's out there.<br><br>"
+                f"Reply or text/call (847) 908-5665."
             )
-            ask = "Worth me running new numbers? Even if you're happy where you're at, no harm in seeing what's out there."
-            close = "Reply to this email or call/text me direct."
         else:
-            subject = f"hey {first_name}"
-            opening = (
-                f"Hey {first_name}, hope you're doing well. Wanted to drop a quick line — "
-                f"if you're up for renewal soon and want me to take another look, happy to."
+            subject = f"rates moved again — quick check, {first_name}?"
+            body = (
+                f"Hey {first_name}, hope you're doing well. Carriers have continued cutting "
+                f"rates and I wanted to take one more shot at flagging it for you.<br><br>"
+                f"If you want a fresh quote on {scope_phrase}, just hit reply with what "
+                f"you're paying now and I'll dig in.<br><br>"
+                f"No pressure either way."
             )
-            ask = "Just hit reply with what you're paying now and I'll dig in."
-            close = "No pressure either way."
+
     elif producer["first_name"] == "Evan":
         if touchpoint == 1:
-            subject = "quick check-in"
-            opening = (
+            subject = "rates came back down — wanted to flag it"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"You previously were insured with us and I wanted to reach back out because "
-                f"we just took some pretty significant rate decreases across most of our carriers."
-            )
-            ask = (
-                f"Mind if I run some new quotes for your {scope_phrase}? {verify_question}"
-            )
-            close = (
-                "I'll dig in and send something over. Or if you have 5 min, easier to just "
-                "jump on a quick call."
+                f"Evan Larson at Better Choice. You were previously with us and I'd hate "
+                f"for you to miss this — most of our carriers filed rate decreases over "
+                f"the last few months.<br><br>"
+                f"Want me to put fresh quotes together for {scope_phrase}? {verify}<br><br>"
+                f"Or grab 5 minutes on the phone: (847) 908-5665."
             )
         elif touchpoint == 2:
-            subject = f"following up — {first_name}"
-            opening = (
+            subject = f"{first_name}, carriers cut rates again"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"Wanted to follow up on the note I sent a few months back. Carriers have "
-                f"continued to file rate decreases — wondering if it's a good time to take "
-                f"another look at your {scope_phrase}."
+                f"Evan at Better Choice. Following up on the note from a few months back. "
+                f"Carriers have continued filing decreases — first real reversal in a couple "
+                f"of years.<br><br>"
+                f"Worth a quick comparison on {scope_phrase}?<br><br>"
+                f"If now's not a good time, just let me know when is."
             )
-            ask = "Worth a quick conversation?"
-            close = "If now's not a good time, no problem — just let me know when is."
         else:
-            subject = f"{first_name} — touching base"
-            opening = (
-                f"Hey {first_name}, hope all is well. Touching base — if you're getting close "
-                f"to a renewal or just want a second set of eyes on your insurance, happy to help."
+            subject = f"rates still moving — quick look, {first_name}?"
+            body = (
+                f"Hey {first_name}, hope all is well. Touching base — if you're getting "
+                f"close to a renewal or just want a second set of eyes on {scope_phrase}, "
+                f"I'd be glad to take a look.<br><br>"
+                f"Reply with your dec page or current premium and I'll dig in.<br><br>"
+                f"Talk soon."
             )
-            ask = "Reply with your dec page or current premium and I'll take a look."
-            close = "Talk soon."
+
     else:  # Giulian
         if touchpoint == 1:
-            subject = f"hey {first_name}"
-            opening = (
+            subject = "rates are dropping — worth a fresh quote?"
+            body = (
                 f"Hey {first_name},<br><br>"
-                f"You previously had insurance with our agency and I wanted to reach back out — "
-                f"we just took some massive rate decreases with a bunch of our carriers and "
-                f"I think it's worth taking another look."
-            )
-            ask = (
-                f"Mind if I run some new quotes on your {scope_phrase}? {verify_question}"
-            )
-            close = (
-                "I'll send some options over to your inbox. Or if you've got 5 minutes, "
-                "easiest to hop on a quick call."
+                f"Giulian Baez at Better Choice Insurance. You previously had insurance "
+                f"with our agency and I wanted to reach back out — we just took some "
+                f"pretty big rate decreases with a bunch of our carriers.<br><br>"
+                f"Want me to put fresh quotes together for {scope_phrase}? {verify}<br><br>"
+                f"Or hop on a quick call: (847) 908-5665."
             )
         elif touchpoint == 2:
-            subject = f"{first_name} — round 2"
-            opening = (
-                f"Hey {first_name} — wanted to circle back. Tried reaching out a few months "
-                f"ago about your {scope_phrase} since carrier rates have come down. Figured "
-                f"I'd give it another shot."
+            subject = f"{first_name} — second try, rates are down"
+            body = (
+                f"Hey {first_name},<br><br>"
+                f"Giulian at Better Choice — wanted to circle back. Tried reaching out a "
+                f"few months ago about {scope_phrase} since rates dropped, didn't hear back, "
+                f"figured I'd give it one more shot.<br><br>"
+                f"Want me to run a few options?<br><br>"
+                f"Easy to text/call too if email isn't your thing."
             )
-            ask = "Want me to run a few options?"
-            close = "Easy to text/call too if email isn't your thing."
         else:
-            subject = f"hey {first_name} — checking in"
-            opening = (
-                f"Hey {first_name}, just checking back in. If you're approaching renewal or "
-                f"just want a fresh quote for the heck of it, I've got you."
+            subject = f"carriers came down again, {first_name}"
+            body = (
+                f"Hey {first_name}, just checking back in. If you're getting close to renewal "
+                f"or want a fresh quote for the heck of it, I've got you.<br><br>"
+                f"Reply or text me — (847) 908-5665."
             )
-            ask = "Reply or text me."
-            close = ""
 
-    # The body is intentionally minimal HTML — looks like a real email,
-    # not a marketing campaign. No header banner, no buttons, no logo.
-    # mailer.py hook adds List-Unsubscribe + opt-out compliance.
+    # Headshot only for Evan's emails
+    headshot_html = ""
+    if producer["first_name"] == "Evan":
+        headshot_html = (
+            '<img src="https://better-choice-web.onrender.com/evan_headshot.jpg" '
+            'alt="Evan Larson" width="64" height="64" '
+            'style="width:64px;height:64px;border-radius:50%;display:block;margin:0 0 8px 0;" />'
+        )
+
     body_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1a1a1a;">
 <div style="max-width:560px;margin:0 auto;padding:24px 20px;">
-<p style="margin:0 0 16px 0;">{opening}</p>
-<p style="margin:0 0 16px 0;">{ask}</p>
-{f'<p style="margin:0 0 24px 0;">{close}</p>' if close else ''}
-<p style="margin:0 0 4px 0;">— {producer['first_name']}</p>
+<p style="margin:0 0 16px 0;">{body}</p>
+<div style="margin:0 0 4px 0;">{headshot_html}— {producer['first_name']}</div>
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">{producer['full_name']}</p>
 <p style="margin:0 0 2px 0;color:#666;font-size:13px;">Better Choice Insurance Group</p>
-<p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 · {producer['email']}</p>
+<p style="margin:0 0 2px 0;color:#666;font-size:13px;">(847) 908-5665 &middot; {producer['email']}</p>
 <p style="margin:24px 0 0 0;color:#a3a3a3;font-size:11px;border-top:1px solid #eee;padding-top:12px;">
-Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
+Better Choice Insurance Group &middot; 300 Cardinal Dr Suite 220, Saint Charles, IL 60175<br>
 Don't want these? Just reply STOP and I'll take you off the list.
 </p>
 </div>
