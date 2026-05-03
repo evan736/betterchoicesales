@@ -442,6 +442,15 @@ def init_database():
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='last_reply_subject') THEN
                         ALTER TABLE winback_campaigns ADD COLUMN last_reply_subject VARCHAR;
                     END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='bounce_count') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN bounce_count INTEGER DEFAULT 0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='last_bounce_at') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN last_bounce_at TIMESTAMPTZ;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='winback_campaigns' AND column_name='bounce_reason') THEN
+                        ALTER TABLE winback_campaigns ADD COLUMN bounce_reason VARCHAR;
+                    END IF;
                 END $$;
             """))
             conn.commit()
@@ -1438,6 +1447,7 @@ async def lifespan(app: FastAPI):
                             phase_2_candidates = _db.query(WinBackCampaign).filter(
                                 WinBackCampaign.excluded == False,
                                 WinBackCampaign.last_reply_at.is_(None),
+                                (WinBackCampaign.bounce_count == None) | (WinBackCampaign.bounce_count < 3),
                                 WinBackCampaign.status != "won_back",
                                 WinBackCampaign.customer_email.isnot(None),
                                 WinBackCampaign.next_x_date.isnot(None),
@@ -1478,6 +1488,7 @@ async def lifespan(app: FastAPI):
                                 p1 = _db.query(WinBackCampaign).filter(
                                     WinBackCampaign.excluded == False,
                                     WinBackCampaign.last_reply_at.is_(None),
+                                    (WinBackCampaign.bounce_count == None) | (WinBackCampaign.bounce_count < 3),
                                     WinBackCampaign.status != "won_back",
                                     WinBackCampaign.customer_email.isnot(None),
                                     WinBackCampaign.touchpoint_count == 0,

@@ -173,6 +173,16 @@ class WinBackCampaign(Base):
     last_reply_at = Column(DateTime(timezone=True), nullable=True)
     last_reply_subject = Column(String, nullable=True)
 
+    # Bounce / complaint tracking (set by Mailgun webhook).
+    #   bounce_count: incremented on each soft (temporary) bounce. Hard
+    #     (permanent) bounces immediately set status='paused_bounced'
+    #     regardless of count. Soft bounces auto-suppress at >= 3.
+    #   last_bounce_at: timestamp of most recent bounce event.
+    #   bounce_reason: most recent bounce reason string from Mailgun.
+    bounce_count = Column(Integer, default=0, nullable=True)
+    last_bounce_at = Column(DateTime(timezone=True), nullable=True)
+    bounce_reason = Column(String, nullable=True)
+
     # Result
     won_back_date = Column(DateTime(timezone=True), nullable=True)
     new_policy_number = Column(String, nullable=True)

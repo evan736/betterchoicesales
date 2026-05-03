@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Depends
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/email-tracking", tags=["email-tracking"])
@@ -263,4 +264,292 @@ async def mailgun_tracking_webhook(request: Request):
         except Exception as e:
             logger.error(f"Quote followup tracking error: {e}")
 
+    # ── BOUNCE / COMPLAINT / UNSUBSCRIBE HANDLING ────────────────────
+    # Critical for outreach campaigns — protects sender reputation by
+    # immediately suppressing addresses that:
+    #   - Hard bounce (mailbox doesn't exist) → permanent_fail / failed
+    #   - Mark our message as spam → complained
+    #   - Click the unsubscribe link → unsubscribed
+    #
+    # Soft bounces (temporary_fail, severity=temporary) are tolerated up
+    # to 3 occurrences before suppressing — these can be transient
+    # network/server issues, full inboxes that get cleared, etc.
+    #
+    # Mailgun sends events using the v2 'event-data' nested format. The
+    # payload includes 'severity' = 'permanent' or 'temporary' for fails.
+    bounce_recipient = (recipient or customer_email or "").lower().strip()
+    if bounce_recipient and event_type in ("failed", "complained", "unsubscribed", "rejected"):
+        try:
+            from app.core.database import SessionLocal
+            from app.models.campaign import ColdProspect, WinBackCampaign
+            from sqlalchemy import func as sa_fn
+
+            db = SessionLocal()
+            try:
+                # Reason from the payload (helps debug recurring failures)
+                severity = event_data.get("severity", "")
+                reason = (
+                    event_data.get("reason")
+                    or event_data.get("delivery-status", {}).get("description", "")
+                    or event_data.get("description", "")
+                    or ""
+                )[:500]
+
+                # Determine if this is a "hard" suppression event
+                is_hard = (
+                    event_type == "complained"
+                    or event_type == "unsubscribed"
+                    or event_type == "rejected"
+                    or (event_type == "failed" and severity != "temporary")
+                )
+
+                now_dt = datetime.utcnow()
+
+                # ── COLD PROSPECTS ──────────────────────────────────
+                cps = db.query(ColdProspect).filter(
+                    sa_fn.lower(ColdProspect.email) == bounce_recipient
+                ).all()
+                for cp in cps:
+                    cp.bounce_count = (cp.bounce_count or 0) + 1
+                    cp.last_bounce_at = now_dt
+                    cp.bounce_reason = f"{event_type}:{severity}:{reason}"[:500]
+                    if is_hard:
+                        # Permanent suppression
+                        if event_type == "complained":
+                            cp.status = "paused_complained"
+                        elif event_type == "unsubscribed":
+                            cp.status = "paused_unsubscribed"
+                        else:
+                            cp.status = "paused_bounced"
+                        cp.excluded = True
+                        cp.excluded_reason = f"{event_type}:{reason}"[:500]
+                        logger.info(
+                            f"Cold prospect HARD-suppressed: id={cp.id} email={cp.email} event={event_type} reason={reason[:100]}"
+                        )
+                    elif cp.bounce_count >= 3:
+                        # Soft-bounce auto-suppress threshold
+                        cp.status = "paused_bounced"
+                        cp.excluded = True
+                        cp.excluded_reason = f"3+ soft bounces; last={reason}"[:500]
+                        logger.info(
+                            f"Cold prospect SOFT-suppressed (3+ bounces): id={cp.id}"
+                        )
+                if cps:
+                    db.commit()
+
+                # ── WINBACK CAMPAIGNS ───────────────────────────────
+                wbs = db.query(WinBackCampaign).filter(
+                    sa_fn.lower(WinBackCampaign.customer_email) == bounce_recipient
+                ).all()
+                for wb in wbs:
+                    wb.bounce_count = (wb.bounce_count or 0) + 1
+                    wb.last_bounce_at = now_dt
+                    wb.bounce_reason = f"{event_type}:{severity}:{reason}"[:500]
+                    if is_hard:
+                        if event_type == "complained":
+                            wb.status = "paused_complained"
+                            wb.excluded = True
+                            wb.excluded_reason = f"complaint:{reason}"[:500]
+                        elif event_type == "unsubscribed":
+                            wb.status = "paused_unsubscribed"
+                            wb.excluded = True
+                            wb.excluded_reason = f"unsubscribed via Mailgun"[:500]
+                        else:
+                            # Hard bounce
+                            wb.status = "paused_bounced"
+                            wb.excluded = True
+                            wb.excluded_reason = f"hard bounce: {reason}"[:500]
+                        logger.info(
+                            f"Winback HARD-suppressed: id={wb.id} email={wb.customer_email} event={event_type}"
+                        )
+                    elif wb.bounce_count >= 3:
+                        wb.status = "paused_bounced"
+                        wb.excluded = True
+                        wb.excluded_reason = f"3+ soft bounces; last={reason}"[:500]
+                        logger.info(
+                            f"Winback SOFT-suppressed (3+ bounces): id={wb.id}"
+                        )
+                if wbs:
+                    db.commit()
+
+                if cps or wbs:
+                    return {
+                        "status": "bounce_processed",
+                        "event": event_type,
+                        "severity": severity,
+                        "is_hard": is_hard,
+                        "cold_prospects_updated": len(cps),
+                        "winback_updated": len(wbs),
+                    }
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Bounce/complaint webhook handling error: {e}")
+            # Don't re-raise — return 200 to Mailgun so it stops retrying
+
     return {"status": "ok", "event": event_type}
+
+
+@router.get("/bounce-stats")
+def bounce_stats(
+    current_user = Depends(get_current_user),
+):
+    """Diagnostic: how many bounces/complaints have we recorded?
+
+    Useful for daily monitoring. Run this each morning to catch any
+    spike in bounces that might indicate a deliverability problem.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.core.database import SessionLocal
+    from app.models.campaign import ColdProspect, WinBackCampaign
+    from sqlalchemy import func as sa_fn
+
+    db = SessionLocal()
+    try:
+        result = {}
+
+        # Cold prospects
+        result["cold_prospects"] = {
+            "total_with_bounce": db.query(sa_fn.count(ColdProspect.id)).filter(
+                ColdProspect.bounce_count > 0
+            ).scalar(),
+            "suppressed_paused_bounced": db.query(sa_fn.count(ColdProspect.id)).filter(
+                ColdProspect.status == "paused_bounced"
+            ).scalar(),
+            "suppressed_complained": db.query(sa_fn.count(ColdProspect.id)).filter(
+                ColdProspect.status == "paused_complained"
+            ).scalar(),
+            "suppressed_unsubscribed": db.query(sa_fn.count(ColdProspect.id)).filter(
+                ColdProspect.status == "paused_unsubscribed"
+            ).scalar(),
+            "bounces_last_24h": db.query(sa_fn.count(ColdProspect.id)).filter(
+                ColdProspect.last_bounce_at >= datetime.utcnow() - timedelta(hours=24)
+            ).scalar(),
+        }
+
+        # Winback
+        result["winback"] = {
+            "total_with_bounce": db.query(sa_fn.count(WinBackCampaign.id)).filter(
+                WinBackCampaign.bounce_count > 0
+            ).scalar(),
+            "suppressed_paused_bounced": db.query(sa_fn.count(WinBackCampaign.id)).filter(
+                WinBackCampaign.status == "paused_bounced"
+            ).scalar(),
+            "suppressed_complained": db.query(sa_fn.count(WinBackCampaign.id)).filter(
+                WinBackCampaign.status == "paused_complained"
+            ).scalar(),
+            "suppressed_unsubscribed": db.query(sa_fn.count(WinBackCampaign.id)).filter(
+                WinBackCampaign.status == "paused_unsubscribed"
+            ).scalar(),
+            "bounces_last_24h": db.query(sa_fn.count(WinBackCampaign.id)).filter(
+                WinBackCampaign.last_bounce_at >= datetime.utcnow() - timedelta(hours=24)
+            ).scalar(),
+        }
+
+        return result
+    finally:
+        db.close()
+
+
+@router.post("/bounce-test")
+def bounce_test(
+    test_email: str,
+    event: str = "failed",
+    severity: str = "permanent",
+    reason: str = "test bounce — do not page Evan",
+    current_user = Depends(get_current_user),
+):
+    """Simulate a bounce event for a given email — admin-only.
+
+    Use this to verify the bounce-handling logic works against real
+    cold_prospects / winback records WITHOUT waiting for an actual
+    bounce or asking Mailgun to fire one.
+
+    Example:
+      POST /api/email-tracking/bounce-test?test_email=fake@nowhere.com&event=failed&severity=permanent
+
+    NOTE: this WILL set status='paused_bounced' on matching records.
+    Use a real test email (or a recipient you don't care about
+    suppressing).
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if event not in ("failed", "complained", "unsubscribed", "rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="event must be one of: failed, complained, unsubscribed, rejected",
+        )
+
+    # Construct the same shape Mailgun sends
+    fake_event_data = {
+        "event": event,
+        "severity": severity,
+        "reason": reason,
+        "recipient": test_email,
+    }
+
+    # Reuse the suppression logic by calling it directly via mock request body
+    # Easier just to inline the same logic:
+    from app.core.database import SessionLocal
+    from app.models.campaign import ColdProspect, WinBackCampaign
+    from sqlalchemy import func as sa_fn
+
+    db = SessionLocal()
+    try:
+        bounce_recipient = test_email.lower().strip()
+        is_hard = (
+            event == "complained"
+            or event == "unsubscribed"
+            or event == "rejected"
+            or (event == "failed" and severity != "temporary")
+        )
+        now_dt = datetime.utcnow()
+
+        cps = db.query(ColdProspect).filter(
+            sa_fn.lower(ColdProspect.email) == bounce_recipient
+        ).all()
+        for cp in cps:
+            cp.bounce_count = (cp.bounce_count or 0) + 1
+            cp.last_bounce_at = now_dt
+            cp.bounce_reason = f"{event}:{severity}:{reason}"[:500]
+            if is_hard:
+                cp.status = "paused_bounced" if event == "failed" else f"paused_{event}"
+                cp.excluded = True
+                cp.excluded_reason = f"{event}:{reason}"[:500]
+            elif cp.bounce_count >= 3:
+                cp.status = "paused_bounced"
+                cp.excluded = True
+        if cps:
+            db.commit()
+
+        wbs = db.query(WinBackCampaign).filter(
+            sa_fn.lower(WinBackCampaign.customer_email) == bounce_recipient
+        ).all()
+        for wb in wbs:
+            wb.bounce_count = (wb.bounce_count or 0) + 1
+            wb.last_bounce_at = now_dt
+            wb.bounce_reason = f"{event}:{severity}:{reason}"[:500]
+            if is_hard:
+                wb.status = "paused_bounced" if event == "failed" else f"paused_{event}"
+                wb.excluded = True
+                wb.excluded_reason = f"{event}:{reason}"[:500]
+            elif wb.bounce_count >= 3:
+                wb.status = "paused_bounced"
+                wb.excluded = True
+        if wbs:
+            db.commit()
+
+        return {
+            "test_email": test_email,
+            "event": event,
+            "severity": severity,
+            "is_hard": is_hard,
+            "cold_prospects_updated": len(cps),
+            "winback_updated": len(wbs),
+            "note": "If counts are 0, no record exists with this email. Try a real one from your data.",
+        }
+    finally:
+        db.close()

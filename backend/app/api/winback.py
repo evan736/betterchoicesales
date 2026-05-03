@@ -1835,6 +1835,7 @@ def winback_scheduler_tick(
         candidates = db.query(WinBackCampaign).filter(
             WinBackCampaign.excluded == False,
             WinBackCampaign.last_reply_at.is_(None),
+            (WinBackCampaign.bounce_count == None) | (WinBackCampaign.bounce_count < 3),
             WinBackCampaign.status != "won_back",
             WinBackCampaign.customer_email.isnot(None),
             WinBackCampaign.next_x_date.isnot(None),
@@ -1915,6 +1916,7 @@ def winback_scheduler_tick(
         candidates = db.query(WinBackCampaign).filter(
             WinBackCampaign.excluded == False,
             WinBackCampaign.last_reply_at.is_(None),
+            (WinBackCampaign.bounce_count == None) | (WinBackCampaign.bounce_count < 3),
             WinBackCampaign.status != "won_back",
             WinBackCampaign.customer_email.isnot(None),
             WinBackCampaign.touchpoint_count == 0,
@@ -1989,6 +1991,7 @@ def winback_scheduler_tick(
         text_candidates = db.query(WinBackCampaign).filter(
             WinBackCampaign.excluded == False,
             WinBackCampaign.last_reply_at.is_(None),
+            (WinBackCampaign.bounce_count == None) | (WinBackCampaign.bounce_count < 3),
             WinBackCampaign.status != "won_back",
             WinBackCampaign.customer_phone.isnot(None),
             WinBackCampaign.touchpoint_count >= 1,
