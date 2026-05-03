@@ -1306,6 +1306,185 @@ def debug_sale_contact_coverage(
     }
 
 
+@router.post("/backfill-contact-info-from-performology")
+async def backfill_contact_info_from_performology(
+    file: UploadFile = File(...),
+    dry_run: bool = Form(True),
+    overwrite_existing: bool = Form(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Backfill client_email / client_phone on EXISTING sales from Performology CSV.
+
+    The /import-performology endpoint dedups by policy_number and skips
+    existing rows entirely, so any sale already in ORBIT keeps its
+    NULL client_email / client_phone fields. This endpoint matches CSV
+    rows to existing sales by policy_number and fills in those NULL
+    fields with the contact info from the export.
+
+    Match key: policy_number (must be present and exact match).
+    Phone preference: customerMobilePhone → customerHomePhone → customerWorkPhone.
+
+    Default behavior (overwrite_existing=False): only updates fields
+    that are currently NULL. Won't trample contact info that ORBIT
+    already has from welcome emails, NowCerts, etc.
+
+    overwrite_existing=True: replaces existing values with CSV values
+    (use only if you know the CSV is more authoritative).
+
+    dry_run defaults to True. Returns a per-year preview of how many
+    rows would gain email and/or phone.
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    import csv as _csv
+    import io
+
+    raw = await file.read()
+    if len(raw) > 50_000_000:
+        raise HTTPException(status_code=400, detail="File too large")
+
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = _csv.DictReader(io.StringIO(text))
+
+    # Required columns for backfill
+    required_cols = {"policyNumber"}
+    optional_contact_cols = {"customerEmail", "customerMobilePhone", "customerHomePhone", "customerWorkPhone"}
+    csv_cols = set(reader.fieldnames or [])
+    missing = required_cols - csv_cols
+    if missing:
+        raise HTTPException(status_code=400, detail=f"CSV missing required: {sorted(missing)}")
+    if not (optional_contact_cols & csv_cols):
+        raise HTTPException(
+            status_code=400,
+            detail="CSV has no contact columns — needs at least one of: " + ", ".join(sorted(optional_contact_cols)),
+        )
+
+    # Build a policy_number → (email, phone) map from CSV first
+    csv_contacts: dict[str, dict] = {}
+    csv_dups = 0
+    csv_no_contact = 0
+    for raw_row in reader:
+        pn = (raw_row.get("policyNumber") or "").strip()
+        if not pn:
+            continue
+        email = (raw_row.get("customerEmail") or "").strip() or None
+        phone = (
+            (raw_row.get("customerMobilePhone") or "").strip()
+            or (raw_row.get("customerHomePhone") or "").strip()
+            or (raw_row.get("customerWorkPhone") or "").strip()
+            or None
+        )
+        if not email and not phone:
+            csv_no_contact += 1
+            continue
+        if pn in csv_contacts:
+            csv_dups += 1
+            # Keep the first occurrence — don't trample
+            continue
+        csv_contacts[pn] = {"email": email, "phone": phone}
+
+    # Now query existing sales matching those policy numbers
+    pol_keys = list(csv_contacts.keys())
+    if not pol_keys:
+        return {"error": "No usable contact info in CSV"}
+
+    # Batch the IN query in chunks of 1000
+    matched: list[Sale] = []
+    for i in range(0, len(pol_keys), 1000):
+        batch_keys = pol_keys[i : i + 1000]
+        sales = db.query(Sale).filter(Sale.policy_number.in_(batch_keys)).all()
+        matched.extend(sales)
+
+    # Counters
+    by_year_total: dict[int, int] = {}
+    by_year_would_email: dict[int, int] = {}
+    by_year_would_phone: dict[int, int] = {}
+    no_change = 0
+    sample_updates: list[dict] = []
+    actually_updated = 0
+
+    for sale in matched:
+        contact = csv_contacts.get(sale.policy_number)
+        if not contact:
+            continue
+        year = sale.sale_date.year if sale.sale_date else 0
+        by_year_total[year] = by_year_total.get(year, 0) + 1
+
+        new_email = contact["email"]
+        new_phone = contact["phone"]
+        will_set_email = False
+        will_set_phone = False
+
+        if new_email and (overwrite_existing or not sale.client_email):
+            if sale.client_email != new_email:
+                will_set_email = True
+
+        if new_phone and (overwrite_existing or not sale.client_phone):
+            if sale.client_phone != new_phone:
+                will_set_phone = True
+
+        if not will_set_email and not will_set_phone:
+            no_change += 1
+            continue
+
+        if will_set_email:
+            by_year_would_email[year] = by_year_would_email.get(year, 0) + 1
+        if will_set_phone:
+            by_year_would_phone[year] = by_year_would_phone.get(year, 0) + 1
+
+        if len(sample_updates) < 10:
+            sample_updates.append({
+                "sale_id": sale.id,
+                "policy_number": sale.policy_number,
+                "client_name": sale.client_name,
+                "sale_date": sale.sale_date.isoformat() if sale.sale_date else None,
+                "before_email": sale.client_email,
+                "after_email": new_email if will_set_email else sale.client_email,
+                "before_phone": sale.client_phone,
+                "after_phone": new_phone if will_set_phone else sale.client_phone,
+            })
+
+        if not dry_run:
+            if will_set_email:
+                sale.client_email = new_email
+            if will_set_phone:
+                sale.client_phone = new_phone
+            actually_updated += 1
+
+    if not dry_run:
+        db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "overwrite_existing": overwrite_existing,
+        "csv_policies_with_contact": len(csv_contacts),
+        "csv_duplicate_policy_numbers": csv_dups,
+        "csv_rows_no_contact": csv_no_contact,
+        "matched_existing_sales": len(matched),
+        "would_update" if dry_run else "updated": (
+            sum(by_year_would_email.values()) + sum(by_year_would_phone.values())
+        ) if dry_run else actually_updated,
+        "no_change_required": no_change,
+        "by_year": [
+            {
+                "year": y,
+                "matched": by_year_total[y],
+                "would_set_email": by_year_would_email.get(y, 0),
+                "would_set_phone": by_year_would_phone.get(y, 0),
+            }
+            for y in sorted(by_year_total.keys())
+        ],
+        "sample_updates": sample_updates,
+        "next_step": (
+            "Review preview. If correct, re-call with dry_run=false to actually update."
+            if dry_run else
+            f"Updated {actually_updated:,} existing sales with contact info."
+        ),
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Performology Historical Import
 # ─────────────────────────────────────────────────────────────────────
