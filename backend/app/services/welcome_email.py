@@ -692,6 +692,14 @@ def build_welcome_email_html(
     # ── Your Insurance Advisor section ─────────────────────────────
     h.append('<div style="margin:24px 0; padding:16px 20px; background:#fafbfc; border-radius:10px; border:1px solid #e2e8f0;">')
     h.append('<h3 style="margin:0 0 10px; font-size:14px; color:#64748b; font-weight:600; letter-spacing:0.5px;">YOUR INSURANCE ADVISOR</h3>')
+    # Evan-only headshot — empty string for other producers, no layout impact
+    try:
+        from app.services.producer_signatures import producer_headshot_html
+        _hs = producer_headshot_html(producer_name, size_px=96)
+        if _hs:
+            h.append(_hs)
+    except Exception:
+        pass  # Helper failures must not break welcome emails
     h.append('<p style="margin:0 0 4px; font-weight:700; font-size:16px; color:#1e293b;">' + producer_name + "</p>")
     h.append('<p style="margin:0 0 2px; font-size:14px; color:#64748b;">' + AGENCY_NAME + "</p>")
     h.append('<p style="margin:0; font-size:14px;">')

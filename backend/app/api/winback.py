@@ -234,13 +234,8 @@ def _build_winback_email_v2(campaign: WinBackCampaign, touchpoint: int) -> tuple
             )
 
     # Headshot only for Evan's emails
-    headshot_html = ""
-    if producer["first_name"] == "Evan":
-        headshot_html = (
-            '<img src="https://better-choice-web.onrender.com/evan_headshot.jpg" '
-            'alt="Evan Larson" width="96" height="96" '
-            'style="width:96px;height:96px;border-radius:50%;display:block;margin:0 0 10px 0;" />'
-        )
+    from app.services.producer_signatures import producer_headshot_html
+    headshot_html = producer_headshot_html(producer["first_name"], size_px=96)
 
     body_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>

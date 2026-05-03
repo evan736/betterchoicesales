@@ -441,9 +441,16 @@ def build_quote_email_html(
     # Agent section
     agent_html = ""
     if agent_name:
+        # Headshot only renders when producer has one configured (Evan)
+        try:
+            from app.services.producer_signatures import producer_headshot_html
+            _agent_headshot = producer_headshot_html(agent_name, size_px=80)
+        except Exception:
+            _agent_headshot = ""
         agent_html = f"""
         <div style="background:#F8FAFC;border-radius:8px;padding:16px;margin:20px 0;border:1px solid #E2E8F0;">
             <p style="margin:0 0 4px 0;font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Your Insurance Advisor</p>
+            {_agent_headshot}
             <p style="margin:0;font-size:15px;font-weight:bold;color:#1e293b;">{agent_name}</p>
             {f'<p style="margin:2px 0 0 0;font-size:13px;color:#64748B;">{agent_email}</p>' if agent_email else ''}
             {f'<p style="margin:2px 0 0 0;font-size:13px;color:#64748B;">{agent_phone}</p>' if agent_phone else ''}

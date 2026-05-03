@@ -126,6 +126,13 @@ def build_followup_email(
     unsub_url = f"https://better-choice-api.onrender.com/api/quotes/unsubscribe/{unsubscribe_token}" if unsubscribe_token else ""
     unsub_html = f'<p style="margin:8px 0 0;"><a href="{unsub_url}" style="color:#94a3b8; font-size:11px; text-decoration:underline;">Unsubscribe from future emails</a></p>' if unsub_url else ""
 
+    # Producer headshot — only renders for Evan, empty for everyone else
+    try:
+        from app.services.producer_signatures import producer_headshot_html
+        agent_headshot_html = producer_headshot_html(agent_name, size_px=80)
+    except Exception:
+        agent_headshot_html = ""
+
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0; padding:0; background:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
@@ -164,6 +171,7 @@ def build_followup_email(
 
     <div style="background:#f8fafc; border-radius:8px; padding:16px; margin:20px 0; border:1px solid #e2e8f0;">
       <p style="margin:0 0 4px; font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:1px; font-weight:600;">Your Insurance Advisor</p>
+      {agent_headshot_html}
       <p style="margin:0; font-size:15px; font-weight:bold; color:#1e293b;">{agent_name or 'Better Choice Insurance Team'}</p>
       <p style="margin:2px 0 0; font-size:13px; color:#64748b;">{agent_email or 'service@betterchoiceins.com'} · {PHONE}</p>
     </div>
