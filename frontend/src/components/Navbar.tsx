@@ -283,6 +283,7 @@ const Navbar: React.FC = () => {
         { href: '/analytics', label: 'Agency Sales', icon: <BarChart2 size={16} />, show: true },
         { href: '/revenue-tracker', label: 'Revenue Tracker', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/retention', label: 'Retention', icon: <BarChart2 size={16} />, show: isManager },
+        { href: '/winback', label: 'Win-Back', icon: <TrendingUp size={16} />, show: isManager },
         { href: '/claim-map', label: 'Claim Map', icon: <MapPin size={16} />, show: isManager || user?.role?.toLowerCase() === 'retention_specialist' },
         { href: '/uw-tracker', label: 'UW Tracker', icon: <FileText size={16} />, show: isManager || ['producer', 'retention_specialist'].includes(user?.role?.toLowerCase() || ''), badge: uwBadge },
         { href: '/statements', label: 'Reconciliation', icon: <Upload size={16} />, show: isManager },

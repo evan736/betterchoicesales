@@ -475,7 +475,130 @@ def create_winback_manually(
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Lost Account Analysis
+# Bulk Create from Analysis
+# ─────────────────────────────────────────────────────────────────────
+
+
+class BulkAddFromAnalysis(BaseModel):
+    """Take a list of customer IDs from the lost-account-analysis output
+    and create WinBackCampaign records for each. Default status='pending'
+    so they're queued for review, NOT auto-sent. Skips any customer who
+    already has an open winback record.
+    """
+    customer_ids: list[int]
+
+
+@router.post("/bulk-add-from-analysis")
+def bulk_add_from_analysis(
+    data: BulkAddFromAnalysis,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create winback records for the given customer IDs (status=pending).
+
+    Designed to be called from the frontend after the user reviews the
+    /lost-account-analysis output and selects which customers to enroll.
+    Records are created with status='pending' — they are NOT activated
+    or sent until you explicitly call POST /api/winback/{id}/activate
+    or POST /api/winback/activate-all.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager access required")
+
+    if not data.customer_ids:
+        raise HTTPException(status_code=400, detail="customer_ids is required and must be non-empty")
+    if len(data.customer_ids) > 5000:
+        raise HTTPException(status_code=400, detail="Too many customer_ids (max 5000 per call)")
+
+    created = 0
+    skipped_already_exists = 0
+    skipped_not_found = 0
+    skipped_no_contact = 0
+    new_records: list[dict] = []
+
+    for cid in data.customer_ids:
+        customer = db.query(Customer).filter(Customer.id == cid).first()
+        if not customer:
+            skipped_not_found += 1
+            continue
+
+        if not customer.email and not customer.phone and not customer.mobile_phone:
+            skipped_no_contact += 1
+            continue
+
+        # Skip if already enrolled
+        existing = db.query(WinBackCampaign).filter(
+            WinBackCampaign.customer_id == customer.id,
+            WinBackCampaign.status.in_(["pending", "active"]),
+        ).first()
+        if existing:
+            skipped_already_exists += 1
+            continue
+
+        # Find the most recent cancelled policy and the most recent
+        # policy with non-zero premium across all of this customer's
+        # policies (renewal-fallback for premium_at_cancel)
+        all_pols = db.query(CustomerPolicy).filter(
+            CustomerPolicy.customer_id == customer.id
+        ).all()
+
+        if not all_pols:
+            continue
+
+        all_pols_sorted = sorted(
+            all_pols,
+            key=lambda p: p.expiration_date or p.effective_date or datetime.min,
+            reverse=True,
+        )
+        latest_pol = all_pols_sorted[0]
+        premium_amt = None
+        for p in all_pols_sorted:
+            if p.premium and float(p.premium) > 0:
+                premium_amt = float(p.premium)
+                break
+
+        # Tenure based on earliest known effective_date
+        earliest_eff = min(
+            (p.effective_date for p in all_pols if p.effective_date),
+            default=None,
+        )
+        months = 0
+        if earliest_eff and latest_pol.expiration_date:
+            months = (latest_pol.expiration_date.year - earliest_eff.year) * 12 + \
+                     (latest_pol.expiration_date.month - earliest_eff.month)
+
+        wb = WinBackCampaign(
+            customer_id=customer.id,
+            nowcerts_insured_id=customer.nowcerts_insured_id,
+            customer_name=customer.full_name,
+            customer_email=customer.email,
+            customer_phone=customer.phone or customer.mobile_phone,
+            policy_number=latest_pol.policy_number,
+            carrier=latest_pol.carrier,
+            line_of_business=latest_pol.line_of_business,
+            premium_at_cancel=premium_amt,
+            original_effective_date=earliest_eff,
+            cancellation_date=latest_pol.expiration_date or latest_pol.updated_at,
+            months_active=max(months, 0),
+            agent_name=customer.agent_name or current_user.username,
+            status="pending",
+        )
+        db.add(wb)
+        created += 1
+        new_records.append({
+            "customer_id": customer.id,
+            "customer_name": customer.full_name,
+        })
+
+    db.commit()
+
+    return {
+        "created": created,
+        "skipped_already_exists": skipped_already_exists,
+        "skipped_not_found": skipped_not_found,
+        "skipped_no_contact": skipped_no_contact,
+        "new_records_sample": new_records[:20],
+    }
 # ─────────────────────────────────────────────────────────────────────
 # This is the analytical view (read-only, no records created) that
 # answers: "How much premium have we lost in fully-cancelled accounts,
@@ -604,31 +727,55 @@ def lost_account_analysis(
         if not pols:
             continue  # no policies at all — probably a stale prospect
 
-        # Pick the most recent cancellation date and total premium
-        # We sum the LATEST premium per line of business so an auto +
-        # home customer shows their full lost premium, not just one
-        latest_per_lob: dict[str, CustomerPolicy] = {}
+        # ── Premium calculation with renewal-fallback ──
+        # For each line of business the customer has had with us, find:
+        #   1. the MOST RECENT policy (this gives us the cancellation date)
+        #   2. the most recent policy WITH non-zero premium (this gives
+        #      us the dollar amount — we walk back through renewals
+        #      until we find one)
+        # This recovers ~283 customers who would otherwise be excluded
+        # because their final/current policy in NowCerts has $0 premium
+        # synced (the data is on an earlier renewal of the same line).
+
+        policies_by_lob: dict[str, list[CustomerPolicy]] = {}
         for p in pols:
             lob = (p.line_of_business or "Unknown").strip()
-            existing = latest_per_lob.get(lob)
-            if not existing:
-                latest_per_lob[lob] = p
-                continue
-            # Pick the one with the later expiration_date / effective_date
-            ex_dt = existing.expiration_date or existing.effective_date or datetime.min
-            new_dt = p.expiration_date or p.effective_date or datetime.min
-            if new_dt > ex_dt:
-                latest_per_lob[lob] = p
+            policies_by_lob.setdefault(lob, []).append(p)
 
-        total_lost_premium = 0.0
+        # Sort each LOB's policies by date descending — newest first
+        def _policy_sort_key(p: CustomerPolicy) -> datetime:
+            return p.expiration_date or p.effective_date or datetime.min
+
+        latest_policy_per_lob: dict[str, CustomerPolicy] = {}
+        premium_per_lob: dict[str, tuple[float, bool]] = {}  # (amount, was_estimated)
+
+        for lob, lob_pols in policies_by_lob.items():
+            lob_pols_sorted = sorted(lob_pols, key=_policy_sort_key, reverse=True)
+
+            # Most recent policy = source of truth for cancellation date
+            latest_policy_per_lob[lob] = lob_pols_sorted[0]
+
+            # Premium = most recent policy with > 0 premium
+            premium_amount = 0.0
+            was_estimated = False
+            for idx, p in enumerate(lob_pols_sorted):
+                if p.premium:
+                    try:
+                        amt = float(p.premium)
+                        if amt > 0:
+                            premium_amount = amt
+                            was_estimated = (idx > 0)  # not from the most recent record
+                            break
+                    except (TypeError, ValueError):
+                        pass
+            premium_per_lob[lob] = (premium_amount, was_estimated)
+
+        total_lost_premium = sum(amt for amt, _ in premium_per_lob.values())
+        any_estimated = any(est for _, est in premium_per_lob.values())
+
         latest_cancel_date = None
         carriers = set()
-        for lob, p in latest_per_lob.items():
-            if p.premium:
-                try:
-                    total_lost_premium += float(p.premium)
-                except (TypeError, ValueError):
-                    pass
+        for lob, p in latest_policy_per_lob.items():
             if p.carrier:
                 carriers.add(p.carrier)
             cd = p.expiration_date or p.updated_at
@@ -657,9 +804,10 @@ def lost_account_analysis(
             "state": c.state,
             "agent_name": c.agent_name,
             "policy_count": len(pols),
-            "lines_of_business": sorted(latest_per_lob.keys()),
+            "lines_of_business": sorted(latest_policy_per_lob.keys()),
             "carriers": sorted(carriers),
             "total_lost_premium": round(total_lost_premium, 2),
+            "premium_was_estimated": any_estimated,
             "latest_cancel_date": latest_cancel_date.isoformat() if latest_cancel_date else None,
             "has_email": bool(c.email),
             "has_phone": bool(c.phone or c.mobile_phone),
@@ -704,6 +852,7 @@ def lost_account_analysis(
             "lost_customers_with_email": sum(1 for r in lost_records if r["has_email"]),
             "lost_customers_with_phone": sum(1 for r in lost_records if r["has_phone"]),
             "lost_customers_no_contact": sum(1 for r in lost_records if not r["has_email"] and not r["has_phone"]),
+            "premium_estimated_from_prior_renewal_count": sum(1 for r in lost_records if r["premium_was_estimated"]),
         },
         "exclusions": {
             "excluded_due_to_active_duplicate": excluded_due_to_duplicate,

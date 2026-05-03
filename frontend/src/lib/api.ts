@@ -414,6 +414,17 @@ export const winbackAPI = {
   activate: (id: number) => api.post(`/api/winback/${id}/activate`),
   activateAll: () => api.post('/api/winback/activate-all'),
   create: (data: any) => api.post('/api/winback/create', data),
+  // Read-only analytical view of fully-cancelled customers with lost
+  // premium aggregates. months_back optional filter (e.g. 12 = last
+  // year only). Slow-ish (~5s) because it scans all customers and
+  // policies.
+  lostAccountAnalysis: (monthsBack?: number) =>
+    api.get('/api/winback/lost-account-analysis', {
+      params: monthsBack ? { months_back: monthsBack } : undefined,
+      timeout: 60000,
+    }),
+  bulkAddFromAnalysis: (customerIds: number[]) =>
+    api.post('/api/winback/bulk-add-from-analysis', { customer_ids: customerIds }, { timeout: 60000 }),
 };
 
 // Renewals API
