@@ -18,6 +18,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.campaign import WinBackCampaign
 from app.models.customer import Customer, CustomerPolicy
+from app.models.sale import Sale
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/winback", tags=["Win-Back Campaigns"])
@@ -873,4 +874,305 @@ def lost_account_analysis(
         ],
         "top_50_customers": lost_records[:50],
         "all_customer_count": len(lost_records),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Missing-from-Active Analysis (sales-table backed)
+# ─────────────────────────────────────────────────────────────────────
+# Different from /lost-account-analysis: that one starts from
+# customer_policies (NowCerts cache, only goes back to ~2024). This
+# one starts from the sales table (now has 2022+ history via the
+# Performology import) and matches against NowCerts to find sales
+# whose customer no longer has any active policy.
+#
+# Catches the customers who:
+#   - Were sold a policy 2022-2025
+#   - Aren't currently active in NowCerts (cancelled, churned, or
+#     never properly synced)
+#   - Have contact info we can reach them at
+#
+# These didn't show up in /lost-account-analysis because their
+# customer_policies record either doesn't exist or only shows the
+# cancelled side (which the fully-cancelled check still catches),
+# but THIS analysis finds them via the sale itself which we know
+# happened.
+
+@router.get("/missing-from-active")
+def missing_from_active_analysis(
+    sale_year_from: int = Query(2022, description="Earliest sale year (default 2022 — BCI era)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Find sales whose customer has no active policy in NowCerts today."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    from sqlalchemy import or_
+
+    ACTIVE_LOWER = {"active", "in force", "inforce"}
+
+    sales = db.query(Sale).filter(
+        Sale.sale_date >= datetime(sale_year_from, 1, 1),
+        Sale.sale_date < datetime(2100, 1, 1),
+        or_(Sale.lead_source != "legacy_allstate", Sale.lead_source.is_(None)),
+    ).all()
+
+    customers = db.query(Customer).all()
+    by_email: dict[str, int] = {}
+    by_phone: dict[str, int] = {}
+    by_name: dict[str, int] = {}
+
+    def _phone_key(p):
+        if not p:
+            return None
+        digits = "".join(c for c in p if c.isdigit())
+        return digits[-10:] if len(digits) >= 7 else None
+
+    for c in customers:
+        if c.email:
+            by_email[c.email.strip().lower()] = c.id
+        for ph in (c.phone, c.mobile_phone):
+            pk = _phone_key(ph or "")
+            if pk:
+                by_phone[pk] = c.id
+        if c.full_name:
+            by_name[c.full_name.strip().lower()] = c.id
+
+    customer_has_active: dict[int, bool] = {}
+    for pol in db.query(CustomerPolicy).all():
+        if (pol.status or "").strip().lower() in ACTIVE_LOWER:
+            customer_has_active[pol.customer_id] = True
+
+    lost_by_customer: dict[int, dict] = {}
+    unmatched_lost: list[dict] = []
+    skipped_active = 0
+    skipped_legacy = 0
+
+    for sale in sales:
+        if sale.lead_source == "legacy_allstate":
+            skipped_legacy += 1
+            continue
+
+        nc_customer_id = None
+        if sale.client_email:
+            nc_customer_id = by_email.get(sale.client_email.strip().lower())
+        if not nc_customer_id and sale.client_phone:
+            pk = _phone_key(sale.client_phone)
+            if pk:
+                nc_customer_id = by_phone.get(pk)
+        if not nc_customer_id and sale.client_name:
+            nc_customer_id = by_name.get(sale.client_name.strip().lower())
+
+        if nc_customer_id and customer_has_active.get(nc_customer_id, False):
+            skipped_active += 1
+            continue
+
+        premium_val = float(sale.written_premium or 0)
+        carrier = sale.carrier or "Unknown"
+
+        if nc_customer_id:
+            slot = lost_by_customer.setdefault(nc_customer_id, {
+                "customer_id": nc_customer_id,
+                "client_name": sale.client_name,
+                "client_email": sale.client_email,
+                "client_phone": sale.client_phone,
+                "policy_count": 0,
+                "carriers": set(),
+                "lines_of_business": set(),
+                "total_premium": 0.0,
+                "latest_sale_date": None,
+                "earliest_sale_date": None,
+                "match_source": "nowcerts",
+                "sale_ids": [],
+            })
+            slot["policy_count"] += 1
+            slot["carriers"].add(carrier)
+            if sale.policy_type:
+                slot["lines_of_business"].add(sale.policy_type)
+            slot["total_premium"] += premium_val
+            sd = sale.sale_date
+            if sd:
+                if not slot["latest_sale_date"] or sd > slot["latest_sale_date"]:
+                    slot["latest_sale_date"] = sd
+                if not slot["earliest_sale_date"] or sd < slot["earliest_sale_date"]:
+                    slot["earliest_sale_date"] = sd
+            slot["sale_ids"].append(sale.id)
+        else:
+            unmatched_lost.append({
+                "customer_id": None,
+                "client_name": sale.client_name,
+                "client_email": sale.client_email,
+                "client_phone": sale.client_phone,
+                "policy_count": 1,
+                "carriers": [carrier],
+                "lines_of_business": [sale.policy_type] if sale.policy_type else [],
+                "total_premium": premium_val,
+                "latest_sale_date": sale.sale_date.isoformat() if sale.sale_date else None,
+                "earliest_sale_date": sale.sale_date.isoformat() if sale.sale_date else None,
+                "match_source": "sale_only",
+                "sale_ids": [sale.id],
+            })
+
+    lost_records = []
+    for slot in lost_by_customer.values():
+        lost_records.append({
+            **slot,
+            "carriers": sorted(slot["carriers"]),
+            "lines_of_business": sorted(slot["lines_of_business"]),
+            "total_premium": round(slot["total_premium"], 2),
+            "latest_sale_date": slot["latest_sale_date"].isoformat() if slot["latest_sale_date"] else None,
+            "earliest_sale_date": slot["earliest_sale_date"].isoformat() if slot["earliest_sale_date"] else None,
+        })
+    lost_records.extend(unmatched_lost)
+    lost_records.sort(key=lambda r: r["total_premium"], reverse=True)
+
+    total_premium = sum(r["total_premium"] for r in lost_records)
+    by_year_agg: dict[int, dict] = {}
+    for r in lost_records:
+        sd = r.get("latest_sale_date")
+        year = int(sd[:4]) if sd else 0
+        slot = by_year_agg.setdefault(year, {"customers": 0, "premium": 0.0})
+        slot["customers"] += 1
+        slot["premium"] += r["total_premium"]
+
+    by_carrier_agg: dict[str, dict] = {}
+    for r in lost_records:
+        for c in r["carriers"] or ["Unknown"]:
+            slot = by_carrier_agg.setdefault(c, {"customers": 0, "premium": 0.0})
+            slot["customers"] += 1
+            slot["premium"] += r["total_premium"] / max(len(r["carriers"]), 1)
+
+    return {
+        "filters": {"sale_year_from": sale_year_from},
+        "totals": {
+            "lost_records": len(lost_records),
+            "matched_to_nowcerts": len(lost_by_customer),
+            "unmatched_sale_only": len(unmatched_lost),
+            "total_lost_premium": round(total_premium, 2),
+            "with_email": sum(1 for r in lost_records if r.get("client_email")),
+            "with_phone": sum(1 for r in lost_records if r.get("client_phone")),
+            "with_either": sum(1 for r in lost_records if r.get("client_email") or r.get("client_phone")),
+        },
+        "exclusions": {
+            "active_in_nowcerts": skipped_active,
+            "legacy_allstate": skipped_legacy,
+        },
+        "by_year": [
+            {"year": y, **{k: round(v, 2) if isinstance(v, float) else v for k, v in by_year_agg[y].items()}}
+            for y in sorted(by_year_agg.keys(), reverse=True)
+        ],
+        "by_carrier": [
+            {"carrier": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv for kk, vv in v.items()}}
+            for k, v in sorted(by_carrier_agg.items(), key=lambda kv: kv[1]["premium"], reverse=True)
+        ],
+        "top_50": lost_records[:50],
+        "all_count": len(lost_records),
+    }
+
+
+class BulkAddFromMissing(BaseModel):
+    customer_ids: list[int] = []
+    sale_ids: list[int] = []
+
+
+@router.post("/bulk-add-from-missing")
+def bulk_add_from_missing(
+    data: BulkAddFromMissing,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enroll lost-from-sales records into the winback queue (status=pending)."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    if not data.customer_ids and not data.sale_ids:
+        raise HTTPException(status_code=400, detail="Must provide customer_ids or sale_ids")
+    if len(data.customer_ids) + len(data.sale_ids) > 5000:
+        raise HTTPException(status_code=400, detail="Too many IDs (max 5000)")
+
+    created = 0
+    skipped_already_exists = 0
+    skipped_no_contact = 0
+    new_records: list[dict] = []
+
+    for cid in data.customer_ids:
+        customer = db.query(Customer).filter(Customer.id == cid).first()
+        if not customer:
+            continue
+        if not customer.email and not customer.phone and not customer.mobile_phone:
+            skipped_no_contact += 1
+            continue
+        existing = db.query(WinBackCampaign).filter(
+            WinBackCampaign.customer_id == customer.id,
+            WinBackCampaign.status.in_(["pending", "active"]),
+        ).first()
+        if existing:
+            skipped_already_exists += 1
+            continue
+
+        recent_sale = db.query(Sale).filter(
+            Sale.client_name == customer.full_name,
+        ).order_by(Sale.sale_date.desc()).first()
+
+        wb = WinBackCampaign(
+            customer_id=customer.id,
+            nowcerts_insured_id=customer.nowcerts_insured_id,
+            customer_name=customer.full_name,
+            customer_email=customer.email or (recent_sale.client_email if recent_sale else None),
+            customer_phone=customer.phone or customer.mobile_phone or (recent_sale.client_phone if recent_sale else None),
+            policy_number=recent_sale.policy_number if recent_sale else None,
+            carrier=recent_sale.carrier if recent_sale else None,
+            line_of_business=recent_sale.policy_type if recent_sale else None,
+            premium_at_cancel=recent_sale.written_premium if recent_sale else None,
+            cancellation_date=recent_sale.sale_date if recent_sale else None,
+            months_active=12,
+            agent_name=customer.agent_name or current_user.username,
+            status="pending",
+        )
+        db.add(wb)
+        created += 1
+        new_records.append({"customer_id": customer.id, "name": customer.full_name})
+
+    for sid in data.sale_ids:
+        sale = db.query(Sale).filter(Sale.id == sid).first()
+        if not sale:
+            continue
+        if not sale.client_email and not sale.client_phone:
+            skipped_no_contact += 1
+            continue
+        existing = db.query(WinBackCampaign).filter(
+            WinBackCampaign.customer_name == sale.client_name,
+            WinBackCampaign.customer_phone == sale.client_phone,
+            WinBackCampaign.status.in_(["pending", "active"]),
+        ).first()
+        if existing:
+            skipped_already_exists += 1
+            continue
+
+        wb = WinBackCampaign(
+            customer_id=None,
+            customer_name=sale.client_name,
+            customer_email=sale.client_email,
+            customer_phone=sale.client_phone,
+            policy_number=sale.policy_number,
+            carrier=sale.carrier,
+            line_of_business=sale.policy_type,
+            premium_at_cancel=sale.written_premium,
+            cancellation_date=sale.sale_date,
+            months_active=12,
+            agent_name=current_user.username,
+            status="pending",
+        )
+        db.add(wb)
+        created += 1
+        new_records.append({"sale_id": sale.id, "name": sale.client_name})
+
+    db.commit()
+
+    return {
+        "created": created,
+        "skipped_already_in_campaign": skipped_already_exists,
+        "skipped_no_contact": skipped_no_contact,
+        "new_records_sample": new_records[:20],
     }
