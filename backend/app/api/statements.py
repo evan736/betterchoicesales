@@ -910,6 +910,64 @@ def delete_import(
     return {"success": True, "deleted_id": import_id}
 
 
+@router.post("/{import_id}/change-period")
+def change_import_period(
+    import_id: int,
+    new_period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change the statement_period of an import (e.g. 2026-05 → 2026-04).
+
+    Used when a user uploads a statement to the wrong month and needs to
+    correct it. Updates only the StatementImport.statement_period field —
+    individual StatementLine rows do NOT have a period field, they're
+    grouped via the parent import_id, so a single update propagates.
+
+    Period format: 'YYYY-MM' (e.g. '2026-04'). Validated by regex.
+
+    Side effects to be aware of:
+      - Revenue projections grouped by month will shift accordingly
+      - Monthly payroll calculations for both old and new period
+        will need to be re-run
+      - Audit trail: logged via logger.info but no separate audit table
+    """
+    import re
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    if not re.match(r"^\d{4}-\d{2}$", new_period or ""):
+        raise HTTPException(status_code=400, detail="new_period must be 'YYYY-MM' format (e.g. '2026-04')")
+
+    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
+    if not imp:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    old_period = imp.statement_period
+    if old_period == new_period:
+        return {
+            "success": True,
+            "import_id": import_id,
+            "no_change": True,
+            "period": new_period,
+        }
+
+    imp.statement_period = new_period
+    db.commit()
+
+    logger.info(
+        f"Changed period: import {import_id} ({imp.carrier}) {old_period} → {new_period}"
+    )
+    return {
+        "success": True,
+        "import_id": import_id,
+        "carrier": imp.carrier,
+        "filename": imp.filename,
+        "old_period": old_period,
+        "new_period": new_period,
+    }
+
+
 @router.get("/debug-agent-lines/{period}/{agent_id}")
 def debug_agent_lines(
     period: str,
