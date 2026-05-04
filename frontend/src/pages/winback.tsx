@@ -121,6 +121,9 @@ export default function WinbackAnalysisPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [enrolling, setEnrolling] = useState(false);
 
+  // Tab state — winback (default) vs cold prospects (Allstate X-date list)
+  const [tab, setTab] = useState<'winback' | 'cold'>('winback');
+
   const loadAnalysis = async (mb: number | null) => {
     setLoading(true);
     setSelectedIds(new Set());
@@ -258,16 +261,46 @@ export default function WinbackAnalysisPage() {
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <TrendingDown size={24} className="text-amber-400" />
-              Win-Back Analysis
+              Outreach
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Fully-cancelled customers with deduplicated lost premium. Read-only — no outreach happens here.
+              Win-Back analysis for former customers + Cold Prospects from the Allstate X-date list.
             </p>
           </div>
+        </div>
+
+        {/* Tab strip */}
+        <div className="flex items-center gap-2 border-b border-slate-800 mb-6">
+          <button
+            onClick={() => setTab('winback')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === 'winback'
+                ? 'border-amber-400 text-amber-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Win-Back
+          </button>
+          <button
+            onClick={() => setTab('cold')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === 'cold'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Cold Prospects
+          </button>
+        </div>
+
+        {tab === 'winback' && (
+          <>
+        {/* Win-Back tab controls */}
+        <div className="flex items-center justify-end mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <select
               value={monthsBack ?? ''}
@@ -573,6 +606,10 @@ export default function WinbackAnalysisPage() {
             </div>
           </>
         )}
+        </>
+        )}
+
+        {tab === 'cold' && <ColdProspectsPanel />}
       </div>
     </div>
   );
@@ -682,4 +719,407 @@ function Th({
       </div>
     </th>
   );
+}
+
+// ─── Cold Prospects Panel ───────────────────────────────────────────
+//
+// Tab content for the Cold Prospects view. Self-contained: manages its
+// own data load, filters, and pagination state. Hits these endpoints:
+//   GET  /api/cold-prospects/stats         — KPI aggregates
+//   GET  /api/cold-prospects/              — paginated list
+
+interface ColdStats {
+  total: number;
+  by_status: Record<string, number>;
+  by_phase: Record<string, number>;
+  by_email_validation: Record<string, number>;
+  by_customer_status: Record<string, number>;
+  sendable_now: number;
+  ever_emailed: number;
+  converted: number;
+}
+
+interface ColdProspect {
+  id: number;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  policy_type: string | null;
+  company: string | null;
+  premium: number | null;
+  customer_status: string | null;
+  next_x_date: string | null;
+  phase: string | null;
+  status: string | null;
+  touchpoint_count: number;
+  last_touchpoint_at: string | null;
+  last_email_variant: string | null;
+  assigned_producer: string | null;
+  email_valid: boolean;
+  do_not_email: boolean;
+  bounce_count: number;
+  excluded: boolean;
+  excluded_reason: string | null;
+  converted_at: string | null;
+}
+
+function ColdProspectsPanel() {
+  const [stats, setStats] = useState<ColdStats | null>(null);
+  const [items, setItems] = useState<ColdProspect[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // Filters / pagination
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [customerStatusFilter, setCustomerStatusFilter] = useState<string>('all');
+  const [contactedFilter, setContactedFilter] = useState<string>('all'); // all | yes | no
+  const [producerFilter, setProducerFilter] = useState<string>('all');
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
+
+  // Debounced search — don't fire a request on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const loadStats = async () => {
+    setStatsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const res = await fetch(`${apiBase}/api/cold-prospects/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setStats(data);
+    } catch (e) {
+      console.error('Failed to load cold prospect stats:', e);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const loadList = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+      const params = new URLSearchParams({
+        skip: String(page * PAGE_SIZE),
+        limit: String(PAGE_SIZE),
+        sort_by: 'id',
+        sort_dir: 'desc',
+      });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (customerStatusFilter !== 'all') params.set('customer_status', customerStatusFilter);
+      if (contactedFilter !== 'all') params.set('contacted', contactedFilter === 'yes' ? 'true' : 'false');
+      if (producerFilter !== 'all') params.set('assigned_producer', producerFilter);
+
+      const res = await fetch(`${apiBase}/api/cold-prospects/?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+    } catch (e) {
+      console.error('Failed to load cold prospects:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    loadStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reload list whenever filters change
+  useEffect(() => {
+    loadList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, statusFilter, customerStatusFilter, contactedFilter, producerFilter]);
+
+  // Reset to page 0 when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedSearch, statusFilter, customerStatusFilter, contactedFilter, producerFilter]);
+
+  const fmtMoneyOrDash = (v: number | null) => v == null ? '—' : `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtDateOrDash = (v: string | null) => v ? new Date(v).toLocaleDateString() : '—';
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return (
+    <>
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+          <div className="text-slate-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <Users size={12} /> Total Prospects
+          </div>
+          <div className="text-2xl font-bold">{statsLoading ? '…' : (stats?.total || 0).toLocaleString()}</div>
+          <div className="text-xs text-slate-500 mt-1">
+            {stats && `${stats.sendable_now.toLocaleString()} sendable`}
+          </div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+          <div className="text-slate-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <Send size={12} /> Ever Contacted
+          </div>
+          <div className="text-2xl font-bold text-cyan-400">{statsLoading ? '…' : (stats?.ever_emailed || 0).toLocaleString()}</div>
+          <div className="text-xs text-slate-500 mt-1">
+            {stats && stats.total > 0 && `${((stats.ever_emailed / stats.total) * 100).toFixed(1)}% of list`}
+          </div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+          <div className="text-slate-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <CheckCircle2 size={12} /> Converted
+          </div>
+          <div className="text-2xl font-bold text-emerald-400">{statsLoading ? '…' : (stats?.converted || 0).toLocaleString()}</div>
+          <div className="text-xs text-slate-500 mt-1">Sales matched to prospects</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+          <div className="text-slate-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <AlertCircle size={12} /> Suppressed / Replied
+          </div>
+          <div className="text-2xl font-bold text-amber-400">
+            {statsLoading ? '…' : (
+              (stats?.by_status?.paused_bounced || 0) +
+              (stats?.by_status?.paused_replied || 0) +
+              (stats?.by_status?.paused_unsubscribed || 0) +
+              (stats?.by_status?.paused_complained || 0)
+            ).toLocaleString()}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">Bounced / unsub / spam / replied</div>
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="md:col-span-2 relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name or email..."
+              className="w-full bg-slate-800 border border-slate-700 rounded pl-9 pr-3 py-2 text-sm"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+          >
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="converted">Converted</option>
+            <option value="paused_replied">Replied</option>
+            <option value="paused_bounced">Bounced</option>
+            <option value="paused_unsubscribed">Unsubscribed</option>
+            <option value="paused_complained">Complained</option>
+            <option value="excluded">Excluded</option>
+          </select>
+          <select
+            value={customerStatusFilter}
+            onChange={(e) => setCustomerStatusFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+          >
+            <option value="all">All Source Types</option>
+            <option value="Prospect">Prospect</option>
+            <option value="Former Customer">Former Customer</option>
+            <option value="null">No Customer Status</option>
+          </select>
+          <select
+            value={contactedFilter}
+            onChange={(e) => setContactedFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
+          >
+            <option value="all">All</option>
+            <option value="yes">Contacted</option>
+            <option value="no">Never Contacted</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-3">
+          <select
+            value={producerFilter}
+            onChange={(e) => setProducerFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm md:col-span-2"
+          >
+            <option value="all">All Producers</option>
+            <option value="evan.larson">Evan</option>
+            <option value="joseph.rivera">Joseph</option>
+            <option value="giulian.baez">Giulian</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+          <div className="md:col-span-3 flex items-center justify-end gap-3 text-sm text-slate-400">
+            <span>{loading ? 'Loading...' : `${total.toLocaleString()} matching`}</span>
+            <button
+              onClick={() => { loadStats(); loadList(); }}
+              disabled={loading}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-2 text-sm flex items-center gap-2"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+        {loading && items.length === 0 ? (
+          <div className="p-8 text-slate-400 flex items-center gap-2 justify-center">
+            <Loader2 size={16} className="animate-spin" />
+            Loading prospects...
+          </div>
+        ) : items.length === 0 ? (
+          <div className="p-8 text-slate-400 text-center">
+            No prospects match these filters.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-950 text-slate-400 text-xs uppercase tracking-wider">
+                <tr>
+                  <th className="px-3 py-2 text-left">Name</th>
+                  <th className="px-3 py-2 text-left">Email</th>
+                  <th className="px-3 py-2 text-left">Location</th>
+                  <th className="px-3 py-2 text-left">Source / Type</th>
+                  <th className="px-3 py-2 text-right">Premium</th>
+                  <th className="px-3 py-2 text-left">Producer</th>
+                  <th className="px-3 py-2 text-right">Touches</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((p) => (
+                  <tr key={p.id} className="border-t border-slate-800 hover:bg-slate-800/50">
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || '—'}</div>
+                      {p.phone && <div className="text-xs text-slate-500">{p.phone}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-slate-300">
+                      {p.email || <span className="text-slate-600">—</span>}
+                      {p.email_valid === false && p.email && (
+                        <span className="ml-1 text-xs text-rose-400">invalid</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-400 text-xs">
+                      {p.city ? `${p.city}, ${p.state || ''}` : (p.state || '—')}
+                      {p.zip_code && <div>{p.zip_code}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <div className="text-slate-300">{p.customer_status || '—'}</div>
+                      <div className="text-slate-500">{p.policy_type ? `${p.policy_type}${p.company ? ' / ' + p.company : ''}` : (p.company || '—')}</div>
+                    </td>
+                    <td className="px-3 py-2 text-right text-slate-300">{fmtMoneyOrDash(p.premium)}</td>
+                    <td className="px-3 py-2 text-xs text-slate-400">
+                      {p.assigned_producer || <span className="text-slate-600">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="text-slate-300">{p.touchpoint_count}</div>
+                      {p.last_touchpoint_at && (
+                        <div className="text-xs text-slate-500">{fmtDateOrDash(p.last_touchpoint_at)}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <ColdStatusBadge status={p.status} bounceCount={p.bounce_count} converted={!!p.converted_at} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {total > 0 && (
+          <div className="flex items-center justify-between border-t border-slate-800 px-4 py-3 text-sm text-slate-400">
+            <div>
+              Page {page + 1} of {totalPages.toLocaleString()} · Showing {items.length} of {total.toLocaleString()}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page === 0 || loading}
+                onClick={() => setPage(0)}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                First
+              </button>
+              <button
+                disabled={page === 0 || loading}
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              <button
+                disabled={page >= totalPages - 1 || loading}
+                onClick={() => setPage(p => p + 1)}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+              <button
+                disabled={page >= totalPages - 1 || loading}
+                onClick={() => setPage(totalPages - 1)}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Help text */}
+      <div className="mt-4 text-xs text-slate-500">
+        <p>
+          28K Allstate X-date prospects. Imported from territorial export.
+          Phase 1 cold-wakeup is paced over 90 days; Phase 2 fires -30/-21/-14/-7 days
+          before each prospect's renewal X-date.
+          Schedulers are gated by env vars on Render — flip{' '}
+          <code className="bg-slate-800 px-1.5 py-0.5 rounded">COLD_PROSPECT_SCHEDULER_ENABLED=true</code>{' '}
+          to start sending.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function ColdStatusBadge({ status, bounceCount, converted }: { status: string | null; bounceCount: number; converted: boolean }) {
+  if (converted) {
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Converted</span>;
+  }
+  switch (status) {
+    case 'active':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">Active</span>;
+    case 'paused_replied':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30">Replied</span>;
+    case 'paused_bounced':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30" title={`${bounceCount} bounce(s)`}>Bounced</span>;
+    case 'paused_unsubscribed':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-slate-500/20 text-slate-400 border border-slate-500/30">Unsubscribed</span>;
+    case 'paused_complained':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30">Spam Complaint</span>;
+    case 'excluded':
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-slate-700/50 text-slate-500 border border-slate-700">Excluded</span>;
+    default:
+      return <span className="text-xs text-slate-500">{status || '—'}</span>;
+  }
 }

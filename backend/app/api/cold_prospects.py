@@ -841,6 +841,129 @@ def cold_prospect_stats(
     }
 
 
+@router.get("/")
+def list_cold_prospects(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    search: Optional[str] = Query(None, description="Match against name or email"),
+    status: Optional[str] = Query(None, description="Filter by status (active, paused_bounced, paused_replied, converted, ...)"),
+    customer_status: Optional[str] = Query(None, description="Filter by source customer_status (Prospect, Former Customer, ...)"),
+    assigned_producer: Optional[str] = Query(None, description="Filter by assigned producer username"),
+    contacted: Optional[bool] = Query(None, description="True = touchpoint_count > 0; False = never contacted"),
+    sort_by: str = Query("id", description="One of: id, name, email, premium, touchpoint_count, last_touchpoint_at"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Paginated list of cold prospects with search + filter support.
+
+    Returns:
+      - items: page of records
+      - total: total count matching filters (for pagination UI)
+      - page_total: count of items on this page
+
+    Designed for the /winback page's Cold Prospects tab. Default sort
+    by id desc gives the most-recently-imported first.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    q = db.query(ColdProspect)
+
+    # ── Filters ────────────────────────────────────────────────────
+    if status:
+        q = q.filter(ColdProspect.status == status)
+
+    if customer_status:
+        # Allow special value 'null' for records with no customer_status
+        if customer_status.lower() == "null":
+            q = q.filter(ColdProspect.customer_status.is_(None))
+        else:
+            q = q.filter(ColdProspect.customer_status == customer_status)
+
+    if assigned_producer:
+        if assigned_producer.lower() == "unassigned":
+            q = q.filter(ColdProspect.assigned_producer.is_(None))
+        else:
+            q = q.filter(ColdProspect.assigned_producer == assigned_producer)
+
+    if contacted is not None:
+        if contacted:
+            q = q.filter(ColdProspect.touchpoint_count > 0)
+        else:
+            q = q.filter(
+                (ColdProspect.touchpoint_count == 0) | (ColdProspect.touchpoint_count.is_(None))
+            )
+
+    if search:
+        like = f"%{search.lower()}%"
+        q = q.filter(
+            sa_func.lower(ColdProspect.full_name).like(like)
+            | sa_func.lower(ColdProspect.email).like(like)
+            | sa_func.lower(ColdProspect.first_name).like(like)
+            | sa_func.lower(ColdProspect.last_name).like(like)
+        )
+
+    # ── Total before pagination ────────────────────────────────────
+    total = q.count()
+
+    # ── Sorting ────────────────────────────────────────────────────
+    sort_col_map = {
+        "id": ColdProspect.id,
+        "name": ColdProspect.full_name,
+        "email": ColdProspect.email,
+        "premium": ColdProspect.premium,
+        "touchpoint_count": ColdProspect.touchpoint_count,
+        "last_touchpoint_at": ColdProspect.last_touchpoint_at,
+    }
+    sort_col = sort_col_map.get(sort_by, ColdProspect.id)
+    if sort_dir == "asc":
+        q = q.order_by(sort_col.asc().nulls_last())
+    else:
+        q = q.order_by(sort_col.desc().nulls_last())
+
+    rows = q.offset(skip).limit(limit).all()
+
+    items = []
+    for r in rows:
+        items.append({
+            "id": r.id,
+            "full_name": r.full_name,
+            "first_name": r.first_name,
+            "last_name": r.last_name,
+            "email": r.email,
+            "phone": r.mobile_phone or r.home_phone or r.work_phone,
+            "city": r.city,
+            "state": r.state,
+            "zip_code": r.zip_code,
+            "policy_type": r.policy_type,
+            "company": r.company,
+            "premium": float(r.premium) if r.premium else None,
+            "customer_status": r.customer_status,
+            "next_x_date": r.next_x_date.isoformat() if r.next_x_date else None,
+            "phase": r.phase,
+            "status": r.status,
+            "touchpoint_count": r.touchpoint_count or 0,
+            "last_touchpoint_at": r.last_touchpoint_at.isoformat() if r.last_touchpoint_at else None,
+            "last_email_variant": r.last_email_variant,
+            "assigned_producer": r.assigned_producer,
+            "email_valid": r.email_valid,
+            "do_not_email": r.do_not_email,
+            "bounce_count": r.bounce_count or 0,
+            "excluded": r.excluded,
+            "excluded_reason": r.excluded_reason,
+            "converted_at": r.converted_at.isoformat() if r.converted_at else None,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "page_total": len(items),
+        "skip": skip,
+        "limit": limit,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Scheduler Tick
 # ─────────────────────────────────────────────────────────────────────
