@@ -152,6 +152,39 @@ export default function ChatPanel() {
     // scream that ignored mute. See SSE handler below.
   }, []);
 
+  // Centralized sound-play helper. Handles two cases:
+  //   - 'mention': double chirp (two notification.wav at 400ms apart)
+  //   - 'unread':  single chirp
+  //
+  // Why this exists: browser autoplay policy blocks audio.play() until
+  // the user has interacted with the page. The promise rejects silently
+  // unless we catch + log. Previously we just .catch(() => {}) which
+  // hid every audio failure. Now we log it once so it's diagnosable.
+  const audioBlockedWarned = useRef(false);
+  const tryPlaySound = (kind: 'mention' | 'unread') => {
+    const playOne = () => {
+      try {
+        const a = new Audio('/notification.wav');
+        a.volume = 0.8;
+        const p = a.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch((err: any) => {
+            // Browser autoplay policy — user hasn't interacted yet.
+            // Warn ONCE (not on every notification) so console isn't spammed.
+            if (!audioBlockedWarned.current) {
+              audioBlockedWarned.current = true;
+              console.warn('[chat] Notification sound blocked by browser autoplay policy. Click anywhere to enable.', err?.name || err);
+            }
+          });
+        }
+      } catch {}
+    };
+    playOne();
+    if (kind === 'mention') {
+      setTimeout(playOne, 400);
+    }
+  };
+
   // Load channels + unread on mount
   useEffect(() => {
     if (!user) return;
@@ -168,8 +201,31 @@ export default function ChatPanel() {
         const freshMsgs = res.data || [];
 
         setMessages(prev => {
-          // Only update if message count changed (avoid unnecessary rerenders)
-          if (freshMsgs.length !== prev.length || 
+          // CRITICAL: Don't blow away paginated older messages.
+          // The poll fetches the most recent 50 (no `before` param).
+          // If the user has scroll-loaded older messages, `prev` is
+          // longer than 50, and replacing it with the fresh 50 would
+          // erase their scroll history.
+          // Instead, merge: keep all of `prev`, append any fresh
+          // messages whose IDs aren't already in `prev`.
+          if (prev.length > freshMsgs.length) {
+            // We have more messages locally than the server's recent
+            // page — pagination must have happened. Merge new ones in.
+            const existingIds = new Set(prev.map((m: any) => m.id));
+            const newOnes = freshMsgs.filter((m: any) => !existingIds.has(m.id));
+            if (newOnes.length === 0) return prev;
+            // Check for new BEACON message to clear typing
+            if (ch.channel_type === 'beacon') {
+              const hasNewBeacon = newOnes.some((m: any) =>
+                m.sender_username === 'beacon.ai' || m.sender_name === 'BEACON'
+              );
+              if (hasNewBeacon) setBeaconTyping(false);
+            }
+            return [...prev, ...newOnes];
+          }
+
+          // Standard path: no pagination, replace full list if changed
+          if (freshMsgs.length !== prev.length ||
               (freshMsgs.length > 0 && prev.length > 0 && freshMsgs[freshMsgs.length - 1]?.id !== prev[prev.length - 1]?.id)) {
             // Check for new BEACON message to clear typing
             if (ch.channel_type === 'beacon') {
@@ -216,23 +272,24 @@ export default function ChatPanel() {
             const currentUsername = user?.username?.toLowerCase() || '';
             const currentName = user?.full_name?.toLowerCase() || '';
             const msgContent = (msg?.content || '').toLowerCase();
-            const isMentioned = msgContent.includes(`@${currentUsername}`) || 
-                               (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`)) ||
-                               (msg?.mentions && msg.mentions.some((m: any) => m.id === user?.id || m.user_id === user?.id));
+            // Backend sends `mentions` as a list of integer user IDs
+            // (see chat.py _serialize_message: msg.mentions or []).
+            // Previous code expected objects with .id/.user_id keys
+            // and never matched. Now check the raw integer.
+            const mentionedById = Array.isArray(msg?.mentions) &&
+              msg.mentions.some((m: any) => {
+                if (typeof m === 'number') return m === user?.id;
+                return m?.id === user?.id || m?.user_id === user?.id;
+              });
+            const isMentioned = mentionedById ||
+                               msgContent.includes(`@${currentUsername}`) ||
+                               (currentName && msgContent.includes(`@${currentName.split(' ')[0]}`));
             if (isMentioned && msg?.sender_id !== user?.id) {
               // Mention sound: two soft chirps of the notification wav.
               // Respects mute. Previously used /mention.wav at full volume
               // and ignored mute — jarring scream.
               if (soundEnabledRef.current) {
-                try {
-                  const playChirp = () => {
-                    const a = new Audio('/notification.wav');
-                    a.volume = 0.8;
-                    a.play().catch(() => {});
-                  };
-                  playChirp();
-                  setTimeout(playChirp, 400);
-                } catch {}
+                tryPlaySound('mention');
               }
             }
             // Refresh unread counts
@@ -259,6 +316,15 @@ export default function ChatPanel() {
   const userScrolledUpRef = useRef(false);
   const prevMessageCountRef = useRef(0);
 
+  // ── Older-messages pagination state ─────────────────────────────────
+  // hasMoreOlder = whether the server might have older messages we
+  // haven't loaded. Initially true, set false when a fetch returns
+  // fewer than the page size (= we've hit the start of the channel).
+  // loadingOlder = in-flight guard so we don't fire a second pagination
+  // fetch while the first one is still loading.
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const loadingOlderRef = useRef(false);
+
   // Scroll the messages container to the very bottom
   const scrollToBottom = () => {
     const el = messagesContainerRef.current;
@@ -267,12 +333,72 @@ export default function ChatPanel() {
     }
   };
 
-  // Track if user has scrolled away from bottom
+  // Track if user has scrolled away from bottom + handle scroll-up pagination
   const handleContainerScroll = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     userScrolledUpRef.current = distFromBottom > 200;
+
+    // Pagination: when user scrolls within 100px of the top, fetch the
+    // next page of older messages (if any). Guarded by loadingOlderRef
+    // so only one fetch fires per scroll burst, and by hasMoreOlder so
+    // we stop trying once the server returns fewer than a full page.
+    if (
+      el.scrollTop < 100 &&
+      hasMoreOlder &&
+      !loadingOlderRef.current &&
+      messages.length > 0 &&
+      activeChannel
+    ) {
+      loadingOlderRef.current = true;
+      const oldestId = messages[0]?.id;
+      if (!oldestId) {
+        loadingOlderRef.current = false;
+        return;
+      }
+      // Capture pre-fetch dimensions so we can preserve scroll position
+      // after prepending the new messages (otherwise the user gets
+      // yanked back to the top because new content shifted everything
+      // down by hundreds of pixels).
+      const prevScrollHeight = el.scrollHeight;
+      const prevScrollTop = el.scrollTop;
+      chatAPI.messages(activeChannel.id, oldestId)
+        .then(res => {
+          const olderMsgs = res.data || [];
+          if (olderMsgs.length === 0) {
+            setHasMoreOlder(false);
+          } else {
+            // Prepend older messages, dedupe just in case
+            setMessages(prev => {
+              const existingIds = new Set(prev.map((m: any) => m.id));
+              const fresh = olderMsgs.filter((m: any) => !existingIds.has(m.id));
+              return [...fresh, ...prev];
+            });
+            // If server returned fewer than the page size (50), we've
+            // reached the start of the channel — no more pages exist.
+            if (olderMsgs.length < 50) setHasMoreOlder(false);
+            // Restore the user's visual scroll position so the new
+            // older messages appear above where they were reading,
+            // rather than yanking them anywhere.
+            requestAnimationFrame(() => {
+              const el2 = messagesContainerRef.current;
+              if (el2) {
+                const heightDelta = el2.scrollHeight - prevScrollHeight;
+                el2.scrollTop = prevScrollTop + heightDelta;
+              }
+            });
+          }
+        })
+        .catch(e => {
+          console.error('Failed to load older messages:', e);
+        })
+        .finally(() => {
+          // Small delay before allowing another pagination fetch — prevents
+          // a burst of requests if the user is still scrolling at the top.
+          setTimeout(() => { loadingOlderRef.current = false; }, 250);
+        });
+    }
   };
 
   // After messages change, scroll to bottom unless user deliberately scrolled up
@@ -320,24 +446,29 @@ export default function ChatPanel() {
       const newTotal = res.data.total_unread;
       const newMentions = res.data.total_mentions || 0;
 
-      // Only play sounds when count genuinely INCREASES (not on first load, not on stale counts)
-      if (prevMentionsRef.current >= 0 && newMentions > prevMentionsRef.current) {
-        // Mention: two soft chirps of the notification wav, respects mute.
-        // Previously a full-volume scream that ignored mute.
+      // Play sound when:
+      //   1. First load AND there are existing unread messages OR mentions
+      //   2. Subsequent polls where count increased
+      //
+      // Previously we suppressed sound on first load (prev = -1) to avoid
+      // an unwanted ding on app open. But that meant staff who came back
+      // to a tab with 21 accumulated unread heard nothing — making the
+      // chat feel dead. Per Evan: 'Yes — always play sound on new mentions,
+      // even on first load. Worth the rare opened to 20 mentions loud moment.'
+      const isFirstLoad = prevMentionsRef.current < 0 && prevUnreadRef.current < 0;
+      const mentionsIncreased = newMentions > Math.max(0, prevMentionsRef.current);
+      const unreadIncreased = newTotal > Math.max(0, prevUnreadRef.current);
+
+      if (mentionsIncreased && (isFirstLoad ? newMentions > 0 : true)) {
+        // Mention chirp — two soft pulses, respects mute
         if (soundEnabledRef.current) {
-          try {
-            const playChirp = () => {
-              const a = new Audio('/notification.wav');
-              a.volume = 0.8;
-              a.play().catch(() => {});
-            };
-            playChirp();
-            setTimeout(playChirp, 400);
-          } catch {}
+          tryPlaySound('mention');
         }
-      } else if (prevUnreadRef.current >= 0 && newTotal > prevUnreadRef.current) {
-        // Regular notification — respects mute
-        if (soundEnabledRef.current) try { notifAudio.current?.play(); } catch {}
+      } else if (unreadIncreased && (isFirstLoad ? newTotal > 0 : true)) {
+        // Regular unread bump — single pulse, respects mute
+        if (soundEnabledRef.current) {
+          tryPlaySound('unread');
+        }
       }
 
       prevUnreadRef.current = newTotal;
@@ -360,6 +491,12 @@ export default function ChatPanel() {
       const res = await chatAPI.messages(channelId);
       const msgs = res.data || [];
       setMessages(msgs);
+      // Reset pagination state. If the initial page is full (50 msgs),
+      // assume there might be older — let scroll-up trigger pagination.
+      // If the initial page is smaller, the channel has fewer than 50
+      // messages total and there's nothing older to fetch.
+      setHasMoreOlder(msgs.length >= 50);
+      loadingOlderRef.current = false;
       // Always mark as read when viewing a channel
       await chatAPI.markRead(channelId);
       if (!silent) loadUnread();
