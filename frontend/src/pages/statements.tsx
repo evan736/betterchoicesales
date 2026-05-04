@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
@@ -125,6 +125,10 @@ export default function Statements() {
   const router = useRouter();
   const [imports, setImports] = useState<ImportRecord[]>([]);
   const [selectedImport, setSelectedImport] = useState<number | null>(null);
+  // Tracks whether we've already auto-adjusted the period selector to the
+  // most-recent-period-with-data (we only do this once on initial load,
+  // not every time loadImports runs after upload/delete).
+  const periodInitialized = useRef(false);
   const [reconciliation, setReconciliation] = useState<ReconciliationData | null>(null);
   const [agentSummary, setAgentSummary] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -160,6 +164,27 @@ export default function Statements() {
     try {
       const res = await reconciliationAPI.list();
       setImports(res.data);
+      // Smart default: on first load, point the period selector to
+      // the most recent period that actually has imports. Otherwise
+      // a user opening the page on May 4 sees an empty list because
+      // May statements don't exist yet — which we just fixed.
+      // Only do this on the initial load (when period state matches
+      // its initial "current calendar month" default AND we haven't
+      // already adjusted it).
+      if (!periodInitialized.current && res.data.length > 0) {
+        const periods = res.data
+          .map((imp: ImportRecord) => imp.period)
+          .filter((p: string | null | undefined): p is string => !!p);
+        if (periods.length) {
+          // Lexicographic sort works for YYYY-MM strings
+          periods.sort();
+          const newest = periods[periods.length - 1];
+          if (newest && newest !== period) {
+            setPeriod(newest);
+          }
+        }
+        periodInitialized.current = true;
+      }
     } catch (e) {
       console.error('Failed to load imports:', e);
     }
@@ -460,12 +485,34 @@ export default function Statements() {
           {/* Left: Import List */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-              <h3 className="font-semibold text-slate-900 mb-3">Imports</h3>
-              {imports.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No imports yet</p>
-              ) : (
-                <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {imports.map((imp) => (
+              {(() => {
+                const filteredImports = imports.filter((imp) => imp.period === period);
+                const otherCount = imports.length - filteredImports.length;
+                return (
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-slate-900">
+                        Imports for {period}
+                      </h3>
+                      {filteredImports.length > 0 && (
+                        <span className="text-xs text-slate-500">{filteredImports.length}</span>
+                      )}
+                    </div>
+                    {filteredImports.length === 0 ? (
+                      <p className="text-sm text-slate-500 text-center py-8">
+                        No imports for {period} yet
+                        {otherCount > 0 && (
+                          <>
+                            <br />
+                            <span className="text-xs">
+                              ({otherCount} import{otherCount === 1 ? '' : 's'} in other period{otherCount === 1 ? '' : 's'} — change "Statement Period" above to view)
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                        {filteredImports.map((imp) => (
                     <button
                       key={imp.id}
                       onClick={() => { setSelectedImport(imp.id); loadDetail(imp.id); }}
@@ -504,6 +551,9 @@ export default function Statements() {
                   ))}
                 </div>
               )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
