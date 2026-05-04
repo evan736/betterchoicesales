@@ -325,7 +325,20 @@ class ReconciliationService:
     def calculate_agent_commissions(self, import_id: int) -> Dict:
         """Calculate what each agent is owed based on their tier.
 
-        The tier is determined by the PRIOR month's total written premium.
+        TIER RULE (per Evan, 2026-05-04):
+          The tier is determined by the SAME month's total written premium
+          as the statement period.
+
+          Example: April 2026 commission statement → tier comes from
+          April 2026 production (sales with sale_date in April).
+
+          Producers get paid on commissions received THIS month, with
+          their rate set by THIS month's production.
+
+          (Previously this looked at PRIOR month production. That was
+          changed because it confused producers — their April rate was
+          locked in by their March performance, even though the statement
+          said April. Now rate and statement period match.)
         """
         imp = self.db.query(StatementImport).filter(
             StatementImport.id == import_id
@@ -333,11 +346,10 @@ class ReconciliationService:
         if not imp:
             raise ValueError("Import not found")
 
-        # Determine prior month for tier calculation
-        period = imp.statement_period  # "2026-01"
+        # Determine the statement's period
+        period = imp.statement_period  # "2026-04"
         if not period:
             # Auto-detect period from statement lines or filename
-            # Try filename first (e.g. "DetailedStatement20260404" -> month_end in data)
             sample_line = self.db.query(StatementLine).filter(
                 StatementLine.statement_import_id == import_id,
                 StatementLine.effective_date.isnot(None),
@@ -348,19 +360,18 @@ class ReconciliationService:
                     d = d.date()
                 period = f"{d.year:04d}-{d.month:02d}"
             else:
-                # Last resort: use current date
                 from datetime import date as _date
                 today = _date.today()
                 period = f"{today.year:04d}-{today.month:02d}"
-            # Save it back so future calls work
             imp.statement_period = period
             self.db.flush()
             logger.info(f"Auto-detected statement_period={period} for import #{import_id}")
 
         year, month = map(int, period.split("-"))
+        current_period = f"{year:04d}-{month:02d}"
+        # Kept for any debug logging — we no longer USE prior_period for tier
         prior_date = datetime(year, month, 1) - relativedelta(months=1)
         prior_period = prior_date.strftime("%Y-%m")
-        current_period = f"{year:04d}-{month:02d}"
 
         # Get all matched lines with assigned agents
         lines = self.db.query(StatementLine).filter(
@@ -374,18 +385,19 @@ class ReconciliationService:
             agent_lines.setdefault(line.assigned_agent_id, []).append(line)
 
         agent_summaries = []
-        used_period = prior_period  # tier is based on PRIOR month premium
+        used_period = current_period  # tier is now based on CURRENT (same-month) production
 
         for agent_id, agent_line_list in agent_lines.items():
             agent = self.db.query(User).filter(User.id == agent_id).first()
             if not agent:
                 continue
 
-            # Get agent's PRIOR month written premium to determine tier
-            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
+            # Tier is determined by SAME-month written premium (the statement period)
             current_month_premium = self._get_agent_period_premium(agent_id, current_period)
+            # Keep prior_premium computed for any historical reporting / audit reasons
+            prior_premium = self._get_agent_period_premium(agent_id, prior_period)
 
-            tier = self._get_tier_for_premium(prior_premium)
+            tier = self._get_tier_for_premium(current_month_premium)
 
             # Check for flat rate override (e.g. Salma/Michelle at 3%)
             rate_override = getattr(agent, 'commission_rate_override', None)
@@ -466,7 +478,8 @@ class ReconciliationService:
             "period": period,
             "prior_period": prior_period,
             "tier_based_on": used_period,
-            "note": "Using current month premium (no prior month data)" if used_period == current_period else None,
+            "tier_basis": "current_month",  # 'current_month' since 2026-05-04
+            "note": f"Tier rate is determined by each producer's same-month production ({used_period}).",
             "agent_summaries": agent_summaries,
         }
 

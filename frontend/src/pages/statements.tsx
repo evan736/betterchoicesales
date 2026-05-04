@@ -838,10 +838,10 @@ const AgentPayTab: React.FC<{ summary: any }> = ({ summary }) => {
   return (
     <div>
       <p className="text-sm text-slate-600 mb-1">
-        Rates based on <span className="font-semibold">{summary.tier_based_on || summary.prior_period}</span> written premium
+        Rates based on <span className="font-semibold">{summary.tier_based_on || summary.period}</span> written premium (same-month production)
       </p>
       {summary.note && (
-        <p className="text-xs text-amber-600 mb-4">{summary.note}</p>
+        <p className="text-xs text-slate-500 mb-4">{summary.note}</p>
       )}
       <div className="space-y-4">
         {summary.agent_summaries.map((agent: any) => (
@@ -866,11 +866,11 @@ const AgentPayTab: React.FC<{ summary: any }> = ({ summary }) => {
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <span className="text-slate-500">Prior Month Premium: </span>
-                <span className="font-semibold">${(agent.prior_month_premium || 0).toLocaleString()}</span>
+                <span className="text-slate-500">Production this period: </span>
+                <span className="font-semibold">${(agent.current_month_premium || 0).toLocaleString()}</span>
               </div>
               <div>
-                <span className="text-slate-500">This Month Premium: </span>
+                <span className="text-slate-500">Premium on statement: </span>
                 <span className="font-semibold">${(agent.total_premium || 0).toLocaleString()}</span>
               </div>
             </div>
