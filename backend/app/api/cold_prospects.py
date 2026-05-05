@@ -1195,3 +1195,132 @@ def test_send_cold_email(
         "variant": variant,
         "rendered_subject": subject,
     }
+
+
+@router.get("/audit-overlap")
+def audit_overlap_with_customers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Honest audit: do any cold_prospect emails overlap with our
+    current customer/sales records?
+
+    Useful for verifying the import-time dedupe actually worked AND
+    catching any drift where a cold prospect later became a customer
+    via a different code path that didn't update their cold prospect
+    record.
+
+    Returns concrete counts AND sample emails so you can spot-check.
+
+    Three cross-checks run:
+      1. cold_prospects.email IN sales.client_email (active sales)
+      2. cold_prospects.email IN customers.email
+      3. cold_prospects.email IN winback_campaigns.customer_email
+
+    For #1: 'overlapping' here means the prospect email matches an
+    ACTIVE sale in the sales table. That's the strictest test —
+    these would be people who became customers but their cold
+    prospect record didn't get auto-converted.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    # Pull all distinct lowercased cold prospect emails into a Python set
+    # (28K rows is fine for a one-shot audit query)
+    cold_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(ColdProspect.email)
+        .filter(ColdProspect.email.isnot(None))
+        .all()
+        if e
+    )
+    cold_emails.discard("")
+
+    # 1. Sales overlap
+    active_sales_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(Sale.client_email)
+        .filter(Sale.client_email.isnot(None))
+        .filter(Sale.status != "cancelled")
+        .all()
+        if e
+    )
+    active_sales_emails.discard("")
+    sales_overlap = cold_emails & active_sales_emails
+
+    # ALL sales (incl cancelled) — a different lens
+    all_sales_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(Sale.client_email)
+        .filter(Sale.client_email.isnot(None))
+        .all()
+        if e
+    )
+    all_sales_emails.discard("")
+    all_sales_overlap = cold_emails & all_sales_emails
+
+    # 2. Customer table
+    customer_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(Customer.email)
+        .filter(Customer.email.isnot(None))
+        .all()
+        if e
+    )
+    customer_emails.discard("")
+    customer_overlap = cold_emails & customer_emails
+
+    # 3. Winback list
+    winback_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(WinBackCampaign.customer_email)
+        .filter(WinBackCampaign.customer_email.isnot(None))
+        .all()
+        if e
+    )
+    winback_emails.discard("")
+    winback_overlap = cold_emails & winback_emails
+
+    # Look up the matching cold prospect IDs for action (so admin can
+    # exclude them from outreach)
+    overlap_ids_active_sales = []
+    if sales_overlap:
+        overlap_ids_active_sales = [
+            r.id
+            for r in db.query(ColdProspect.id, ColdProspect.email)
+            .filter(sa_func.lower(ColdProspect.email).in_([e for e in sales_overlap]))
+            .limit(2000)
+            .all()
+        ]
+
+    return {
+        "cold_prospect_total_emails": len(cold_emails),
+        "active_sales_total_emails": len(active_sales_emails),
+        "all_sales_total_emails": len(all_sales_emails),
+        "customer_table_total_emails": len(customer_emails),
+        "winback_total_emails": len(winback_emails),
+        "overlap": {
+            "with_active_sales": {
+                "count": len(sales_overlap),
+                "sample_emails": sorted(list(sales_overlap))[:25],
+                "sample_cold_prospect_ids": overlap_ids_active_sales[:25],
+            },
+            "with_all_sales_incl_cancelled": {
+                "count": len(all_sales_overlap),
+                "delta_vs_active_only": len(all_sales_overlap) - len(sales_overlap),
+            },
+            "with_customer_table": {
+                "count": len(customer_overlap),
+                "sample_emails": sorted(list(customer_overlap))[:25],
+            },
+            "with_winback_list": {
+                "count": len(winback_overlap),
+                "sample_emails": sorted(list(winback_overlap))[:25],
+            },
+        },
+        "interpretation": {
+            "with_active_sales": "Cold prospects whose email matches an ACTIVE sale. These should be converted (status=converted) or excluded from outreach. If count > 0, those records leaked through.",
+            "with_customer_table": "Cold prospects whose email matches the Customer table (could be active or former). The import-time dedupe should have caught these.",
+            "with_winback_list": "Cold prospects who are also queued in winback. If count > 0, they could get double-emailed by both campaigns.",
+        },
+    }
