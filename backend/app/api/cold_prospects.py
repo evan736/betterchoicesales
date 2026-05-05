@@ -143,123 +143,135 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
 
     if producer["first_name"] == "Joseph":
         if variant == "v1":
-            subject = "rates dropped — worth a quick look?"
+            subject = "rate decreases — 10% to 30% on home/auto"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph Rivera over at Better Choice Insurance. Quick reason for the email — "
-                f"a bunch of carriers we work with (NatGen, Progressive, GEICO, Travelers) "
-                f"filed rate decreases over the last few months. Doesn't always happen, so "
-                f"figured I'd reach out.<br><br>"
-                f"Want me to take a fresh look at {scope_long}? {verify}<br><br>"
-                f"Easy text or call too: (847) 908-5665."
+                f"Joseph Rivera at Better Choice Insurance. Reaching out because we work with "
+                f"10+ of the top-rated carriers in the country, and several just took rate "
+                f"decreases of 10% to 30% on home and auto.<br><br>"
+                f"I think I can help lower your rates and get you a better policy. Can I work "
+                f"up some quotes on {scope_long}? {verify}<br><br>"
+                f"Reply here or call: (847) 908-5665."
             )
         elif variant == "v2":
-            subject = f"{first_name} — carriers came down on rates"
+            subject = f"{first_name} — carriers came down 10-30%"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph at Better Choice. Several carriers have cut rates recently — "
-                f"first time in a couple years. Wanted to flag it.<br><br>"
-                f"If you're up for me running fresh quotes on {scope_long}, "
-                f"{verify.lower()}<br><br>"
-                f"Or hop on the phone for 5 minutes."
+                f"Joseph at Better Choice. Wanted to flag that several of the 10+ carriers we "
+                f"work with just took rate decreases of 10% to 30% on home and auto.<br><br>"
+                f"I think I can save you money and get you better coverage. Can I run a few "
+                f"quotes on {scope_long}? {verify}<br><br>"
+                f"Or hop on a quick call: (847) 908-5665."
             )
         elif variant == "v3":
-            subject = "saw rates moved — quick check?"
+            subject = f"fresh quotes worth running, {first_name}?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph Rivera, independent agent in Saint Charles. "
-                f"Reaching out because rates have come down enough lately "
-                f"that it's worth a side-by-side.<br><br>"
-                f"Quick quote on {scope_long}? {verify}<br><br>"
+                f"Joseph Rivera, independent agent in Saint Charles. We work with 10+ top-rated "
+                f"carriers and several of them just cut rates 10% to 30% on home and auto. "
+                f"Doesn't happen often.<br><br>"
+                f"I think I can lower your rates and get you a better policy. Mind if I work "
+                f"up some quotes on {scope_long}? {verify}<br><br>"
                 f"Reply works, so does a call: (847) 908-5665."
             )
         else:  # v4
-            subject = f"quote you up, {first_name}?"
+            subject = "carriers cut rates — quote on home/auto?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Joseph at Better Choice Insurance. Carriers have been cutting rates the "
-                f"last few months. If you haven't shopped {scope_long} recently, this is "
-                f"a decent window to do it.<br><br>"
-                f"{verify}<br><br>"
-                f"Reply or call me direct."
+                f"Joseph at Better Choice Insurance. Several of the 10+ carriers we work with "
+                f"just took rate decreases of 10% to 30% on home and auto. First real reversal "
+                f"in a couple years.<br><br>"
+                f"I think I can help. Can I work up a quote on {scope_long}? {verify}<br><br>"
+                f"Reply or call me direct: (847) 908-5665."
             )
 
     elif producer["first_name"] == "Evan":
         if variant == "v1":
-            subject = "rates came back down — worth a look"
+            subject = "rate decreases of 10-30% on home and auto"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson at Better Choice Insurance Group. Independent agency in "
-                f"Saint Charles. Reason for the email: most of our carriers filed rate "
-                f"decreases over the last couple of months and I'd hate for you to miss it.<br><br>"
-                f"Want me to put a fresh quote together for {scope_long}? {verify}<br><br>"
+                f"Evan Larson at Better Choice Insurance Group, independent agency in Saint "
+                f"Charles. We work with 10+ of the top-rated carriers in the country, and "
+                f"several just took rate decreases of 10% to 30% on home and auto.<br><br>"
+                f"I think I can help lower your rates and get you a better policy. Can I work "
+                f"up some quotes on {scope_long}? {verify}<br><br>"
                 f"Or 5 minutes on the phone works: (847) 908-5665."
             )
         elif variant == "v2":
             subject = f"{first_name}, rate decreases worth flagging"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson over at Better Choice. Several carriers (Progressive, NatGen, "
-                f"Travelers, GEICO) have come down on rates recently. After two years of "
+                f"Evan Larson over at Better Choice. Several of the 10+ carriers we work with "
+                f"just came down on rates by 10% to 30% on home and auto. After two years of "
                 f"increases, this is the first real reversal.<br><br>"
-                f"Worth a quick comparison on {scope_long}? {verify}<br><br>"
+                f"I think I can help. Want me to work up a few quotes on {scope_long}? "
+                f"{verify}<br><br>"
                 f"Talk soon."
             )
         elif variant == "v3":
-            subject = "carriers filed rate decreases — quick check?"
+            subject = "quotes on home/auto — rates dropped 10-30%"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan from Better Choice Insurance. Several carriers have cut rates "
-                f"recently — that doesn't last forever.<br><br>"
-                f"Mind if I run a few options on {scope_long}? {verify}<br><br>"
+                f"Evan from Better Choice Insurance. We work with 10+ top-rated carriers and "
+                f"several of them just took rate decreases of 10% to 30%. That doesn't last "
+                f"forever.<br><br>"
+                f"Mind if I work up some quotes on {scope_long}? I think I can save you money "
+                f"and get you better coverage. {verify}<br><br>"
                 f"Reply with your dec page or grab a phone call — easier on the phone."
             )
         else:  # v4
             subject = f"hi {first_name} — fresh quote?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan Larson at Better Choice. Rates have moved meaningfully on a few "
-                f"carriers recently. I track this stuff and figured I'd reach out.<br><br>"
-                f"{verify} I'll pull options and send something over.<br><br>"
+                f"Evan Larson at Better Choice. Several of the 10+ carriers we work with just "
+                f"cut rates 10% to 30% on home and auto. I track this stuff and figured I'd "
+                f"reach out.<br><br>"
+                f"I think I can help lower your rates. Can I run a quote on {scope_long}? "
+                f"{verify}<br><br>"
                 f"Or call: (847) 908-5665."
             )
 
     else:  # Giulian
         if variant == "v1":
-            subject = "rates are dropping — quick look?"
+            subject = "rates dropped 10-30% — quick look?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian Baez at Better Choice Insurance, independent agency in Saint "
-                f"Charles. Reaching out because rates have come back down with a handful "
-                f"of our carriers — first time in a while.<br><br>"
-                f"Want me to take a fresh look at {scope_long}? {verify}<br><br>"
+                f"Giulian Baez at Better Choice Insurance, independent agency in Saint Charles. "
+                f"We work with 10+ of the top-rated carriers in the country, and several just "
+                f"cut rates 10% to 30% on home and auto.<br><br>"
+                f"I think I can help lower your rates and get you a better policy. Can I work "
+                f"up some quotes on {scope_long}? {verify}<br><br>"
                 f"Reply or text/call: (847) 908-5665."
             )
         elif variant == "v2":
-            subject = f"{first_name} — carriers cut rates recently"
+            subject = f"{first_name} — 10-30% rate decreases on home/auto"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian over at Better Choice. NatGen, Progressive, Travelers all came "
-                f"down on rates over the last few months. Worth a re-shop.<br><br>"
-                f"Take 5 minutes? {verify}<br><br>"
+                f"Giulian over at Better Choice. We work with 10+ top-rated carriers and several "
+                f"just took rate decreases of 10% to 30%. Worth a re-shop.<br><br>"
+                f"I think I can save you money. Can I work up a few quotes on {scope_long}? "
+                f"{verify}<br><br>"
                 f"Or hop on a quick call."
             )
         elif variant == "v3":
-            subject = "rates moved — figured you'd want to know"
+            subject = "carriers cut rates — figured you'd want to know"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian Baez, Better Choice Insurance. A few carriers we work with "
-                f"have cut rates lately. Felt like a reasonable reason to reach out.<br><br>"
-                f"Quick quote on {scope_long}? {verify}<br><br>"
-                f"Reply or call works."
+                f"Giulian Baez, Better Choice Insurance. Several of the 10+ carriers we work "
+                f"with just cut rates 10% to 30% on home and auto. Felt like a reasonable "
+                f"reason to reach out.<br><br>"
+                f"I think I can help. Can I work up some quotes on {scope_long}? "
+                f"{verify}<br><br>"
+                f"Reply or call works: (847) 908-5665."
             )
         else:  # v4
             subject = f"fresh quotes, {first_name}?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian at Better Choice. Carriers have come down on rates recently. "
-                f"If you've been with the same carrier for a few years, probably worth "
-                f"taking a look.<br><br>"
+                f"Giulian at Better Choice. Several of the 10+ carriers we work with just took "
+                f"rate decreases of 10% to 30% on home and auto. If you've been with the same "
+                f"carrier a few years, probably worth a look.<br><br>"
+                f"I think I can lower your rates. Can I run a quote on {scope_long}? "
                 f"{verify}<br><br>"
                 f"Reply or call me direct."
             )
