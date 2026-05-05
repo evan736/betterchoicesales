@@ -651,3 +651,131 @@ def bulk_mark_paid(
     db.commit()
     
     return {"marked_paid": len(sales)}
+
+
+# ─── Outreach scheduler controls ────────────────────────────────────
+# Read/write per-tick caps + on/off flags for the winback and cold
+# prospect schedulers. These live in the system_settings table (DB)
+# with env-var fallback. Lets Evan ramp pace from the UI without
+# touching Render env vars or redeploying.
+#
+# Scheduler reads: app/services/system_settings.get_int_setting /
+# get_bool_setting. Both fall back to env var, so removing a row here
+# returns to env-var-controlled behavior.
+
+@router.get("/outreach-scheduler-config")
+def get_outreach_scheduler_config(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Current values for the 4 scheduler knobs:
+       - winback_scheduler_enabled (bool)
+       - winback_max_per_tick (int)
+       - cold_prospect_scheduler_enabled (bool)
+       - cold_max_per_tick (int)
+
+    Plus the daily-volume math so the UI can show 'X emails/day at
+    current pace' without recomputing client-side.
+
+    For each value we report the resolved value (what the scheduler
+    will actually use) AND the source ('db' / 'env' / 'default').
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    import os
+    from app.models.system_setting import SystemSetting
+
+    def resolve(key: str, env_var: str, default, cast):
+        row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if row and row.value is not None:
+            try:
+                return {"value": cast(row.value), "source": "db", "updated_at": row.updated_at.isoformat() if row.updated_at else None, "updated_by": row.updated_by}
+            except Exception:
+                pass
+        env_val = os.getenv(env_var)
+        if env_val is not None:
+            try:
+                return {"value": cast(env_val), "source": "env", "updated_at": None, "updated_by": None}
+            except Exception:
+                pass
+        return {"value": default, "source": "default", "updated_at": None, "updated_by": None}
+
+    def to_bool(s):
+        return str(s).strip().lower() in ("true", "1", "yes", "on")
+
+    config = {
+        "winback_scheduler_enabled": resolve("winback_scheduler_enabled", "WINBACK_SCHEDULER_ENABLED", False, to_bool),
+        "winback_max_per_tick": resolve("winback_max_per_tick", "WINBACK_MAX_PER_TICK", 4, int),
+        "cold_prospect_scheduler_enabled": resolve("cold_prospect_scheduler_enabled", "COLD_PROSPECT_SCHEDULER_ENABLED", False, to_bool),
+        "cold_max_per_tick": resolve("cold_max_per_tick", "COLD_MAX_PER_TICK", 4, int),
+    }
+
+    # 12 ticks per business day (every 30 min, 9-3 CT)
+    TICKS_PER_DAY = 12
+    config["winback_max_per_day"] = config["winback_max_per_tick"]["value"] * TICKS_PER_DAY
+    config["cold_max_per_day"] = config["cold_max_per_tick"]["value"] * TICKS_PER_DAY
+    config["combined_max_per_day"] = config["winback_max_per_day"] + config["cold_max_per_day"]
+    config["ticks_per_day"] = TICKS_PER_DAY
+    config["business_hours_ct"] = "9 AM - 3 PM CT, Mon-Fri"
+    config["tick_interval_minutes"] = 30
+
+    return config
+
+
+class OutreachSchedulerUpdate(BaseModel):
+    winback_scheduler_enabled: Optional[bool] = None
+    winback_max_per_tick: Optional[int] = Field(None, ge=0, le=500)
+    cold_prospect_scheduler_enabled: Optional[bool] = None
+    cold_max_per_tick: Optional[int] = Field(None, ge=0, le=2000)
+
+
+@router.post("/outreach-scheduler-config")
+def update_outreach_scheduler_config(
+    update: OutreachSchedulerUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update one or more scheduler knobs. Only admin.
+
+    Each field is optional — only fields that are NOT None are updated.
+    Setting a field will write a row to system_settings; the scheduler
+    picks up the new value on its next tick (within 30 min).
+
+    To clear a setting and fall back to env-var control, send the field
+    explicitly via DELETE on the key (TODO if needed). For now, simply
+    set the value you want.
+
+    Caution rails:
+    - winback_max_per_tick: 0-500 per tick
+    - cold_max_per_tick: 0-2000 per tick
+      (2000/tick × 12 ticks = 24K/day, more than the entire current
+      cold list — generous ceiling for power use, scheduler won't
+      actually exceed remaining inventory)
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.system_settings import set_setting
+
+    changes = {}
+    if update.winback_scheduler_enabled is not None:
+        set_setting(db, "winback_scheduler_enabled", str(update.winback_scheduler_enabled).lower(), updated_by=current_user.username)
+        changes["winback_scheduler_enabled"] = update.winback_scheduler_enabled
+    if update.winback_max_per_tick is not None:
+        set_setting(db, "winback_max_per_tick", str(update.winback_max_per_tick), updated_by=current_user.username)
+        changes["winback_max_per_tick"] = update.winback_max_per_tick
+    if update.cold_prospect_scheduler_enabled is not None:
+        set_setting(db, "cold_prospect_scheduler_enabled", str(update.cold_prospect_scheduler_enabled).lower(), updated_by=current_user.username)
+        changes["cold_prospect_scheduler_enabled"] = update.cold_prospect_scheduler_enabled
+    if update.cold_max_per_tick is not None:
+        set_setting(db, "cold_max_per_tick", str(update.cold_max_per_tick), updated_by=current_user.username)
+        changes["cold_max_per_tick"] = update.cold_max_per_tick
+
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields provided")
+
+    db.commit()
+
+    logger.info(f"User {current_user.username} updated scheduler config: {changes}")
+    return {"updated": changes, "applied_in_seconds": "up to 30 minutes (next scheduler tick)"}

@@ -38,6 +38,8 @@ import {
   TrendingDown,
   Calendar,
   ExternalLink,
+  Sliders,
+  Power,
 } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 
@@ -272,6 +274,9 @@ export default function WinbackAnalysisPage() {
             </p>
           </div>
         </div>
+
+        {/* Outreach scheduler control — visible to admins, persistent across tabs */}
+        <SchedulerControlCard />
 
         {/* Tab strip */}
         <div className="flex items-center gap-2 border-b border-slate-800 mb-6">
@@ -1122,4 +1127,289 @@ function ColdStatusBadge({ status, bounceCount, converted }: { status: string | 
     default:
       return <span className="text-xs text-slate-500">{status || '—'}</span>;
   }
+}
+
+// ─── Scheduler control card ─────────────────────────────────────────
+//
+// Admin-only card for tuning the outreach schedulers (winback + cold)
+// without touching Render env vars.
+//
+// Backend: GET /api/admin/outreach-scheduler-config returns current
+// values + computed daily volumes. POST same path with the fields
+// to change. Scheduler picks up new values on its next 30-min tick.
+
+interface SchedulerConfigField {
+  value: number | boolean;
+  source: 'db' | 'env' | 'default';
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+interface SchedulerConfig {
+  winback_scheduler_enabled: SchedulerConfigField;
+  winback_max_per_tick: SchedulerConfigField;
+  cold_prospect_scheduler_enabled: SchedulerConfigField;
+  cold_max_per_tick: SchedulerConfigField;
+  winback_max_per_day: number;
+  cold_max_per_day: number;
+  combined_max_per_day: number;
+  ticks_per_day: number;
+  business_hours_ct: string;
+  tick_interval_minutes: number;
+}
+
+function SchedulerControlCard() {
+  const { user } = useAuth();
+  const [config, setConfig] = useState<SchedulerConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // Local edit state — initialized from config, only saved on Save click
+  const [winbackEnabled, setWinbackEnabled] = useState(false);
+  const [winbackPerTick, setWinbackPerTick] = useState(2);
+  const [coldEnabled, setColdEnabled] = useState(false);
+  const [coldPerTick, setColdPerTick] = useState(4);
+
+  const isAdmin = (user?.role || '').toLowerCase() === 'admin';
+
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${apiBase}/api/admin/outreach-scheduler-config`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: SchedulerConfig = await res.json();
+      setConfig(data);
+      setWinbackEnabled(Boolean(data.winback_scheduler_enabled.value));
+      setWinbackPerTick(Number(data.winback_max_per_tick.value));
+      setColdEnabled(Boolean(data.cold_prospect_scheduler_enabled.value));
+      setColdPerTick(Number(data.cold_max_per_tick.value));
+    } catch (e) {
+      console.error('Failed to load scheduler config:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${apiBase}/api/admin/outreach-scheduler-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          winback_scheduler_enabled: winbackEnabled,
+          winback_max_per_tick: winbackPerTick,
+          cold_prospect_scheduler_enabled: coldEnabled,
+          cold_max_per_tick: coldPerTick,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err);
+      }
+      toast.success('Scheduler config updated. Applies within 30 min.');
+      load();
+    } catch (e: any) {
+      toast.error(`Save failed: ${e?.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isAdmin) return null;
+  if (loading || !config) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-2 text-slate-500 text-sm">
+          <Loader2 size={14} className="animate-spin" />
+          Loading scheduler config...
+        </div>
+      </div>
+    );
+  }
+
+  // Has the user changed anything from server state?
+  const dirty =
+    winbackEnabled !== Boolean(config.winback_scheduler_enabled.value) ||
+    winbackPerTick !== Number(config.winback_max_per_tick.value) ||
+    coldEnabled !== Boolean(config.cold_prospect_scheduler_enabled.value) ||
+    coldPerTick !== Number(config.cold_max_per_tick.value);
+
+  // Computed projections based on EDITED values
+  const winbackPerDay = winbackPerTick * config.ticks_per_day;
+  const coldPerDay = coldPerTick * config.ticks_per_day;
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-lg mb-6 overflow-hidden">
+      {/* Collapsed header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-800/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Sliders size={16} className="text-cyan-400" />
+          <span className="text-sm font-medium">Outreach Scheduler</span>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${winbackEnabled ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
+              <Power size={10} />
+              Winback {winbackEnabled ? 'ON' : 'OFF'}
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${coldEnabled ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-800 text-slate-500'}`}>
+              <Power size={10} />
+              Cold {coldEnabled ? 'ON' : 'OFF'}
+            </span>
+            <span className="text-slate-500">
+              · max {(winbackEnabled ? winbackPerDay : 0) + (coldEnabled ? coldPerDay : 0)}/day
+            </span>
+          </div>
+        </div>
+        <ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expanded && (
+        <div className="border-t border-slate-800 p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Winback controls */}
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TrendingDown size={14} className="text-amber-400" />
+                  <span className="font-medium text-sm">Win-Back Scheduler</span>
+                </div>
+                <ToggleSwitch checked={winbackEnabled} onChange={setWinbackEnabled} accent="amber" />
+              </div>
+              <div className={winbackEnabled ? '' : 'opacity-50 pointer-events-none'}>
+                <label className="block text-xs text-slate-400 mb-1">Emails per tick (every 30 min)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={winbackPerTick}
+                  onChange={(e) => setWinbackPerTick(Math.max(0, Math.min(500, parseInt(e.target.value) || 0)))}
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm font-mono"
+                />
+                <div className="text-xs text-slate-500 mt-2">
+                  = <span className="text-slate-300 font-mono">{winbackPerDay}</span> emails/day max
+                </div>
+              </div>
+              {config.winback_max_per_tick.source !== 'db' && (
+                <div className="text-xs text-slate-500 italic">
+                  Currently from {config.winback_max_per_tick.source === 'env' ? 'Render env var' : 'default'}. Saving will switch to DB control.
+                </div>
+              )}
+            </div>
+
+            {/* Cold prospect controls */}
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users size={14} className="text-cyan-400" />
+                  <span className="font-medium text-sm">Cold Prospect Scheduler</span>
+                </div>
+                <ToggleSwitch checked={coldEnabled} onChange={setColdEnabled} accent="cyan" />
+              </div>
+              <div className={coldEnabled ? '' : 'opacity-50 pointer-events-none'}>
+                <label className="block text-xs text-slate-400 mb-1">Emails per tick (every 30 min)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={2000}
+                  value={coldPerTick}
+                  onChange={(e) => setColdPerTick(Math.max(0, Math.min(2000, parseInt(e.target.value) || 0)))}
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm font-mono"
+                />
+                <div className="text-xs text-slate-500 mt-2">
+                  = <span className="text-slate-300 font-mono">{coldPerDay.toLocaleString()}</span> emails/day max
+                </div>
+              </div>
+              {config.cold_max_per_tick.source !== 'db' && (
+                <div className="text-xs text-slate-500 italic">
+                  Currently from {config.cold_max_per_tick.source === 'env' ? 'Render env var' : 'default'}. Saving will switch to DB control.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick presets for cold ramp */}
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+            <div className="text-xs text-slate-400 mb-2">Cold prospect quick presets:</div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: 'Conservative (48/day)', value: 4 },
+                { label: 'Day 3 ramp (240/day)', value: 20 },
+                { label: 'Week 2 (600/day)', value: 50 },
+                { label: 'Full speed (1,200/day)', value: 100 },
+                { label: 'Aggressive (2,400/day)', value: 200 },
+              ].map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => setColdPerTick(p.value)}
+                  className={`px-2 py-1 text-xs rounded border ${
+                    coldPerTick === p.value
+                      ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Summary + save */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+            <div className="text-xs text-slate-400">
+              Active hours: {config.business_hours_ct} · Tick every {config.tick_interval_minutes} min · {config.ticks_per_day} ticks/day
+              <br />
+              Changes apply within 30 minutes (next scheduler tick).
+            </div>
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                !dirty || saving
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-cyan-500 hover:bg-cyan-400 text-slate-900'
+              }`}
+            >
+              {saving ? 'Saving...' : dirty ? 'Save changes' : 'No changes'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, accent }: { checked: boolean; onChange: (v: boolean) => void; accent: 'amber' | 'cyan' }) {
+  const accentClass = accent === 'amber' ? 'bg-amber-500' : 'bg-cyan-500';
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+        checked ? accentClass : 'bg-slate-700'
+      }`}
+    >
+      <span
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+          checked ? 'translate-x-5' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
 }

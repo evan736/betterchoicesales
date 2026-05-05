@@ -414,6 +414,26 @@ def init_database():
         except Exception as e:
             logger.warning(f"agency_snapshots migration: {e}")
 
+    # system_settings table — runtime-tunable singleton key/value store
+    # Used for outreach scheduler caps and similar UI-controlled config
+    # so Evan can tune pace without redeploying. See app/services/system_settings.py
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    id SERIAL PRIMARY KEY,
+                    key VARCHAR NOT NULL UNIQUE,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_by VARCHAR
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings(key)"))
+            conn.commit()
+            logger.info("system_settings table ready")
+        except Exception as e:
+            logger.warning(f"system_settings migration: {e}")
+
     # Winback Phase 2 columns (added 2026-05-02 for X-date cycle scheduler)
     # Five new columns: phase, next_x_date, x_date_cycle_count,
     # cycle_touchpoint_count, last_reply_at, last_reply_subject
@@ -1429,10 +1449,18 @@ async def lifespan(app: FastAPI):
                         WinBackCampaign, _send_winback_email,
                         _get_assigned_producer,
                     )
+                    from app.services.system_settings import get_int_setting, get_bool_setting
                     from datetime import datetime as _dt, timedelta as _td
                     from zoneinfo import ZoneInfo
                     _db = SessionLocal()
                     try:
+                        # DB-overridable enable flag (env still works as fallback)
+                        if not get_bool_setting(_db, "winback_scheduler_enabled", "WINBACK_SCHEDULER_ENABLED", True):
+                            # User disabled via UI — skip this tick
+                            _db.close()
+                            _time.sleep(1800)
+                            continue
+
                         # Business-hours guard inline (avoid HTTP roundtrip)
                         now_ct = _dt.utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
                         weekday = now_ct.weekday()
@@ -1440,7 +1468,7 @@ async def lifespan(app: FastAPI):
                         if weekday >= 5 or hour < 9 or hour >= 15:
                             pass  # outside business hours, skip silently
                         else:
-                            max_per_tick = int(os.getenv("WINBACK_MAX_PER_TICK", "4"))
+                            max_per_tick = get_int_setting(_db, "winback_max_per_tick", "WINBACK_MAX_PER_TICK", 4)
                             sent = 0
                             # Phase 2 (X-date prep) priority — same logic as scheduler-tick
                             offset_map = {0: 30, 1: 21, 2: 14, 3: 7}
@@ -1548,10 +1576,17 @@ async def lifespan(app: FastAPI):
                     from app.core.database import SessionLocal
                     from app.api.cold_prospects import _send_cold_email, _get_assigned_producer
                     from app.models.campaign import ColdProspect
+                    from app.services.system_settings import get_int_setting, get_bool_setting
                     from datetime import datetime as _dt, timedelta as _td
                     from zoneinfo import ZoneInfo
                     _db = SessionLocal()
                     try:
+                        # DB-overridable enable flag
+                        if not get_bool_setting(_db, "cold_prospect_scheduler_enabled", "COLD_PROSPECT_SCHEDULER_ENABLED", True):
+                            _db.close()
+                            _time.sleep(1800)
+                            continue
+
                         now_ct = _dt.utcnow().replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
                         weekday = now_ct.weekday()
                         hour = now_ct.hour
@@ -1559,7 +1594,7 @@ async def lifespan(app: FastAPI):
                         if weekday >= 5 or hour < 9 or hour >= 15:
                             pass
                         else:
-                            max_per_tick = int(os.getenv("COLD_MAX_PER_TICK", "4"))
+                            max_per_tick = get_int_setting(_db, "cold_max_per_tick", "COLD_MAX_PER_TICK", 4)
                             sent = 0
                             base_filter = [
                                 ColdProspect.excluded == False,
