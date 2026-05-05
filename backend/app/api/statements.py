@@ -1039,3 +1039,192 @@ def debug_agent_lines(
     }
 
 
+
+
+@router.post("/match-chargebacks-to-nowcerts")
+def match_chargebacks_to_nowcerts(
+    period: str = Query(..., description="Statement period to analyze, e.g. 2026-04"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """For all cancellation lines in the given statement period that have
+    NEGATIVE premium (= true chargebacks), look up the underlying policy
+    in our local NowCerts-synced customer_policies table to determine:
+      - When the policy was originally effective
+      - When the policy was set to cancelled in NowCerts
+      - How long the policy was in force before cancelling
+
+    The reconciliation matcher only links cancel lines to Sale rows
+    when there's a clear match. Many chargebacks fail that match
+    because the policy in our sales table represents the BIND sale,
+    not the renewal — and the carrier may have rewritten the policy
+    number at renewal.
+
+    NowCerts is authoritative for policy lifecycle. Matching against
+    customer_policies (which mirrors NowCerts) gives us the actual
+    policy effective + cancelled dates.
+
+    Returns:
+      - matched: chargebacks where we found the policy in NowCerts data
+      - unmatched: chargebacks we couldn't match anywhere
+      - by_policy_age: bucket counts (mid-term vs long-term cancels)
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    from app.models.customer import CustomerPolicy
+    from app.models.sale import Sale
+    from datetime import datetime, timezone, timedelta
+    from decimal import Decimal
+
+    # All chargeback lines from imports in this period
+    chargebacks = db.query(StatementLine).join(
+        StatementImport, StatementLine.statement_import_id == StatementImport.id
+    ).filter(
+        StatementImport.statement_period == period,
+        StatementLine.transaction_type == "cancellation",
+        StatementLine.commission_amount < 0,
+    ).all()
+
+    if not chargebacks:
+        return {"period": period, "chargeback_count": 0, "results": []}
+
+    # Build NowCerts policy lookup once. Index by uppercased policy_number.
+    nc_policies = db.query(CustomerPolicy).filter(
+        CustomerPolicy.policy_number.isnot(None)
+    ).all()
+
+    nc_by_pn: dict[str, list] = {}
+    for p in nc_policies:
+        key = (p.policy_number or "").strip().upper()
+        if key:
+            nc_by_pn.setdefault(key, []).append(p)
+
+    # Sales lookup as fallback
+    sales_by_pn: dict[str, list] = {}
+    for s in db.query(Sale).filter(Sale.policy_number.isnot(None)).all():
+        key = (s.policy_number or "").strip().upper()
+        if key:
+            sales_by_pn.setdefault(key, []).append(s)
+
+    today = datetime.now(timezone.utc)
+
+    matched = []
+    unmatched = []
+    bucket_counts = {
+        "very_recent_lt_3mo": 0,    # effective <3 months ago — very fresh, costly chargeback
+        "mid_term_3_to_6mo": 0,
+        "mid_term_6_to_12mo": 0,
+        "long_term_gt_12mo": 0,
+        "no_match": 0,
+    }
+    bucket_premium = {k: Decimal("0") for k in bucket_counts}
+    bucket_commission = {k: Decimal("0") for k in bucket_counts}
+
+    for cb in chargebacks:
+        pn_raw = (cb.policy_number or "").strip()
+        pn_key = pn_raw.upper()
+
+        # Try exact NowCerts match
+        nc_match = nc_by_pn.get(pn_key)
+        sale_match = sales_by_pn.get(pn_key)
+
+        # If exact match fails, try with common suffixes stripped
+        # (NowCerts/carriers sometimes have format like 'POL-1234' vs '1234')
+        if not nc_match:
+            # Try removing trailing -01 / -1 (term suffixes) — keeps base policy
+            for base in {pn_key.rsplit("-", 1)[0], pn_key.split("-", 1)[0]}:
+                if base != pn_key and base in nc_by_pn:
+                    nc_match = nc_by_pn[base]
+                    break
+
+        # Pick the best policy match (most recent effective date)
+        chosen_policy = None
+        if nc_match:
+            chosen_policy = max(nc_match, key=lambda p: p.effective_date or datetime(1900,1,1))
+        elif sale_match:
+            chosen_sale = max(sale_match, key=lambda s: s.effective_date or datetime(1900,1,1))
+            # Adapter so downstream code works the same
+            class _AdaptedSale:
+                pass
+            adapter = _AdaptedSale()
+            adapter.effective_date = chosen_sale.effective_date
+            adapter.expiration_date = None
+            adapter.status = chosen_sale.status
+            adapter.premium = chosen_sale.written_premium
+            chosen_policy = adapter
+
+        # Bucket + collect
+        eff = chosen_policy.effective_date if chosen_policy else None
+        cb_premium = float(cb.premium_amount or 0)
+        cb_commission = float(cb.commission_amount or 0)
+
+        if eff:
+            # Make timezone-aware if not already
+            if eff.tzinfo is None:
+                eff = eff.replace(tzinfo=timezone.utc)
+            months_in_force = (today - eff).days / 30.5
+        else:
+            months_in_force = None
+
+        result = {
+            "line_id": cb.id,
+            "policy_number": pn_raw,
+            "insured_name": cb.insured_name,
+            "carrier": cb.statement_import.carrier if cb.statement_import else None,
+            "cancel_premium": cb_premium,
+            "cancel_commission": cb_commission,
+            "policy_effective_date": eff.isoformat() if eff else None,
+            "policy_expiration_date": (
+                chosen_policy.expiration_date.isoformat()
+                if chosen_policy and getattr(chosen_policy, "expiration_date", None)
+                else None
+            ),
+            "policy_status_in_nowcerts": (
+                getattr(chosen_policy, "status", None) if chosen_policy else None
+            ),
+            "months_in_force_before_cancel": round(months_in_force, 1) if months_in_force is not None else None,
+            "match_source": (
+                "nowcerts_local" if nc_match else
+                ("sales_table" if sale_match else "none")
+            ),
+        }
+
+        if months_in_force is None:
+            bucket = "no_match"
+            unmatched.append(result)
+        elif months_in_force < 3:
+            bucket = "very_recent_lt_3mo"
+            matched.append(result)
+        elif months_in_force < 6:
+            bucket = "mid_term_3_to_6mo"
+            matched.append(result)
+        elif months_in_force < 12:
+            bucket = "mid_term_6_to_12mo"
+            matched.append(result)
+        else:
+            bucket = "long_term_gt_12mo"
+            matched.append(result)
+
+        bucket_counts[bucket] += 1
+        bucket_premium[bucket] += Decimal(str(cb_premium))
+        bucket_commission[bucket] += Decimal(str(cb_commission))
+
+    summary_buckets = {
+        k: {
+            "lines": bucket_counts[k],
+            "premium": float(bucket_premium[k]),
+            "commission": float(bucket_commission[k]),
+        }
+        for k in bucket_counts
+    }
+
+    return {
+        "period": period,
+        "chargeback_count": len(chargebacks),
+        "matched_count": len(matched),
+        "unmatched_count": len(unmatched),
+        "by_policy_age": summary_buckets,
+        "matched": sorted(matched, key=lambda x: x["months_in_force_before_cancel"] or 999)[:200],
+        "unmatched": unmatched[:50],
+    }
