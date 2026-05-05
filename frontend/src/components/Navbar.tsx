@@ -141,6 +141,21 @@ const Navbar: React.FC = () => {
   const isManager = user?.role?.toLowerCase() === 'manager' || isAdmin;
   const canSeeInbox = isManager || user?.role?.toLowerCase() === 'retention_specialist';
 
+  // Authoritative chat-badge fetcher — used by both the poll loop AND
+  // the SSE reconnect path so we can resync after a drop. Without this,
+  // the increment-by-1 SSE model drifted whenever SSE was unreachable
+  // and people missed messages.
+  const refreshChatBadge = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(
+        `${API_BASE}/api/chat/unread`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setChatBadge(r.data.total_unread || 0);
+    } catch {}
+  };
+
   // Poll reshop + smart inbox + chat badge counts
   useEffect(() => {
     if (!user) return;
@@ -160,14 +175,7 @@ const Navbar: React.FC = () => {
         } catch {}
       }
       // Chat unread count
-      try {
-        const token = localStorage.getItem('token');
-        const r = await axios.get(
-          `${API_BASE}/api/chat/unread`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setChatBadge(r.data.total_unread || 0);
-      } catch {}
+      await refreshChatBadge();
       // UW Tracker — unassigned + overdue count
       try {
         const token = localStorage.getItem('token');
@@ -197,42 +205,89 @@ const Navbar: React.FC = () => {
       }
     };
     load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
+    // 10s poll cadence (was 30s — too slow, people were missing messages)
+    const interval = setInterval(load, 10000);
+
+    // Refresh badges when the user comes back to the tab.
+    // Browsers throttle setInterval on inactive tabs, so a backgrounded
+    // tab can fall behind by a long time; this catches up immediately
+    // on focus.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshChatBadge();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [user, isManager, isAdmin]);
 
-  // SSE for live badge updates
+  // SSE for live badge updates — auto-reconnects on drop
   useEffect(() => {
     if (!user) return;
     let es: EventSource | null = null;
-    try {
-      es = new EventSource(`${API_BASE}/api/events/stream`);
-      es.addEventListener('chat:message', () => {
-        // Only increment if not on chat page
-        if (!window.location.pathname.startsWith('/chat')) {
-          setChatBadge(prev => prev + 1);
-        }
-      });
-      es.addEventListener('smart_inbox:new', () => {
-        if (isManager) setInboxBadge(prev => prev + 1);
-      });
-      es.addEventListener('smart_inbox:updated', () => {
-        if (isManager) setInboxBadge(prev => Math.max(0, prev - 1));
-      });
-      es.addEventListener('reshop:new', () => {
-        setReshopBadge(prev => prev + 1);
-      });
-      es.onerror = () => {
-        es?.close();
-        // Reconnect after 10s
-        setTimeout(() => {
-          if (user) {
-            // Will reconnect on next poll cycle
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        es = new EventSource(`${API_BASE}/api/events/stream`);
+
+        // On any (re)connection, resync the chat badge from the
+        // server. Without this, messages that arrived during the
+        // disconnect window would never increment the counter
+        // (SSE only sends events forward in time).
+        es.addEventListener('connected', () => {
+          refreshChatBadge();
+        });
+
+        es.addEventListener('chat:message', () => {
+          // Only increment if not on chat page (where ChatPanel handles it)
+          if (!window.location.pathname.startsWith('/chat')) {
+            setChatBadge(prev => prev + 1);
           }
-        }, 10000);
-      };
-    } catch {}
-    return () => es?.close();
+        });
+        es.addEventListener('smart_inbox:new', () => {
+          if (isManager) setInboxBadge(prev => prev + 1);
+        });
+        es.addEventListener('smart_inbox:updated', () => {
+          if (isManager) setInboxBadge(prev => Math.max(0, prev - 1));
+        });
+        es.addEventListener('reshop:new', () => {
+          setReshopBadge(prev => prev + 1);
+        });
+
+        es.onerror = () => {
+          // Connection dropped — close and reconnect in 5s.
+          // The empty-body setTimeout in the previous version meant SSE
+          // would stay dead until page reload, so users on non-/chat
+          // pages would miss live message notifications until the
+          // 30-sec poll cycle caught up.
+          es?.close();
+          es = null;
+          if (!cancelled) {
+            reconnectTimer = setTimeout(connect, 5000);
+          }
+        };
+      } catch {
+        // Failed to construct — try again in 5s
+        if (!cancelled) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
+      }
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
   }, [user, isManager]);
 
   // Close dropdowns on outside click
