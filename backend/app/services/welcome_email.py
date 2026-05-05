@@ -225,7 +225,7 @@ CARRIER_INFO = {
         "display_name": "Liberty Mutual Insurance",
         "accent_color": "#1A1F71",
         "logo_url": "",
-        "mobile_app_url": "https://www.libertymutual.com/customer-service/manage-your-policy/mobile-app",
+        "mobile_app_url": "https://www.libertymutual.com/customer-support/manage-your-policy",
         "mobile_app_name": "Liberty Mutual Mobile App",
         "online_account_url": "https://www.libertymutual.com/log-in",
         "online_account_text": "Log In to Your Liberty Mutual Account",
