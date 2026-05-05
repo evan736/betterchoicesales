@@ -833,214 +833,6 @@ def revenue_projections(
 
 
 
-@router.get("/{import_id}")
-def get_reconciliation(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Get full reconciliation summary with matched/unmatched lines."""
-    service = ReconciliationService(db)
-    try:
-        return service.get_reconciliation_summary(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post("/{import_id}/match")
-def run_matching(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Run auto-matching on a processed statement."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    service = ReconciliationService(db)
-    try:
-        result = service.run_matching(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    return result
-
-
-@router.post("/{import_id}/calculate")
-def calculate_commissions(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Calculate agent commissions based on tier from prior month."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    service = ReconciliationService(db)
-    try:
-        result = service.calculate_agent_commissions(import_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    return result
-
-
-@router.delete("/{import_id}")
-def delete_import(
-    import_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Delete a statement import and all its lines."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
-    if not imp:
-        raise HTTPException(status_code=404, detail="Import not found")
-
-    from app.models.statement import StatementLine
-    db.query(StatementLine).filter(
-        StatementLine.statement_import_id == import_id
-    ).delete()
-    db.delete(imp)
-    db.commit()
-
-    logger.info(f"Deleted import {import_id} ({imp.carrier} / {imp.statement_period})")
-    return {"success": True, "deleted_id": import_id}
-
-
-@router.post("/{import_id}/change-period")
-def change_import_period(
-    import_id: int,
-    new_period: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Change the statement_period of an import (e.g. 2026-05 → 2026-04).
-
-    Used when a user uploads a statement to the wrong month and needs to
-    correct it. Updates only the StatementImport.statement_period field —
-    individual StatementLine rows do NOT have a period field, they're
-    grouped via the parent import_id, so a single update propagates.
-
-    Period format: 'YYYY-MM' (e.g. '2026-04'). Validated by regex.
-
-    Side effects to be aware of:
-      - Revenue projections grouped by month will shift accordingly
-      - Monthly payroll calculations for both old and new period
-        will need to be re-run
-      - Audit trail: logged via logger.info but no separate audit table
-    """
-    import re
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin/Manager access required")
-
-    if not re.match(r"^\d{4}-\d{2}$", new_period or ""):
-        raise HTTPException(status_code=400, detail="new_period must be 'YYYY-MM' format (e.g. '2026-04')")
-
-    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
-    if not imp:
-        raise HTTPException(status_code=404, detail="Import not found")
-
-    old_period = imp.statement_period
-    if old_period == new_period:
-        return {
-            "success": True,
-            "import_id": import_id,
-            "no_change": True,
-            "period": new_period,
-        }
-
-    imp.statement_period = new_period
-    db.commit()
-
-    logger.info(
-        f"Changed period: import {import_id} ({imp.carrier}) {old_period} → {new_period}"
-    )
-    return {
-        "success": True,
-        "import_id": import_id,
-        "carrier": imp.carrier,
-        "filename": imp.filename,
-        "old_period": old_period,
-        "new_period": new_period,
-    }
-
-
-@router.get("/debug-agent-lines/{period}/{agent_id}")
-def debug_agent_lines(
-    period: str,
-    agent_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Debug: show all statement lines for an agent with effective_date info."""
-    if current_user.role.lower() not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    from app.models.statement import StatementImport, StatementLine
-    from app.models.sale import Sale
-
-    imports = db.query(StatementImport).filter(
-        StatementImport.statement_period == period
-    ).all()
-    import_ids = [imp.id for imp in imports]
-
-    lines = db.query(StatementLine).filter(
-        StatementLine.statement_import_id.in_(import_ids),
-        StatementLine.assigned_agent_id == agent_id,
-        StatementLine.is_matched == True,
-    ).all()
-
-    results = []
-    null_eff_count = 0
-    for line in lines:
-        eff = None
-        eff_source = None
-        if line.effective_date:
-            eff = str(line.effective_date)[:10]
-            eff_source = "line"
-        elif line.matched_sale_id:
-            sale = db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
-            if sale and sale.effective_date:
-                eff = str(sale.effective_date)[:10]
-                eff_source = "sale"
-
-        sale_eff = None
-        if line.matched_sale_id:
-            sale = db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
-            if sale and sale.effective_date:
-                sale_eff = str(sale.effective_date)[:10]
-
-        if not eff and not sale_eff:
-            null_eff_count += 1
-
-        imp = next((i for i in imports if i.id == line.statement_import_id), None)
-        results.append({
-            "id": line.id,
-            "carrier": imp.carrier if imp else "?",
-            "policy_number": line.policy_number,
-            "insured_name": line.insured_name,
-            "tx_type": line.transaction_type,
-            "premium": float(line.premium_amount or 0),
-            "effective_date": eff,
-            "eff_source": eff_source,
-            "sale_effective_date": sale_eff,
-            "term_months": getattr(line, 'term_months', None),
-        })
-
-    return {
-        "agent_id": agent_id,
-        "period": period,
-        "total_lines": len(results),
-        "null_effective_date_count": null_eff_count,
-        "lines": sorted(results, key=lambda x: x["carrier"]),
-    }
-
-
-
-
 @router.post("/match-chargebacks-to-nowcerts")
 def match_chargebacks_to_nowcerts(
     period: str = Query(..., description="Statement period to analyze, e.g. 2026-04"),
@@ -1421,3 +1213,211 @@ def audit_stale_nowcerts(
             "no_nowcerts_match": "Couldn't find this policy in NowCerts at all. May indicate a policy_number mismatch (carrier renumbered at renewal, etc.) — investigate but no auto-fix possible.",
         },
     }
+
+@router.get("/{import_id}")
+def get_reconciliation(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get full reconciliation summary with matched/unmatched lines."""
+    service = ReconciliationService(db)
+    try:
+        return service.get_reconciliation_summary(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{import_id}/match")
+def run_matching(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run auto-matching on a processed statement."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        result = service.run_matching(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.post("/{import_id}/calculate")
+def calculate_commissions(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Calculate agent commissions based on tier from prior month."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    service = ReconciliationService(db)
+    try:
+        result = service.calculate_agent_commissions(import_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return result
+
+
+@router.delete("/{import_id}")
+def delete_import(
+    import_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a statement import and all its lines."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
+    if not imp:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    from app.models.statement import StatementLine
+    db.query(StatementLine).filter(
+        StatementLine.statement_import_id == import_id
+    ).delete()
+    db.delete(imp)
+    db.commit()
+
+    logger.info(f"Deleted import {import_id} ({imp.carrier} / {imp.statement_period})")
+    return {"success": True, "deleted_id": import_id}
+
+
+@router.post("/{import_id}/change-period")
+def change_import_period(
+    import_id: int,
+    new_period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change the statement_period of an import (e.g. 2026-05 → 2026-04).
+
+    Used when a user uploads a statement to the wrong month and needs to
+    correct it. Updates only the StatementImport.statement_period field —
+    individual StatementLine rows do NOT have a period field, they're
+    grouped via the parent import_id, so a single update propagates.
+
+    Period format: 'YYYY-MM' (e.g. '2026-04'). Validated by regex.
+
+    Side effects to be aware of:
+      - Revenue projections grouped by month will shift accordingly
+      - Monthly payroll calculations for both old and new period
+        will need to be re-run
+      - Audit trail: logged via logger.info but no separate audit table
+    """
+    import re
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/Manager access required")
+
+    if not re.match(r"^\d{4}-\d{2}$", new_period or ""):
+        raise HTTPException(status_code=400, detail="new_period must be 'YYYY-MM' format (e.g. '2026-04')")
+
+    imp = db.query(StatementImport).filter(StatementImport.id == import_id).first()
+    if not imp:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    old_period = imp.statement_period
+    if old_period == new_period:
+        return {
+            "success": True,
+            "import_id": import_id,
+            "no_change": True,
+            "period": new_period,
+        }
+
+    imp.statement_period = new_period
+    db.commit()
+
+    logger.info(
+        f"Changed period: import {import_id} ({imp.carrier}) {old_period} → {new_period}"
+    )
+    return {
+        "success": True,
+        "import_id": import_id,
+        "carrier": imp.carrier,
+        "filename": imp.filename,
+        "old_period": old_period,
+        "new_period": new_period,
+    }
+
+
+@router.get("/debug-agent-lines/{period}/{agent_id}")
+def debug_agent_lines(
+    period: str,
+    agent_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Debug: show all statement lines for an agent with effective_date info."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.models.statement import StatementImport, StatementLine
+    from app.models.sale import Sale
+
+    imports = db.query(StatementImport).filter(
+        StatementImport.statement_period == period
+    ).all()
+    import_ids = [imp.id for imp in imports]
+
+    lines = db.query(StatementLine).filter(
+        StatementLine.statement_import_id.in_(import_ids),
+        StatementLine.assigned_agent_id == agent_id,
+        StatementLine.is_matched == True,
+    ).all()
+
+    results = []
+    null_eff_count = 0
+    for line in lines:
+        eff = None
+        eff_source = None
+        if line.effective_date:
+            eff = str(line.effective_date)[:10]
+            eff_source = "line"
+        elif line.matched_sale_id:
+            sale = db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+            if sale and sale.effective_date:
+                eff = str(sale.effective_date)[:10]
+                eff_source = "sale"
+
+        sale_eff = None
+        if line.matched_sale_id:
+            sale = db.query(Sale).filter(Sale.id == line.matched_sale_id).first()
+            if sale and sale.effective_date:
+                sale_eff = str(sale.effective_date)[:10]
+
+        if not eff and not sale_eff:
+            null_eff_count += 1
+
+        imp = next((i for i in imports if i.id == line.statement_import_id), None)
+        results.append({
+            "id": line.id,
+            "carrier": imp.carrier if imp else "?",
+            "policy_number": line.policy_number,
+            "insured_name": line.insured_name,
+            "tx_type": line.transaction_type,
+            "premium": float(line.premium_amount or 0),
+            "effective_date": eff,
+            "eff_source": eff_source,
+            "sale_effective_date": sale_eff,
+            "term_months": getattr(line, 'term_months', None),
+        })
+
+    return {
+        "agent_id": agent_id,
+        "period": period,
+        "total_lines": len(results),
+        "null_effective_date_count": null_eff_count,
+        "lines": sorted(results, key=lambda x: x["carrier"]),
+    }
+
+
+
