@@ -1228,3 +1228,196 @@ def match_chargebacks_to_nowcerts(
         "matched": sorted(matched, key=lambda x: x["months_in_force_before_cancel"] or 999)[:200],
         "unmatched": unmatched[:50],
     }
+
+
+@router.get("/audit-stale-nowcerts")
+def audit_stale_nowcerts(
+    period: str = Query(..., description="Statement period to audit, e.g. 2026-04"),
+    months_back: int = Query(6, description="Also include statements this many months prior"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Find policies where commission statements show chargeback activity
+    but NowCerts (via local CustomerPolicy mirror) still shows them as
+    Active. These are candidates for manual cancellation in NowCerts.
+
+    READ-ONLY. Does not modify any record.
+
+    Logic:
+      1. For all imports in [period, period - months_back]
+      2. Find every (policy_number, customer_name) with NET-negative
+         commission across all lines on the statement
+      3. Look up the policy in CustomerPolicy (NowCerts mirror)
+      4. Flag mismatches:
+         - Statement shows chargeback, NowCerts shows Active → STALE
+         - Statement shows chargeback, NowCerts shows Cancelled → OK
+         - Statement shows chargeback, no NowCerts record → UNKNOWN
+
+    Returns three buckets so you can review before deciding to act.
+    """
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin/manager only")
+
+    from app.models.customer import CustomerPolicy
+    from app.models.sale import Sale
+    from datetime import datetime
+    from collections import defaultdict
+    from decimal import Decimal
+
+    import re
+    if not re.match(r"^\d{4}-\d{2}$", period):
+        raise HTTPException(status_code=400, detail="period must be YYYY-MM")
+
+    # Compute the period range
+    year, month = map(int, period.split("-"))
+    target_periods = [period]
+    for i in range(1, months_back + 1):
+        m = month - i
+        y = year
+        while m <= 0:
+            m += 12
+            y -= 1
+        target_periods.append(f"{y:04d}-{m:02d}")
+
+    # Pull all statement lines from these periods
+    lines = db.query(StatementLine).join(
+        StatementImport, StatementLine.statement_import_id == StatementImport.id
+    ).filter(
+        StatementImport.statement_period.in_(target_periods),
+        StatementLine.commission_amount.isnot(None),
+    ).all()
+
+    # Group by (policy_number, normalized_carrier) and net the commission
+    def norm_carrier(c):
+        return (c or "").lower().strip()
+
+    groups = defaultdict(lambda: {
+        "policy_number": "",
+        "insured_name": "",
+        "carrier": "",
+        "lines": 0,
+        "net_premium": Decimal("0"),
+        "net_commission": Decimal("0"),
+        "periods_with_negative": set(),
+    })
+
+    for line in lines:
+        pn = (line.policy_number or "").strip()
+        if not pn:
+            continue
+        carrier = norm_carrier(line.statement_import.carrier if line.statement_import else None)
+        key = (pn.upper(), carrier)
+
+        g = groups[key]
+        g["policy_number"] = pn
+        g["carrier"] = carrier
+        if not g["insured_name"] and line.insured_name:
+            g["insured_name"] = line.insured_name
+        g["lines"] += 1
+        g["net_premium"] += Decimal(str(line.premium_amount or 0))
+        g["net_commission"] += Decimal(str(line.commission_amount or 0))
+
+        if (line.commission_amount or 0) < 0:
+            g["periods_with_negative"].add(
+                line.statement_import.statement_period if line.statement_import else "?"
+            )
+
+    # Filter to net-negative groups (policies where the agency lost money on net)
+    net_negative_groups = [
+        g for g in groups.values()
+        if g["net_commission"] < 0 and g["periods_with_negative"]
+    ]
+
+    # ─── Step 2: cross-check against NowCerts (CustomerPolicy local mirror) ───
+    # Build NowCerts policy lookup by uppercased policy_number
+    nc_policies = db.query(CustomerPolicy).filter(
+        CustomerPolicy.policy_number.isnot(None)
+    ).all()
+
+    nc_by_pn = defaultdict(list)
+    for p in nc_policies:
+        key = (p.policy_number or "").strip().upper()
+        if key:
+            nc_by_pn[key].append(p)
+
+    # ─── Step 3: bucket each negative group ───
+    stale_in_nowcerts = []  # statement says cancelled, NowCerts says Active → fix in NowCerts
+    matched_correctly = []  # NowCerts agrees the policy is cancelled → OK
+    no_nowcerts_match = []  # No record in NowCerts at all → can't tell
+
+    for g in net_negative_groups:
+        pn_key = g["policy_number"].upper()
+        # Try exact + suffix-stripped match
+        nc_match = nc_by_pn.get(pn_key)
+        if not nc_match:
+            for base in {pn_key.rsplit("-", 1)[0], pn_key.split("-", 1)[0]}:
+                if base != pn_key and base in nc_by_pn:
+                    nc_match = nc_by_pn[base]
+                    break
+
+        result = {
+            "policy_number": g["policy_number"],
+            "insured_name": g["insured_name"],
+            "carrier": g["carrier"],
+            "statement_lines": g["lines"],
+            "net_premium": float(g["net_premium"]),
+            "net_commission": float(g["net_commission"]),
+            "periods_with_chargebacks": sorted(g["periods_with_negative"]),
+        }
+
+        if not nc_match:
+            no_nowcerts_match.append(result)
+            continue
+
+        # If multiple, take the one with the latest effective date
+        chosen = max(
+            nc_match,
+            key=lambda p: p.effective_date or datetime(1900, 1, 1),
+        )
+        result["nowcerts_status"] = chosen.status
+        result["nowcerts_effective_date"] = (
+            chosen.effective_date.isoformat() if chosen.effective_date else None
+        )
+        result["nowcerts_expiration_date"] = (
+            chosen.expiration_date.isoformat() if chosen.expiration_date else None
+        )
+        result["nowcerts_last_synced_at"] = (
+            chosen.last_synced_at.isoformat() if chosen.last_synced_at else None
+        )
+
+        nc_status = (chosen.status or "").lower()
+        if nc_status in ("cancelled", "canceled", "expired", "lapsed", "non-renewed", "non renewed"):
+            matched_correctly.append(result)
+        else:
+            # Statement says chargeback, NowCerts still shows Active/Pending
+            stale_in_nowcerts.append(result)
+
+    # Sort each bucket by largest commission impact
+    stale_in_nowcerts.sort(key=lambda r: r["net_commission"])
+    matched_correctly.sort(key=lambda r: r["net_commission"])
+    no_nowcerts_match.sort(key=lambda r: r["net_commission"])
+
+    # Totals for each bucket
+    def totals(items):
+        return {
+            "count": len(items),
+            "net_premium": sum(i["net_premium"] for i in items),
+            "net_commission": sum(i["net_commission"] for i in items),
+        }
+
+    return {
+        "audit_periods": target_periods,
+        "summary": {
+            "stale_in_nowcerts": totals(stale_in_nowcerts),
+            "matched_correctly": totals(matched_correctly),
+            "no_nowcerts_match": totals(no_nowcerts_match),
+        },
+        "stale_in_nowcerts": stale_in_nowcerts,
+        "matched_correctly": matched_correctly,
+        "no_nowcerts_match": no_nowcerts_match,
+        "interpretation": {
+            "stale_in_nowcerts": "These policies show chargebacks on commission statements but NowCerts still has them as Active. Someone needs to manually mark them cancelled in NowCerts.",
+            "matched_correctly": "Statement and NowCerts agree these are cancelled. No action needed.",
+            "no_nowcerts_match": "Couldn't find this policy in NowCerts at all. May indicate a policy_number mismatch (carrier renumbered at renewal, etc.) — investigate but no auto-fix possible.",
+        },
+    }
