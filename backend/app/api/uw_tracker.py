@@ -975,6 +975,79 @@ def uw_premium_by_producer(
     }
 
 
+@router.get("/history")
+def uw_history(
+    days: int = Query(90, ge=1, le=730, description="Look-back window in days"),
+    status: Optional[str] = Query(None, description="Filter by status; comma-separated for multiple"),
+    assignee: Optional[int] = Query(None, description="user_id"),
+    carrier: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Match customer name / policy number / title"),
+    limit: int = Query(500, le=2000),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Full UW item history including completed/dismissed.
+
+    Useful when:
+      - Auditing what was handled in a prior month
+      - Looking up a closed UW notice that's been auto-cleared from
+        the kanban (kanban only shows last 48hrs of completions)
+      - Producer-level reporting on UW workload over time
+
+    Defaults to last 90 days; tunable via `days` param up to 2 years.
+    Sorts by created_at desc (newest first).
+
+    Returns same item shape as /items so frontend can reuse the card
+    rendering. Includes completion notes and assignee info.
+    """
+    if not _can_view(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    q = db.query(UWItem).filter(UWItem.created_at >= cutoff)
+
+    # Producers/retention only see their own items unless admin/manager
+    if not _can_admin(current_user) and current_user.role.lower() in ("producer", "retention_specialist"):
+        q = q.filter(UWItem.assigned_to == current_user.id)
+
+    if status:
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        q = q.filter(UWItem.status.in_(statuses))
+
+    if assignee:
+        q = q.filter(UWItem.assigned_to == assignee)
+
+    if carrier:
+        q = q.filter(UWItem.carrier.ilike(f"%{carrier.strip()}%"))
+
+    if search:
+        pat = f"%{search.strip()}%"
+        q = q.filter(or_(
+            UWItem.customer_name.ilike(pat),
+            UWItem.policy_number.ilike(pat),
+            UWItem.title.ilike(pat),
+        ))
+
+    items = q.order_by(desc(UWItem.created_at)).limit(limit).all()
+
+    customer_ids = [i.customer_id for i in items if i.customer_id]
+    premium_lookup = _bulk_premium_lookup(list(set(customer_ids)), db) if customer_ids else {}
+
+    serialized = [_serialize_item(i, premium_by_customer=premium_lookup) for i in items]
+
+    # Quick-glance counts so the UI can show summary chips
+    by_status: dict = {}
+    for i in items:
+        by_status[i.status] = by_status.get(i.status, 0) + 1
+
+    return {
+        "items": serialized,
+        "count": len(items),
+        "days": days,
+        "by_status": by_status,
+    }
+
+
 # ───────────────────────────────────────────────────────────────────────────
 # Manual create
 # ───────────────────────────────────────────────────────────────────────────

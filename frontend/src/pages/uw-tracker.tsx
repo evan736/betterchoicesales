@@ -58,7 +58,7 @@ const COLUMNS = [
   { key: 'assigned', label: 'Assigned', color: '#0ea5e9', icon: <UserIcon size={14} /> },
   { key: 'due_soon', label: 'Due This Week', color: '#f59e0b', icon: <AlertCircle size={14} /> },
   { key: 'overdue', label: 'Overdue', color: '#dc2626', icon: <AlertTriangle size={14} /> },
-  { key: 'completed', label: 'Recently Completed', color: '#10b981', icon: <CheckCircle2 size={14} /> },
+  { key: 'completed', label: 'Completed (48h)', color: '#10b981', icon: <CheckCircle2 size={14} /> },
 ];
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -203,8 +203,10 @@ export default function UWTracker() {
       return filtered.filter(i => i.status === 'pending_assignment');
     }
     if (key === 'completed') {
-      // Show last 7 days completed
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+      // Show last 48 hours completed (per Evan: anything older auto-clears
+      // from the kanban; full historical record stays accessible via the
+      // /uw-tracker/history report)
+      const cutoff = new Date(); cutoff.setHours(cutoff.getHours() - 48);
       return filtered.filter(i => i.status === 'completed' && i.completed_at && new Date(i.completed_at) >= cutoff);
     }
     if (key === 'overdue') {
@@ -729,8 +731,8 @@ const UWDetailDrawer: React.FC<{
               <textarea value={completionNote} onChange={e => setCompletionNote(e.target.value)}
                         placeholder="Optional: what was done? (e.g., 'Photos sent to underwriter on 4/30')"
                         rows={2}
-                        className="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg bg-white mb-2 resize-none"
-                        style={{ color: '#0f172a' }} />
+                        className="w-full px-3 py-2 text-sm border border-emerald-300 rounded-lg mb-2 resize-none placeholder-slate-400"
+                        style={{ color: '#0f172a', backgroundColor: '#ffffff' }} />
               <button onClick={handleComplete} disabled={completing}
                       className="w-full py-2 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50">
                 {completing ? 'Saving...' : '✓ Mark Complete'}
