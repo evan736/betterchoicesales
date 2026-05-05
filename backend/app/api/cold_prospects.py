@@ -134,15 +134,10 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
         scope_long = "your home and auto"
         verify = "Send the year/make/model on the cars and a rough year on the roof — I'll handle the rest."
 
-    # Their current carrier — gives the email specificity if we have it
-    current_carrier = (prospect.company or "").strip()
-    # Strip generic suffixes for cleaner inline use
-    for suffix in (" insurance", " ins", " prop & cas", " property & casualty"):
-        if current_carrier.lower().endswith(suffix):
-            current_carrier = current_carrier[: -len(suffix)].strip()
-    # Title-case if all-caps
-    if current_carrier.isupper():
-        current_carrier = current_carrier.title()
+    # We deliberately do NOT reference the prospect's current carrier in
+    # any cold-prospect email. Per Evan: never mention Allstate or any
+    # current carrier. The prospect.company field is intentionally unused
+    # in outbound copy.
 
     # ─────── PER-PRODUCER, PER-VARIANT CONTENT ───────
 
@@ -169,12 +164,11 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
                 f"Or hop on the phone for 5 minutes."
             )
         elif variant == "v3":
-            current_ref = f" (saw you're with {current_carrier} now)" if current_carrier else ""
             subject = "saw rates moved — quick check?"
             body = (
                 f"Hey {first_name},<br><br>"
                 f"Joseph Rivera, independent agent in Saint Charles. "
-                f"Reaching out{current_ref} because rates have come down enough lately "
+                f"Reaching out because rates have come down enough lately "
                 f"that it's worth a side-by-side.<br><br>"
                 f"Quick quote on {scope_long}? {verify}<br><br>"
                 f"Reply works, so does a call: (847) 908-5665."
@@ -212,13 +206,11 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
                 f"Talk soon."
             )
         elif variant == "v3":
-            current_ref = f"with {current_carrier}" if current_carrier else "wherever you are"
             subject = "carriers filed rate decreases — quick check?"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Evan from Better Choice Insurance. Whether you're {current_ref} now, "
-                f"worth knowing that several carriers have cut rates recently. "
-                f"That doesn't last forever.<br><br>"
+                f"Evan from Better Choice Insurance. Several carriers have cut rates "
+                f"recently — that doesn't last forever.<br><br>"
                 f"Mind if I run a few options on {scope_long}? {verify}<br><br>"
                 f"Reply with your dec page or grab a phone call — easier on the phone."
             )
@@ -253,13 +245,11 @@ def _build_cold_email(prospect: ColdProspect, variant: str = "v1") -> tuple[str,
                 f"Or hop on a quick call."
             )
         elif variant == "v3":
-            current_ref = f"saw you're with {current_carrier}, " if current_carrier else ""
             subject = "rates moved — figured you'd want to know"
             body = (
                 f"Hey {first_name},<br><br>"
-                f"Giulian Baez, Better Choice Insurance. {current_ref.capitalize()}"
-                f"and a few carriers we work with have cut rates lately. Felt like a "
-                f"reasonable reason to reach out.<br><br>"
+                f"Giulian Baez, Better Choice Insurance. A few carriers we work with "
+                f"have cut rates lately. Felt like a reasonable reason to reach out.<br><br>"
                 f"Quick quote on {scope_long}? {verify}<br><br>"
                 f"Reply or call works."
             )
