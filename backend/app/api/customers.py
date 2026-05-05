@@ -1703,10 +1703,19 @@ def _log_email_to_nowcerts(
 def get_customer_notes(
     customer_id: int,
     limit: int = 5,
+    debug: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get recent notes from NowCerts for a customer."""
+    """Get recent notes from NowCerts for a customer.
+
+    When debug=true (admin only), also returns the raw NowCerts note
+    keys + a sample raw note so we can see what fields are actually
+    populated. Useful when serialized fields like `created_at` come
+    back empty — we can confirm whether NowCerts is returning the
+    data and our serializer is wrong, vs NowCerts not sending it
+    at all.
+    """
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         return []
@@ -1716,9 +1725,10 @@ def get_customer_notes(
             from app.services.nowcerts import get_nowcerts_client
             nc = get_nowcerts_client()
             if nc and nc.is_configured:
+                # Pull the raw NowCerts response (already normalized in service)
                 nc_notes = nc.get_insured_notes([str(customer.nowcerts_insured_id)], top=limit)
                 if nc_notes:
-                    return [
+                    serialized = [
                         {
                             "id": i,
                             "subject": n.get("subject", "(No subject)"),
@@ -1729,6 +1739,16 @@ def get_customer_notes(
                         }
                         for i, n in enumerate(nc_notes)
                     ]
+                    if debug and current_user.role.lower() == "admin":
+                        # Also return what fields exist on each raw note
+                        # so we can debug missing dates etc.
+                        return {
+                            "notes": serialized,
+                            "raw_keys": list(nc_notes[0].keys()) if nc_notes else [],
+                            "raw_sample": nc_notes[0] if nc_notes else None,
+                            "all_raw": nc_notes,
+                        }
+                    return serialized
         except Exception as e:
             logger.warning(f"NowCerts notes fetch failed: {e}")
 
