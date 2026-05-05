@@ -531,6 +531,20 @@ async def import_cold_prospects_csv(
         .all()
         if e
     )
+    # ALSO cross-check the Sale table — we found that 191 prospects had
+    # leaked through the original Customer-table check because some active
+    # customers existed as Sale rows but not in the Customer table. The
+    # Sale table is authoritative for "this person is a paying customer
+    # with us right now". Includes ALL non-cancelled sales (active +
+    # pending), since pending sales are about-to-bind customers.
+    active_sale_emails = set(
+        e.lower()
+        for (e,) in db.query(Sale.client_email)
+        .filter(Sale.client_email.isnot(None))
+        .filter(Sale.status != "cancelled")
+        .all()
+        if e
+    )
 
     counts = {
         "total_rows": 0,
@@ -539,6 +553,7 @@ async def import_cold_prospects_csv(
         "skipped_invalid_email_syntax": 0,
         "skipped_already_in_cold": 0,
         "skipped_already_customer": 0,
+        "skipped_active_sale": 0,
         "skipped_already_in_winback": 0,
         "skipped_do_not_mail": 0,
         "skipped_active_customer_status": 0,
@@ -578,6 +593,11 @@ async def import_cold_prospects_csv(
             continue
         if email in customer_emails:
             counts["skipped_already_customer"] += 1
+            continue
+        # NEW: catch active sale matches that the Customer-table check
+        # would miss (sales table is authoritative for paying customers)
+        if email in active_sale_emails:
+            counts["skipped_active_sale"] += 1
             continue
         if email in winback_emails:
             counts["skipped_already_in_winback"] += 1
@@ -1323,4 +1343,73 @@ def audit_overlap_with_customers(
             "with_customer_table": "Cold prospects whose email matches the Customer table (could be active or former). The import-time dedupe should have caught these.",
             "with_winback_list": "Cold prospects who are also queued in winback. If count > 0, they could get double-emailed by both campaigns.",
         },
+    }
+
+
+@router.post("/exclude-active-customers")
+def exclude_active_customer_overlaps(
+    dry_run: bool = Query(False, description="If true, just count what would be excluded without writing"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Exclude all cold_prospect records whose email matches an
+    active sale (Sale.status != 'cancelled' and Sale.client_email IS NOT NULL).
+
+    Sets:
+      - excluded = True
+      - status = 'excluded'
+      - excluded_reason = 'Active customer (sale match)'
+
+    Idempotent — running twice doesn't re-flag already-excluded rows
+    and doesn't affect their status/reason if already set.
+
+    Use after the import-time cross-check missed Sale.client_email
+    matches (the original import only cross-checked Customer + Winback,
+    not Sale).
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    # Set of active-sale emails, lowercased
+    active_sale_emails = set(
+        (e or "").lower().strip()
+        for (e,) in db.query(Sale.client_email)
+        .filter(Sale.client_email.isnot(None))
+        .filter(Sale.status != "cancelled")
+        .all()
+        if e
+    )
+    active_sale_emails.discard("")
+
+    if not active_sale_emails:
+        return {"flagged": 0, "note": "No active sales emails found — nothing to cross-match against."}
+
+    # Find cold prospects whose email matches AND aren't already excluded
+    overlapping = db.query(ColdProspect).filter(
+        sa_func.lower(ColdProspect.email).in_(list(active_sale_emails)),
+        ColdProspect.excluded == False,
+    ).all()
+
+    if dry_run:
+        return {
+            "would_flag": len(overlapping),
+            "sample_ids": [p.id for p in overlapping[:20]],
+            "sample_emails": [p.email for p in overlapping[:20]],
+            "dry_run": True,
+        }
+
+    flagged_ids = []
+    for p in overlapping:
+        p.excluded = True
+        p.status = "excluded"
+        p.excluded_reason = "Active customer (sale match)"
+        flagged_ids.append(p.id)
+
+    db.commit()
+
+    logger.info(f"Excluded {len(flagged_ids)} cold prospects matching active sales")
+    return {
+        "flagged": len(flagged_ids),
+        "sample_ids": flagged_ids[:20],
+        "dry_run": False,
     }
