@@ -475,8 +475,6 @@ class NowCertsClient:
         # Approach 2: OData NoteList — usually has dates even when InsuredNotes
         # doesn't. Always run when InsuredNotes lacks dates so we can merge.
         post_has_dates = any((n.get("date_created") or "").strip() for n in post_results)
-        logger.info("NowCerts notes: post_results=%d, post_has_dates=%s, attempting OData=%s",
-                    len(post_results), post_has_dates, (not post_has_dates or not post_results))
         if not post_has_dates or not post_results:
             try:
                 filter_expr = f"insuredDatabaseId eq {insured_id}"
@@ -486,9 +484,6 @@ class NowCertsClient:
                 data = self._odata_get("NoteList", skip=0, top=max(top * 4, 50),
                                        orderby="changeDate desc", filter_expr=filter_expr)
                 items = data.get("value", data.get("items", []))
-                logger.info("NowCerts OData NoteList raw response: %d items, sample keys=%s",
-                            len(items) if isinstance(items, list) else 0,
-                            list(items[0].keys()) if isinstance(items, list) and items else [])
                 if isinstance(items, list) and len(items) > 0:
                     logger.info("NowCerts OData NoteList returned %d notes", len(items))
                     for n in items:

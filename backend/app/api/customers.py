@@ -1740,32 +1740,13 @@ def get_customer_notes(
                         for i, n in enumerate(nc_notes)
                     ]
                     if debug and current_user.role.lower() == "admin":
-                        # Also probe several possible OData entity names so we
-                        # can figure out which (if any) returns dates
-                        from app.services.nowcerts import get_nowcerts_client
-                        nc2 = get_nowcerts_client()
-                        odata_probes = {}
-                        for entity in ["NoteList", "Notes", "InsuredNoteList", "AgencyNoteList", "InsuredNotes"]:
-                            try:
-                                filter_expr = f"insuredDatabaseId eq {customer.nowcerts_insured_id}"
-                                data = nc2._odata_get(entity, skip=0, top=3,
-                                                       orderby="changeDate desc",
-                                                       filter_expr=filter_expr)
-                                items = data.get("value", data.get("items", []))
-                                odata_probes[entity] = {
-                                    "ok": True,
-                                    "count": len(items) if isinstance(items, list) else 0,
-                                    "sample_keys": list(items[0].keys()) if isinstance(items, list) and items else [],
-                                    "sample": items[0] if isinstance(items, list) and items else None,
-                                }
-                            except Exception as ex:
-                                odata_probes[entity] = {"ok": False, "error": str(ex)[:200]}
+                        # Also return what fields exist on each raw note
+                        # so we can debug missing dates etc.
                         return {
                             "notes": serialized,
                             "raw_keys": list(nc_notes[0].keys()) if nc_notes else [],
                             "raw_sample": nc_notes[0] if nc_notes else None,
                             "all_raw": nc_notes,
-                            "odata_probes": odata_probes,
                         }
                     return serialized
         except Exception as e:
