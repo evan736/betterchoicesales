@@ -431,12 +431,27 @@ class NowCertsClient:
             return []
 
     def get_insured_notes(self, insured_database_ids: list[str], top: int = 5) -> list[dict]:
-        """Get notes for given insured database IDs. Tries multiple API approaches."""
+        """Get notes for given insured database IDs. Tries multiple API approaches.
+
+        NOTE: As of May 2026, the InsuredNotes POST endpoint returns the
+        note CONTENT but NEVER returns date_created — that field comes
+        back as an empty string for every row. This is a NowCerts API
+        bug we can't control. To get dates, we have to fall back to the
+        OData NoteList endpoint.
+
+        Strategy:
+          1. Try POST /api/Insured/InsuredNotes (richer content, no dates)
+          2. Try OData /NoteList (has dates, also has content)
+          3. If BOTH succeed, MERGE — we want both date and content
+        """
         if not insured_database_ids:
             return []
         insured_id = insured_database_ids[0]
 
-        # Approach 1: POST /api/Insured/InsuredNotes (mirrors InsuredContacts pattern)
+        post_results = []
+        odata_results = []
+
+        # Approach 1: POST /api/Insured/InsuredNotes
         try:
             data = self._post("/api/Insured/InsuredNotes", {
                 "insuredDataBaseId": insured_database_ids
@@ -444,48 +459,74 @@ class NowCertsClient:
             notes = data if isinstance(data, list) else data.get("data", data.get("notes", []))
             if isinstance(notes, list) and len(notes) > 0:
                 logger.info("NowCerts InsuredNotes returned %d total notes for insured %s", len(notes), insured_id)
-                # Log first note's keys and a sample to understand the schema
                 if notes:
                     logger.info("NowCerts note sample keys: %s", list(notes[0].keys()) if isinstance(notes[0], dict) else type(notes[0]))
-                    logger.info("NowCerts first note: %s", str(notes[0])[:500])
-                    if len(notes) > 1:
-                        logger.info("NowCerts last note: %s", str(notes[-1])[:500])
-                result = []
                 for n in notes:
-                    result.append({
+                    post_results.append({
                         "subject": n.get("subject", ""),
                         "description": n.get("description", ""),
                         "type": n.get("type", ""),
                         "creator_name": n.get("creatorName", n.get("creator", "")),
                         "date_created": n.get("dateCreated") or n.get("insertDate") or n.get("date") or n.get("changeDate", ""),
                     })
-                result.sort(key=lambda x: x.get("date_created", ""), reverse=True)
-                logger.info("NowCerts notes after sort - newest: %s | oldest: %s",
-                           result[0].get("subject", "")[:50] if result else "none",
-                           result[-1].get("subject", "")[:50] if result else "none")
-                return result[:top]
         except Exception as e:
             logger.info("NowCerts InsuredNotes not available: %s", e)
 
-        # Approach 2: OData NoteList
-        try:
-            filter_expr = f"insuredDatabaseId eq {insured_id}"
-            data = self._odata_get("NoteList", skip=0, top=top, orderby="changeDate desc", filter_expr=filter_expr)
-            items = data.get("value", data.get("items", []))
-            if isinstance(items, list) and len(items) > 0:
-                logger.info("NowCerts OData NoteList returned %d notes", len(items))
-                return [
-                    {
-                        "subject": n.get("subject", ""),
-                        "description": n.get("description", ""),
-                        "type": n.get("type", ""),
-                        "creator_name": n.get("creatorName", n.get("userName", "")),
-                        "date_created": n.get("changeDate") or n.get("insertDate", ""),
-                    }
-                    for n in items[:top]
-                ]
-        except Exception as e:
-            logger.info("NowCerts OData NoteList not available: %s", e)
+        # Approach 2: OData NoteList — usually has dates even when InsuredNotes
+        # doesn't. Always run when InsuredNotes lacks dates so we can merge.
+        post_has_dates = any((n.get("date_created") or "").strip() for n in post_results)
+        if not post_has_dates or not post_results:
+            try:
+                filter_expr = f"insuredDatabaseId eq {insured_id}"
+                # Pull MORE rows than the caller asked for so we have a wider
+                # pool to merge from — InsuredNotes returns 19, OData might
+                # need higher top to cover same range
+                data = self._odata_get("NoteList", skip=0, top=max(top * 4, 50),
+                                       orderby="changeDate desc", filter_expr=filter_expr)
+                items = data.get("value", data.get("items", []))
+                if isinstance(items, list) and len(items) > 0:
+                    logger.info("NowCerts OData NoteList returned %d notes", len(items))
+                    for n in items:
+                        odata_results.append({
+                            "subject": n.get("subject", ""),
+                            "description": n.get("description", ""),
+                            "type": n.get("type", ""),
+                            "creator_name": n.get("creatorName", n.get("userName", "")),
+                            "date_created": n.get("changeDate") or n.get("insertDate", ""),
+                        })
+            except Exception as e:
+                logger.info("NowCerts OData NoteList not available: %s", e)
+
+        # Merge: if InsuredNotes has content but no dates, try to match each
+        # row against OData by (subject, creator_name) to backfill the date.
+        if post_results and odata_results and not post_has_dates:
+            # Build lookup from OData by (subject_first_60, creator_name)
+            # subject is usually the unique signal here
+            odata_by_key = {}
+            for n in odata_results:
+                key = ((n.get("subject") or "")[:60].strip(), (n.get("creator_name") or "").strip())
+                if key not in odata_by_key:
+                    odata_by_key[key] = n.get("date_created", "")
+            # Backfill
+            for n in post_results:
+                if not (n.get("date_created") or "").strip():
+                    key = ((n.get("subject") or "")[:60].strip(), (n.get("creator_name") or "").strip())
+                    if key in odata_by_key:
+                        n["date_created"] = odata_by_key[key]
+
+            # Now sort by date and return
+            post_results.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+            return post_results[:top]
+
+        # If only OData worked, return those
+        if odata_results and not post_results:
+            odata_results.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+            return odata_results[:top]
+
+        # Default: return whatever we got from InsuredNotes
+        if post_results:
+            post_results.sort(key=lambda x: x.get("date_created", ""), reverse=True)
+            return post_results[:top]
 
         logger.warning("No NowCerts notes endpoints returned data for insured %s", insured_id)
         return []
