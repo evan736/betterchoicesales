@@ -3,7 +3,11 @@ import { useRouter } from 'next/router';
 import axios from 'axios';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://better-choice-api.onrender.com';
-const GOOGLE_REVIEW_URL = 'https://g.page/r/betterchoiceinsurance/review';
+
+// Fallback IL Google Review URL — used only if the backend response
+// is missing google_review_url. The backend routes TX-region customers
+// to the Texas listing automatically based on Customer.state.
+const GOOGLE_REVIEW_URL_FALLBACK = 'https://g.page/r/CcqT2a9FrSoXEBM/review';
 
 const STAR_LABELS = ['', 'Very Unhappy', 'Unhappy', 'Neutral', 'Happy', 'Very Happy'];
 
@@ -62,6 +66,12 @@ export default function RenewalSurveyPage() {
       const data = res.data;
       setResponses(data.responses);
       setNextQuestion(data.next_question);
+      // Carry forward the state-routed review URL from the answer
+      // response — the backend includes it on every answer response so
+      // it's available regardless of which question completed the survey.
+      if (data.google_review_url) {
+        setSurvey((prev: any) => ({ ...(prev || {}), google_review_url: data.google_review_url }));
+      }
       setCurrentAnswer(null);
       setMultiSelect([]);
       setTextInput('');
@@ -259,7 +269,7 @@ export default function RenewalSurveyPage() {
                 If you have a moment, we'd love a Google review.
               </p>
               <a
-                href={GOOGLE_REVIEW_URL}
+                href={survey?.google_review_url || GOOGLE_REVIEW_URL_FALLBACK}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"

@@ -14,6 +14,7 @@ from app.models.sale import Sale
 from app.models.customer import Customer
 from app.models.survey import SurveyResponse
 from app.services.welcome_email import send_welcome_email, build_welcome_email_html
+from app.services.google_review import get_review_url_for_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/survey", tags=["survey"])
@@ -35,6 +36,11 @@ def submit_survey(
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
 
+    # Pick the right review URL based on the customer's state. Sale.state
+    # is the most reliable source — it's set at quote time. Falls back
+    # to the IL listing when state is unknown.
+    review_url = get_review_url_for_state(sale.state)
+
     # Check if already submitted
     existing = db.query(SurveyResponse).filter(SurveyResponse.sale_id == sale_id).first()
     if existing:
@@ -42,8 +48,8 @@ def submit_survey(
         return {
             "success": True,
             "already_submitted": True,
-            "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
-            "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+            "redirect_to_google": is_positive,
+            "google_review_url": review_url if is_positive else None,
             "show_feedback_form": existing.rating <= 3,
         }
 
@@ -54,19 +60,19 @@ def submit_survey(
         sale_id=sale_id,
         rating=rating,
         feedback=feedback,
-        redirected_to_google=(is_positive and bool(settings.GOOGLE_REVIEW_URL)),
+        redirected_to_google=is_positive,
         ip_address=ip,
     )
     db.add(response)
     db.commit()
 
-    logger.info(f"Survey submitted: sale_id={sale_id}, rating={rating}")
+    logger.info(f"Survey submitted: sale_id={sale_id}, rating={rating}, state={sale.state}")
 
     return {
         "success": True,
         "rating": rating,
-        "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
-        "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+        "redirect_to_google": is_positive,
+        "google_review_url": review_url if is_positive else None,
         "show_feedback_form": rating <= 3,
     }
 
@@ -111,6 +117,10 @@ def submit_survey_by_customer(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    # Pick the right review URL based on the customer's state. Routes
+    # TX-region customers to the Texas listing.
+    review_url = get_review_url_for_state(customer.state)
+
     # Prevent double-submission for the same customer+source within a short window
     # (use "most recent for this source" as dedupe — customer could rate multiple
     # touchpoints over time; we only dedupe same-source ratings)
@@ -126,8 +136,8 @@ def submit_survey_by_customer(
         return {
             "success": True,
             "already_submitted": True,
-            "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
-            "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+            "redirect_to_google": is_positive,
+            "google_review_url": review_url if is_positive else None,
             "show_feedback_form": existing.rating <= 3,
         }
 
@@ -140,19 +150,19 @@ def submit_survey_by_customer(
         source=source,
         rating=rating,
         feedback=feedback,
-        redirected_to_google=(is_positive and bool(settings.GOOGLE_REVIEW_URL)),
+        redirected_to_google=is_positive,
         ip_address=ip,
     )
     db.add(response)
     db.commit()
 
-    logger.info(f"Survey submitted by customer: customer_id={customer_id}, source={source}, rating={rating}")
+    logger.info(f"Survey submitted by customer: customer_id={customer_id}, source={source}, rating={rating}, state={customer.state}")
 
     return {
         "success": True,
         "rating": rating,
-        "redirect_to_google": is_positive and bool(settings.GOOGLE_REVIEW_URL),
-        "google_review_url": settings.GOOGLE_REVIEW_URL if is_positive else None,
+        "redirect_to_google": is_positive,
+        "google_review_url": review_url if is_positive else None,
         "show_feedback_form": rating <= 3,
     }
 

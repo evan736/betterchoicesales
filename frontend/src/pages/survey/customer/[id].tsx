@@ -6,7 +6,10 @@ import { useRouter } from 'next/router';
 import api from '../../../lib/api';
 import GoogleAnalytics from '../../../components/GoogleAnalytics';
 
-const GOOGLE_REVIEW_URL = 'https://g.page/r/CcqT2a9FrSoXEBM/review';
+// Fallback IL Google Review URL — only used if the backend response
+// is missing google_review_url. For TX-region customers the backend
+// returns the Texas listing based on Customer.state.
+const GOOGLE_REVIEW_URL_FALLBACK = 'https://g.page/r/CcqT2a9FrSoXEBM/review';
 
 const CustomerSurveyPage = () => {
   const router = useRouter();
@@ -14,6 +17,7 @@ const CustomerSurveyPage = () => {
   const [info, setInfo] = useState<any>(null);
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
   const [feedback, setFeedback] = useState('');
+  const [reviewUrl, setReviewUrl] = useState<string>(GOOGLE_REVIEW_URL_FALLBACK);
   const [phase, setPhase] = useState<
     'loading' | 'error' | 'rate' | 'redirecting' | 'feedback_form' | 'feedback_sent' | 'thankyou'
   >('loading');
@@ -49,8 +53,19 @@ const CustomerSurveyPage = () => {
       if (res.data.already_submitted) {
         const rFromUrl = urlRating ? parseInt(urlRating as string) : 0;
         if (rFromUrl >= 4) {
+          // Fire a no-op submit to get the state-routed URL for this customer
+          let urlToUse = GOOGLE_REVIEW_URL_FALLBACK;
+          try {
+            const submitRes = await api.post('/api/survey/submit-by-customer', null, {
+              params: { customer_id: id, rating: rFromUrl, source },
+            });
+            if (submitRes.data?.google_review_url) {
+              urlToUse = submitRes.data.google_review_url;
+              setReviewUrl(urlToUse);
+            }
+          } catch { /* fall through */ }
           setPhase('redirecting');
-          setTimeout(() => { window.location.href = GOOGLE_REVIEW_URL; }, 2500);
+          setTimeout(() => { window.location.href = urlToUse; }, 2500);
         } else if (rFromUrl >= 1) {
           setFeedbackName(res.data.client_name || '');
           setPhase('feedback_form');
@@ -69,12 +84,14 @@ const CustomerSurveyPage = () => {
     const r = rating || selectedRating;
     if (!r || !id) return;
     try {
-      await api.post('/api/survey/submit-by-customer', null, {
+      const res = await api.post('/api/survey/submit-by-customer', null, {
         params: { customer_id: id, rating: r, source, feedback: feedback || undefined },
       });
+      const urlFromApi = res.data?.google_review_url || GOOGLE_REVIEW_URL_FALLBACK;
+      setReviewUrl(urlFromApi);
       if (r >= 4) {
         setPhase('redirecting');
-        setTimeout(() => { window.location.href = GOOGLE_REVIEW_URL; }, 2500);
+        setTimeout(() => { window.location.href = urlFromApi; }, 2500);
       } else {
         setFeedbackName(info?.client_name || '');
         setPhase('feedback_form');
@@ -82,7 +99,7 @@ const CustomerSurveyPage = () => {
     } catch (err: any) {
       if (r >= 4) {
         setPhase('redirecting');
-        setTimeout(() => { window.location.href = GOOGLE_REVIEW_URL; }, 2500);
+        setTimeout(() => { window.location.href = reviewUrl; }, 2500);
       } else {
         setFeedbackName(info?.client_name || '');
         setPhase('feedback_form');
@@ -151,7 +168,7 @@ const CustomerSurveyPage = () => {
             Redirecting you to leave a Google review...
           </p>
           <div className="animate-spin w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-5"></div>
-          <a href={GOOGLE_REVIEW_URL} className="text-xs text-emerald-600 hover:underline font-medium">
+          <a href={reviewUrl} className="text-xs text-emerald-600 hover:underline font-medium">
             Click here if not redirected automatically
           </a>
         </div>

@@ -3,9 +3,11 @@ import { useRouter } from 'next/router';
 import api from '../../lib/api';
 import GoogleAnalytics from '../../components/GoogleAnalytics';
 
-// Hard-code the Google Review URL here so the frontend can redirect
-// even if the backend env var is not set. Update this with your actual link.
-const GOOGLE_REVIEW_URL = 'https://g.page/r/CcqT2a9FrSoXEBM/review';
+// Fallback IL Google Review URL — only used if the backend response
+// is missing the google_review_url field (network failure, old server).
+// For TX-region customers, the backend returns the Texas listing URL
+// based on the sale's state (see backend/app/services/google_review.py).
+const GOOGLE_REVIEW_URL_FALLBACK = 'https://g.page/r/CcqT2a9FrSoXEBM/review';
 
 const SurveyPage = () => {
   const router = useRouter();
@@ -13,6 +15,9 @@ const SurveyPage = () => {
   const [info, setInfo] = useState<any>(null);
   const [selectedRating, setSelectedRating] = useState<number | null>(null);
   const [feedback, setFeedback] = useState('');
+  // Resolved review URL — populated from API submit response (state-aware)
+  // or falls back to the IL listing if not provided.
+  const [reviewUrl, setReviewUrl] = useState<string>(GOOGLE_REVIEW_URL_FALLBACK);
   const [phase, setPhase] = useState<
     'loading' | 'error' | 'rate' | 'redirecting' | 'feedback_form' | 'feedback_sent' | 'thankyou'
   >('loading');
@@ -43,12 +48,26 @@ const SurveyPage = () => {
       const res = await api.get(`/api/survey/info/${id}`);
       setInfo(res.data);
       if (res.data.already_submitted) {
-        // If they came from an email star link, still route them properly
+        // If they came from an email star link, still route them properly.
+        // For already-submitted: we don't have the URL from a fresh submit
+        // response, so we fire a no-op submit to get the state-routed URL
+        // (the backend dedupes and returns the right URL for the existing
+        // rating). If that fails, we fall through to the fallback IL URL.
         const rFromUrl = urlRating ? parseInt(urlRating as string) : 0;
         if (rFromUrl >= 4) {
+          let urlToUse = GOOGLE_REVIEW_URL_FALLBACK;
+          try {
+            const submitRes = await api.post('/api/survey/submit', null, {
+              params: { sale_id: id, rating: rFromUrl },
+            });
+            if (submitRes.data?.google_review_url) {
+              urlToUse = submitRes.data.google_review_url;
+              setReviewUrl(urlToUse);
+            }
+          } catch { /* fall through to fallback */ }
           setPhase('redirecting');
           setTimeout(() => {
-            window.location.href = GOOGLE_REVIEW_URL;
+            window.location.href = urlToUse;
           }, 2500);
         } else if (rFromUrl >= 1) {
           setFeedbackName(res.data.client_name || '');
@@ -69,16 +88,21 @@ const SurveyPage = () => {
     if (!r || !id) return;
 
     try {
-      await api.post('/api/survey/submit', null, {
+      const res = await api.post('/api/survey/submit', null, {
         params: { sale_id: id, rating: r, feedback: feedback || undefined },
       });
+
+      // Capture the state-routed URL from the response. Backend picks
+      // IL or TX listing based on sale.state.
+      const urlFromApi = res.data?.google_review_url || GOOGLE_REVIEW_URL_FALLBACK;
+      setReviewUrl(urlFromApi);
 
       // Route based on rating — decided client-side
       if (r >= 4) {
         // 4-5 stars: redirect to Google Review
         setPhase('redirecting');
         setTimeout(() => {
-          window.location.href = GOOGLE_REVIEW_URL;
+          window.location.href = urlFromApi;
         }, 2500);
       } else {
         // 1-3 stars: show feedback form
@@ -86,11 +110,12 @@ const SurveyPage = () => {
         setPhase('feedback_form');
       }
     } catch (err: any) {
-      // If already submitted, still route them
+      // If submit fails, still route them. Use whatever URL we have
+      // (may still be the fallback if this is the first attempt).
       if (r >= 4) {
         setPhase('redirecting');
         setTimeout(() => {
-          window.location.href = GOOGLE_REVIEW_URL;
+          window.location.href = reviewUrl;
         }, 2500);
       } else {
         setFeedbackName(info?.client_name || '');
@@ -168,7 +193,7 @@ const SurveyPage = () => {
           </p>
           <div className="animate-spin w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto mb-6"></div>
           <a
-            href={GOOGLE_REVIEW_URL}
+            href={reviewUrl}
             className="text-sm text-green-600 hover:underline"
           >
             Click here if not redirected automatically

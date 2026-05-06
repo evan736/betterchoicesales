@@ -21,9 +21,21 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.renewal_survey import RenewalSurvey
+from app.services.google_review import get_review_url_for_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/renewal-survey", tags=["renewal-survey"])
+
+
+def _review_url_for_survey(survey: RenewalSurvey) -> str:
+    """Resolve the right Google review URL for a renewal survey.
+
+    Renewal surveys are linked to a customer (customer_id FK), so we
+    use Customer.state to route. If no linked customer (legacy/manual
+    surveys), falls back to the IL listing inside get_review_url_for_state.
+    """
+    state = survey.customer.state if survey.customer else None
+    return get_review_url_for_state(state)
 
 
 # ── Question Definitions ─────────────────────────────────────────
@@ -297,7 +309,12 @@ def get_survey_by_token(token: str, db: Session = Depends(get_db)):
     if not survey:
         raise HTTPException(status_code=404, detail="Survey not found")
     if survey.status == "completed":
-        return {"completed": True, "happiness_rating": survey.happiness_rating, "is_happy": survey.is_happy}
+        return {
+            "completed": True,
+            "happiness_rating": survey.happiness_rating,
+            "is_happy": survey.is_happy,
+            "google_review_url": _review_url_for_survey(survey),
+        }
     if survey.status == "expired":
         raise HTTPException(status_code=410, detail="Survey expired")
 
@@ -336,6 +353,11 @@ def get_survey_by_token(token: str, db: Session = Depends(get_db)):
         "next_question": next_question,
         "is_complete": next_question is None and happiness is not None,
         "completed": False,
+        # Tell the client which Google review URL to use, routed by the
+        # linked customer's state. Customers in TX/OK/LA/AR/NM are sent
+        # to the Texas listing; everyone else gets the IL listing.
+        # Falls back to the IL default if no customer is linked.
+        "google_review_url": _review_url_for_survey(survey),
     }
 
 
@@ -419,6 +441,10 @@ def submit_answer(
         "next_question": next_question,
         "is_complete": survey.status == "completed",
         "responses": responses,
+        # When the survey just completed and the customer is happy, the
+        # frontend renders a "Leave a Google Review" CTA. Include the
+        # state-routed URL so it works without a second request.
+        "google_review_url": _review_url_for_survey(survey),
     }
 
 
