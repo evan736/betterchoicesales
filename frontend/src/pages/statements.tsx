@@ -1203,6 +1203,13 @@ const PayrollActions: React.FC<{
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  // Commission sheet emailing modal — opens automatically after a
+  // successful payroll lock, can also be re-opened manually if the
+  // admin wants to resend or the auto-open failed.
+  const [showCommissionModal, setShowCommissionModal] = useState(false);
+  const [commissionPreview, setCommissionPreview] = useState<any>(null);
+  const [commissionSending, setCommissionSending] = useState(false);
+  const [commissionResults, setCommissionResults] = useState<any>(null);
 
   useEffect(() => {
     loadPayrollStatus();
@@ -1247,6 +1254,19 @@ const PayrollActions: React.FC<{
       await payrollAPI.submit(period, agentOverrides);
       toast.info('Payroll submitted and locked!');
       loadPayrollStatus();
+      // After successful lock, immediately fetch the commission-sheet
+      // recipient list and open the confirm-and-send modal. Per Evan:
+      // "Put in a verification that I have to submit before sending
+      // just to make sure no mistakes."
+      try {
+        const preview = await payrollAPI.previewCommissionSheets(period);
+        setCommissionPreview(preview.data);
+        setShowCommissionModal(true);
+      } catch (previewErr: any) {
+        // Non-fatal — payroll IS locked, just couldn't fetch preview.
+        // Admin can re-open the modal manually via a button (see render).
+        console.warn('Commission preview fetch failed:', previewErr);
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to submit payroll');
     } finally {
@@ -1340,6 +1360,30 @@ const PayrollActions: React.FC<{
             </button>
           )}
 
+          {/* Manually re-open the commission email modal. Useful if the
+              auto-open after submit failed, or admin needs to resend
+              after fixing a missing email address. Only visible when
+              payroll is locked (server enforces this too). */}
+          {payrollStatus?.is_locked && (
+            <button
+              onClick={async () => {
+                try {
+                  const preview = await payrollAPI.previewCommissionSheets(period);
+                  setCommissionPreview(preview.data);
+                  setCommissionResults(null);
+                  setShowCommissionModal(true);
+                } catch (err: any) {
+                  toast.error(err.response?.data?.detail || 'Failed to load preview');
+                }
+              }}
+              disabled={loading}
+              className="bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold px-3 py-2 rounded-lg disabled:opacity-50"
+              title="Email each producer their commission sheet PDF"
+            >
+              📧 Email Commission Sheets
+            </button>
+          )}
+
           {payrollStatus?.is_locked && (
             <button
               onClick={handleUnlock}
@@ -1396,6 +1440,212 @@ const PayrollActions: React.FC<{
                     ))}
                   </tbody>
                 </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Commission Sheet Email Modal — opens automatically after submit,
+          or manually via the "Email Commission Sheets" button.
+
+          Two-step flow:
+          1. Review the recipient list (who, what email, what amount)
+          2. Click "Confirm & Send" to actually fire the emails
+
+          The Send endpoint requires { confirm: true } as an explicit
+          guardrail — UI never sends without the user clicking the
+          confirm button. */}
+      {showCommissionModal && commissionPreview && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-gradient-to-br from-blue-700 to-blue-900 text-white p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-wider opacity-80">Email Commission Sheets</div>
+                  <div className="text-xl font-bold mt-1">{commissionPreview.period_display}</div>
+                </div>
+                <button
+                  onClick={() => setShowCommissionModal(false)}
+                  disabled={commissionSending}
+                  className="text-white/70 hover:text-white text-2xl leading-none disabled:opacity-30"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1">
+              {!commissionResults && (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <div className="text-xs text-blue-700 font-semibold uppercase">Total Producers</div>
+                      <div className="text-2xl font-bold text-blue-900">{commissionPreview.total_recipients}</div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                      <div className="text-xs text-emerald-700 font-semibold uppercase">Will Send</div>
+                      <div className="text-2xl font-bold text-emerald-900">{commissionPreview.sendable_count}</div>
+                    </div>
+                    {commissionPreview.missing_email_count > 0 ? (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <div className="text-xs text-amber-700 font-semibold uppercase">Missing Email</div>
+                        <div className="text-2xl font-bold text-amber-900">{commissionPreview.missing_email_count}</div>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                        <div className="text-xs text-slate-600 font-semibold uppercase">Already Sent</div>
+                        <div className="text-2xl font-bold text-slate-700">{commissionPreview.already_sent_count}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-sm text-slate-700 mb-2">
+                    Each producer will receive their PDF commission sheet via email.
+                    Review the list below and click <strong>Confirm &amp; Send</strong> to send.
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                          <th className="text-left px-3 py-2">Producer</th>
+                          <th className="text-left px-3 py-2">Email</th>
+                          <th className="text-right px-3 py-2">Net Pay</th>
+                          <th className="text-center px-3 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {commissionPreview.recipients.map((r: any) => (
+                          <tr key={r.agent_id} className="border-t border-slate-100">
+                            <td className="px-3 py-2 font-medium">{r.agent_name}</td>
+                            <td className="px-3 py-2 text-slate-600">
+                              {r.email || <span className="text-amber-700 italic">missing</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono">
+                              ${(r.net_pay || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {r.missing_email ? (
+                                <span className="text-xs text-amber-700 font-semibold">SKIP</span>
+                              ) : r.has_already_sent ? (
+                                <span className="text-xs text-slate-500" title={`Last sent ${r.last_sent_at}`}>
+                                  ✓ already sent
+                                </span>
+                              ) : (
+                                <span className="text-xs text-emerald-700 font-semibold">READY</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {commissionPreview.already_sent_count > 0 && (
+                    <div className="mt-3 text-xs text-slate-600 italic">
+                      Some producers were already emailed for this period. They are skipped by default.
+                      To resend to everyone, check the box below.
+                    </div>
+                  )}
+                </>
+              )}
+
+              {commissionResults && (
+                <div>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                      <div className="text-xs text-emerald-700 font-semibold uppercase">Sent</div>
+                      <div className="text-2xl font-bold text-emerald-900">{commissionResults.sent}</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center">
+                      <div className="text-xs text-slate-700 font-semibold uppercase">Skipped</div>
+                      <div className="text-2xl font-bold text-slate-900">{commissionResults.skipped}</div>
+                    </div>
+                    <div className={`border rounded-lg p-3 text-center ${commissionResults.errors ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className={`text-xs font-semibold uppercase ${commissionResults.errors ? 'text-red-700' : 'text-slate-700'}`}>Errors</div>
+                      <div className={`text-2xl font-bold ${commissionResults.errors ? 'text-red-900' : 'text-slate-900'}`}>
+                        {commissionResults.errors}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-100">
+                        <tr>
+                          <th className="text-left px-3 py-2">Producer</th>
+                          <th className="text-left px-3 py-2">Status</th>
+                          <th className="text-left px-3 py-2">Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {commissionResults.results.map((r: any, i: number) => (
+                          <tr key={i} className="border-t border-slate-100">
+                            <td className="px-3 py-2">{r.agent_name}</td>
+                            <td className="px-3 py-2">
+                              {r.status === 'sent' && <span className="text-emerald-700 font-semibold">✓ Sent</span>}
+                              {r.status === 'skipped_already_sent' && <span className="text-slate-500">Skipped (already sent)</span>}
+                              {r.status === 'skipped_no_email' && <span className="text-amber-700">No email on file</span>}
+                              {r.status?.startsWith('error') && <span className="text-red-700 font-semibold">✗ Error</span>}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-slate-600">
+                              {r.to || r.error || ''}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-200 p-4 flex items-center justify-between gap-3">
+              {!commissionResults ? (
+                <>
+                  <button
+                    onClick={() => setShowCommissionModal(false)}
+                    disabled={commissionSending}
+                    className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setCommissionSending(true);
+                      try {
+                        const res = await payrollAPI.sendCommissionSheets(period, {
+                          confirm: true,
+                        });
+                        setCommissionResults(res.data);
+                        if (res.data.errors === 0) {
+                          toast.success(`Sent ${res.data.sent} commission sheets`);
+                        } else {
+                          toast.error(`Sent ${res.data.sent}, but ${res.data.errors} failed — see details`);
+                        }
+                      } catch (err: any) {
+                        toast.error(err.response?.data?.detail || 'Send failed');
+                      } finally {
+                        setCommissionSending(false);
+                      }
+                    }}
+                    disabled={commissionSending || commissionPreview.sendable_count === 0}
+                    className="px-5 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+                  >
+                    {commissionSending ? 'Sending…' : `✓ Confirm & Send to ${commissionPreview.sendable_count}`}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    setShowCommissionModal(false);
+                    setCommissionResults(null);
+                  }}
+                  className="ml-auto px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                >
+                  Close
+                </button>
               )}
             </div>
           </div>

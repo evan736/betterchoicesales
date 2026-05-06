@@ -153,6 +153,15 @@ export const payrollAPI = {
   markPaid: (period: string) => api.post(`/api/payroll/mark-paid/${period}`),
   history: () => api.get('/api/payroll/history'),
   detail: (period: string) => api.get(`/api/payroll/detail/${period}`),
+  // Commission sheet emailing — must happen AFTER payroll is locked
+  // (the preview endpoint enforces this server-side, but UI should also
+  // gate this behind a successful submit).
+  previewCommissionSheets: (period: string) =>
+    api.get(`/api/payroll/${period}/commission-sheets/preview`),
+  sendCommissionSheets: (
+    period: string,
+    body: { confirm: boolean; agent_ids?: number[]; resend?: boolean; test_mode_recipient?: string }
+  ) => api.post(`/api/payroll/${period}/commission-sheets/send`, body),
 };
 
 // Retention Analytics API

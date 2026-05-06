@@ -1,9 +1,11 @@
 """Payroll API — submit, lock, view history, and mark paid."""
 import logging
 from datetime import datetime
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -314,3 +316,329 @@ def _update_sales_commission_status(db: Session, pay_data: dict, period: str, st
         if status == "paid":
             sale.commission_paid_date = now
             sale.commission_paid_period = period
+
+
+# ─── Commission Sheet Email Distribution ────────────────────────────
+# After payroll is locked, this lets admin email each producer their
+# commission sheet PDF. Two-step: preview (returns recipients) + send
+# (actually fires emails). Per Evan: lock and send are intentionally
+# separate clicks so a misclick on lock doesn't blast emails.
+
+@router.get("/{period}/commission-sheets/preview")
+def preview_commission_sheet_recipients(
+    period: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the list of producers who would receive a commission sheet email
+    for the given period. Used by the UI to show a recipient confirmation
+    list before the admin clicks 'Send'.
+
+    Includes:
+      - agent_id, agent_name
+      - email (from User.email — required to send)
+      - missing_email flag if we can't email them
+      - has_already_sent flag if a prior send happened for this period
+      - net_pay so admin can verify the right number is going out
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    record = db.query(PayrollRecord).filter(PayrollRecord.period == period).first()
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No payroll record for {period}")
+    if not record.is_locked:
+        raise HTTPException(status_code=400, detail="Payroll must be locked before sending commission sheets")
+
+    lines = db.query(PayrollAgentLine).filter(
+        PayrollAgentLine.payroll_record_id == record.id
+    ).all()
+
+    recipients = []
+    for line in lines:
+        user = db.query(User).filter(User.id == line.agent_id).first()
+        recipients.append({
+            "agent_id": line.agent_id,
+            "agent_name": line.agent_name,
+            "email": user.email if user else None,
+            "missing_email": not (user and user.email),
+            "net_pay": float(line.grand_total or 0),
+            "has_already_sent": bool(line.commission_sheet_sent_at),
+            "last_sent_at": line.commission_sheet_sent_at.isoformat() if line.commission_sheet_sent_at else None,
+            "last_sent_to": line.commission_sheet_sent_to,
+        })
+
+    sendable = sum(1 for r in recipients if not r["missing_email"])
+    return {
+        "period": period,
+        "period_display": record.period_display,
+        "is_locked": record.is_locked,
+        "total_recipients": len(recipients),
+        "sendable_count": sendable,
+        "missing_email_count": len(recipients) - sendable,
+        "already_sent_count": sum(1 for r in recipients if r["has_already_sent"]),
+        "recipients": recipients,
+    }
+
+
+class SendCommissionSheetsBody(BaseModel):
+    confirm: bool = False  # MUST be true; serves as a guardrail
+    agent_ids: Optional[List[int]] = None  # If provided, only send to these
+    resend: bool = False  # If True, send even if already sent before
+    test_mode_recipient: Optional[str] = None  # Send all PDFs to this email instead
+
+
+@router.post("/{period}/commission-sheets/send")
+def send_commission_sheets(
+    period: str,
+    body: SendCommissionSheetsBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Email each producer their commission sheet PDF for this period.
+
+    Guardrails:
+      - Period must be LOCKED (paranoid check — preview also checks)
+      - Body must have confirm=true (UI-side double-click protection)
+      - Skips agents already sent unless resend=true
+      - Skips agents missing an email and reports them in the response
+      - Per-agent failures don't abort the batch — failures are
+        collected and returned
+
+    Side effects:
+      - Per-agent: PayrollAgentLine.commission_sheet_sent_at,
+        commission_sheet_sent_to are set on success
+      - Logs each send for audit trail
+    """
+    if current_user.role.lower() not in ("admin",):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if not body.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true required. Re-submit after explicit confirmation.",
+        )
+
+    record = db.query(PayrollRecord).filter(PayrollRecord.period == period).first()
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No payroll record for {period}")
+    if not record.is_locked:
+        raise HTTPException(status_code=400, detail="Payroll must be locked first")
+
+    lines = db.query(PayrollAgentLine).filter(
+        PayrollAgentLine.payroll_record_id == record.id
+    ).all()
+
+    # Filter by agent_ids if specified
+    if body.agent_ids:
+        target_ids = set(body.agent_ids)
+        lines = [l for l in lines if l.agent_id in target_ids]
+
+    if not lines:
+        return {"sent": 0, "skipped": 0, "errors": 0, "results": [], "message": "No recipients matched"}
+
+    # Pull the per-agent commission sheet data + PDFs
+    from app.services.reconciliation import ReconciliationService
+    from app.services.commission_pdf import generate_commission_pdf
+    service = ReconciliationService(db)
+
+    sent_count = 0
+    skipped_count = 0
+    error_count = 0
+    results = []
+
+    for line in lines:
+        agent_id = line.agent_id
+        agent_name = line.agent_name
+
+        # Skip if already sent and not resending
+        if line.commission_sheet_sent_at and not body.resend:
+            skipped_count += 1
+            results.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "skipped_already_sent",
+                "last_sent_at": line.commission_sheet_sent_at.isoformat(),
+            })
+            continue
+
+        user = db.query(User).filter(User.id == agent_id).first()
+        target_email = body.test_mode_recipient or (user.email if user else None)
+
+        if not target_email:
+            error_count += 1
+            results.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "skipped_no_email",
+            })
+            continue
+
+        # Build the PDF
+        try:
+            sheet_data = service.get_agent_commission_sheet(
+                period, agent_id,
+                rate_adjustment=float(line.rate_adjustment or 0),
+                bonus=float(line.bonus or 0),
+            )
+            pdf_bytes = generate_commission_pdf(sheet_data)
+        except Exception as e:
+            logger.exception("PDF generation failed for agent %s: %s", agent_id, e)
+            error_count += 1
+            results.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "error_pdf_generation",
+                "error": str(e)[:200],
+            })
+            continue
+
+        # Send the email
+        try:
+            send_result = _send_commission_sheet_email(
+                to_email=target_email,
+                agent_name=agent_name,
+                period=period,
+                period_display=record.period_display,
+                net_pay=float(line.grand_total or 0),
+                pdf_bytes=pdf_bytes,
+                test_mode=bool(body.test_mode_recipient),
+            )
+        except Exception as e:
+            logger.exception("Send failed for agent %s: %s", agent_id, e)
+            error_count += 1
+            results.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "error_send",
+                "error": str(e)[:200],
+            })
+            continue
+
+        if not send_result.get("success"):
+            error_count += 1
+            err = send_result.get("error", "unknown")
+            if not body.test_mode_recipient:
+                line.commission_sheet_send_error = err[:500]
+            results.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "error_send",
+                "error": err,
+            })
+            continue
+
+        # Record success on the line — only when NOT in test mode
+        if not body.test_mode_recipient:
+            line.commission_sheet_sent_at = datetime.utcnow()
+            line.commission_sheet_sent_to = target_email
+            line.commission_sheet_send_error = None  # clear any prior error
+
+        sent_count += 1
+        results.append({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "status": "sent",
+            "to": target_email,
+            "message_id": send_result.get("message_id"),
+        })
+        logger.info(
+            "Commission sheet emailed: period=%s agent=%s (%s) to=%s test_mode=%s",
+            period, agent_name, agent_id, target_email, bool(body.test_mode_recipient),
+        )
+
+    if not body.test_mode_recipient:
+        db.commit()
+
+    return {
+        "period": period,
+        "sent": sent_count,
+        "skipped": skipped_count,
+        "errors": error_count,
+        "test_mode": bool(body.test_mode_recipient),
+        "test_mode_recipient": body.test_mode_recipient,
+        "results": results,
+    }
+
+
+def _send_commission_sheet_email(
+    to_email: str, agent_name: str, period: str, period_display: str,
+    net_pay: float, pdf_bytes: bytes, test_mode: bool = False,
+) -> dict:
+    """Send a single commission sheet email via Mailgun. Internal helper."""
+    import requests
+    from app.core.config import settings
+
+    if not settings.MAILGUN_API_KEY or not settings.MAILGUN_DOMAIN:
+        return {"success": False, "error": "Mailgun not configured"}
+
+    first_name = (agent_name or "").split()[0] if agent_name else "there"
+    subject_prefix = "[TEST] " if test_mode else ""
+    subject = f"{subject_prefix}Commission Sheet — {period_display}"
+
+    test_banner = ""
+    if test_mode:
+        test_banner = (
+            '<div style="background:#fef3c7;border:1px solid #f59e0b;padding:12px;'
+            'border-radius:8px;margin-bottom:16px;color:#92400e;font-weight:bold;">'
+            "TEST MODE — This is a preview. Real send to producer was not performed."
+            "</div>"
+        )
+
+    html_body = f"""\
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+                   max-width:600px;margin:auto;color:#0f172a;padding:24px;">
+  {test_banner}
+  <div style="background:linear-gradient(135deg,#1F3661 0%,#2d4a7a 100%);
+              color:white;padding:24px;border-radius:12px 12px 0 0;">
+    <h2 style="margin:0;font-size:22px;">Commission Sheet — {period_display}</h2>
+    <p style="margin:8px 0 0;opacity:0.85;font-size:14px;">Better Choice Insurance Group</p>
+  </div>
+  <div style="background:white;border:1px solid #e5e7eb;border-top:0;
+              padding:24px;border-radius:0 0 12px 12px;">
+    <p>Hi {first_name},</p>
+    <p>Your commission sheet for <strong>{period_display}</strong> is attached.
+       Please review the details and let Evan know if you have any questions.</p>
+    <div style="background:#f3f4f6;padding:16px;border-radius:8px;margin:20px 0;">
+      <div style="color:#6b7280;font-size:12px;text-transform:uppercase;
+                  letter-spacing:0.5px;margin-bottom:4px;">Net Pay (this period)</div>
+      <div style="font-size:28px;font-weight:bold;color:#047857;">
+        ${net_pay:,.2f}
+      </div>
+    </div>
+    <p style="color:#6b7280;font-size:13px;">The attached PDF contains the full
+       carrier-by-carrier breakdown of your commissions, any chargebacks, rate
+       adjustments, and bonuses applied for this period.</p>
+    <p style="color:#6b7280;font-size:13px;margin-top:20px;">
+       Questions? Reply to this email or reach out to Evan directly.</p>
+  </div>
+  <p style="color:#94a3b8;font-size:11px;text-align:center;margin-top:16px;">
+     Better Choice Insurance Group · 300 Cardinal Dr Suite 220, Saint Charles IL 60175
+  </p>
+</body></html>
+"""
+
+    filename = f"Commission_Sheet_{(agent_name or 'producer').replace(' ', '_')}_{period}.pdf"
+    mail_data = {
+        "from": "Better Choice Insurance <" + settings.MAILGUN_FROM_EMAIL + ">",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+        "h:Reply-To": "evan@betterchoiceins.com",
+    }
+    # BCC Evan on every send for audit trail (skipped in test mode to avoid noise)
+    if not test_mode:
+        mail_data["bcc"] = ["evan@betterchoiceins.com"]
+
+    files = [("attachment", (filename, pdf_bytes, "application/pdf"))]
+
+    resp = requests.post(
+        "https://api.mailgun.net/v3/" + settings.MAILGUN_DOMAIN + "/messages",
+        auth=("api", settings.MAILGUN_API_KEY),
+        data=mail_data,
+        files=files,
+        timeout=30,
+    )
+    if resp.status_code == 200:
+        return {"success": True, "message_id": resp.json().get("id", "")}
+    return {"success": False, "error": f"Mailgun {resp.status_code}: {resp.text[:200]}"}

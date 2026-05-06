@@ -80,6 +80,15 @@ class PayrollAgentLine(Base):
     commission_status = Column(String, default="pending")  # pending, paid
     paid_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Commission sheet email tracking — set when the producer's PDF
+    # commission sheet was emailed to them after payroll lock. Used by
+    # the UI to show "✓ sent" indicators and by /send-commission-sheets
+    # to skip already-sent producers on retry.
+    commission_sheet_sent_at = Column(DateTime(timezone=True), nullable=True)
+    commission_sheet_sent_to = Column(String, nullable=True)  # email address used
+    commission_sheet_sent_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    commission_sheet_send_error = Column(Text, nullable=True)  # last error if send failed
+
     # Relationships
     payroll_record = relationship("PayrollRecord", back_populates="agent_payroll_lines")
     agent = relationship("User", foreign_keys=[agent_id])

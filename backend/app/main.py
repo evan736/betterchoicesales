@@ -199,6 +199,18 @@ def init_database():
                         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_agent_lines' AND column_name='grand_total') THEN
                             ALTER TABLE payroll_agent_lines ADD COLUMN grand_total NUMERIC(12,2) DEFAULT 0;
                         END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_agent_lines' AND column_name='commission_sheet_sent_at') THEN
+                            ALTER TABLE payroll_agent_lines ADD COLUMN commission_sheet_sent_at TIMESTAMPTZ;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_agent_lines' AND column_name='commission_sheet_sent_to') THEN
+                            ALTER TABLE payroll_agent_lines ADD COLUMN commission_sheet_sent_to VARCHAR;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_agent_lines' AND column_name='commission_sheet_sent_by_id') THEN
+                            ALTER TABLE payroll_agent_lines ADD COLUMN commission_sheet_sent_by_id INTEGER REFERENCES users(id);
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='payroll_agent_lines' AND column_name='commission_sheet_send_error') THEN
+                            ALTER TABLE payroll_agent_lines ADD COLUMN commission_sheet_send_error TEXT;
+                        END IF;
                     END IF;
                 END $$;
             """))
