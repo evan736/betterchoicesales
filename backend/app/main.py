@@ -1277,6 +1277,75 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_reshop_digest_scheduler, daemon=True).start()
 
+    # ── Reshop Pulse daily digest (8:00 AM CT, Mon-Fri) ─────────────
+    # Surfaces stale, untouched, and at-risk-win reshops — the Michelle
+    # audit pattern, but automatic and daily. Fires 20 minutes BEFORE
+    # the per-team-member reshop digest so Evan reads Pulse first
+    # (high-level health) and the team digests second (their own work).
+    def _reshop_pulse_scheduler():
+        import time as _time
+        from datetime import datetime as _datetime
+        _time.sleep(30)  # Wait for migrations
+        logger.info("Reshop Pulse scheduler started (8:00 AM CT, Mon-Fri)")
+        _last_sent_date = None
+
+        while True:
+            try:
+                from zoneinfo import ZoneInfo
+                now_ct = _datetime.now(ZoneInfo("America/Chicago"))
+                today_ct = now_ct.date()
+
+                if (now_ct.hour == 8 and now_ct.minute < 15 and
+                        now_ct.weekday() < 5 and _last_sent_date != today_ct):
+                    logger.info("Sending daily Reshop Pulse digest...")
+                    try:
+                        from app.core.database import SessionLocal
+                        from app.api.reshop import _build_pulse_payload, _format_pulse_email
+                        import os as _os
+                        import requests as _requests
+
+                        _db = SessionLocal()
+                        try:
+                            payload = _build_pulse_payload(_db)
+                            subject, html = _format_pulse_email(payload)
+
+                            mg_key = _os.environ.get("MAILGUN_API_KEY")
+                            mg_domain = _os.environ.get("MAILGUN_DOMAIN")
+                            recipient = _os.environ.get(
+                                "PULSE_DIGEST_RECIPIENT", "evan@betterchoiceins.com"
+                            )
+
+                            if mg_key and mg_domain:
+                                resp = _requests.post(
+                                    f"https://api.mailgun.net/v3/{mg_domain}/messages",
+                                    auth=("api", mg_key),
+                                    data={
+                                        "from": f"ORBIT Reshop Pulse <noreply@{mg_domain}>",
+                                        "to": recipient,
+                                        "subject": subject,
+                                        "html": html,
+                                    },
+                                    timeout=15,
+                                )
+                                logger.info(
+                                    "Pulse digest sent: status=%s totals=%s",
+                                    resp.status_code, payload["totals"],
+                                )
+                            else:
+                                logger.warning("Pulse digest: Mailgun not configured")
+                        finally:
+                            _db.close()
+                        _last_sent_date = today_ct
+                    except Exception as pe:
+                        logger.error("Pulse digest send error: %s", pe)
+                        _last_sent_date = today_ct  # Don't retry today
+            except Exception as e:
+                logger.error("Pulse scheduler error: %s", e)
+
+            _time.sleep(60)
+
+    threading.Thread(target=_reshop_pulse_scheduler, daemon=True).start()
+
     # ── UW Tracker daily digest + proximity reminders (7:30 AM CT, every day) ─
     def _uw_tracker_scheduler():
         import time as _time

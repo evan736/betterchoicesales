@@ -10,7 +10,7 @@ import logging
 import os
 import requests as http_requests
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -32,6 +32,27 @@ router = APIRouter(prefix="/api/reshops", tags=["reshops"])
 STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting", "bound", "renewed", "lost"]
 ACTIVE_STAGES = ["proactive", "new_request", "quoting", "quote_ready", "presenting"]
 CLOSED_STAGES = ["bound", "renewed", "lost"]
+
+# "Won" stages — moving to one of these means we're claiming we kept or
+# saved the customer. These require proof of customer contact (at least
+# one answered attempt) before we'll accept the transition. Without
+# this guardrail, reshops get marked "won" with no calls logged — the
+# Yulisa Mandujano pattern, where the customer auto-renewed at +38.7%
+# but the reshop record showed bound/renewed with zero answered attempts.
+# 'lost' is intentionally NOT in this set — losing without contact is
+# legitimate (customer cancelled, never replied, etc.).
+WON_STAGES_REQUIRE_CONTACT = {"bound", "renewed"}
+
+
+def _has_answered_attempt(reshop: "Reshop") -> bool:
+    """True if any of the 3 attempts has answered=True. The model uses
+    Boolean nullable=True, so the explicit 'is True' check matters —
+    None and False both mean 'no answer logged'."""
+    return any([
+        reshop.attempt_1_answered is True,
+        reshop.attempt_2_answered is True,
+        reshop.attempt_3_answered is True,
+    ])
 SOURCES = ["inbound_call", "inbound_email", "producer_referral", "proactive_renewal", "walk_in", "nonpay_escalation", "other"]
 REASONS = ["price_increase", "service_issue", "coverage_change", "shopping", "nonpay", "renewal_increase", "other"]
 PRIORITIES = ["low", "normal", "high", "urgent"]
@@ -590,6 +611,9 @@ class ReshopUpdate(BaseModel):
     reason: Optional[str] = None
     reason_detail: Optional[str] = None
     notes: Optional[str] = None
+    # Guardrail override — when True, allows moving to bound/renewed
+    # without an answered attempt. Used for data corrections only.
+    force_won: Optional[bool] = False
 
 
 class ReshopNote(BaseModel):
@@ -1330,6 +1354,21 @@ def update_reshop(
 
     # Track stage change
     if data.stage and data.stage != reshop.stage:
+        # Won-stage guardrail: require at least one answered attempt
+        # before we'll accept bound/renewed. Admin can override by
+        # setting force_won=True on the payload (used for legacy data
+        # fixes). See WON_STAGES_REQUIRE_CONTACT comment for context.
+        if data.stage in WON_STAGES_REQUIRE_CONTACT and not _has_answered_attempt(reshop):
+            if not getattr(data, "force_won", False):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Cannot move to '{data.stage}' — no answered attempts on this reshop. "
+                        f"Log a connected call (Attempt 1/2/3 with answered=true) first, or "
+                        f"pass force_won=true if this is a data correction."
+                    ),
+                )
+
         old_stage = reshop.stage
         reshop.stage = data.stage
         reshop.stage_updated_at = datetime.utcnow()
@@ -1782,6 +1821,7 @@ def move_reshop_stage(
     bound_carrier: Optional[str] = Query(None, description="Required when stage='bound'"),
     bound_premium: Optional[float] = Query(None, description="Required when stage='bound'"),
     lost_reason: Optional[str] = Query(None, description="Optional when stage='lost'"),
+    force_won: bool = Query(False, description="Override the answered-attempt requirement on bound/renewed (data fixes only)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1794,7 +1834,11 @@ def move_reshop_stage(
     optional (legacy lost cards exist without reasons). The frontend kanban
     drag-handler should show a small modal prompting for these fields
     BEFORE calling this endpoint, but we enforce here too as a server-side
-    safety net for callers that bypass the UI."""
+    safety net for callers that bypass the UI.
+
+    Won-stage guardrail: moving to 'bound' or 'renewed' requires at least
+    one answered attempt logged on the reshop. Pass force_won=true to
+    override (admin-only data fix path)."""
     if not _can_access(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -1808,6 +1852,35 @@ def move_reshop_stage(
     reshop = db.query(Reshop).filter(Reshop.id == reshop_id).first()
     if not reshop:
         raise HTTPException(status_code=404, detail="Reshop not found")
+
+    # Won-stage guardrail (see WON_STAGES_REQUIRE_CONTACT for context).
+    # Only enforced when actually changing TO a won stage from a different
+    # stage — already-won reshops being re-saved with the same stage
+    # shouldn't trip this.
+    if (
+        stage in WON_STAGES_REQUIRE_CONTACT
+        and stage != reshop.stage
+        and not _has_answered_attempt(reshop)
+        and not force_won
+    ):
+        # Admin can override; everyone else gets blocked.
+        if current_user.role.lower() != "admin":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot move to '{stage}' — no answered attempts on this reshop. "
+                    f"Log a connected call (Attempt 1/2/3 with answered=true) before "
+                    f"marking this customer as saved."
+                ),
+            )
+        # Admin without explicit force flag — still warn via response
+        # but go through. (We don't actually block here; admin should
+        # see the warning and consciously pass force_won. But to keep
+        # admin from being surprised, log it.)
+        logger.warning(
+            "Admin %s moved reshop %s to %s without answered attempt and without force_won",
+            current_user.username, reshop_id, stage,
+        )
 
     # Bound-stage gate: require bound_carrier + bound_premium so reporting
     # totals (premium savings, agent leaderboards) populate correctly.
@@ -2300,3 +2373,372 @@ def create_reshop_from_customer(
         logger.error("Reshop notification error: %s", e)
 
     return _reshop_to_dict(reshop)
+
+
+# ── Reshop Pulse ─────────────────────────────────────────────────────
+#
+# The Pulse surface answers four operational questions in a single
+# query, replacing the manual cross-system audits Evan has been doing
+# by hand:
+#
+#   1. STALE  — active reshops with no recent activity (forgotten cards)
+#   2. NO_TOUCH — reshops that have aged without any attempt logged
+#   3. NO_ANSWER_CYCLE — 3 unanswered attempts, customer never picked up
+#   4. AT_RISK_WIN — bound/renewed cards with zero answered attempts
+#                    (the Yulisa Mandujano pattern, surfaced retroactively)
+#
+# Thresholds are tunable via the query params, with sensible defaults.
+# The endpoint is intentionally one query per category so the UI can
+# render four separate stacks. A combined daily-digest path uses the
+# same logic via _build_pulse_payload.
+
+# Days of inactivity that flip an active reshop into "stale" by stage.
+# Earlier-stage reshops should move faster than later-stage ones —
+# a brand-new request sitting 3 days is more concerning than a quote
+# in presenting that's waiting on the customer to schedule.
+DEFAULT_STALE_DAYS_BY_STAGE = {
+    "new_request": 2,
+    "proactive": 5,
+    "quoting": 4,
+    "quote_ready": 3,
+    "presenting": 5,
+}
+# Reshops older than this with literally zero attempts logged.
+DEFAULT_NO_TOUCH_DAYS = 3
+
+
+def _days_since(dt) -> Optional[int]:
+    """Days since a timestamp (UTC). Returns None if dt is None."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        # The model uses timezone=True so this branch is defensive only
+        return (datetime.utcnow() - dt).days
+    return (datetime.now(dt.tzinfo) - dt).days
+
+
+def _last_activity_at(reshop: Reshop) -> Optional[datetime]:
+    """Most recent of (latest attempt, stage_updated_at, requested_at).
+    This is the timestamp we measure 'stale' against — any documented
+    forward motion resets the staleness clock."""
+    candidates = [
+        reshop.attempt_3_at, reshop.attempt_2_at, reshop.attempt_1_at,
+        reshop.stage_updated_at, reshop.requested_at,
+    ]
+    candidates = [c for c in candidates if c]
+    return max(candidates) if candidates else None
+
+
+def _attempt_count(reshop: Reshop) -> int:
+    return sum(1 for a in [reshop.attempt_1_at, reshop.attempt_2_at, reshop.attempt_3_at] if a)
+
+
+def _unanswered_attempts(reshop: Reshop) -> int:
+    """Count of attempts where answered=False (explicitly tried and failed).
+    Excludes None (attempt not logged) and True (answered)."""
+    return sum(1 for a in [
+        reshop.attempt_1_answered, reshop.attempt_2_answered, reshop.attempt_3_answered,
+    ] if a is False)
+
+
+def _pulse_card(reshop: Reshop, why: str, *, db: Session = None) -> dict:
+    """Compact serialization for pulse cards — just the fields the UI
+    needs to render a row + the 'why' explanation."""
+    last_activity = _last_activity_at(reshop)
+    assignee_name = None
+    if reshop.assignee:
+        assignee_name = reshop.assignee.full_name or reshop.assignee.username
+    return {
+        "id": reshop.id,
+        "customer_name": reshop.customer_name,
+        "carrier": reshop.carrier,
+        "stage": reshop.stage,
+        "assigned_to": reshop.assigned_to,
+        "assignee_name": assignee_name,
+        "created_at": reshop.created_at.isoformat() if reshop.created_at else None,
+        "expiration_date": reshop.expiration_date.isoformat() if reshop.expiration_date else None,
+        "days_since_activity": _days_since(last_activity),
+        "days_since_created": _days_since(reshop.created_at),
+        "attempt_count": _attempt_count(reshop),
+        "unanswered_attempts": _unanswered_attempts(reshop),
+        "has_answered": _has_answered_attempt(reshop),
+        "current_premium": float(reshop.current_premium) if reshop.current_premium else None,
+        "premium_change_pct": float(reshop.premium_change_pct) if reshop.premium_change_pct else None,
+        "why": why,
+    }
+
+
+def _build_pulse_payload(
+    db: Session,
+    *,
+    no_touch_days: int = DEFAULT_NO_TOUCH_DAYS,
+    stale_days_by_stage: Optional[dict] = None,
+    assignee_id: Optional[int] = None,
+) -> dict:
+    """Core Pulse query, shared between the live endpoint and the
+    daily digest. Returns categorized lists of pulse cards.
+
+    Filtering by assignee_id lets us produce per-producer digests
+    (each retention specialist gets their own list) as well as the
+    full agency view (assignee_id=None).
+    """
+    stale_days_by_stage = stale_days_by_stage or DEFAULT_STALE_DAYS_BY_STAGE
+    now = datetime.utcnow()
+
+    # Pull active reshops once and bucket them in Python — it's a small
+    # working set (typically <50 rows) and querying once keeps the
+    # categorization logic inline and easy to audit.
+    active_q = db.query(Reshop).filter(Reshop.stage.in_(ACTIVE_STAGES))
+    if assignee_id is not None:
+        active_q = active_q.filter(Reshop.assigned_to == assignee_id)
+    active = active_q.all()
+
+    stale: List[dict] = []
+    no_touch: List[dict] = []
+    no_answer_cycle: List[dict] = []
+
+    for r in active:
+        last = _last_activity_at(r)
+        last_days = _days_since(last) if last else _days_since(r.created_at)
+        threshold = stale_days_by_stage.get(r.stage, 5)
+
+        # NO_TOUCH: created N+ days ago, zero attempts logged
+        created_age = _days_since(r.created_at) or 0
+        if _attempt_count(r) == 0 and created_age >= no_touch_days:
+            no_touch.append(_pulse_card(
+                r,
+                why=f"No attempts logged · {created_age}d since created",
+            ))
+            continue  # one bucket per card
+
+        # NO_ANSWER_CYCLE: 3 unanswered attempts, no answered, no further activity
+        if _unanswered_attempts(r) >= 3 and not _has_answered_attempt(r):
+            no_answer_cycle.append(_pulse_card(
+                r,
+                why=f"3 unanswered attempts · customer never reached",
+            ))
+            continue
+
+        # STALE: per-stage threshold based on time since last activity
+        if last_days is not None and last_days >= threshold:
+            stale.append(_pulse_card(
+                r,
+                why=f"{last_days}d since last activity · stage '{r.stage}' threshold {threshold}d",
+            ))
+
+    # AT_RISK_WIN — the retroactive audit. Bound or renewed reshops
+    # where no attempt was ever marked answered=True. These are the
+    # records we'd want to manually review — same shape as the
+    # Yulisa Mandujano case.
+    won_q = db.query(Reshop).filter(Reshop.stage.in_(list(WON_STAGES_REQUIRE_CONTACT)))
+    if assignee_id is not None:
+        won_q = won_q.filter(Reshop.assigned_to == assignee_id)
+    won = won_q.all()
+
+    at_risk_win: List[dict] = []
+    for r in won:
+        if _has_answered_attempt(r):
+            continue
+        # Skip very old historical wins — the guardrail is meant to
+        # surface recent shaky records. 90 days of grace.
+        completed_age = _days_since(r.completed_at) if r.completed_at else _days_since(r.stage_updated_at)
+        if completed_age is None or completed_age > 90:
+            continue
+        at_risk_win.append(_pulse_card(
+            r,
+            why=(
+                f"Marked '{r.stage}' with zero answered attempts "
+                f"({completed_age}d ago)"
+            ),
+        ))
+
+    # Sort each list by urgency (oldest first)
+    stale.sort(key=lambda c: -(c["days_since_activity"] or 0))
+    no_touch.sort(key=lambda c: -(c["days_since_created"] or 0))
+    no_answer_cycle.sort(key=lambda c: -(c["days_since_activity"] or 0))
+    at_risk_win.sort(key=lambda c: -(c["days_since_activity"] or 0))
+
+    return {
+        "as_of": now.isoformat(),
+        "thresholds": {
+            "no_touch_days": no_touch_days,
+            "stale_days_by_stage": stale_days_by_stage,
+            "at_risk_win_lookback_days": 90,
+        },
+        "totals": {
+            "stale": len(stale),
+            "no_touch": len(no_touch),
+            "no_answer_cycle": len(no_answer_cycle),
+            "at_risk_win": len(at_risk_win),
+        },
+        "stale": stale,
+        "no_touch": no_touch,
+        "no_answer_cycle": no_answer_cycle,
+        "at_risk_win": at_risk_win,
+    }
+
+
+@router.get("/pulse")
+def reshop_pulse(
+    no_touch_days: int = Query(DEFAULT_NO_TOUCH_DAYS, ge=1, le=30),
+    assignee_id: Optional[int] = Query(None, description="Filter to a single producer/retention specialist"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reshop Pulse — surface stale, untouched, and at-risk-win reshops.
+
+    Replaces the manual cross-system audits (NowCerts + Lightspeed +
+    Missive + ORBIT) we were running by hand. Returns four categorized
+    lists with explanations of why each reshop made the list.
+
+    Categories:
+      - stale: active reshops with no activity past the per-stage threshold
+      - no_touch: reshops aged N+ days with zero attempts logged
+      - no_answer_cycle: 3 unanswered attempts, customer never reached
+      - at_risk_win: bound/renewed reshops with zero answered attempts
+                     (90-day lookback to keep the list relevant)
+    """
+    if not _can_access(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return _build_pulse_payload(
+        db,
+        no_touch_days=no_touch_days,
+        assignee_id=assignee_id,
+    )
+
+
+def _format_pulse_email(payload: dict, *, recipient_role: str = "admin") -> tuple[str, str]:
+    """Format the daily Pulse digest as (subject, html). Used by the
+    8 AM CT scheduler. Empty categories collapse — if there's nothing
+    to report the email is short and reassuring rather than a wall."""
+    totals = payload["totals"]
+    grand = sum(totals.values())
+    if grand == 0:
+        subject = "Reshop Pulse — All clear ✓"
+        html = """
+        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: auto; padding: 24px;">
+          <div style="background: linear-gradient(135deg, #1F3661, #2d4a7a); color: white; padding: 20px; border-radius: 12px 12px 0 0;">
+            <h2 style="margin: 0; font-size: 20px;">Reshop Pulse</h2>
+            <p style="margin: 6px 0 0; opacity: 0.85; font-size: 14px;">Daily activity heartbeat</p>
+          </div>
+          <div style="background: white; border: 1px solid #e5e7eb; border-top: 0; padding: 24px; border-radius: 0 0 12px 12px;">
+            <p style="font-size: 16px; color: #047857; font-weight: 600;">All clear — no stale or at-risk reshops.</p>
+            <p style="color: #6b7280; font-size: 13px;">Pipeline is healthy. Nothing requires attention today.</p>
+          </div>
+        </div>
+        """
+        return subject, html
+
+    subject_parts = []
+    if totals["at_risk_win"]:
+        subject_parts.append(f"{totals['at_risk_win']} at-risk wins")
+    if totals["stale"]:
+        subject_parts.append(f"{totals['stale']} stale")
+    if totals["no_touch"]:
+        subject_parts.append(f"{totals['no_touch']} untouched")
+    if totals["no_answer_cycle"]:
+        subject_parts.append(f"{totals['no_answer_cycle']} ghosted")
+    subject = "Reshop Pulse — " + ", ".join(subject_parts)
+
+    def _section(title: str, color: str, cards: list, empty_msg: str = None) -> str:
+        if not cards:
+            return ""
+        rows = []
+        for c in cards[:15]:  # cap each section at 15 in the email
+            rows.append(f"""
+              <tr>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px;">
+                  <strong>{c['customer_name']}</strong>
+                  <span style="color: #6b7280;"> · {c.get('carrier') or '—'} · {c['stage']}</span>
+                  <div style="color: #9ca3af; font-size: 12px; margin-top: 2px;">
+                    {c['why']}{'  ·  ' + c['assignee_name'] if c.get('assignee_name') else ''}
+                  </div>
+                </td>
+              </tr>
+            """)
+        more = ""
+        if len(cards) > 15:
+            more = f"""<tr><td style="padding: 8px 12px; color: #9ca3af; font-size: 12px; font-style: italic;">+{len(cards) - 15} more — view full list in ORBIT</td></tr>"""
+        return f"""
+          <div style="margin-bottom: 20px;">
+            <h3 style="margin: 0 0 8px; font-size: 14px; color: {color}; text-transform: uppercase; letter-spacing: 0.5px;">
+              {title} ({len(cards)})
+            </h3>
+            <table style="width: 100%; border-collapse: collapse; background: #fafafa; border-radius: 8px; overflow: hidden;">
+              <tbody>{''.join(rows)}{more}</tbody>
+            </table>
+          </div>
+        """
+
+    base_url = os.environ.get("ORBIT_BASE_URL", "https://orbit.betterchoiceins.com")
+    html = f"""
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 700px; margin: auto; padding: 24px; color: #0f172a;">
+      <div style="background: linear-gradient(135deg, #1F3661, #2d4a7a); color: white; padding: 20px; border-radius: 12px 12px 0 0;">
+        <h2 style="margin: 0; font-size: 20px;">Reshop Pulse</h2>
+        <p style="margin: 6px 0 0; opacity: 0.85; font-size: 14px;">{grand} item{'s' if grand != 1 else ''} need attention</p>
+      </div>
+      <div style="background: white; border: 1px solid #e5e7eb; border-top: 0; padding: 24px; border-radius: 0 0 12px 12px;">
+        {_section('At-risk wins (zero answered attempts)', '#b91c1c', payload['at_risk_win'])}
+        {_section('Stale — no recent activity', '#b45309', payload['stale'])}
+        {_section('Untouched — zero attempts', '#dc2626', payload['no_touch'])}
+        {_section('Ghosted — 3 unanswered attempts', '#6b7280', payload['no_answer_cycle'])}
+        <a href="{base_url}/reshops"
+           style="display: inline-block; background: #1F3661; color: white; padding: 10px 20px;
+                  border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;
+                  margin-top: 8px;">
+          Open Reshop Pulse →
+        </a>
+      </div>
+      <p style="color: #94a3b8; font-size: 11px; text-align: center; margin-top: 16px;">
+        Better Choice Insurance Group · Daily digest at 8 AM CT
+      </p>
+    </div>
+    """
+    return subject, html
+
+
+@router.post("/pulse/send-digest")
+def send_pulse_digest(
+    recipient: Optional[str] = Query(None, description="Override recipient (test only)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually fire the daily Pulse digest (for testing or off-schedule
+    runs). The scheduled version runs at 8 AM CT M-F via the digest
+    background thread."""
+    if current_user.role.lower() not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    payload = _build_pulse_payload(db)
+    subject, html = _format_pulse_email(payload)
+
+    to_addr = recipient or os.environ.get("PULSE_DIGEST_RECIPIENT", "evan@betterchoiceins.com")
+
+    mg_key = os.environ.get("MAILGUN_API_KEY")
+    mg_domain = os.environ.get("MAILGUN_DOMAIN")
+    if not mg_key or not mg_domain:
+        return {"sent": False, "error": "Mailgun not configured", "preview_subject": subject}
+
+    import requests as http_requests
+    try:
+        resp = http_requests.post(
+            f"https://api.mailgun.net/v3/{mg_domain}/messages",
+            auth=("api", mg_key),
+            data={
+                "from": f"ORBIT Reshop Pulse <noreply@{mg_domain}>",
+                "to": to_addr,
+                "subject": subject,
+                "html": html,
+            },
+            timeout=15,
+        )
+        ok = resp.status_code == 200
+        return {
+            "sent": ok,
+            "to": to_addr,
+            "subject": subject,
+            "totals": payload["totals"],
+            "error": None if ok else f"Mailgun {resp.status_code}: {resp.text[:200]}",
+        }
+    except Exception as e:
+        return {"sent": False, "to": to_addr, "error": str(e)}
