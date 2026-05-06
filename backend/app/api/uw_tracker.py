@@ -359,6 +359,70 @@ async def uw_inbound_webhook(request: Request, db: Session = Depends(get_db)):
         ai_extracted=extracted,
         ai_confidence=extracted.get("confidence"),
     )
+
+    # Dedupe check — if a NON-terminal UW item already exists for this
+    # (policy_number, due_date) pair, this forward is almost certainly
+    # the same requirement re-sent (Phillip Fillman case: the same NatGen
+    # roof-repair email got forwarded twice and created items #15 and #17
+    # with identical policy/due date but slightly different AI-extracted
+    # descriptions). Match on policy + due_date because:
+    #   - Subject/body wording can drift between resends
+    #   - AI extraction can produce slightly different descriptions
+    #   - But policy_number + due_date uniquely identify a real-world UW
+    #     requirement from the carrier
+    # Terminal statuses (completed, dismissed) are EXCLUDED so a new
+    # genuine requirement on the same policy after a prior one was
+    # resolved still creates a new item correctly.
+    duplicate = None
+    if item.policy_number and item.due_date:
+        terminal = ("completed", "dismissed")
+        duplicate = (
+            db.query(UWItem)
+            .filter(UWItem.policy_number == item.policy_number)
+            .filter(UWItem.due_date == item.due_date)
+            .filter(~UWItem.status.in_(terminal))
+            .order_by(UWItem.id.asc())
+            .first()
+        )
+
+    if duplicate:
+        # Don't create the new row. Append the resend to the existing
+        # item's activity log so we don't lose the audit trail (Evan
+        # may want to know "this carrier nagged us again on May 3").
+        # Also append any new attachments to the existing item — the
+        # second forward sometimes carries the customer's submitted
+        # proof which the first forward didn't have.
+        new_attachments = list(duplicate.attachment_data or [])
+        for att in (attachment_data or []):
+            # Skip exact filename + size dupes
+            if not any(
+                a.get("filename") == att.get("filename") for a in new_attachments
+            ):
+                new_attachments.append(att)
+        if len(new_attachments) != len(duplicate.attachment_data or []):
+            duplicate.attachment_data = new_attachments
+
+        _log_activity(
+            db, duplicate.id, None, "duplicate_resend",
+            f"Carrier resent same requirement (policy {item.policy_number} due "
+            f"{item.due_date.isoformat()}). Resender: {sender}. "
+            f"AI title: {extracted.get('title')!r}. "
+            f"{len(attachment_data or [])} attachment(s) on resend; "
+            f"{len(new_attachments) - len(duplicate.attachment_data or [])} new "
+            f"merged into existing item.",
+        )
+        db.commit()
+        logger.info(
+            f"UW inbound: deduped resend → existing item #{duplicate.id} "
+            f"(policy {item.policy_number}, due {item.due_date})"
+        )
+        return {
+            "status": "deduped",
+            "id": duplicate.id,
+            "matched_customer": duplicate.customer_id is not None,
+            "duplicate_of": duplicate.id,
+        }
+
     db.add(item)
     db.flush()
     _log_activity(db, item.id, None, "created",
