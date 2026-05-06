@@ -19,10 +19,61 @@ import os
 from typing import Optional
 
 
-# Texas + states geographically adjacent to TX. A customer in any of
-# these states is more likely to interact with the TX office, so we
-# steer their review there.
-TX_REGION_STATES = {"TX", "OK", "LA", "AR", "NM"}
+# Full 50-state + DC routing for the TX vs IL Google review listings.
+#
+# The split is based on geographic proximity / regional identity. A
+# customer in a state we route to TX is more likely to feel a regional
+# tie to the Texas office (and accrue the review to the right local
+# Google profile). Everyone else goes to IL.
+#
+# TX bucket: Texas + the broader South & Southwest. Anchored on Texas
+# and extends through the Gulf Coast (LA/MS/AL/FL), Deep South (GA/SC),
+# Mid-South (TN/AR/NC), Plains-South (OK), and Southwest (NM/AZ).
+#
+# IL bucket: Everything else. This includes the Midwest (where IL sits),
+# the Northeast, the Mid-Atlantic, the Plains states north of OK, the
+# entire Mountain West, the West Coast, and AK/HI.
+#
+# Edge calls worth knowing:
+#   - KS, MO, KY, VA, WV  -> IL (more northern than southern in feel)
+#   - NC, SC              -> TX (Deep South, paired with GA)
+#   - All Mountain/Western states -> IL by default (IL is the primary
+#     office; western states are far from both, so default applies)
+TX_REGION_STATES = {
+    # Anchor + immediate neighbors
+    "TX", "OK", "LA", "AR", "NM",
+    # Gulf Coast / Deep South
+    "MS", "AL", "FL", "GA",
+    # Mid-South / Southeast
+    "TN", "SC", "NC",
+    # Southwest
+    "AZ",
+}
+
+# All US states + DC + territories — for the full-name normalizer below.
+# Used so a record that stored "Texas" instead of "TX" still routes
+# correctly. We list all 50 (not just TX-region) because a "California"
+# or "New York" record should still resolve to a 2-letter code so we
+# can log it consistently, even though both route to IL.
+_FULL_NAME_TO_CODE = {
+    "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR",
+    "CALIFORNIA": "CA", "COLORADO": "CO", "CONNECTICUT": "CT",
+    "DELAWARE": "DE", "DISTRICT OF COLUMBIA": "DC",
+    "FLORIDA": "FL", "GEORGIA": "GA", "HAWAII": "HI",
+    "IDAHO": "ID", "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA",
+    "KANSAS": "KS", "KENTUCKY": "KY", "LOUISIANA": "LA",
+    "MAINE": "ME", "MARYLAND": "MD", "MASSACHUSETTS": "MA",
+    "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS",
+    "MISSOURI": "MO", "MONTANA": "MT", "NEBRASKA": "NE",
+    "NEVADA": "NV", "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ",
+    "NEW MEXICO": "NM", "NEW YORK": "NY", "NORTH CAROLINA": "NC",
+    "NORTH DAKOTA": "ND", "OHIO": "OH", "OKLAHOMA": "OK",
+    "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI",
+    "SOUTH CAROLINA": "SC", "SOUTH DAKOTA": "SD", "TENNESSEE": "TN",
+    "TEXAS": "TX", "UTAH": "UT", "VERMONT": "VT", "VIRGINIA": "VA",
+    "WASHINGTON": "WA", "WEST VIRGINIA": "WV", "WISCONSIN": "WI",
+    "WYOMING": "WY",
+}
 
 # Hardcoded fallbacks — these are the actual production review URLs.
 # We keep them here (not just in env vars) so a missing env var
@@ -44,16 +95,7 @@ def _normalize_state(state: Optional[str]) -> Optional[str]:
     s = state.strip().upper()
     if len(s) == 2:
         return s
-    # Full-name fallback for the TX-region states only — we don't need
-    # a full 50-state lookup since everywhere else routes to IL anyway.
-    full_name_map = {
-        "TEXAS": "TX",
-        "OKLAHOMA": "OK",
-        "LOUISIANA": "LA",
-        "ARKANSAS": "AR",
-        "NEW MEXICO": "NM",
-    }
-    return full_name_map.get(s)
+    return _FULL_NAME_TO_CODE.get(s)
 
 
 def get_review_url_for_state(state: Optional[str]) -> str:
