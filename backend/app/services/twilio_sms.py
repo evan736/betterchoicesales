@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_SMS_NUMBER = os.getenv("TWILIO_SMS_NUMBER", "+16305267478")
+# Messaging Service SID — when set, sends route through the service
+# (attaches A2P 10DLC campaign registration). Without this, sends use
+# the raw From number which carriers treat as unregistered traffic and
+# reject with error 30034 even when the campaign is approved. Default
+# is BCI's Messaging Service from memory; can be overridden per-env.
+TWILIO_MESSAGING_SERVICE_SID = os.getenv(
+    "TWILIO_MESSAGING_SERVICE_SID", "MG4c93a3c802cc173fd7c8dc49da044fb0"
+)
 TWILIO_STATUS_CALLBACK = os.getenv(
     "TWILIO_STATUS_CALLBACK",
     "https://better-choice-api.onrender.com/api/texting/status-callback",
@@ -114,11 +122,24 @@ async def send_message(
     )
 
     form_data: dict = {
-        "From": from_number or TWILIO_SMS_NUMBER,
         "To": to_e164,
         "Body": body_text[:1600],
         "StatusCallback": TWILIO_STATUS_CALLBACK,
     }
+    # Prefer Messaging Service when configured. This is required for A2P
+    # 10DLC traffic — sends with raw 'From' bypass the campaign
+    # registration and get rejected with error 30034 by US carriers.
+    # The Messaging Service must have +16305267478 attached as a sender
+    # AND be linked to the approved A2P campaign in Twilio Console.
+    # An explicit from_number arg overrides (legacy callers, e.g. when
+    # Evan wants to test from a specific number).
+    if from_number:
+        form_data["From"] = from_number
+    elif TWILIO_MESSAGING_SERVICE_SID:
+        form_data["MessagingServiceSid"] = TWILIO_MESSAGING_SERVICE_SID
+    else:
+        form_data["From"] = TWILIO_SMS_NUMBER
+
     if media_url:
         form_data["MediaUrl"] = media_url
 
@@ -146,7 +167,7 @@ async def send_message(
                         db=db,
                         direction="outbound",
                         phone_number=to_e164,
-                        from_number=form_data["From"],
+                        from_number=form_data.get("From") or TWILIO_SMS_NUMBER,
                         content=body_text,
                         media_url=media_url,
                         message_handle=message_handle,
@@ -205,7 +226,7 @@ async def send_message(
                             db=db,
                             direction="outbound",
                             phone_number=to_e164,
-                            from_number=form_data["From"],
+                            from_number=form_data.get("From") or TWILIO_SMS_NUMBER,
                             content=body_text,
                             media_url=media_url,
                             message_handle="",
