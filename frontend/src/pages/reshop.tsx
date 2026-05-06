@@ -7,7 +7,7 @@ import {
   Plus, Search, Loader2, ChevronDown, ChevronRight, X, User, Phone, Mail, FileText,
   DollarSign, Calendar, AlertTriangle, AlertCircle, CheckCircle2, XCircle, Clock, RefreshCw,
   ArrowRight, Shield, Target, TrendingUp, TrendingDown, Zap, MessageSquare,
-  Send, Eye, Filter, BarChart2, Users, Trash2,
+  Send, Eye, Filter, BarChart2, Users, Trash2, Activity,
 } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
 
@@ -182,22 +182,68 @@ export default function ReshopPage() {
       loadData();
       if (selectedReshop?.id === reshopId) openDetail({ id: reshopId });
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to move');
+      const detail = e.response?.data?.detail || 'Failed to move';
+      // Won-stage guardrail (covers 'renewed' moves; 'bound' goes
+      // through submitBind which has its own override path).
+      if (
+        e.response?.status === 400 &&
+        typeof detail === 'string' &&
+        detail.includes('no answered attempts') &&
+        user?.role === 'admin'
+      ) {
+        if (
+          confirm(
+            `${detail}\n\nOverride the guardrail and move anyway?\n` +
+            `(Data correction only — for a real save, log the answered call.)`
+          )
+        ) {
+          try {
+            await reshopAPI.moveStage(reshopId, newStage, { force_won: true });
+            loadData();
+            if (selectedReshop?.id === reshopId) openDetail({ id: reshopId });
+          } catch (e2: any) {
+            toast.error(e2.response?.data?.detail || 'Move failed');
+          }
+        }
+        return;
+      }
+      toast.error(detail);
     }
   };
 
-  const submitBind = async (carrier: string, premium: number) => {
+  const submitBind = async (carrier: string, premium: number, forceWon = false) => {
     if (!bindDialogState.reshopId) return;
     try {
       await reshopAPI.moveStage(bindDialogState.reshopId, 'bound', {
         bound_carrier: carrier,
         bound_premium: premium,
+        force_won: forceWon || undefined,
       });
       toast.success('Marked as bound 🎉');
       setBindDialogState({ open: false, reshopId: null });
       loadData();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to mark bound');
+      const detail = e.response?.data?.detail || 'Failed to mark bound';
+      // Won-stage guardrail tripped. Admins get an override prompt;
+      // everyone else just sees the helpful error message.
+      if (
+        e.response?.status === 400 &&
+        typeof detail === 'string' &&
+        detail.includes('no answered attempts') &&
+        user?.role === 'admin' &&
+        !forceWon
+      ) {
+        if (
+          confirm(
+            `${detail}\n\nOverride the guardrail and mark as bound anyway?\n` +
+            `(Use this only for data corrections — for a genuine save, log the answered call instead.)`
+          )
+        ) {
+          return submitBind(carrier, premium, true);
+        }
+        return;
+      }
+      toast.error(detail);
     }
   };
 
@@ -397,6 +443,16 @@ export default function ReshopPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {isManager && (
+              <button
+                onClick={() => router.push('/reshops/pulse')}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors"
+                title="Daily activity heartbeat — stale, untouched, and at-risk reshops"
+              >
+                <Activity size={14} />
+                Pulse
+              </button>
+            )}
             {isManager && (
               <button
                 onClick={handleDetectProactive}

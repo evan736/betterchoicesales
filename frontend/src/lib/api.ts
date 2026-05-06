@@ -185,8 +185,12 @@ export const reshopAPI = {
   update: (id: number, data: any) => api.patch(`/api/reshops/${id}`, data),
   remove: (id: number) => api.delete(`/api/reshops/${id}`),
   addNote: (id: number, text: string) => api.post(`/api/reshops/${id}/note`, { text }),
-  moveStage: (id: number, stage: string, extras?: { bound_carrier?: string; bound_premium?: number; lost_reason?: string }) =>
+  moveStage: (id: number, stage: string, extras?: { bound_carrier?: string; bound_premium?: number; lost_reason?: string; force_won?: boolean }) =>
     api.post(`/api/reshops/${id}/move`, null, { params: { stage, ...(extras || {}) } }),
+  pulse: (params?: { no_touch_days?: number; assignee_id?: number }) =>
+    api.get('/api/reshops/pulse', { params }),
+  sendPulseDigest: (recipient?: string) =>
+    api.post('/api/reshops/pulse/send-digest', null, { params: recipient ? { recipient } : {} }),
   fromCustomer: (customerId: number, params?: { policy_id?: number; source?: string; reason?: string; notes?: string }) =>
     api.post(`/api/reshops/from-customer/${customerId}`, null, { params }),
   detectProactive: (daysOut?: number, threshold?: number) =>
