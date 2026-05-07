@@ -10,6 +10,7 @@ import {
   Send, Eye, Filter, BarChart2, Users, Trash2, Activity,
 } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
+import { RetentionScoreboard } from '../components/RetentionScoreboard';
 
 const STAGES = [
   { key: 'proactive', label: 'Proactive', color: 'purple', icon: <Eye size={14} /> },
@@ -503,6 +504,10 @@ export default function ReshopPage() {
         </div>
 
         {viewMode === 'pipeline' && (<>
+        {/* Retention Scoreboard — only for retention/admin/manager.
+            Shows MTD leaderboard at the top of the pipeline. */}
+        {isManager && <RetentionScoreboard />}
+
         {/* Stats Bar */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

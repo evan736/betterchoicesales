@@ -191,6 +191,8 @@ export const reshopAPI = {
     api.get('/api/reshops/pulse', { params }),
   sendPulseDigest: (recipient?: string) =>
     api.post('/api/reshops/pulse/send-digest', null, { params: recipient ? { recipient } : {} }),
+  scoreboard: (sortBy?: 'rewritten_premium_mtd' | 'won' | 'win_rate' | 'active') =>
+    api.get('/api/reshops/scoreboard', { params: sortBy ? { sort_by: sortBy } : {} }),
   fromCustomer: (customerId: number, params?: { policy_id?: number; source?: string; reason?: string; notes?: string }) =>
     api.post(`/api/reshops/from-customer/${customerId}`, null, { params }),
   detectProactive: (daysOut?: number, threshold?: number) =>
