@@ -1672,6 +1672,172 @@ def send_pulse_digest(
     except Exception as e:
         return {"sent": False, "to": to_addr, "error": str(e)}
 
+
+# ── Retention Scoreboard ──────────────────────────────────────────────
+#
+# A leaderboard for retention specialists — surfaces month-to-date win
+# count, loss count, win rate, rewritten premium $, active pipeline
+# size, and past-due count for each retention user. Returned sorted by
+# rewritten_premium_mtd descending by default (the actual business
+# outcome), with the requesting user's own row flagged so the UI can
+# highlight it.
+#
+# Visibility:
+#   - Admin / Manager: full leaderboard
+#   - Retention Specialist: full leaderboard (transparency is the point;
+#                           "scoreboard at the top of their pipeline")
+#   - Andrey (elevated retention): full leaderboard
+#   - Producer: 403 (they don't access reshops)
+#
+# Past-due definition (single source of truth for the metric):
+#   An ACTIVE reshop is past-due if EITHER:
+#     - Its expiration_date has passed, OR
+#     - It has gone N+ days without any logged activity, where N is the
+#       per-stage staleness threshold from DEFAULT_STALE_DAYS_BY_STAGE
+#       (same threshold used by the Pulse 'stale' bucket — keeps the two
+#       features consistent so the numbers reconcile).
+
+@router.get("/scoreboard")
+def retention_scoreboard(
+    sort_by: str = Query(
+        "rewritten_premium_mtd",
+        description="Sort key: rewritten_premium_mtd | won | win_rate | active",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retention specialist leaderboard for month-to-date performance.
+
+    Returns one row per retention specialist plus an `as_of` timestamp
+    and a `me` field flagging which row is the requesting user. Sort
+    order is configurable; default is rewritten premium MTD descending.
+    """
+    if not _can_access(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # Identify all retention specialists. Include Andrey (retention with
+    # elevated access) — he carries reshops too. Exclude inactive users.
+    retention_users = (
+        db.query(User)
+        .filter(User.role == "retention_specialist")
+        .filter(User.is_active.is_(True))
+        .all()
+    )
+
+    rows = []
+    for u in retention_users:
+        # Active reshops assigned to this user
+        active_q = db.query(Reshop).filter(
+            Reshop.assigned_to == u.id,
+            Reshop.stage.in_(ACTIVE_STAGES),
+        )
+        active_list = active_q.all()
+        active_count = len(active_list)
+
+        # Past-due count using the same definition as the Pulse 'stale'
+        # bucket. Reuses _last_activity_at() so any future change to the
+        # 'stale' definition automatically flows here.
+        past_due = 0
+        for r in active_list:
+            if r.expiration_date and r.expiration_date < now:
+                past_due += 1
+                continue
+            last = _last_activity_at(r)
+            ref = last or r.created_at
+            if not ref:
+                continue
+            days = _days_since(ref) or 0
+            threshold = DEFAULT_STALE_DAYS_BY_STAGE.get(r.stage, 5)
+            if days >= threshold:
+                past_due += 1
+
+        # MTD wins: bound + renewed both count as saves. completed_at is
+        # the canonical close timestamp set by the stage-change handlers.
+        won_mtd = (
+            db.query(Reshop)
+            .filter(Reshop.assigned_to == u.id)
+            .filter(Reshop.stage.in_(["bound", "renewed"]))
+            .filter(Reshop.completed_at >= month_start)
+            .count()
+        )
+        lost_mtd = (
+            db.query(Reshop)
+            .filter(Reshop.assigned_to == u.id)
+            .filter(Reshop.stage == "lost")
+            .filter(Reshop.completed_at >= month_start)
+            .count()
+        )
+        win_rate = round(won_mtd / max(won_mtd + lost_mtd, 1) * 100, 1) if (won_mtd + lost_mtd) > 0 else 0.0
+
+        # Rewritten premium MTD: sum of bound_premium for bound reshops
+        # closed this month. Doesn't include renewed because renewed
+        # means kept on the existing carrier — no NEW premium written;
+        # the agency continues to earn its existing commission stream
+        # but no new policy was bound.
+        rewritten = (
+            db.query(func.sum(Reshop.bound_premium))
+            .filter(Reshop.assigned_to == u.id)
+            .filter(Reshop.stage == "bound")
+            .filter(Reshop.completed_at >= month_start)
+            .scalar() or 0
+        )
+
+        # Premium savings MTD: sum of premium_savings (current minus
+        # bound) for bound reshops. Captures the "we saved them $X"
+        # narrative which is different from "we wrote $Y new premium".
+        savings = (
+            db.query(func.sum(Reshop.premium_savings))
+            .filter(Reshop.assigned_to == u.id)
+            .filter(Reshop.stage == "bound")
+            .filter(Reshop.completed_at >= month_start)
+            .scalar() or 0
+        )
+
+        rows.append({
+            "user_id": u.id,
+            "name": u.full_name or u.username,
+            "username": u.username,
+            "active": active_count,
+            "won_mtd": won_mtd,
+            "lost_mtd": lost_mtd,
+            "win_rate": win_rate,
+            "past_due": past_due,
+            "rewritten_premium_mtd": float(rewritten),
+            "premium_savings_mtd": float(savings),
+            "is_me": u.id == current_user.id,
+        })
+
+    # Sort
+    sort_keys = {
+        "rewritten_premium_mtd": lambda r: -r["rewritten_premium_mtd"],
+        "won": lambda r: -r["won_mtd"],
+        "win_rate": lambda r: -r["win_rate"],
+        "active": lambda r: -r["active"],
+    }
+    rows.sort(key=sort_keys.get(sort_by, sort_keys["rewritten_premium_mtd"]))
+
+    # Add rank after sort
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+
+    return {
+        "as_of": now.isoformat(),
+        "month_start": month_start.isoformat(),
+        "sort_by": sort_by,
+        "totals": {
+            "active": sum(r["active"] for r in rows),
+            "won_mtd": sum(r["won_mtd"] for r in rows),
+            "lost_mtd": sum(r["lost_mtd"] for r in rows),
+            "rewritten_premium_mtd": sum(r["rewritten_premium_mtd"] for r in rows),
+            "past_due": sum(r["past_due"] for r in rows),
+        },
+        "rows": rows,
+    }
+
+
 @router.get("/{reshop_id}")
 def get_reshop(
     reshop_id: int,
